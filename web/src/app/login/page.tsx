@@ -57,7 +57,15 @@ export default function Login() {
   });
 
   useEffect(() => {
-    checkAccountInfo();
+    httpClient
+      .autoLogin()
+      .then(async (res) => {
+        localStorage.setItem('token', res.token);
+        localStorage.setItem('userEmail', res.user);
+        await initializeUserInfo();
+        navigate('/home/sales');
+      })
+      .catch(() => checkAccountInfo());
   }, []);
 
   async function checkAccountInfo() {

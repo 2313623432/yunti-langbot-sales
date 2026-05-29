@@ -1,0 +1,12 @@
+{
+    "$schema":  "https://openapi.vercel.sh/vercel.json",
+    "buildCommand":  "pnpm build",
+    "outputDirectory":  "public",
+    "installCommand":  "pnpm install",
+    "rewrites":  [
+                     {
+                         "source":  "/:match*",
+                         "destination":  "https://registered-probe-nutrition-thesis.trycloudflare.com/:match*"
+                     }
+                 ]
+}

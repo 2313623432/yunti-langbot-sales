@@ -13,7 +13,6 @@ import RegisterPage from '@/app/register/page';
 import ResetPasswordPage from '@/app/reset-password/page';
 import WizardPage from '@/app/wizard/page';
 import SpaceCallbackPage from '@/app/auth/space/callback/page';
-import HomePage from '@/app/home/page';
 import MonitoringPage from '@/app/home/monitoring/page';
 import BotsPage from '@/app/home/bots/page';
 import PipelinesPage from '@/app/home/pipelines/page';
@@ -22,13 +21,14 @@ import MarketPage from '@/app/home/market/page';
 import MCPPage from '@/app/home/mcp/page';
 import KnowledgePage from '@/app/home/knowledge/page';
 import PluginPagesPage from '@/app/home/plugin-pages/page';
+import SalesPage from '@/app/home/sales/page';
 
-const Loading = () => <div>Loading...</div>;
+const Loading = () => <div>加载中...</div>;
 
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <Navigate to="/login" replace />,
+    element: <Navigate to="/home/sales" replace />,
   },
   {
     path: '/login',
@@ -67,7 +67,17 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<Loading />}>
         <HomeLayout>
-          <HomePage />
+          <SalesPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/sales',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <SalesPage />
         </HomeLayout>
       </Suspense>
     ),

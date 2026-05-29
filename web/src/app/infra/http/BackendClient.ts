@@ -19,6 +19,14 @@ import {
   ApiRespSystemInfo,
   ApiRespAsyncTasks,
   ApiRespUserToken,
+  ApiRespAutoLogin,
+  SalesOverview,
+  SalesProduct,
+  SalesCustomerMemory,
+  SalesHandoff,
+  SalesOutreachPlan,
+  SalesIntent,
+  SalesPitchResp,
   GetPipelineResponseData,
   GetPipelineMetadataResponseData,
   AsyncTask,
@@ -852,6 +860,10 @@ export class BackendClient extends BaseHttpClient {
     return this.post('/api/v1/user/auth', { user, password });
   }
 
+  public autoLogin(): Promise<ApiRespAutoLogin> {
+    return this.get('/api/v1/user/auto-login');
+  }
+
   public checkUserToken(): Promise<ApiRespUserToken> {
     return this.get('/api/v1/user/check-token');
   }
@@ -884,6 +896,72 @@ export class BackendClient extends BaseHttpClient {
     has_password: boolean;
   }> {
     return this.get('/api/v1/user/info');
+  }
+
+  // ============ Sales API ============
+  public getSalesOverview(): Promise<SalesOverview> {
+    return this.get('/api/v1/sales/overview');
+  }
+
+  public getSalesProducts(): Promise<{ products: SalesProduct[] }> {
+    return this.get('/api/v1/sales/products');
+  }
+
+  public createSalesProduct(product: Partial<SalesProduct>): Promise<{ uuid: string }> {
+    return this.post('/api/v1/sales/products', product);
+  }
+
+  public updateSalesProduct(uuid: string, product: Partial<SalesProduct>): Promise<object> {
+    return this.put(`/api/v1/sales/products/${uuid}`, product);
+  }
+
+  public deleteSalesProduct(uuid: string): Promise<object> {
+    return this.delete(`/api/v1/sales/products/${uuid}`);
+  }
+
+  public classifySalesIntent(text: string): Promise<SalesIntent> {
+    return this.post('/api/v1/sales/intent', { text });
+  }
+
+  public generateSalesPitch(data: {
+    message?: string;
+    product_uuid?: string;
+    customer_profile?: string;
+    intent?: string;
+    tone?: string;
+  }): Promise<SalesPitchResp> {
+    return this.post('/api/v1/sales/assist/pitch', data);
+  }
+
+  public getSalesMemories(): Promise<{ memories: SalesCustomerMemory[] }> {
+    return this.get('/api/v1/sales/memories');
+  }
+
+  public getSalesHandoffs(status?: string): Promise<{ handoffs: SalesHandoff[] }> {
+    return this.get('/api/v1/sales/handoffs', status ? { status } : undefined);
+  }
+
+  public replySalesHandoff(
+    handoffId: number,
+    reply: string,
+    assignedTo?: string,
+  ): Promise<{ sent: boolean }> {
+    return this.post(`/api/v1/sales/handoffs/${handoffId}/reply`, {
+      reply,
+      assigned_to: assignedTo || '',
+    });
+  }
+
+  public getSalesOutreachPlans(): Promise<{ plans: SalesOutreachPlan[] }> {
+    return this.get('/api/v1/sales/outreach');
+  }
+
+  public createSalesOutreachPlan(plan: Partial<SalesOutreachPlan>): Promise<{ id: number }> {
+    return this.post('/api/v1/sales/outreach', plan);
+  }
+
+  public runDueSalesOutreach(): Promise<{ sent: number }> {
+    return this.post('/api/v1/sales/outreach/run-due');
   }
 
   public getSpaceCredits(): Promise<{ credits: number | null }> {

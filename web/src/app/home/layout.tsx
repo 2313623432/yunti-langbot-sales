@@ -15,11 +15,10 @@ import {
 import { I18nObject } from '@/app/infra/entities/common';
 import {
   userInfo,
-  systemInfo,
   initializeUserInfo,
   initializeSystemInfo,
 } from '@/app/infra/http';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { Link } from 'react-router-dom';
 import { extractI18nObject } from '@/i18n/I18nProvider';
 import { CircleHelp } from 'lucide-react';
@@ -62,8 +61,6 @@ export default function HomeLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const navigate = useNavigate();
-
   // Initialize user info if not already initialized
   useEffect(() => {
     if (!userInfo) {
@@ -77,15 +74,12 @@ export default function HomeLayout({
       try {
         // Always re-fetch to ensure we have the latest wizard_status from backend
         await initializeSystemInfo();
-        if (systemInfo.wizard_status === 'none') {
-          navigate('/wizard');
-        }
       } catch {
         // If fetching system info fails, don't redirect
       }
     };
     checkWizard();
-  }, [navigate]);
+  }, []);
 
   return (
     <SidebarDataProvider>
@@ -124,6 +118,11 @@ function HomeLayoutInner({ children }: { children: React.ReactNode }) {
     ? t('sidebar.extensions')
     : t('sidebar.home');
   const sectionLink = isExtensions ? '/home/plugins' : '/home/monitoring';
+  const isSalesRoute =
+    pathname === '/home/sales' || pathname.startsWith('/home/sales/');
+  const contentClassName = isSalesRoute
+    ? 'flex-1 min-h-0 min-w-0 overflow-hidden'
+    : 'flex-1 min-h-0 min-w-0 overflow-hidden p-4 pt-0';
 
   return (
     <SidebarProvider>
@@ -177,9 +176,7 @@ function HomeLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-hidden p-4 pt-0 min-w-0">
-          {mainContent}
-        </div>
+        <div className={contentClassName}>{mainContent}</div>
 
         <SurveyWidget />
       </SidebarInset>

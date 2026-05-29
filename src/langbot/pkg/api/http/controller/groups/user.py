@@ -40,6 +40,18 @@ class UserRouterGroup(group.RouterGroup):
 
             return self.success(data={'token': token})
 
+        @self.route('/auto-login', methods=['GET'], auth_type=group.AuthType.NONE)
+        async def _() -> str:
+            """No-login local mode: create or reuse the first local user and return a JWT."""
+            token, user_obj = await self.ap.user_service.generate_default_user_token()
+            return self.success(
+                data={
+                    'token': token,
+                    'user': user_obj.user,
+                    'account_type': user_obj.account_type,
+                }
+            )
+
         @self.route('/check-token', methods=['GET'], auth_type=group.AuthType.USER_TOKEN)
         async def _(user_email: str) -> str:
             token = await self.ap.user_service.generate_jwt_token(user_email)

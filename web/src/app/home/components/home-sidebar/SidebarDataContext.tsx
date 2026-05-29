@@ -5,7 +5,11 @@ import React, {
   useEffect,
   useCallback,
 } from 'react';
-import { httpClient, getCloudServiceClientSync } from '@/app/infra/http';
+import {
+  httpClient,
+  getCloudServiceClientSync,
+  systemInfo,
+} from '@/app/infra/http';
 import { extractI18nObject } from '@/i18n/I18nProvider';
 import { isNewerVersion } from '@/app/utils/versionCompare';
 
@@ -138,9 +142,11 @@ export function SidebarDataProvider({
     try {
       const [pluginsResp, marketplaceResp] = await Promise.all([
         httpClient.getPlugins(),
-        getCloudServiceClientSync()
-          .getMarketplacePlugins(1, 100)
-          .catch(() => ({ plugins: [] })),
+        systemInfo.enable_marketplace
+          ? getCloudServiceClientSync()
+              .getMarketplacePlugins(1, 100)
+              .catch(() => ({ plugins: [] }))
+          : Promise.resolve({ plugins: [] }),
       ]);
 
       // Build marketplace version lookup: "author/name" -> latest_version

@@ -29,6 +29,7 @@ from ...api.http.service import apikey as apikey_service
 from ...api.http.service import webhook as webhook_service
 from ...api.http.service import monitoring as monitoring_service
 from ...api.http.service import maintenance as maintenance_service
+from ...api.http.service import sales as sales_service
 from ...discover import engine as discover_engine
 from ...storage import mgr as storagemgr
 from ...utils import logcache
@@ -85,6 +86,9 @@ class BuildAppStage(stage.BootingStage):
 
         webhook_service_inst = webhook_service.WebhookService(ap)
         ap.webhook_service = webhook_service_inst
+
+        sales_service_inst = sales_service.SalesService(ap)
+        ap.sales_service = sales_service_inst
 
         proxy_mgr = proxy.ProxyManager(ap)
         await proxy_mgr.initialize()

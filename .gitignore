@@ -56,3 +56,8 @@ testsdk/
 
 # Next.js build cache (legacy)
 web/.next/
+.vercel
+node_modules/
+deploy/vercel-proxy/node_modules/
+deploy/vercel-proxy/.env.local
+deploy/vercel-proxy/.vercel/

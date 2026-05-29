@@ -6,6 +6,7 @@ import jwt
 import datetime
 import typing
 import asyncio
+import secrets
 
 from ....core import app
 from ....entity.persistence import user
@@ -35,6 +36,23 @@ class UserService:
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.insert(user.User).values(user=user_email, password=hashed_password, account_type='local')
         )
+
+    async def ensure_default_user(self) -> user.User:
+        """Create or return the local single-user account used by no-login sales mode."""
+        first_user = await self.get_first_user()
+        if first_user is not None:
+            return first_user
+
+        password = secrets.token_urlsafe(24)
+        await self.create_user('sales-admin@local', password)
+        created = await self.get_first_user()
+        if created is None:
+            raise RuntimeError('Failed to create default local user')
+        return created
+
+    async def generate_default_user_token(self) -> tuple[str, user.User]:
+        default_user = await self.ensure_default_user()
+        return await self.generate_jwt_token(default_user.user), default_user
 
     async def get_user_by_email(self, user_email: str) -> user.User | None:
         result = await self.ap.persistence_mgr.execute_async(

@@ -7,10 +7,10 @@ export const systemInfo: ApiRespSystemInfo = {
   debug: false,
   version: '',
   edition: 'community',
-  enable_marketplace: true,
+  enable_marketplace: false,
   cloud_service_url: '',
   allow_modify_login_info: true,
-  disable_models_service: false,
+  disable_models_service: true,
   limitation: {
     max_bots: -1,
     max_pipelines: -1,
@@ -105,8 +105,31 @@ export const initializeSystemInfo = async (): Promise<void> => {
  */
 export const initializeUserInfo = async (): Promise<void> => {
   try {
+    const currentToken =
+      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (
+      typeof window !== 'undefined' &&
+      (!currentToken || currentToken === 'test-token')
+    ) {
+      localStorage.removeItem('token');
+      const login = await backendClient.autoLogin();
+      localStorage.setItem('token', login.token);
+      localStorage.setItem('userEmail', login.user);
+    }
     userInfo = await backendClient.getUserInfo();
   } catch (error) {
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('token');
+        const login = await backendClient.autoLogin();
+        localStorage.setItem('token', login.token);
+        localStorage.setItem('userEmail', login.user);
+        userInfo = await backendClient.getUserInfo();
+        return;
+      }
+    } catch (retryError) {
+      console.error('Failed to initialize user info:', retryError);
+    }
     console.error('Failed to initialize user info:', error);
     userInfo = null;
   }

@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { SidebarChildVO } from '@/app/home/components/home-sidebar/HomeSidebarChild';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { sidebarConfigList } from '@/app/home/components/home-sidebar/sidbarConfigList';
-import langbotIcon from '@/app/assets/langbot-logo.webp';
-import { systemInfo, httpClient } from '@/app/infra/http/HttpClient';
-import { getCloudServiceClientSync } from '@/app/infra/http';
+import {
+  systemInfo,
+  httpClient,
+  initializeUserInfo,
+  getCloudServiceClientSync,
+} from '@/app/infra/http';
 import { useTranslation } from 'react-i18next';
 import {
   Moon,
@@ -323,7 +326,11 @@ function NavItems({
       });
   }
 
-  const sectionItems = sidebarConfigList.filter((c) => c.section === section);
+  const sectionItems = sidebarConfigList.filter(
+    (c) =>
+      c.section === section &&
+      (c.id !== 'market' || systemInfo.enable_marketplace),
+  );
 
   return (
     <>
@@ -1271,51 +1278,61 @@ export default function HomeSidebar({
 
   useEffect(() => {
     initSelect();
-    if (!localStorage.getItem('token')) {
-      localStorage.setItem('token', 'test-token');
-      localStorage.setItem('userEmail', 'test@example.com');
-    }
 
-    const storedEmail = localStorage.getItem('userEmail');
-    if (storedEmail) {
-      setUserEmail(storedEmail);
-    } else {
-      httpClient
-        .getUserInfo()
-        .then((info) => {
+    const bootstrapUser = async () => {
+      if (!localStorage.getItem('token')) {
+        await initializeUserInfo();
+      }
+
+      const storedEmail = localStorage.getItem('userEmail');
+      if (storedEmail) {
+        setUserEmail(storedEmail);
+        return;
+      }
+
+      try {
+        const info = await httpClient.getUserInfo();
+        if (info.user) {
           setUserEmail(info.user);
           localStorage.setItem('userEmail', info.user);
+        }
+      } catch {
+        // Auto-login will retry on the next protected API call.
+      }
+    };
+    void bootstrapUser();
+
+    if (systemInfo.cloud_service_url) {
+      getCloudServiceClientSync()
+        .getLangBotReleases()
+        .then((releases) => {
+          if (releases && releases.length > 0) {
+            const latestStable = releases.find(
+              (r) => !r.prerelease && !r.draft,
+            );
+            const latest = latestStable || releases[0];
+            setLatestRelease(latest);
+
+            const currentVersion = systemInfo?.version;
+            if (currentVersion && latest.tag_name) {
+              const isNewer = compareVersions(latest.tag_name, currentVersion);
+              setHasNewVersion(isNewer);
+            }
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to fetch releases:', error);
+        });
+
+      getCloudServiceClientSync()
+        .getGitHubRepoInfo()
+        .then((info) => {
+          if (info?.repo?.stargazers_count != null) {
+            setStarCount(info.repo.stargazers_count);
+          }
         })
         .catch(() => {});
     }
-
-    getCloudServiceClientSync()
-      .getLangBotReleases()
-      .then((releases) => {
-        if (releases && releases.length > 0) {
-          const latestStable = releases.find((r) => !r.prerelease && !r.draft);
-          const latest = latestStable || releases[0];
-          setLatestRelease(latest);
-
-          const currentVersion = systemInfo?.version;
-          if (currentVersion && latest.tag_name) {
-            const isNewer = compareVersions(latest.tag_name, currentVersion);
-            setHasNewVersion(isNewer);
-          }
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to fetch releases:', error);
-      });
-
-    getCloudServiceClientSync()
-      .getGitHubRepoInfo()
-      .then((info) => {
-        if (info?.repo?.stargazers_count != null) {
-          setStarCount(info.repo.stargazers_count);
-        }
-      })
-      .catch(() => {});
   }, []);
 
   // Update selected state + notify parent without navigating
@@ -1394,18 +1411,16 @@ export default function HomeSidebar({
               <SidebarMenuButton
                 size="lg"
                 className="cursor-default hover:bg-transparent active:bg-transparent"
-                tooltip="LangBot"
+                tooltip="云梯科技"
               >
-                <img
-                  src={langbotIcon}
-                  alt="LangBot"
-                  className="size-8 rounded-lg"
-                />
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-950 bg-white text-[10px] font-black leading-none text-slate-950">
+                  云梯
+                </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">LangBot</span>
+                  <span className="truncate font-semibold">云梯科技</span>
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-xs text-muted-foreground">
-                      {systemInfo?.version}
+                      YUN TI TECHNOLOGY · {systemInfo?.version}
                     </span>
                     {hasNewVersion && (
                       <Badge

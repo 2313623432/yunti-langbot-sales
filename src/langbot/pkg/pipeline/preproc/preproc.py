@@ -237,4 +237,13 @@ class PreProcessor(stage.PipelineStage):
         query.prompt.messages = event_ctx.event.default_prompt
         query.messages = event_ctx.event.prompt
 
+        if getattr(self.ap, 'sales_service', None) is not None:
+            sales_result = await self.ap.sales_service.prepare_query(query)
+            if sales_result.get('interrupted'):
+                return entities.StageProcessResult(
+                    result_type=entities.ResultType.INTERRUPT,
+                    new_query=query,
+                    user_notice=sales_result.get('notice', '已转接人工销售，请稍等。'),
+                )
+
         return entities.StageProcessResult(result_type=entities.ResultType.CONTINUE, new_query=query)

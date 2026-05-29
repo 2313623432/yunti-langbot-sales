@@ -382,6 +382,102 @@ export interface ApiRespUserToken {
   token: string;
 }
 
+export interface ApiRespAutoLogin {
+  token: string;
+  user: string;
+  account_type: 'local' | 'space';
+}
+
+export interface SalesIntent {
+  intent: string;
+  confidence: number;
+  requires_handoff: boolean;
+  matched_keywords?: string[];
+  reason?: string;
+}
+
+export interface SalesProduct {
+  uuid?: string;
+  name: string;
+  category: string;
+  price: string;
+  link: string;
+  description: string;
+  selling_points: string[];
+  pain_points: string[];
+  objections: string[];
+  audience: string[];
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SalesCustomerMemory {
+  id: number;
+  session_id: string;
+  platform: string;
+  user_id: string;
+  customer_name: string;
+  summary: string;
+  stage: string;
+  last_intent: string;
+  preferred_product_uuid: string;
+  intents: Array<Record<string, unknown>>;
+  last_seen_at?: string;
+  updated_at?: string;
+}
+
+export interface SalesHandoff {
+  id: number;
+  session_id: string;
+  bot_uuid: string;
+  target_type: string;
+  target_id: string;
+  platform: string;
+  user_id: string;
+  status: string;
+  reason: string;
+  last_message: string;
+  operator_reply: string;
+  assigned_to: string;
+  updated_at?: string;
+}
+
+export interface SalesOutreachPlan {
+  id?: number;
+  name: string;
+  product_uuid: string;
+  bot_uuid: string;
+  target_type: 'person' | 'group';
+  target_id: string;
+  segment: string;
+  message_template: string;
+  scheduled_at?: string;
+  interval_minutes: number;
+  enabled: boolean;
+  last_sent_at?: string | null;
+}
+
+export interface SalesOverview {
+  products_count: number;
+  customers_count: number;
+  open_handoffs_count: number;
+  outreach_plans_count: number;
+  products: SalesProduct[];
+  recent_memories: SalesCustomerMemory[];
+  open_handoffs: SalesHandoff[];
+  outreach_plans: SalesOutreachPlan[];
+}
+
+export interface SalesPitchResp {
+  pitch: {
+    tone: string;
+    message: string;
+    next_action: string;
+  };
+  product: SalesProduct;
+}
+
 export interface ApiRespMarketplacePlugins {
   plugins: PluginV4[];
   total: number;

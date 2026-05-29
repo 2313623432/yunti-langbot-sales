@@ -1,0 +1,11 @@
+{
+  "name": "yunti-langbot-sales-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node -e \"const fs=require('fs'); fs.mkdirSync('public',{recursive:true}); fs.writeFileSync('public/index.html','<!doctype html><meta charset=\\\"utf-8\\\"><title>Yunti LangBot</title><script>location.replace(location.pathname+location.search)</script>')\""
+  },
+  "devDependencies": {
+    "vercel": "54.6.1"
+  }
+}

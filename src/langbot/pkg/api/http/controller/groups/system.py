@@ -14,7 +14,7 @@ class SystemRouterGroup(group.RouterGroup):
         @self.route('/info', methods=['GET'], auth_type=group.AuthType.NONE)
         async def _() -> str:
             # Read wizard_status and wizard_progress from metadata table
-            wizard_status = 'none'
+            wizard_status = 'completed'
             wizard_progress = None
             try:
                 result = await self.ap.persistence_mgr.execute_async(
@@ -36,18 +36,12 @@ class SystemRouterGroup(group.RouterGroup):
                     'version': constants.semantic_version,
                     'debug': constants.debug_mode,
                     'edition': constants.edition,
-                    'enable_marketplace': self.ap.instance_config.data.get('plugin', {}).get(
-                        'enable_marketplace', True
-                    ),
-                    'cloud_service_url': (
-                        self.ap.instance_config.data.get('space', {}).get('url', 'https://space.langbot.app')
-                    ),
+                    'enable_marketplace': False,
+                    'cloud_service_url': '',
                     'allow_modify_login_info': self.ap.instance_config.data.get('system', {}).get(
                         'allow_modify_login_info', True
                     ),
-                    'disable_models_service': self.ap.instance_config.data.get('space', {}).get(
-                        'disable_models_service', False
-                    ),
+                    'disable_models_service': True,
                     'limitation': self.ap.instance_config.data.get('system', {}).get('limitation', {}),
                     'wizard_status': wizard_status,
                     'wizard_progress': wizard_progress,

@@ -32,6 +32,7 @@ from ..api.http.service import apikey as apikey_service
 from ..api.http.service import webhook as webhook_service
 from ..api.http.service import monitoring as monitoring_service
 from ..api.http.service import maintenance as maintenance_service
+from ..api.http.service import sales as sales_service
 
 from ..discover import engine as discover_engine
 from ..storage import mgr as storagemgr
@@ -158,6 +159,8 @@ class Application:
 
     maintenance_service: maintenance_service.MaintenanceService = None
 
+    sales_service: sales_service.SalesService = None
+
     def __init__(self):
         pass
 
@@ -192,6 +195,23 @@ class Application:
                 name='http-api-controller',
                 scopes=[core_entities.LifecycleControlScope.APPLICATION],
             )
+
+            if self.sales_service is not None:
+                async def sales_outreach_loop():
+                    while True:
+                        try:
+                            sent = await self.sales_service.run_due_outreach_once()
+                            if sent > 0:
+                                self.logger.info(f'Sales outreach sent {sent} scheduled messages')
+                        except Exception as e:
+                            self.logger.warning(f'Sales outreach scheduler error: {e}')
+                        await asyncio.sleep(60)
+
+                self.task_mgr.create_task(
+                    sales_outreach_loop(),
+                    name='sales-outreach',
+                    scopes=[core_entities.LifecycleControlScope.APPLICATION],
+                )
 
             # Start monitoring data cleanup task if enabled
             monitoring_cfg = self.instance_config.data.get('monitoring', {})

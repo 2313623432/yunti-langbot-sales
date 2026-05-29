@@ -1,5 +1,6 @@
 import { SidebarChildVO } from '@/app/home/components/home-sidebar/HomeSidebarChild';
 import i18n from '@/i18n';
+import { BadgeDollarSign } from 'lucide-react';
 
 const t = (key: string) => {
   return i18n.t(key);
@@ -30,6 +31,18 @@ export const sidebarConfigList = [
   }),
 
   // ── Home section ──
+  new SidebarChildVO({
+    id: 'sales',
+    name: 'AI销售',
+    icon: <BadgeDollarSign className="text-emerald-600" />,
+    route: '/home/sales',
+    description: 'AI销售工作台',
+    helpLink: {
+      en_US: '',
+      zh_Hans: '',
+    },
+    section: 'home',
+  }),
   new SidebarChildVO({
     id: 'monitoring',
     name: t('monitoring.title'),

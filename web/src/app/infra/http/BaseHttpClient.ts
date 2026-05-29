@@ -21,6 +21,7 @@ export interface ResponseData<T = unknown> {
 export interface RequestConfig extends AxiosRequestConfig {
   isSSR?: boolean; // 服务端渲染标识
   retry?: number; // 重试次数
+  _autoLoginRetry?: boolean;
 }
 
 /**
@@ -89,17 +90,55 @@ export abstract class BaseHttpClient {
       (response: AxiosResponse<ResponseData>) => {
         return response;
       },
-      (error: AxiosError<ResponseData>) => {
+      async (error: AxiosError<ResponseData>) => {
         // 统一错误处理
         if (error.response) {
           const { status, data } = error.response;
           const errMsg = (data as { msg?: string })?.msg || error.message;
+          const originalConfig = error.config as RequestConfig | undefined;
+
+          if (
+            status === 401 &&
+            typeof window !== 'undefined' &&
+            !this.disableToken &&
+            originalConfig &&
+            !originalConfig._autoLoginRetry &&
+            !String(originalConfig.url || '').includes('/api/v1/user/auto-login')
+          ) {
+            originalConfig._autoLoginRetry = true;
+            localStorage.removeItem('token');
+            try {
+              const loginResp = await this.instance.request<
+                ResponseData<{
+                  token: string;
+                  user: string;
+                  account_type: 'local' | 'space';
+                }>
+              >({
+                method: 'get',
+                url: '/api/v1/user/auto-login',
+              });
+              const login = loginResp.data.data;
+              localStorage.setItem('token', login.token);
+              localStorage.setItem('userEmail', login.user);
+              originalConfig.headers = originalConfig.headers || {};
+              (
+                originalConfig.headers as Record<string, string>
+              ).Authorization = `Bearer ${login.token}`;
+              return this.instance.request(originalConfig);
+            } catch {
+              localStorage.removeItem('token');
+            }
+          }
 
           switch (status) {
             case 401:
               if (typeof window !== 'undefined') {
                 localStorage.removeItem('token');
-                if (!error.request.responseURL.includes('/check-token')) {
+                if (
+                  !error.request.responseURL.includes('/check-token') &&
+                  !error.request.responseURL.includes('/auto-login')
+                ) {
                   window.location.href = '/login';
                 }
               }
