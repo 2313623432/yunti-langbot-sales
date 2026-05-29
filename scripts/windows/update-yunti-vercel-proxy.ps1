@@ -29,15 +29,23 @@ try {
     }
 
     $destination = "$PublicUrl/:match*"
+    $rootDestination = "$PublicUrl/"
     $config = Get-Content -LiteralPath $VercelProxyConfig -Raw | ConvertFrom-Json
-    $currentDestination = $config.rewrites[0].destination
+    $rootRewrite = $config.rewrites | Where-Object { $_.source -eq "/" } | Select-Object -First 1
+    $wildcardRewrite = $config.rewrites | Where-Object { $_.source -eq "/:match*" } | Select-Object -First 1
 
-    if ($currentDestination -eq $destination) {
+    if (-not $rootRewrite -or -not $wildcardRewrite) {
+        $config.rewrites = @(
+            [pscustomobject]@{ source = "/"; destination = $rootDestination },
+            [pscustomobject]@{ source = "/:match*"; destination = $destination }
+        )
+    } elseif ($rootRewrite.destination -eq $rootDestination -and $wildcardRewrite.destination -eq $destination) {
         Write-Log "Stable Vercel proxy already points to this tunnel."
         exit 0
+    } else {
+        $rootRewrite.destination = $rootDestination
+        $wildcardRewrite.destination = $destination
     }
-
-    $config.rewrites[0].destination = $destination
     $json = $config | ConvertTo-Json -Depth 10
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($VercelProxyConfig, $json, $utf8NoBom)

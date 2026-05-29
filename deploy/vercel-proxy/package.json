@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "node -e \"const fs=require('fs'); fs.mkdirSync('public',{recursive:true}); fs.writeFileSync('public/index.html','<!doctype html><meta charset=\\\"utf-8\\\"><title>Yunti LangBot</title><script>location.replace(location.pathname+location.search)</script>')\""
+    "build": "node -e \"const fs=require('fs'); fs.rmSync('public',{recursive:true,force:true}); fs.mkdirSync('public',{recursive:true}); fs.writeFileSync('public/.keep','')\""
   },
   "devDependencies": {
     "vercel": "54.6.1"
