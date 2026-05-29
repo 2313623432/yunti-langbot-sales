@@ -62,8 +62,16 @@ type OutreachDraft = {
   target_id: string;
   segment: string;
   message_template: string;
+  scheduled_at: string;
   interval_minutes: number;
   enabled: boolean;
+};
+
+const toDatetimeLocalValue = (date = new Date()): string => {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate(),
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
 const emptyProduct: ProductDraft = {
@@ -88,6 +96,7 @@ const emptyOutreach: OutreachDraft = {
   segment: '',
   message_template:
     '给你推荐一个适合当前需求的方案：{product_name}。核心卖点：{selling_points}。详情：{link}',
+  scheduled_at: toDatetimeLocalValue(),
   interval_minutes: 0,
   enabled: true,
 };
@@ -426,11 +435,14 @@ export default function SalesPage() {
         name: outreachDraft.name || '产品触达计划',
         target_id: outreachDraft.target_id.trim(),
         bot_uuid: outreachDraft.bot_uuid.trim(),
-        scheduled_at: new Date().toISOString(),
+        scheduled_at: outreachDraft.scheduled_at
+          ? `${outreachDraft.scheduled_at}:00`
+          : toDatetimeLocalValue(),
       });
       setOutreachDraft({
         ...emptyOutreach,
         product_uuid: outreachDraft.product_uuid,
+        scheduled_at: toDatetimeLocalValue(),
       });
       await loadSalesData();
       toast.success('触达计划已创建');
@@ -1017,6 +1029,22 @@ export default function SalesPage() {
                 }
                 placeholder="机器人 UUID"
               />
+              <div className="grid gap-1.5">
+                <span className="text-xs font-medium text-slate-500">
+                  首次推送时间
+                </span>
+                <Input
+                  type="datetime-local"
+                  value={outreachDraft.scheduled_at}
+                  onChange={(event) =>
+                    setOutreachDraft((draft) => ({
+                      ...draft,
+                      scheduled_at: event.target.value,
+                    }))
+                  }
+                  aria-label="首次推送时间"
+                />
+              </div>
               <Input
                 type="number"
                 min={0}
@@ -1069,6 +1097,9 @@ export default function SalesPage() {
                     </Badge>
                   </div>
                   <p className="mt-2 text-xs text-slate-500">
+                    下次推送：{formatDate(plan.scheduled_at)}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
                     上次触达：{formatDate(plan.last_sent_at)}
                   </p>
                 </div>
