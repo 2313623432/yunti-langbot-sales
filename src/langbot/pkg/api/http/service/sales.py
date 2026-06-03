@@ -8,6 +8,7 @@ from typing import Any
 import sqlalchemy
 
 from ....core import app
+from ....entity.persistence import monitoring as persistence_monitoring
 from ....entity.persistence import sales as persistence_sales
 
 
@@ -358,6 +359,71 @@ class SalesService:
         await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_sales.SalesHandoff).values(**values))
         return {'session_id': session_id, **values}
 
+    async def open_handoff_from_session(
+        self,
+        session_id: str,
+        reason: str = '人工主动介入',
+        assigned_to: str = '',
+    ) -> dict[str, Any]:
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession).where(
+                persistence_monitoring.MonitoringSession.session_id == session_id
+            )
+        )
+        session = self._first_row(session_result)
+        if session is None:
+            raise ValueError('Session not found')
+
+        message_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage)
+            .where(persistence_monitoring.MonitoringMessage.session_id == session_id)
+            .where(
+                sqlalchemy.or_(
+                    persistence_monitoring.MonitoringMessage.role == 'user',
+                    persistence_monitoring.MonitoringMessage.role.is_(None),
+                )
+            )
+            .order_by(persistence_monitoring.MonitoringMessage.timestamp.desc())
+            .limit(1)
+        )
+        latest_message = self._first_row(message_result)
+        target_type, target_id = self._target_from_session(session)
+        values = {
+            'bot_uuid': getattr(session, 'bot_id', '') or '',
+            'target_type': target_type,
+            'target_id': target_id,
+            'platform': getattr(session, 'platform', '') or '',
+            'user_id': getattr(session, 'user_id', '') or target_id,
+            'reason': reason or '人工主动介入',
+            'last_message': getattr(latest_message, 'message_content', '') if latest_message else '',
+            'assigned_to': assigned_to,
+            'updated_at': datetime.datetime.now(),
+        }
+
+        existing_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesHandoff)
+            .where(persistence_sales.SalesHandoff.session_id == session_id)
+            .where(persistence_sales.SalesHandoff.status == 'open')
+        )
+        existing = self._first_row(existing_result)
+        if existing:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_sales.SalesHandoff)
+                .where(persistence_sales.SalesHandoff.id == existing.id)
+                .values(**values)
+            )
+            return {'id': existing.id, 'session_id': session_id, 'status': 'open', **values}
+
+        values['status'] = 'open'
+        values['session_id'] = session_id
+        insert_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_sales.SalesHandoff).values(**values)
+        )
+        inserted_primary_key = getattr(insert_result, 'inserted_primary_key', None)
+        if inserted_primary_key:
+            values['id'] = int(inserted_primary_key[0])
+        return values
+
     async def get_handoffs(self, status: str | None = None) -> list[dict[str, Any]]:
         query = sqlalchemy.select(persistence_sales.SalesHandoff).order_by(persistence_sales.SalesHandoff.updated_at.desc())
         if status:
@@ -391,6 +457,19 @@ class SalesService:
             .where(persistence_sales.SalesHandoff.id == handoff_id)
             .values(status='handled', operator_reply=reply, assigned_to=assigned_to, updated_at=datetime.datetime.now())
         )
+
+    async def reply_handoff_from_session(
+        self,
+        session_id: str,
+        reply: str,
+        assigned_to: str = '',
+    ) -> dict[str, Any]:
+        handoff = await self.open_handoff_from_session(session_id, '人工直接回复', assigned_to)
+        handoff_id = handoff.get('id')
+        if not handoff_id:
+            raise ValueError('Handoff id is missing; cannot send manual reply')
+        await self.reply_handoff(int(handoff_id), reply, assigned_to)
+        return {'sent': True, 'handoff_id': int(handoff_id)}
 
     async def get_outreach_plans(self) -> list[dict[str, Any]]:
         result = await self.ap.persistence_mgr.execute_async(
@@ -530,6 +609,21 @@ class SalesService:
     def _query_session_id(self, query: Any) -> str:
         launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
         return f'{launcher_type}_{query.launcher_id}'
+
+    def _target_from_session(self, session: Any) -> tuple[str, str]:
+        session_id = getattr(session, 'session_id', '') or ''
+        prefix, sep, target_id = session_id.partition('_')
+        if sep and prefix in ('person', 'group'):
+            return prefix, target_id
+        platform = getattr(session, 'platform', '') or ''
+        target_type = platform if platform in ('person', 'group') else 'person'
+        return target_type, getattr(session, 'user_id', '') or session_id
+
+    def _first_row(self, result: Any) -> Any:
+        row = result.first()
+        if isinstance(row, tuple):
+            return row[0]
+        return row
 
     def _stage_for_intent(self, intent: str) -> str:
         if intent in ('purchase', 'price'):

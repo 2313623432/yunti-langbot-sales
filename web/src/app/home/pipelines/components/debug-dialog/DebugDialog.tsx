@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import AtBadge from './AtBadge';
 import { WebSocketClient } from '@/app/infra/websocket/WebSocketClient';
 import ImagePreviewDialog from './ImagePreviewDialog';
+import { getMessageImageUrl } from '@/app/utils/messageImage';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -440,7 +441,7 @@ export default function DebugDialog({
 
       case 'Image': {
         const img = component as Image;
-        const imageUrl = img.url || (img.base64 ? img.base64 : '');
+        const imageUrl = getMessageImageUrl(img);
 
         if (!imageUrl) return null;
 

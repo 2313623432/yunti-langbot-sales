@@ -7,8 +7,10 @@ import React, {
   useImperativeHandle,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { httpClient } from '@/app/infra/http/HttpClient';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   Ban,
@@ -29,6 +31,7 @@ import {
   Voice,
 } from '@/app/infra/entities/message';
 import { PIPELINE_DISCARD } from '@/app/home/bots/components/bot-form/RoutingRulesEditor';
+import { getMessageImageUrl } from '@/app/utils/messageImage';
 
 interface SessionInfo {
   session_id: string;
@@ -89,6 +92,8 @@ const BotSessionMonitor = forwardRef<
   const [messages, setMessages] = useState<SessionMessage[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [manualReply, setManualReply] = useState('');
+  const [sendingManualReply, setSendingManualReply] = useState(false);
   const [copiedUserId, setCopiedUserId] = useState(false);
   const [feedbackMap, setFeedbackMap] = useState<
     Record<string, SessionFeedback>
@@ -179,15 +184,44 @@ const BotSessionMonitor = forwardRef<
     [botId],
   );
 
+  const sendManualReply = useCallback(async () => {
+    const reply = manualReply.trim();
+    if (!reply) {
+      toast.error('人工回复不能为空');
+      return;
+    }
+    if (!selectedSessionId) {
+      return;
+    }
+    setSendingManualReply(true);
+    try {
+      await httpClient.replySalesHandoffFromSession({
+        session_id: selectedSessionId,
+        reply,
+        assigned_to: 'sales-admin',
+      });
+      setManualReply('');
+      await loadMessages(selectedSessionId);
+      toast.success('人工回复已发送');
+    } catch (error) {
+      console.error('Failed to send manual reply:', error);
+      toast.error('人工回复发送失败');
+    } finally {
+      setSendingManualReply(false);
+    }
+  }, [loadMessages, manualReply, selectedSessionId]);
+
   useEffect(() => {
     loadSessions();
   }, [loadSessions]);
 
   useEffect(() => {
     if (selectedSessionId) {
+      setManualReply('');
       loadMessages(selectedSessionId);
     } else {
       setMessages([]);
+      setManualReply('');
     }
   }, [selectedSessionId, loadMessages]);
 
@@ -258,7 +292,7 @@ const BotSessionMonitor = forwardRef<
 
       case 'Image': {
         const img = component as Image;
-        const imageUrl = img.url || (img.base64 ? img.base64 : '');
+        const imageUrl = getMessageImageUrl(img);
         if (!imageUrl) {
           return (
             <span
@@ -631,6 +665,24 @@ const BotSessionMonitor = forwardRef<
                 )}
               </div>
             </ScrollArea>
+            <div className="border-t p-3 shrink-0 bg-background">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <textarea
+                  value={manualReply}
+                  onChange={(event) => setManualReply(event.target.value)}
+                  placeholder="输入人工回复"
+                  className="min-h-16 flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-ring"
+                />
+                <Button
+                  type="button"
+                  onClick={sendManualReply}
+                  disabled={sendingManualReply}
+                  className="sm:self-end"
+                >
+                  发送并关闭
+                </Button>
+              </div>
+            </div>
           </>
         )}
       </div>

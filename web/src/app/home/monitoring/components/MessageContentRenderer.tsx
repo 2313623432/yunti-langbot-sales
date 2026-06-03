@@ -8,6 +8,7 @@ import {
   Quote,
 } from '@/app/infra/entities/message';
 import ImagePreviewDialog from '@/app/home/pipelines/components/debug-dialog/ImagePreviewDialog';
+import { getMessageImageUrl } from '@/app/utils/messageImage';
 
 interface MessageContentRendererProps {
   content: string;
@@ -68,7 +69,7 @@ export function MessageContentRenderer({
 
       case 'Image': {
         const img = component as ImageComponent;
-        const imageUrl = img.url || (img.base64 ? img.base64 : '');
+        const imageUrl = getMessageImageUrl(img);
 
         if (!imageUrl) {
           return (

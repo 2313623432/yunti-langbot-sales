@@ -237,7 +237,12 @@ class PreProcessor(stage.PipelineStage):
         query.prompt.messages = event_ctx.event.default_prompt
         query.messages = event_ctx.event.prompt
 
-        if getattr(self.ap, 'sales_service', None) is not None:
+        task_assistant_handled = False
+        if getattr(self.ap, 'task_assistant_service', None) is not None:
+            task_result = await self.ap.task_assistant_service.prepare_query(query)
+            task_assistant_handled = task_result.get('handled', False)
+
+        if not task_assistant_handled and getattr(self.ap, 'sales_service', None) is not None:
             sales_result = await self.ap.sales_service.prepare_query(query)
             if sales_result.get('interrupted'):
                 return entities.StageProcessResult(

@@ -1,12 +1,6 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, type ElementType } from 'react';
 import { httpClient } from '@/app/infra/http/HttpClient';
 import { GetPipelineResponseData, Pipeline } from '@/app/infra/entities/api';
-import {
-  PipelineConfigTab,
-  PipelineConfigStage,
-} from '@/app/infra/entities/pipeline';
-import DynamicFormComponent from '@/app/home/components/dynamic-form/DynamicFormComponent';
-import N8nAuthFormComponent from '@/app/home/components/dynamic-form/N8nAuthFormComponent';
 import { Button } from '@/components/ui/button';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -30,7 +24,6 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { extractI18nObject } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import {
   Card,
@@ -41,15 +34,77 @@ import {
 } from '@/components/ui/card';
 import {
   Info,
-  Brain,
-  Zap,
-  Shield,
-  FileOutput,
-  Puzzle,
   Trash2,
   Copy,
+  Workflow,
 } from 'lucide-react';
-import PipelineExtension from '@/app/home/pipelines/components/pipeline-extensions/PipelineExtension';
+import PipelineWorkflowEditor from '@/app/home/pipelines/components/workflow-editor/PipelineWorkflowEditor';
+import { createDefaultWorkflow } from '@/app/home/pipelines/components/workflow-editor/workflowTemplates';
+import { PipelineWorkflow } from '@/app/home/pipelines/components/workflow-editor/types';
+
+function selectedWorkflowModelUuid(workflow?: PipelineWorkflow): string {
+  const llmNode = workflow?.nodes?.find(
+    (node) => node.type === 'llm' && typeof node.config?.model_uuid === 'string' && node.config.model_uuid,
+  );
+  return typeof llmNode?.config.model_uuid === 'string' ? llmNode.config.model_uuid : '';
+}
+
+function syncWorkflowModelIntoAIConfig(
+  workflow: PipelineWorkflow | undefined,
+  aiConfig: Record<string, any> | undefined,
+) {
+  const selectedModelUuid = selectedWorkflowModelUuid(workflow);
+  if (!selectedModelUuid) {
+    return aiConfig || {};
+  }
+
+  const localAgentConfig = aiConfig?.['local-agent'] || {};
+  const existingModelConfig = localAgentConfig.model;
+  const fallbackModels =
+    existingModelConfig && typeof existingModelConfig === 'object' && Array.isArray(existingModelConfig.fallbacks)
+      ? existingModelConfig.fallbacks
+      : [];
+
+  return {
+    ...(aiConfig || {}),
+    runner: {
+      ...(aiConfig?.runner || {}),
+      runner: 'local-agent',
+    },
+    ['local-agent']: {
+      ...localAgentConfig,
+      model: {
+        primary: selectedModelUuid,
+        fallbacks: fallbackModels,
+      },
+    },
+  };
+}
+
+function syncAIModelIntoWorkflow(
+  workflow: PipelineWorkflow,
+  aiConfig: Record<string, any> | undefined,
+): PipelineWorkflow {
+  const primaryModel = aiConfig?.['local-agent']?.model?.primary;
+  if (!primaryModel || selectedWorkflowModelUuid(workflow)) {
+    return workflow;
+  }
+
+  return {
+    ...workflow,
+    nodes: workflow.nodes.map((node) =>
+      node.type === 'llm'
+        ? {
+            ...node,
+            config: {
+              ...node.config,
+              model_uuid: primaryModel,
+            },
+          }
+        : node,
+    ),
+  };
+}
 
 export default function PipelineFormComponent({
   onFinish,
@@ -87,6 +142,7 @@ export default function PipelineFormComponent({
         trigger: z.record(z.string(), z.any()),
         safety: z.record(z.string(), z.any()),
         output: z.record(z.string(), z.any()),
+        workflow: z.any(),
       })
     : z.object({
         basic: z.object({
@@ -98,17 +154,14 @@ export default function PipelineFormComponent({
         trigger: z.record(z.string(), z.any()).optional(),
         safety: z.record(z.string(), z.any()).optional(),
         output: z.record(z.string(), z.any()).optional(),
+        workflow: z.any().optional(),
       });
 
   type FormValues = z.infer<typeof formSchema>;
   // Section navigation items with icons
-  const SECTION_ICONS: Record<string, React.ElementType> = {
+  const SECTION_ICONS: Record<string, ElementType> = {
     basic: Info,
-    ai: Brain,
-    trigger: Zap,
-    safety: Shield,
-    output: FileOutput,
-    extensions: Puzzle,
+    workflow: Workflow,
   };
 
   const formLabelList: SectionItem[] = isEditMode
@@ -119,29 +172,9 @@ export default function PipelineFormComponent({
           icon: SECTION_ICONS.basic,
         },
         {
-          label: t('pipelines.aiCapabilities'),
-          name: 'ai',
-          icon: SECTION_ICONS.ai,
-        },
-        {
-          label: t('pipelines.triggerConditions'),
-          name: 'trigger',
-          icon: SECTION_ICONS.trigger,
-        },
-        {
-          label: t('pipelines.safetyControls'),
-          name: 'safety',
-          icon: SECTION_ICONS.safety,
-        },
-        {
-          label: t('pipelines.outputProcessing'),
-          name: 'output',
-          icon: SECTION_ICONS.output,
-        },
-        {
-          label: t('pipelines.extensions.title'),
-          name: 'extensions',
-          icon: SECTION_ICONS.extensions,
+          label: '工作流编排',
+          name: 'workflow',
+          icon: SECTION_ICONS.workflow,
         },
       ]
     : [
@@ -154,15 +187,6 @@ export default function PipelineFormComponent({
 
   const [activeSection, setActiveSection] = useState(formLabelList[0].name);
 
-  const [aiConfigTabSchema, setAIConfigTabSchema] =
-    useState<PipelineConfigTab>();
-  const [triggerConfigTabSchema, setTriggerConfigTabSchema] =
-    useState<PipelineConfigTab>();
-  const [safetyConfigTabSchema, setSafetyConfigTabSchema] =
-    useState<PipelineConfigTab>();
-  const [outputConfigTabSchema, setOutputConfigTabSchema] =
-    useState<PipelineConfigTab>();
-
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -173,13 +197,12 @@ export default function PipelineFormComponent({
       trigger: {},
       safety: {},
       output: {},
+      workflow: createDefaultWorkflow(),
     },
   });
 
   // Track unsaved changes by comparing current form values against a saved snapshot
   const savedSnapshotRef = useRef<string>('');
-  // Track which dynamic form stages have completed their initial mount emission.
-  const initializedStagesRef = useRef<Set<string>>(new Set());
   const watchedValues = form.watch();
   const hasUnsavedChanges = useMemo(() => {
     if (!isEditMode || !savedSnapshotRef.current) return false;
@@ -192,40 +215,32 @@ export default function PipelineFormComponent({
   }, [hasUnsavedChanges, onDirtyChange]);
 
   useEffect(() => {
-    // get config schema from metadata
-    httpClient.getGeneralPipelineMetadata().then((resp) => {
-      for (const config of resp.configs) {
-        if (config.name === 'ai') {
-          setAIConfigTabSchema(config);
-        } else if (config.name === 'trigger') {
-          setTriggerConfigTabSchema(config);
-        } else if (config.name === 'safety') {
-          setSafetyConfigTabSchema(config);
-        } else if (config.name === 'output') {
-          setOutputConfigTabSchema(config);
-        }
-      }
-    });
-
     if (isEditMode) {
       httpClient
         .getPipeline(pipelineId || '')
         .then((resp: GetPipelineResponseData) => {
           setIsDefaultPipeline(resp.pipeline.is_default ?? false);
+          const pipelineConfig = resp.pipeline.config as Record<string, any>;
+          const aiConfig = pipelineConfig.ai || {};
+          const workflowConfig = syncAIModelIntoWorkflow(
+            (pipelineConfig.workflow as PipelineWorkflow | undefined) ||
+              createDefaultWorkflow(),
+            aiConfig,
+          );
           const loadedValues = {
             basic: {
               name: resp.pipeline.name,
               description: resp.pipeline.description,
               emoji: resp.pipeline.emoji || '⚙️',
             },
-            ai: resp.pipeline.config.ai,
-            trigger: resp.pipeline.config.trigger,
-            safety: resp.pipeline.config.safety,
-            output: resp.pipeline.config.output,
+            ai: aiConfig,
+            trigger: pipelineConfig.trigger || {},
+            safety: pipelineConfig.safety || {},
+            output: pipelineConfig.output || {},
+            workflow: workflowConfig,
           };
           form.reset(loadedValues);
           savedSnapshotRef.current = JSON.stringify(loadedValues);
-          initializedStagesRef.current.clear();
         });
     }
   }, []);
@@ -238,6 +253,7 @@ export default function PipelineFormComponent({
           description: '',
           emoji: '⚙️',
         },
+        workflow: createDefaultWorkflow(),
       });
     }
   }, [form, isEditMode]);
@@ -270,11 +286,13 @@ export default function PipelineFormComponent({
   }
 
   function handleModify(values: FormValues) {
+    const workflow = values.workflow || createDefaultWorkflow();
     const realConfig = {
-      ai: values.ai,
+      ai: syncWorkflowModelIntoAIConfig(workflow as PipelineWorkflow, values.ai),
       trigger: values.trigger,
       safety: values.safety,
       output: values.output,
+      workflow,
     };
 
     const pipeline: Pipeline = {
@@ -299,132 +317,6 @@ export default function PipelineFormComponent({
       .catch((err) => {
         toast.error(t('pipelines.saveError') + err.msg);
       });
-  }
-
-  // Called from DynamicFormComponent/N8nAuthFormComponent onSubmit callbacks.
-  // On the first emission for a stage (mount-time default filling), the
-  // snapshot is synchronously re-captured so that hasUnsavedChanges stays false.
-  function handleDynamicFormEmit(
-    formName: keyof FormValues,
-    stageName: string,
-    values: object,
-  ) {
-    const stageKey = `${String(formName)}.${stageName}`;
-    const isFirstEmission = !initializedStagesRef.current.has(stageKey);
-
-    const currentValues =
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (form.getValues(formName) as Record<string, any>) || {};
-    form.setValue(formName, {
-      ...currentValues,
-      [stageName]: values,
-    });
-
-    if (isFirstEmission) {
-      initializedStagesRef.current.add(stageKey);
-      // Synchronously re-capture snapshot so that the useMemo comparison
-      // in the same render cycle still returns false.
-      savedSnapshotRef.current = JSON.stringify(form.getValues());
-    }
-  }
-
-  function renderDynamicForms(
-    stage: PipelineConfigStage,
-    formName: keyof FormValues,
-  ) {
-    // Special handling for AI config section
-    if (formName === 'ai') {
-      // Get the currently selected runner
-      const currentRunner = form.watch('ai.runner.runner');
-
-      // If this is the runner selector stage, render it directly
-      if (stage.name === 'runner') {
-        return (
-          <Card key={stage.name}>
-            <CardHeader>
-              <CardTitle>{extractI18nObject(stage.label)}</CardTitle>
-              {stage.description && (
-                <CardDescription>
-                  {extractI18nObject(stage.description)}
-                </CardDescription>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <DynamicFormComponent
-                itemConfigList={stage.config}
-                initialValues={
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  (form.watch(formName) as Record<string, any>)?.[stage.name] ||
-                  {}
-                }
-                onSubmit={(values) => {
-                  handleDynamicFormEmit(formName, stage.name, values);
-                }}
-              />
-            </CardContent>
-          </Card>
-        );
-      }
-
-      // Do not render if not the currently selected runner
-      if (stage.name !== currentRunner) {
-        return null;
-      }
-
-      // For n8n-service-api config, use N8nAuthFormComponent for form linkage
-      if (stage.name === 'n8n-service-api') {
-        return (
-          <Card key={stage.name}>
-            <CardHeader>
-              <CardTitle>{extractI18nObject(stage.label)}</CardTitle>
-              {stage.description && (
-                <CardDescription>
-                  {extractI18nObject(stage.description)}
-                </CardDescription>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <N8nAuthFormComponent
-                itemConfigList={stage.config}
-                initialValues={
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  (form.watch(formName) as Record<string, any>)?.[stage.name] ||
-                  {}
-                }
-                onSubmit={(values) => {
-                  handleDynamicFormEmit(formName, stage.name, values);
-                }}
-              />
-            </CardContent>
-          </Card>
-        );
-      }
-    }
-
-    return (
-      <Card key={stage.name}>
-        <CardHeader>
-          <CardTitle>{extractI18nObject(stage.label)}</CardTitle>
-          {stage.description && (
-            <CardDescription>
-              {extractI18nObject(stage.description)}
-            </CardDescription>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <DynamicFormComponent
-            itemConfigList={stage.config}
-            initialValues={
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              (form.watch(formName) as Record<string, any>)?.[stage.name] || {}
-            }
-            onSubmit={(values) => {
-              handleDynamicFormEmit(formName, stage.name, values);
-            }}
-          />
-        </CardContent>
-      </Card>
-    );
   }
 
   const handleDelete = () => {
@@ -633,45 +525,18 @@ export default function PipelineFormComponent({
                   </div>
                 )}
 
-                {/* Dynamic config sections (edit mode only) */}
-                {isEditMode && (
-                  <>
-                    {activeSection === 'ai' && aiConfigTabSchema && (
-                      <div className="space-y-6">
-                        {aiConfigTabSchema.stages.map((stage) =>
-                          renderDynamicForms(stage, 'ai'),
-                        )}
-                      </div>
-                    )}
-
-                    {activeSection === 'trigger' && triggerConfigTabSchema && (
-                      <div className="space-y-6">
-                        {triggerConfigTabSchema.stages.map((stage) =>
-                          renderDynamicForms(stage, 'trigger'),
-                        )}
-                      </div>
-                    )}
-
-                    {activeSection === 'safety' && safetyConfigTabSchema && (
-                      <div className="space-y-6">
-                        {safetyConfigTabSchema.stages.map((stage) =>
-                          renderDynamicForms(stage, 'safety'),
-                        )}
-                      </div>
-                    )}
-
-                    {activeSection === 'output' && outputConfigTabSchema && (
-                      <div className="space-y-6">
-                        {outputConfigTabSchema.stages.map((stage) =>
-                          renderDynamicForms(stage, 'output'),
-                        )}
-                      </div>
-                    )}
-
-                    {activeSection === 'extensions' && pipelineId && (
-                      <PipelineExtension pipelineId={pipelineId} />
-                    )}
-                  </>
+                {isEditMode && activeSection === 'workflow' && (
+                  <PipelineWorkflowEditor
+                    value={form.watch('workflow') as PipelineWorkflow}
+                    onChange={(workflow) => {
+                      form.setValue('workflow', workflow, { shouldDirty: true });
+                      form.setValue(
+                        'ai',
+                        syncWorkflowModelIntoAIConfig(workflow, form.getValues('ai')),
+                        { shouldDirty: true },
+                      );
+                    }}
+                  />
                 )}
               </div>
             </div>
@@ -763,5 +628,5 @@ export default function PipelineFormComponent({
 interface SectionItem {
   label: string;
   name: string;
-  icon: React.ElementType;
+  icon: ElementType;
 }

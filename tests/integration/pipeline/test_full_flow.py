@@ -643,6 +643,195 @@ class TestSendResponseBackStage:
         assert len(outbound) == 1
         assert outbound[0]['type'] == 'reply'
 
+    @pytest.mark.asyncio
+    async def test_send_response_appends_workflow_image_for_matched_intent(self, pipeline_app, fake_platform_adapter):
+        """Configured workflow image nodes should be appended before replying."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+
+        config = create_minimal_pipeline_config()
+        config['workflow'] = {
+            'nodes': [
+                {
+                    'id': 'image-price',
+                    'type': 'image',
+                    'config': {
+                        'file_key': 'price-sheet.png',
+                        'caption': 'Price sheet',
+                        'trigger_intents': ['price'],
+                    },
+                },
+            ],
+        }
+        query = text_query("price?")
+        query.adapter = adapter
+        query.pipeline_config = config
+        query.variables['sales_intent'] = {'intent': 'price', 'confidence': 0.91}
+        query.resp_messages = [Message(role='assistant', content='Here is the price.')]
+        query.resp_message_chain = [text_chain('Here is the price.')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        assert len(outbound) == 1
+        components = outbound[0]['message']
+        assert [component.type for component in components] == ['Plain', 'Plain', 'Image']
+        assert components[1].text == '\nPrice sheet'
+        assert str(components[2].path) == 'price-sheet.png'
+
+    @pytest.mark.asyncio
+    async def test_send_response_appends_task_assistant_tts_for_voice_query(self, pipeline_app, fake_platform_adapter):
+        """Task assistant should append synthesized voice when the user sent voice."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, voice_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        pipeline_app.task_assistant_service = Mock()
+        pipeline_app.task_assistant_service.synthesize_reply_voice = AsyncMock(
+            return_value='data:audio/mpeg;base64,ZmFrZQ=='
+        )
+
+        query = voice_query('https://example.com/audio.mp3')
+        query.adapter = adapter
+        query.pipeline_config = create_minimal_pipeline_config()
+        query.pipeline_config['workflow'] = {
+            'metadata': {'scenario': 'task_assistant_ant_af'},
+            'voice': {'enabled': True},
+        }
+        query.variables['task_assistant_voice_reply'] = True
+        query.resp_messages = [Message(role='assistant', content='下一步点击实名认证。')]
+        query.resp_message_chain = [text_chain('下一步点击实名认证。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        assert len(outbound) == 1
+        components = outbound[0]['message']
+        assert [component.type for component in components] == ['Plain', 'Voice']
+        assert components[1].base64 == 'data:audio/mpeg;base64,ZmFrZQ=='
+        pipeline_app.task_assistant_service.synthesize_reply_voice.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_send_response_sends_one_task_assistant_image_without_caption_tail(self, pipeline_app, fake_platform_adapter):
+        """Task assistant sends only the current step image and no caption tail."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+        from types import SimpleNamespace
+
+        adapter, platform = fake_platform_adapter
+        storage_provider = Mock()
+        storage_provider.load = AsyncMock(return_value=b'fake-png')
+        pipeline_app.storage_mgr = SimpleNamespace(storage_provider=storage_provider)
+        config = create_minimal_pipeline_config()
+        config['workflow'] = {
+            'metadata': {'scenario': 'task_assistant_ant_af'},
+            'nodes': [
+                {
+                    'id': 'image_download_qr',
+                    'type': 'image',
+                    'config': {
+                        'file_key': 'task-assistant/ant-af/af_step_01.png',
+                        'step_id': 'download_qr',
+                        'caption': '支付宝扫码下载蚂蚁阿福 App',
+                        'trigger_intents': ['task_overview'],
+                    },
+                },
+                {
+                    'id': 'image_alipay_login',
+                    'type': 'image',
+                    'config': {
+                        'file_key': 'task-assistant/ant-af/af_step_03.png',
+                        'step_id': 'alipay_login',
+                        'caption': '打开 App 后使用支付宝一键登录',
+                        'trigger_intents': ['task_overview'],
+                    },
+                },
+            ],
+        }
+        query = text_query('怎么完成任务')
+        query.adapter = adapter
+        query.pipeline_config = config
+        query.variables['workflow_intent'] = {'intent': 'task_overview', 'confidence': 0.91, 'step_ids': ['download_qr']}
+        query.resp_messages = [Message(role='assistant', content='我带你一步一步做。')]
+        query.resp_message_chain = [text_chain('我带你一步一步做。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        assert [component.type for component in components] == ['Plain', 'Image']
+        assert components[0].text == '我带你一步一步做。'
+        assert components[1].base64.startswith('data:image/png;base64,')
+        storage_provider.load.assert_awaited_once_with('task-assistant/ant-af/af_step_01.png')
+
+    @pytest.mark.asyncio
+    async def test_send_response_sends_no_task_assistant_image_when_max_images_is_zero(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Unknown screenshot context should not fall back to the first task image."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+        from types import SimpleNamespace
+
+        adapter, platform = fake_platform_adapter
+        storage_provider = Mock()
+        storage_provider.load = AsyncMock(return_value=b'fake-png')
+        pipeline_app.storage_mgr = SimpleNamespace(storage_provider=storage_provider)
+        config = create_minimal_pipeline_config()
+        config['workflow'] = {
+            'metadata': {'scenario': 'task_assistant_ant_af'},
+            'nodes': [
+                {
+                    'id': 'image_download_qr',
+                    'type': 'image',
+                    'config': {
+                        'file_key': 'task-assistant/ant-af/af_step_01.png',
+                        'step_id': 'download_qr',
+                        'trigger_intents': ['screenshot_help'],
+                    },
+                },
+            ],
+        }
+        query = text_query('我发了截图但不知道在哪一步')
+        query.adapter = adapter
+        query.pipeline_config = config
+        query.variables['workflow_intent'] = {
+            'intent': 'screenshot_help',
+            'confidence': 0.91,
+            'max_images': 0,
+        }
+        query.resp_messages = [Message(role='assistant', content='我先看下你截图里的页面。')]
+        query.resp_message_chain = [text_chain('我先看下你截图里的页面。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        assert [component.type for component in components] == ['Plain']
+        storage_provider.load.assert_not_awaited()
+
 
 @pytest.mark.usefixtures('mock_circular_import_chain')
 class TestStageChainIntegration:
