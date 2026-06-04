@@ -25,13 +25,12 @@ import {
   Minimize2,
   MousePointer2,
   PackageSearch,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Plug,
   Plus,
   Save,
+  Search,
   Send,
   Sparkles,
   Tags,
@@ -44,7 +43,11 @@ import {
 import { toast } from 'sonner';
 
 import { httpClient } from '@/app/infra/http/HttpClient';
-import { KnowledgeBase, LLMModel, SalesProduct } from '@/app/infra/entities/api';
+import {
+  KnowledgeBase,
+  LLMModel,
+  SalesProduct,
+} from '@/app/infra/entities/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -266,7 +269,11 @@ interface PipelineWorkflowEditorProps {
 }
 
 function normalizeWorkflow(workflow?: PipelineWorkflow): PipelineWorkflow {
-  if (!workflow || !Array.isArray(workflow.nodes) || !Array.isArray(workflow.edges)) {
+  if (
+    !workflow ||
+    !Array.isArray(workflow.nodes) ||
+    !Array.isArray(workflow.edges)
+  ) {
     return createDefaultWorkflow();
   }
   return workflow;
@@ -318,12 +325,16 @@ export default function PipelineWorkflowEditor({
   const [selectedNodeId, setSelectedNodeId] = useState<string>(
     workflow.nodes[0]?.id ?? '',
   );
-  const [draftConnection, setDraftConnection] = useState<DraftConnection | null>(null);
+  const [draftConnection, setDraftConnection] =
+    useState<DraftConnection | null>(null);
   const [connectionTargetId, setConnectionTargetId] = useState<string>('');
   const [uploadingNodeId, setUploadingNodeId] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
+  const [hoveredOutputNodeId, setHoveredOutputNodeId] = useState<string>('');
+  const [addNodeMenuSourceId, setAddNodeMenuSourceId] = useState<string>('');
+  const [nodePaletteOpen, setNodePaletteOpen] = useState(false);
+  const [nodePaletteSearch, setNodePaletteSearch] = useState('');
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
@@ -333,15 +344,21 @@ export default function PipelineWorkflowEditor({
     offsetY: number;
   } | null>(null);
   const canvasScrollRef = useRef<HTMLDivElement>(null);
+  const addNodeMenuRef = useRef<HTMLDivElement>(null);
 
-  const selectedNode = workflow.nodes.find((node) => node.id === selectedNodeId);
+  const selectedNode = workflow.nodes.find(
+    (node) => node.id === selectedNodeId,
+  );
   const imageNodes = workflow.nodes.filter((node) => node.type === 'image');
 
   useEffect(() => {
     if (!selectedNodeId && workflow.nodes[0]) {
       setSelectedNodeId(workflow.nodes[0].id);
     }
-    if (selectedNodeId && !workflow.nodes.some((node) => node.id === selectedNodeId)) {
+    if (
+      selectedNodeId &&
+      !workflow.nodes.some((node) => node.id === selectedNodeId)
+    ) {
       setSelectedNodeId(workflow.nodes[0]?.id ?? '');
     }
   }, [selectedNodeId, workflow.nodes]);
@@ -404,6 +421,39 @@ export default function PipelineWorkflowEditor({
     };
   }, [isFullscreen]);
 
+  useEffect(() => {
+    if (!addNodeMenuSourceId && !nodePaletteOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target as HTMLElement;
+      if (
+        target.closest('[data-node-add-trigger]') ||
+        target.closest('[data-node-palette-trigger]') ||
+        target.closest('[data-node-add-menu]')
+      ) {
+        return;
+      }
+      setAddNodeMenuSourceId('');
+      setNodePaletteOpen(false);
+      setNodePaletteSearch('');
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setAddNodeMenuSourceId('');
+        setNodePaletteOpen(false);
+        setNodePaletteSearch('');
+      }
+    }
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [addNodeMenuSourceId, nodePaletteOpen]);
+
   function commit(next: PipelineWorkflow) {
     onChange(next);
   }
@@ -412,10 +462,7 @@ export default function PipelineWorkflowEditor({
     commit({ ...workflow, ...patch });
   }
 
-  function updateNode(
-    nodeId: string,
-    patch: Partial<PipelineWorkflowNode>,
-  ) {
+  function updateNode(nodeId: string, patch: Partial<PipelineWorkflowNode>) {
     commit({
       ...workflow,
       nodes: workflow.nodes.map((node) =>
@@ -435,21 +482,55 @@ export default function PipelineWorkflowEditor({
     });
   }
 
-  function addNode(type: WorkflowNodeType) {
+  function addNode(type: WorkflowNodeType, sourceId?: string) {
+    const source = sourceId
+      ? workflow.nodes.find((node) => node.id === sourceId)
+      : undefined;
     const canvas = canvasScrollRef.current;
     const visibleX = canvas ? canvas.scrollLeft + 96 : 120;
     const visibleY = canvas ? canvas.scrollTop + 96 : 120;
     const nextNode = createWorkflowNode(type, {
-      x: Math.max(24, visibleX),
-      y: Math.max(24, visibleY),
+      x: Math.max(24, source ? source.position.x + NODE_WIDTH + 100 : visibleX),
+      y: Math.max(24, source ? source.position.y : visibleY),
     });
-    commit({ ...workflow, nodes: [...workflow.nodes, nextNode] });
+    const edges = [...workflow.edges];
+    if (source && type !== 'start') {
+      const exists = edges.some(
+        (edge) => edge.source === source.id && edge.target === nextNode.id,
+      );
+      if (!exists) {
+        edges.push(makeEdge(source.id, nextNode.id));
+      }
+    }
+    commit({ ...workflow, nodes: [...workflow.nodes, nextNode], edges });
     setSelectedNodeId(nextNode.id);
+    setAddNodeMenuSourceId('');
+    setHoveredOutputNodeId('');
+    setNodePaletteOpen(false);
+    setNodePaletteSearch('');
     window.requestAnimationFrame(() => {
       document
         .querySelector(`[data-workflow-node-id="${nextNode.id}"]`)
-        ?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+        ?.scrollIntoView({
+          block: 'center',
+          inline: 'center',
+          behavior: 'smooth',
+        });
     });
+  }
+
+  function openAddNodeMenu(sourceId: string) {
+    setSelectedNodeId(sourceId);
+    setAddNodeMenuSourceId(sourceId);
+    setNodePaletteOpen(false);
+    setNodePaletteSearch('');
+    setHoveredOutputNodeId(sourceId);
+  }
+
+  function openNodePalette() {
+    setAddNodeMenuSourceId('');
+    setNodePaletteOpen(true);
+    setNodePaletteSearch('');
   }
 
   function deleteNode(nodeId: string) {
@@ -460,7 +541,9 @@ export default function PipelineWorkflowEditor({
         (edge) => edge.source !== nodeId && edge.target !== nodeId,
       ),
     });
-    setSelectedNodeId(workflow.nodes.find((node) => node.id !== nodeId)?.id ?? '');
+    setSelectedNodeId(
+      workflow.nodes.find((node) => node.id !== nodeId)?.id ?? '',
+    );
   }
 
   function connectNodes(sourceId: string, targetId: string) {
@@ -515,7 +598,10 @@ export default function PipelineWorkflowEditor({
     }
   }
 
-  function clientPointToCanvasPoint(clientX: number, clientY: number): CanvasPoint {
+  function clientPointToCanvasPoint(
+    clientX: number,
+    clientY: number,
+  ): CanvasPoint {
     const canvas = canvasScrollRef.current;
     if (!canvas) return { x: clientX, y: clientY };
     const rect = canvas.getBoundingClientRect();
@@ -600,138 +686,100 @@ export default function PipelineWorkflowEditor({
     return `M ${source.x} ${source.y} C ${source.x + bend} ${source.y}, ${target.x - bend} ${target.y}, ${target.x} ${target.y}`;
   }
 
-  const groupedPalette = paletteOrder.reduce<Record<string, WorkflowNodeType[]>>(
-    (groups, type) => {
-      const group = nodeMeta[type].group;
-      groups[group] = groups[group] || [];
-      groups[group].push(type);
-      return groups;
-    },
-    {},
+  const addMenuSourceNode = workflow.nodes.find(
+    (node) => node.id === addNodeMenuSourceId,
   );
+
+  const filteredAddMenuPalette = useMemo(() => {
+    const query = nodePaletteSearch.trim().toLowerCase();
+    const availableTypes = paletteOrder.filter((type) => type !== 'start');
+    const matchedTypes = query
+      ? availableTypes.filter((type) => {
+          const meta = nodeMeta[type];
+          return (
+            meta.label.toLowerCase().includes(query) ||
+            meta.group.toLowerCase().includes(query) ||
+            type.toLowerCase().includes(query)
+          );
+        })
+      : availableTypes;
+    return matchedTypes.reduce<Record<string, WorkflowNodeType[]>>(
+      (groups, type) => {
+        const group = nodeMeta[type].group;
+        groups[group] = groups[group] || [];
+        groups[group].push(type);
+        return groups;
+      },
+      {},
+    );
+  }, [nodePaletteSearch]);
 
   const editor = (
     <div
       className={cn(
-        'flex overflow-hidden bg-background',
+        'relative flex overflow-hidden border-slate-200 bg-slate-50/80 text-slate-950 shadow-sm',
         isFullscreen
           ? 'h-full w-full'
-          : 'h-[calc(100vh-240px)] min-h-[640px] rounded-lg border',
+          : 'h-[calc(100vh-218px)] min-h-[620px] rounded-xl border',
       )}
     >
-      {!leftPanelCollapsed ? (
-      <aside className="flex w-64 shrink-0 flex-col border-r bg-muted/20">
-        <div className="border-b p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-sm font-semibold">工作流模板</div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0"
-              title="收起节点库"
-              onClick={() => setLeftPanelCollapsed(true)}
-            >
-              <PanelLeftClose className="size-4" />
-            </Button>
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={workflow.scenario === 'sales' ? 'default' : 'outline'}
-              onClick={() => {
-                const next = createSalesWorkflowTemplate();
-                commit(next);
-                setSelectedNodeId(next.nodes[0]?.id ?? '');
-              }}
-            >
-              销售
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={workflow.scenario === 'support' ? 'default' : 'outline'}
-              onClick={() => {
-                const next = createSupportWorkflowTemplate();
-                commit(next);
-                setSelectedNodeId(next.nodes[0]?.id ?? '');
-              }}
-            >
-              客服
-            </Button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          <div className="mb-2 text-sm font-semibold">节点库</div>
-          <div className="space-y-4">
-            {Object.entries(groupedPalette).map(([group, types]) => (
-              <div key={group}>
-                <div className="mb-1.5 text-xs font-medium text-muted-foreground">
-                  {group}
-                </div>
-                <div className="grid gap-1.5">
-                  {types.map((type) => {
-                    const meta = nodeMeta[type];
-                    const Icon = meta.icon;
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => addNode(type)}
-                        className="flex items-center justify-between rounded-md border bg-background px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
-                      >
-                        <span className="flex min-w-0 items-center gap-2">
-                          <Icon className="size-4 shrink-0 text-muted-foreground" />
-                          <span className="truncate">{meta.label}</span>
-                        </span>
-                        <Plus className="size-3.5 shrink-0 text-muted-foreground" />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </aside>
-      ) : (
-        <div className="flex w-10 shrink-0 flex-col items-center border-r bg-muted/20 py-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            title="展开节点库"
-            onClick={() => setLeftPanelCollapsed(false)}
-          >
-            <PanelLeftOpen className="size-4" />
-          </Button>
-        </div>
-      )}
-
       <main className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          {leftPanelCollapsed && (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-8 shrink-0"
-              title="展开节点库"
-              onClick={() => setLeftPanelCollapsed(false)}
-            >
-              <PanelLeftOpen className="size-4" />
-            </Button>
-          )}
+        <div className="flex items-center gap-2 border-b border-slate-200 bg-white/95 px-3 py-2.5">
           <Input
             value={workflow.name}
             onChange={(event) => updateWorkflow({ name: event.target.value })}
-            className="h-8 max-w-xs"
+            className="h-9 max-w-[280px] rounded-lg border-slate-200 bg-slate-50/70 font-medium shadow-none focus-visible:bg-white"
           />
-          <Badge variant="secondary">{workflow.nodes.length} 个节点</Badge>
-          <Badge variant="secondary">{workflow.edges.length} 条连线</Badge>
+          <Button
+            type="button"
+            size="sm"
+            data-node-palette-trigger
+            className="h-9 gap-1.5 rounded-lg bg-blue-600 px-3 text-white hover:bg-blue-700"
+            onClick={openNodePalette}
+          >
+            <Plus className="size-4" />
+            添加节点
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="hidden h-9 rounded-lg border-slate-200 bg-white px-3 lg:inline-flex"
+            title="导入销售模板，会替换当前画布"
+            onClick={() => {
+              const next = createSalesWorkflowTemplate();
+              commit(next);
+              setSelectedNodeId(next.nodes[0]?.id ?? '');
+            }}
+          >
+            销售模板
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="hidden h-9 rounded-lg border-slate-200 bg-white px-3 lg:inline-flex"
+            title="导入客服模板，会替换当前画布"
+            onClick={() => {
+              const next = createSupportWorkflowTemplate();
+              commit(next);
+              setSelectedNodeId(next.nodes[0]?.id ?? '');
+            }}
+          >
+            客服模板
+          </Button>
+          <Badge
+            variant="secondary"
+            className="rounded-md bg-blue-50 px-2.5 py-1 text-blue-700"
+          >
+            {workflow.nodes.length} 个节点
+          </Badge>
+          <Badge
+            variant="secondary"
+            className="rounded-md bg-emerald-50 px-2.5 py-1 text-emerald-700"
+          >
+            {workflow.edges.length} 条连线
+          </Badge>
           {draftConnection && (
             <Badge className="gap-1 bg-amber-100 text-amber-800 hover:bg-amber-100">
               <Link2 className="size-3" />
@@ -739,16 +787,16 @@ export default function PipelineWorkflowEditor({
             </Badge>
           )}
           <div className="ml-auto flex items-center gap-2">
-            <span className="hidden text-xs text-muted-foreground xl:inline-flex xl:items-center xl:gap-1.5">
+            <span className="hidden max-w-[210px] text-xs leading-tight text-muted-foreground 2xl:inline-flex 2xl:items-center 2xl:gap-1.5">
               <MousePointer2 className="size-3.5" />
-              拖动节点调整流程，从右侧圆点拉线
+              悬停节点右侧可添加节点，或从圆点拖拽连线
             </span>
             {rightPanelCollapsed && (
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="size-8"
+                className="size-8 rounded-lg border-slate-200 bg-white"
                 title="展开节点配置"
                 onClick={() => setRightPanelCollapsed(false)}
               >
@@ -759,7 +807,7 @@ export default function PipelineWorkflowEditor({
               type="button"
               variant="outline"
               size="icon"
-              className="size-8"
+              className="size-8 rounded-lg border-slate-200 bg-white"
               title={isFullscreen ? '退出全屏' : '全屏编辑'}
               onClick={() => setIsFullscreen((current) => !current)}
             >
@@ -772,12 +820,15 @@ export default function PipelineWorkflowEditor({
           </div>
         </div>
 
-        <div ref={canvasScrollRef} className="relative min-h-0 flex-1 overflow-auto bg-[#f7f7f2]">
+        <div
+          ref={canvasScrollRef}
+          className="relative min-h-0 flex-1 overflow-auto bg-[#f8faf7]"
+        >
           <div
             className="relative min-h-[760px] min-w-[2360px]"
             style={{
               backgroundImage:
-                'linear-gradient(rgba(15,23,42,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.06) 1px, transparent 1px)',
+                'linear-gradient(rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.045) 1px, transparent 1px), radial-gradient(circle at 24px 24px, rgba(37,99,235,0.07) 1px, transparent 1.5px)',
               backgroundSize: '24px 24px',
             }}
           >
@@ -791,7 +842,7 @@ export default function PipelineWorkflowEditor({
                   refX="7"
                   refY="4"
                 >
-                  <path d="M0,0 L8,4 L0,8 Z" fill="#64748b" />
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#52627a" />
                 </marker>
               </defs>
               {workflow.edges.map((edge) => {
@@ -805,8 +856,9 @@ export default function PipelineWorkflowEditor({
                       d={path}
                       fill="none"
                       markerEnd="url(#workflow-arrow)"
-                      stroke="#64748b"
-                      strokeWidth="2"
+                      stroke="#52627a"
+                      strokeLinecap="round"
+                      strokeWidth="2.25"
                       pointerEvents="none"
                     />
                     <path
@@ -834,7 +886,10 @@ export default function PipelineWorkflowEditor({
               {draftConnection && (
                 <path
                   data-workflow-draft-edge
-                  d={edgePath(nodeOutputPoint(draftConnection.sourceId), draftConnection.pointer)}
+                  d={edgePath(
+                    nodeOutputPoint(draftConnection.sourceId),
+                    draftConnection.pointer,
+                  )}
                   fill="none"
                   stroke="#2563eb"
                   strokeDasharray="7 5"
@@ -853,6 +908,10 @@ export default function PipelineWorkflowEditor({
               const receiving = connectionTargetId === node.id;
               const canReceive = node.type !== 'start';
               const canSend = node.type !== 'end';
+              const showOutputActions =
+                canSend &&
+                (hoveredOutputNodeId === node.id ||
+                  addNodeMenuSourceId === node.id);
               return (
                 <div
                   key={node.id}
@@ -861,8 +920,9 @@ export default function PipelineWorkflowEditor({
                   onPointerMove={handleNodePointerMove}
                   onPointerUp={handleNodePointerUp}
                   className={cn(
-                    'absolute cursor-grab select-none rounded-lg border bg-white p-3 shadow-sm transition-shadow active:cursor-grabbing',
-                    selected && 'ring-2 ring-slate-900',
+                    'absolute cursor-grab select-none rounded-xl border border-slate-200 bg-white p-3.5 shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition-[box-shadow,border-color,transform] active:cursor-grabbing',
+                    'hover:border-blue-200 hover:shadow-[0_14px_30px_rgba(15,23,42,0.12)]',
+                    selected && 'border-blue-400 ring-4 ring-blue-100',
                     connecting && 'ring-2 ring-amber-500',
                     receiving && 'ring-2 ring-blue-500',
                   )}
@@ -873,6 +933,49 @@ export default function PipelineWorkflowEditor({
                     minHeight: NODE_HEIGHT,
                   }}
                 >
+                  {canSend && (
+                    <div
+                      className="absolute -right-14 top-0 z-20 flex h-full w-14 items-center justify-center"
+                      onMouseEnter={() => setHoveredOutputNodeId(node.id)}
+                      onMouseLeave={() => {
+                        if (addNodeMenuSourceId !== node.id) {
+                          setHoveredOutputNodeId('');
+                        }
+                      }}
+                    >
+                      <div
+                        className={cn(
+                          'flex flex-col items-center gap-1 transition-all duration-150',
+                          showOutputActions
+                            ? 'translate-x-0 opacity-100'
+                            : 'pointer-events-none translate-x-1 opacity-0',
+                        )}
+                      >
+                        <button
+                          type="button"
+                          data-node-action
+                          data-node-add-trigger
+                          aria-label={`从 ${node.title} 添加节点`}
+                          title="添加节点"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openAddNodeMenu(node.id);
+                          }}
+                          className={cn(
+                            'flex size-8 items-center justify-center rounded-full border border-blue-200 bg-white text-blue-600 shadow-lg shadow-blue-950/10 transition-colors hover:border-blue-400 hover:bg-blue-50',
+                            addNodeMenuSourceId === node.id &&
+                              'border-blue-300 bg-blue-50 text-blue-600 ring-2 ring-blue-100',
+                          )}
+                        >
+                          <Plus className="size-4" />
+                        </button>
+                        <span className="pointer-events-none w-[88px] text-center text-[10px] leading-tight text-slate-500">
+                          点击添加节点，或拖拽圆点连线
+                        </span>
+                      </div>
+                    </div>
+                  )}
                   {canReceive && (
                     <button
                       type="button"
@@ -880,7 +983,10 @@ export default function PipelineWorkflowEditor({
                       data-node-action
                       data-workflow-port="input"
                       onPointerEnter={() => {
-                        if (draftConnection && draftConnection.sourceId !== node.id) {
+                        if (
+                          draftConnection &&
+                          draftConnection.sourceId !== node.id
+                        ) {
                           setConnectionTargetId(node.id);
                         }
                       }}
@@ -889,7 +995,9 @@ export default function PipelineWorkflowEditor({
                           setConnectionTargetId('');
                         }
                       }}
-                      onPointerUp={(event) => handleConnectionEnd(event, node.id)}
+                      onPointerUp={(event) =>
+                        handleConnectionEnd(event, node.id)
+                      }
                       className={cn(
                         'absolute -left-2 top-1/2 z-10 size-4 -translate-y-1/2 rounded-full border-2 border-white bg-slate-300 shadow-sm transition-colors',
                         draftConnection &&
@@ -904,15 +1012,17 @@ export default function PipelineWorkflowEditor({
                       aria-label={`从 ${node.title} 连线`}
                       data-node-action
                       data-workflow-port="output"
-                      onPointerDown={(event) => handleConnectionStart(event, node)}
+                      onPointerDown={(event) =>
+                        handleConnectionStart(event, node)
+                      }
                       className={cn(
                         'absolute -right-2 top-1/2 z-10 size-4 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-slate-800 shadow-sm transition-colors hover:bg-blue-600',
                         connecting && 'bg-blue-600 ring-4 ring-blue-100',
                       )}
                     />
                   )}
-                  <div className="flex items-start gap-2">
-                    <div className={cn('rounded-md border p-1.5', meta.accent)}>
+                  <div className="flex items-start gap-3">
+                    <div className={cn('rounded-lg border p-2', meta.accent)}>
                       <Icon className="size-4" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -938,85 +1048,250 @@ export default function PipelineWorkflowEditor({
                 </div>
               );
             })}
+
+            {addMenuSourceNode && (
+              <div
+                ref={addNodeMenuRef}
+                data-node-add-menu
+                className="absolute z-30 w-[min(400px,calc(100%-48px))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/10"
+                style={{
+                  left: addMenuSourceNode.position.x + NODE_WIDTH + 56,
+                  top: Math.max(24, addMenuSourceNode.position.y - 12),
+                }}
+              >
+                <div className="border-b border-slate-200 bg-slate-50/80 p-3">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={nodePaletteSearch}
+                      onChange={(event) =>
+                        setNodePaletteSearch(event.target.value)
+                      }
+                      placeholder="搜索节点或工具"
+                      className="h-9 rounded-lg border-slate-200 bg-white pl-8 shadow-none"
+                      autoFocus
+                    />
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    从「{addMenuSourceNode.title}」后添加节点，将自动连线
+                  </p>
+                </div>
+                <div className="max-h-[min(420px,50vh)] overflow-y-auto p-3">
+                  {Object.keys(filteredAddMenuPalette).length ? (
+                    <div className="space-y-4">
+                      {Object.entries(filteredAddMenuPalette).map(
+                        ([group, types]) => (
+                          <div key={group}>
+                            <div className="mb-2 text-xs font-semibold text-muted-foreground">
+                              {group}
+                            </div>
+                            <div className="grid gap-1">
+                              {types.map((type) => {
+                                const meta = nodeMeta[type];
+                                const Icon = meta.icon;
+                                return (
+                                  <button
+                                    key={type}
+                                    type="button"
+                                    data-node-action
+                                    onClick={() =>
+                                      addNode(type, addMenuSourceNode.id)
+                                    }
+                                    className="flex items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-2 text-left text-sm transition-colors hover:border-slate-200 hover:bg-slate-50"
+                                  >
+                                    <span
+                                      className={cn(
+                                        'flex size-8 shrink-0 items-center justify-center rounded-lg border',
+                                        meta.accent,
+                                      )}
+                                    >
+                                      <Icon className="size-4" />
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate font-medium">
+                                      {meta.label}
+                                    </span>
+                                    <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
+                      未找到匹配的节点
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </main>
 
-      {!rightPanelCollapsed ? (
-      <aside className="flex w-80 shrink-0 flex-col border-l bg-background">
-        <div className="border-b p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-sm font-semibold">节点配置</div>
-            <div className="flex items-center gap-1">
-              <Save className="size-4 text-muted-foreground" />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                title="收起节点配置"
-                onClick={() => setRightPanelCollapsed(true)}
-              >
-                <PanelRightClose className="size-4" />
-              </Button>
+      {nodePaletteOpen && (
+        <div
+          data-node-add-menu
+          className="absolute left-3 top-14 z-40 w-[min(420px,calc(100%-32px))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl shadow-slate-950/10"
+        >
+          <div className="border-b border-slate-200 bg-slate-50/80 p-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={nodePaletteSearch}
+                onChange={(event) => setNodePaletteSearch(event.target.value)}
+                placeholder="搜索节点或工具"
+                className="h-9 rounded-lg border-slate-200 bg-white pl-8 shadow-none"
+                autoFocus
+              />
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>添加到当前画布视野内，不自动连线</span>
+              <span>{paletteOrder.length - 1} 个节点</span>
             </div>
           </div>
+          <div className="max-h-[min(520px,65vh)] overflow-y-auto p-3">
+            {Object.keys(filteredAddMenuPalette).length ? (
+              <div className="space-y-4">
+                {Object.entries(filteredAddMenuPalette).map(
+                  ([group, types]) => (
+                    <div key={group}>
+                      <div className="mb-2 text-xs font-semibold text-muted-foreground">
+                        {group}
+                      </div>
+                      <div className="grid gap-1">
+                        {types.map((type) => {
+                          const meta = nodeMeta[type];
+                          const Icon = meta.icon;
+                          return (
+                            <button
+                              key={type}
+                              type="button"
+                              data-node-action
+                              onClick={() => addNode(type)}
+                              className="flex items-center gap-2.5 rounded-lg border border-transparent px-2.5 py-2 text-left text-sm transition-colors hover:border-slate-200 hover:bg-slate-50"
+                            >
+                              <span
+                                className={cn(
+                                  'flex size-8 shrink-0 items-center justify-center rounded-lg border',
+                                  meta.accent,
+                                )}
+                              >
+                                <Icon className="size-4" />
+                              </span>
+                              <span className="min-w-0 flex-1 truncate font-medium">
+                                {meta.label}
+                              </span>
+                              <Plus className="size-3.5 shrink-0 text-muted-foreground" />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ),
+                )}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
+                未找到匹配的节点
+              </div>
+            )}
+          </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {selectedNode ? (
-            <NodeConfigPanel
-              imageNodes={imageNodes}
-              knowledgeBases={knowledgeBases}
-              llmModels={llmModels}
-              node={selectedNode}
-              products={salesProducts}
-              uploading={uploadingNodeId === selectedNode.id}
-              imageAssetUrl={imageAssetUrl}
-              onNodeChange={(patch) => updateNode(selectedNode.id, patch)}
-              onConfigChange={(patch) => updateNodeConfig(selectedNode.id, patch)}
-              onUploadImage={(event) => uploadImageForNode(selectedNode, event)}
-            />
-          ) : (
-            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-              请选择一个节点
-            </div>
-          )}
+      )}
 
-          <div className="mt-4">
-            <div className="mb-2 text-xs font-medium text-muted-foreground">
-              连线
-            </div>
-            <div className="space-y-1.5">
-              {workflow.edges.map((edge) => {
-                const source = workflow.nodes.find((node) => node.id === edge.source);
-                const target = workflow.nodes.find((node) => node.id === edge.target);
-                return (
-                  <div
-                    key={edge.id}
-                    className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs"
-                  >
-                    <span className="min-w-0 flex-1 truncate">
-                      {`${source?.title ?? edge.source} -> ${target?.title ?? edge.target}`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => deleteEdge(edge.id)}
-                      className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                );
-              })}
-              {!workflow.edges.length && (
-                <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                  暂无连线
+      {!rightPanelCollapsed ? (
+        <aside className="flex w-[320px] shrink-0 flex-col border-l border-slate-200 bg-white">
+          <div className="border-b border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-slate-500">
+                  节点配置
                 </div>
-              )}
+                <div className="mt-0.5 truncate text-sm font-semibold">
+                  {selectedNode?.title ?? '未选择节点'}
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <Save className="size-4 text-muted-foreground" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  title="收起节点配置"
+                  onClick={() => setRightPanelCollapsed(true)}
+                >
+                  <PanelRightClose className="size-4" />
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      </aside>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            {selectedNode ? (
+              <NodeConfigPanel
+                imageNodes={imageNodes}
+                knowledgeBases={knowledgeBases}
+                llmModels={llmModels}
+                node={selectedNode}
+                products={salesProducts}
+                uploading={uploadingNodeId === selectedNode.id}
+                imageAssetUrl={imageAssetUrl}
+                onNodeChange={(patch) => updateNode(selectedNode.id, patch)}
+                onConfigChange={(patch) =>
+                  updateNodeConfig(selectedNode.id, patch)
+                }
+                onUploadImage={(event) =>
+                  uploadImageForNode(selectedNode, event)
+                }
+              />
+            ) : (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                请选择一个节点
+              </div>
+            )}
+
+            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              <div className="mb-2 text-xs font-semibold text-slate-500">
+                连线
+              </div>
+              <div className="space-y-1.5">
+                {workflow.edges.map((edge) => {
+                  const source = workflow.nodes.find(
+                    (node) => node.id === edge.source,
+                  );
+                  const target = workflow.nodes.find(
+                    (node) => node.id === edge.target,
+                  );
+                  return (
+                    <div
+                      key={edge.id}
+                      className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
+                    >
+                      <span className="min-w-0 flex-1 truncate">
+                        {`${source?.title ?? edge.source} -> ${target?.title ?? edge.target}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => deleteEdge(edge.id)}
+                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+                {!workflow.edges.length && (
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-white p-3 text-xs text-muted-foreground">
+                    暂无连线
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </aside>
       ) : null}
     </div>
   );
@@ -1090,20 +1365,26 @@ function NodeConfigPanel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5 [&_input]:h-10 [&_input]:rounded-lg [&_input]:border-slate-200 [&_input]:bg-slate-50/70 [&_input]:shadow-none [&_input]:focus-visible:bg-white [&_label]:text-[11px] [&_label]:font-semibold [&_label]:text-slate-500 [&_textarea]:rounded-lg [&_textarea]:border-slate-200 [&_textarea]:bg-slate-50/70 [&_textarea]:shadow-none [&_textarea]:focus-visible:bg-white">
       <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">名称</label>
+        <label className="text-xs font-medium text-muted-foreground">
+          名称
+        </label>
         <Input
           value={node.title}
           onChange={(event) => onNodeChange({ title: event.target.value })}
         />
       </div>
       <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">说明</label>
+        <label className="text-xs font-medium text-muted-foreground">
+          说明
+        </label>
         <Input
           value={node.description ?? ''}
           placeholder={defaults.description}
-          onChange={(event) => onNodeChange({ description: event.target.value })}
+          onChange={(event) =>
+            onNodeChange({ description: event.target.value })
+          }
         />
       </div>
 
@@ -1158,7 +1439,9 @@ function NodeConfigPanel({
             <Textarea
               value={listToText(node.config.image_intents)}
               onChange={(event) =>
-                onConfigChange({ image_intents: asStringList(event.target.value) })
+                onConfigChange({
+                  image_intents: asStringList(event.target.value),
+                })
               }
               className="min-h-20"
             />
@@ -1174,21 +1457,29 @@ function NodeConfigPanel({
               step={0.01}
               value={asNumber(node.config.confidence_threshold, 0.72)}
               onChange={(event) =>
-                onConfigChange({ confidence_threshold: Number(event.target.value) })
+                onConfigChange({
+                  confidence_threshold: Number(event.target.value),
+                })
               }
             />
           </div>
-          <div className="rounded-md border bg-muted/30 p-3">
-            <div className="mb-2 text-xs font-medium text-muted-foreground">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+            <div className="mb-2 text-xs font-semibold text-slate-500">
               可用图片节点
             </div>
             <div className="space-y-1 text-xs">
               {imageNodes.map((imageNode) => (
-                <div key={imageNode.id} className="rounded bg-background px-2 py-1">
-                  {imageNode.title}：{listToText(imageNode.config.trigger_intents) || '未绑定意图'}
+                <div
+                  key={imageNode.id}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5"
+                >
+                  {imageNode.title}：
+                  {listToText(imageNode.config.trigger_intents) || '未绑定意图'}
                 </div>
               ))}
-              {!imageNodes.length && <div className="text-muted-foreground">暂无图片节点</div>}
+              {!imageNodes.length && (
+                <div className="text-muted-foreground">暂无图片节点</div>
+              )}
             </div>
           </div>
         </>
@@ -1204,12 +1495,14 @@ function NodeConfigPanel({
               <button
                 key={kb.uuid}
                 type="button"
-                onClick={() => toggleListValue('knowledge_base_uuids', kb.uuid || '')}
+                onClick={() =>
+                  toggleListValue('knowledge_base_uuids', kb.uuid || '')
+                }
                 className={cn(
-                  'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm',
+                  'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm',
                   selectedKbIds.includes(kb.uuid || '')
-                    ? 'border-slate-900 bg-slate-50'
-                    : 'bg-background hover:bg-accent',
+                    ? 'border-blue-300 bg-blue-50 text-blue-950'
+                    : 'border-slate-200 bg-white hover:bg-slate-50',
                 )}
               >
                 <span className="truncate">{kb.name}</span>
@@ -1217,7 +1510,7 @@ function NodeConfigPanel({
               </button>
             ))}
             {!knowledgeBases.length && (
-              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-dashed border-slate-200 p-3 text-sm text-muted-foreground">
                 暂无知识库
               </div>
             )}
@@ -1226,7 +1519,9 @@ function NodeConfigPanel({
             type="number"
             min={1}
             value={asNumber(node.config.top_k, 5)}
-            onChange={(event) => onConfigChange({ top_k: Number(event.target.value) })}
+            onChange={(event) =>
+              onConfigChange({ top_k: Number(event.target.value) })
+            }
           />
         </div>
       )}
@@ -1241,12 +1536,14 @@ function NodeConfigPanel({
               <button
                 key={product.uuid}
                 type="button"
-                onClick={() => toggleListValue('product_uuids', product.uuid || '')}
+                onClick={() =>
+                  toggleListValue('product_uuids', product.uuid || '')
+                }
                 className={cn(
-                  'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm',
+                  'flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-sm',
                   selectedProductIds.includes(product.uuid || '')
-                    ? 'border-slate-900 bg-slate-50'
-                    : 'bg-background hover:bg-accent',
+                    ? 'border-blue-300 bg-blue-50 text-blue-950'
+                    : 'border-slate-200 bg-white hover:bg-slate-50',
                 )}
               >
                 <span className="min-w-0">
@@ -1255,11 +1552,13 @@ function NodeConfigPanel({
                     {product.price || product.category}
                   </span>
                 </span>
-                {selectedProductIds.includes(product.uuid || '') && <Badge>已选</Badge>}
+                {selectedProductIds.includes(product.uuid || '') && (
+                  <Badge>已选</Badge>
+                )}
               </button>
             ))}
             {!products.length && (
-              <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+              <div className="rounded-lg border border-dashed border-slate-200 p-3 text-sm text-muted-foreground">
                 暂无产品
               </div>
             )}
@@ -1270,7 +1569,9 @@ function NodeConfigPanel({
       {node.type === 'llm' && (
         <>
           <div className="space-y-2">
-            <label className="text-xs font-medium text-muted-foreground">语气</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              语气
+            </label>
             <Select
               value={asString(node.config.tone, 'professional')}
               onValueChange={(value) => onConfigChange({ tone: value })}
@@ -1292,7 +1593,9 @@ function NodeConfigPanel({
             </label>
             <Textarea
               value={asString(node.config.prompt)}
-              onChange={(event) => onConfigChange({ prompt: event.target.value })}
+              onChange={(event) =>
+                onConfigChange({ prompt: event.target.value })
+              }
               className="min-h-36"
             />
           </div>
@@ -1308,7 +1611,9 @@ function NodeConfigPanel({
             <Textarea
               value={listToText(node.config.trigger_intents)}
               onChange={(event) =>
-                onConfigChange({ trigger_intents: asStringList(event.target.value) })
+                onConfigChange({
+                  trigger_intents: asStringList(event.target.value),
+                })
               }
               className="min-h-20"
             />
@@ -1340,12 +1645,15 @@ function NodeConfigPanel({
                 value={imageUrl}
                 placeholder="https://..."
                 onChange={(event) =>
-                  onConfigChange({ image_url: event.target.value, file_key: '' })
+                  onConfigChange({
+                    image_url: event.target.value,
+                    file_key: '',
+                  })
                 }
               />
             </div>
             {previewUrl && (
-              <div className="overflow-hidden rounded-md border bg-muted">
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
                 <img
                   src={previewUrl}
                   alt={node.title}
@@ -1360,7 +1668,9 @@ function NodeConfigPanel({
             </label>
             <Textarea
               value={asString(node.config.caption)}
-              onChange={(event) => onConfigChange({ caption: event.target.value })}
+              onChange={(event) =>
+                onConfigChange({ caption: event.target.value })
+              }
               className="min-h-20"
             />
           </div>
@@ -1374,7 +1684,9 @@ function NodeConfigPanel({
           </label>
           <Textarea
             value={listToText(node.config.rules)}
-            onChange={(event) => onConfigChange({ rules: asStringList(event.target.value) })}
+            onChange={(event) =>
+              onConfigChange({ rules: asStringList(event.target.value) })
+            }
             className="min-h-28 font-mono text-xs"
           />
         </div>
@@ -1388,7 +1700,9 @@ function NodeConfigPanel({
             </label>
             <Textarea
               value={listToText(node.config.fields)}
-              onChange={(event) => onConfigChange({ fields: asStringList(event.target.value) })}
+              onChange={(event) =>
+                onConfigChange({ fields: asStringList(event.target.value) })
+              }
               className="min-h-24"
             />
           </div>
@@ -1399,7 +1713,9 @@ function NodeConfigPanel({
             <Input
               value={asStringList(node.config.required_fields).join('，')}
               onChange={(event) =>
-                onConfigChange({ required_fields: asStringList(event.target.value) })
+                onConfigChange({
+                  required_fields: asStringList(event.target.value),
+                })
               }
             />
           </div>
@@ -1414,7 +1730,9 @@ function NodeConfigPanel({
             </label>
             <Input
               value={asString(node.config.reason)}
-              onChange={(event) => onConfigChange({ reason: event.target.value })}
+              onChange={(event) =>
+                onConfigChange({ reason: event.target.value })
+              }
             />
           </div>
           <div className="space-y-2">
@@ -1423,7 +1741,9 @@ function NodeConfigPanel({
             </label>
             <Input
               value={asString(node.config.assigned_to)}
-              onChange={(event) => onConfigChange({ assigned_to: event.target.value })}
+              onChange={(event) =>
+                onConfigChange({ assigned_to: event.target.value })
+              }
             />
           </div>
         </>
@@ -1474,9 +1794,9 @@ function NodeConfigPanel({
         'vision',
         'voice',
         'end',
-      ].includes(
-        node.type,
-      ) && <GenericConfig node={node} onConfigChange={onConfigChange} />}
+      ].includes(node.type) && (
+        <GenericConfig node={node} onConfigChange={onConfigChange} />
+      )}
     </div>
   );
 }
@@ -1492,7 +1812,9 @@ function GenericConfig({
     return (
       <>
         <div className="space-y-2">
-          <label className="text-xs font-medium text-muted-foreground">方法</label>
+          <label className="text-xs font-medium text-muted-foreground">
+            方法
+          </label>
           <Select
             value={asString(node.config.method, 'POST')}
             onValueChange={(value) => onConfigChange({ method: value })}
@@ -1509,7 +1831,9 @@ function GenericConfig({
           </Select>
         </div>
         <div className="space-y-2">
-          <label className="text-xs font-medium text-muted-foreground">URL</label>
+          <label className="text-xs font-medium text-muted-foreground">
+            URL
+          </label>
           <Input
             value={asString(node.config.url)}
             onChange={(event) => onConfigChange({ url: event.target.value })}
@@ -1569,7 +1893,9 @@ function GenericConfig({
           </label>
           <Input
             value={asStringList(node.config.tags).join('，')}
-            onChange={(event) => onConfigChange({ tags: asStringList(event.target.value) })}
+            onChange={(event) =>
+              onConfigChange({ tags: asStringList(event.target.value) })
+            }
           />
         </div>
       </>
@@ -1626,7 +1952,9 @@ function JsonLikeTextarea({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <label className="text-xs font-medium text-muted-foreground">
+        {label}
+      </label>
       <Textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}

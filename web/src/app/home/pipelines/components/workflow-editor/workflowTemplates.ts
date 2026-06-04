@@ -18,7 +18,10 @@ const nodeDefaults: Record<
   channel: {
     title: '渠道接入',
     description: '统一接收网页、微信、企微、飞书等渠道消息',
-    config: { channels: ['web', 'wechat', 'wecom', 'lark'], keep_session: true },
+    config: {
+      channels: ['web', 'wechat', 'wecom', 'lark'],
+      keep_session: true,
+    },
   },
   media: {
     title: '消息类型判断',
@@ -78,7 +81,8 @@ const nodeDefaults: Record<
     description: '按销售/客服话术组织回复',
     config: {
       tone: 'professional',
-      prompt: '根据客户意图、知识库结果和产品资料，生成一句自然、具体、有下一步动作的回复。',
+      prompt:
+        '根据客户意图、知识库结果和产品资料，生成一句自然、具体、有下一步动作的回复。',
     },
   },
   condition: {
@@ -89,7 +93,10 @@ const nodeDefaults: Record<
   lead: {
     title: '收集线索',
     description: '记录姓名、电话、预算、需求',
-    config: { fields: ['姓名', '电话', '预算', '需求'], required_fields: ['电话'] },
+    config: {
+      fields: ['姓名', '电话', '预算', '需求'],
+      required_fields: ['电话'],
+    },
   },
   image: {
     title: '发送图片/素材',
@@ -109,7 +116,10 @@ const nodeDefaults: Record<
   outreach: {
     title: '定时跟进',
     description: '创建销售触达计划',
-    config: { delay_minutes: 1440, message_template: '您好，给您同步一下上次关注的产品资料。' },
+    config: {
+      delay_minutes: 1440,
+      message_template: '您好，给您同步一下上次关注的产品资料。',
+    },
   },
   handoff: {
     title: '人工介入',
@@ -206,7 +216,20 @@ export function createSalesWorkflowTemplate(): PipelineWorkflow {
     version: 1,
     name: '销售转化工作流',
     scenario: 'sales',
-    nodes: [start, intent, product, knowledge, llm, condition, image, lead, handoff, memory, outreach, end],
+    nodes: [
+      start,
+      intent,
+      product,
+      knowledge,
+      llm,
+      condition,
+      image,
+      lead,
+      handoff,
+      memory,
+      outreach,
+      end,
+    ],
     edges: [
       edge(start, intent),
       edge(intent, product, '产品咨询/报价'),
@@ -249,14 +272,25 @@ export function createSupportWorkflowTemplate(): PipelineWorkflow {
   };
   llm.config = {
     ...llm.config,
-    prompt: '根据客户问题、知识库结果和客服话术，给出清晰、克制、可执行的处理回复。',
+    prompt:
+      '根据客户问题、知识库结果和客服话术，给出清晰、克制、可执行的处理回复。',
   };
 
   return {
     version: 1,
     name: '客服接待工作流',
     scenario: 'support',
-    nodes: [start, intent, knowledge, llm, condition, image, handoff, memory, end],
+    nodes: [
+      start,
+      intent,
+      knowledge,
+      llm,
+      condition,
+      image,
+      handoff,
+      memory,
+      end,
+    ],
     edges: [
       edge(start, intent),
       edge(intent, knowledge),
@@ -275,8 +309,27 @@ export function createSupportWorkflowTemplate(): PipelineWorkflow {
   };
 }
 
+export function createBlankWorkflow(): PipelineWorkflow {
+  const start = createWorkflowNode('start', { x: 120, y: 220 });
+  const end = createWorkflowNode('end', { x: 460, y: 220 });
+
+  start.title = '开始';
+  start.description = '流程入口';
+  end.title = '结束';
+  end.description = '流程结束';
+
+  return {
+    version: 1,
+    name: '空白工作流',
+    scenario: 'custom',
+    nodes: [start, end],
+    edges: [edge(start, end)],
+    variables: {},
+  };
+}
+
 export function createDefaultWorkflow(): PipelineWorkflow {
-  return createSalesWorkflowTemplate();
+  return createBlankWorkflow();
 }
 
 export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {

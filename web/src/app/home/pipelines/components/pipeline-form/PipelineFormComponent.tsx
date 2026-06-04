@@ -54,9 +54,14 @@ import {
 
 function selectedWorkflowModelUuid(workflow?: PipelineWorkflow): string {
   const llmNode = workflow?.nodes?.find(
-    (node) => node.type === 'llm' && typeof node.config?.model_uuid === 'string' && node.config.model_uuid,
+    (node) =>
+      node.type === 'llm' &&
+      typeof node.config?.model_uuid === 'string' &&
+      node.config.model_uuid,
   );
-  return typeof llmNode?.config.model_uuid === 'string' ? llmNode.config.model_uuid : '';
+  return typeof llmNode?.config.model_uuid === 'string'
+    ? llmNode.config.model_uuid
+    : '';
 }
 
 function syncWorkflowModelIntoAIConfig(
@@ -71,7 +76,9 @@ function syncWorkflowModelIntoAIConfig(
   const localAgentConfig = aiConfig?.['local-agent'] || {};
   const existingModelConfig = localAgentConfig.model;
   const fallbackModels =
-    existingModelConfig && typeof existingModelConfig === 'object' && Array.isArray(existingModelConfig.fallbacks)
+    existingModelConfig &&
+    typeof existingModelConfig === 'object' &&
+    Array.isArray(existingModelConfig.fallbacks)
       ? existingModelConfig.fallbacks
       : [];
 
@@ -201,6 +208,7 @@ export default function PipelineFormComponent({
 
   const [activeSection, setActiveSection] = useState(formLabelList[0].name);
   const [sectionNavCollapsed, setSectionNavCollapsed] = useState(false);
+  const compactSectionNav = activeSection === 'workflow';
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -437,42 +445,61 @@ export default function PipelineFormComponent({
             onSubmit={form.handleSubmit(handleFormSubmit)}
             className="h-full flex flex-col flex-1 min-h-0 mb-2"
           >
-            <div className="flex-1 flex flex-col md:flex-row min-h-0">
+            <div className="flex-1 flex flex-col md:flex-row min-h-0 gap-3">
               {/* Vertical section navigation (only show when multiple sections) */}
               {formLabelList.length > 1 && !sectionNavCollapsed && (
-                <nav className="shrink-0 mb-4 md:mb-0 md:w-44 md:pr-4 md:mr-4 md:border-r overflow-x-auto md:overflow-x-visible md:overflow-y-auto">
-                  <div className="mb-2 hidden items-center justify-between md:flex">
-                    <span className="text-xs font-medium text-muted-foreground">
-                      配置分区
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-7"
-                      title="收起配置面板"
-                      onClick={() => setSectionNavCollapsed(true)}
-                    >
-                      <PanelLeftClose className="size-4" />
-                    </Button>
-                  </div>
-                  <ul className="flex md:flex-col gap-1 md:space-y-1">
+                <nav
+                  className={cn(
+                    'mb-2 shrink-0 overflow-x-auto md:mb-0 md:overflow-x-visible md:overflow-y-auto',
+                    compactSectionNav ? 'md:w-11' : 'md:w-48',
+                  )}
+                >
+                  {!compactSectionNav && (
+                    <div className="mb-2 hidden items-center justify-between px-1 md:flex">
+                      <span className="text-xs font-semibold text-muted-foreground">
+                        配置分区
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-7 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                        title="收起配置面板"
+                        onClick={() => setSectionNavCollapsed(true)}
+                      >
+                        <PanelLeftClose className="size-4" />
+                      </Button>
+                    </div>
+                  )}
+                  <ul
+                    className={cn(
+                      'flex gap-1 rounded-xl bg-slate-100 p-1 md:flex-col md:space-y-1',
+                      compactSectionNav && 'md:items-center',
+                    )}
+                  >
                     {formLabelList.map((section) => {
                       const Icon = section.icon;
                       return (
                         <li key={section.name}>
                           <button
                             type="button"
+                            title={section.label}
                             onClick={() => setActiveSection(section.name)}
                             className={cn(
-                              'w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors text-left cursor-pointer whitespace-nowrap',
+                              'w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left cursor-pointer whitespace-nowrap',
+                              compactSectionNav &&
+                                'md:size-9 md:justify-center md:px-0',
                               activeSection === section.name
-                                ? 'bg-accent text-accent-foreground'
-                                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                                ? 'bg-white text-slate-950 shadow-sm'
+                                : 'text-slate-500 hover:bg-white/60 hover:text-slate-900',
                             )}
                           >
                             <Icon className="size-4 shrink-0" />
-                            {section.label}
+                            <span
+                              className={cn(compactSectionNav && 'md:hidden')}
+                            >
+                              {section.label}
+                            </span>
                           </button>
                         </li>
                       );
@@ -482,12 +509,12 @@ export default function PipelineFormComponent({
               )}
 
               {formLabelList.length > 1 && sectionNavCollapsed && (
-                <div className="hidden shrink-0 flex-col items-center gap-2 border-r pr-2 mr-2 md:flex">
+                <div className="hidden shrink-0 flex-col items-center gap-2 rounded-xl bg-slate-100 p-1 md:flex">
                   <Button
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="size-8"
+                    className="size-8 rounded-lg border-slate-200 bg-white"
                     title="展开配置面板"
                     onClick={() => setSectionNavCollapsed(false)}
                   >
@@ -502,10 +529,10 @@ export default function PipelineFormComponent({
                         title={section.label}
                         onClick={() => setActiveSection(section.name)}
                         className={cn(
-                          'flex size-8 items-center justify-center rounded-md transition-colors',
+                          'flex size-8 items-center justify-center rounded-lg transition-colors',
                           activeSection === section.name
-                            ? 'bg-accent text-accent-foreground'
-                            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                            ? 'bg-white text-slate-950 shadow-sm'
+                            : 'text-slate-500 hover:bg-white/60 hover:text-slate-900',
                         )}
                       >
                         <Icon className="size-4" />

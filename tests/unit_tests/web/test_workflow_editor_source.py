@@ -10,6 +10,9 @@ PIPELINE_FORM_PATH = Path(
 TEMPLATE_CONFIG_EDITOR_PATH = Path(
     'web/src/app/home/pipelines/components/workflow-editor/PipelineTemplateConfigEditor.tsx'
 )
+WORKFLOW_TEMPLATES_PATH = Path(
+    'web/src/app/home/pipelines/components/workflow-editor/workflowTemplates.ts'
+)
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -63,3 +66,25 @@ def test_pipeline_editor_supports_template_and_workflow_modes():
     assert '每天推送' in template_source
     assert '指定单天' in template_source
     assert '图片文字绑定' in template_source
+
+
+def test_default_workflow_is_blank_start_to_end_canvas():
+    source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+
+    assert 'createBlankWorkflow' in source
+    assert "name: '空白工作流'" in source
+    assert "scenario: 'custom'" in source
+    assert 'nodes: [start, end]' in source
+    assert 'edges: [edge(start, end)]' in source
+    assert 'return createBlankWorkflow();' in source
+
+
+def test_node_library_is_on_demand_instead_of_persistent_sidebar():
+    source = WORKFLOW_EDITOR_PATH.read_text(encoding='utf-8')
+
+    assert 'nodePaletteOpen' in source
+    assert 'data-node-palette-trigger' in source
+    assert '添加到当前画布视野内，不自动连线' in source
+    assert 'setLeftPanelCollapsed' not in source
+    assert 'PanelLeftOpen' not in source
+    assert 'PanelLeftClose' not in source

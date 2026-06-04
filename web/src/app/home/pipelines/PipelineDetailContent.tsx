@@ -8,6 +8,7 @@ import PipelineMonitoringTab from '@/app/home/pipelines/components/monitoring-ta
 import { useSidebarData } from '@/app/home/components/home-sidebar/SidebarDataContext';
 import { useTranslation } from 'react-i18next';
 import { Settings, Bug, BarChart3 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export default function PipelineDetailContent({ id }: { id: string }) {
   const isCreateMode = id === 'new';
@@ -43,10 +44,15 @@ export default function PipelineDetailContent({ id }: { id: string }) {
   if (isCreateMode) {
     return (
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between pb-4 shrink-0">
-          <h1 className="text-xl font-semibold">
-            {t('pipelines.createPipeline')}
-          </h1>
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 pb-4">
+          <div>
+            <h1 className="text-xl font-semibold">
+              {t('pipelines.createPipeline')}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              创建一个可复用的销售会话处理流程
+            </p>
+          </div>
           <Button type="submit" form="pipeline-form">
             {t('common.submit')}
           </Button>
@@ -76,15 +82,25 @@ export default function PipelineDetailContent({ id }: { id: string }) {
 
   // ==================== Edit Mode ====================
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col gap-4">
       {/* Sticky Header: title + save button */}
-      <div className="flex items-center justify-between pb-4 shrink-0">
-        <h1 className="text-xl font-semibold">{t('pipelines.editPipeline')}</h1>
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 pb-4">
+        <div>
+          <h1 className="text-xl font-semibold">
+            {t('pipelines.editPipeline')}
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            编排客户消息、意图识别、知识检索与回复生成的执行链路
+          </p>
+        </div>
         <Button
           type="submit"
           form="pipeline-form"
           disabled={!formDirty}
-          className={activeTab !== 'config' ? 'invisible' : ''}
+          className={cn(
+            'h-10 rounded-lg px-5 shadow-sm',
+            activeTab !== 'config' ? 'invisible' : '',
+          )}
         >
           {t('common.save')}
         </Button>
@@ -97,12 +113,18 @@ export default function PipelineDetailContent({ id }: { id: string }) {
         onValueChange={setActiveTab}
         className="flex flex-1 flex-col min-h-0"
       >
-        <TabsList className="shrink-0">
-          <TabsTrigger value="config" className="gap-1.5">
+        <TabsList className="h-10 w-fit shrink-0 rounded-xl bg-slate-100 p-1">
+          <TabsTrigger
+            value="config"
+            className="gap-1.5 rounded-lg px-3 data-[state=active]:bg-white data-[state=active]:shadow-sm"
+          >
             <Settings className="size-3.5" />
             {t('pipelines.configuration')}
           </TabsTrigger>
-          <TabsTrigger value="debug" className="gap-1.5">
+          <TabsTrigger
+            value="debug"
+            className="gap-1.5 rounded-lg px-3 data-[state=active]:bg-white data-[state=active]:shadow-sm"
+          >
             <Bug className="size-3.5" />
             {t('pipelines.debugChat')}
             {activeTab === 'debug' && (
@@ -113,7 +135,10 @@ export default function PipelineDetailContent({ id }: { id: string }) {
               />
             )}
           </TabsTrigger>
-          <TabsTrigger value="monitoring" className="gap-1.5">
+          <TabsTrigger
+            value="monitoring"
+            className="gap-1.5 rounded-lg px-3 data-[state=active]:bg-white data-[state=active]:shadow-sm"
+          >
             <BarChart3 className="size-3.5" />
             {t('pipelines.monitoring.title')}
           </TabsTrigger>
@@ -122,7 +147,7 @@ export default function PipelineDetailContent({ id }: { id: string }) {
         {/* Tab: Configuration */}
         <TabsContent
           value="config"
-          className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden"
+          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
         >
           <PipelineFormComponent
             pipelineId={id}
@@ -138,7 +163,7 @@ export default function PipelineDetailContent({ id }: { id: string }) {
         </TabsContent>
 
         {/* Tab: Debug */}
-        <TabsContent value="debug" className="flex-1 min-h-0 mt-4">
+        <TabsContent value="debug" className="mt-0 flex-1 min-h-0">
           <DebugDialog
             open={activeTab === 'debug'}
             pipelineId={id}
@@ -150,7 +175,7 @@ export default function PipelineDetailContent({ id }: { id: string }) {
         {/* Tab: Monitoring */}
         <TabsContent
           value="monitoring"
-          className="flex-1 min-h-0 overflow-y-auto mt-4"
+          className="mt-0 flex-1 min-h-0 overflow-y-auto"
         >
           <PipelineMonitoringTab
             pipelineId={id}
