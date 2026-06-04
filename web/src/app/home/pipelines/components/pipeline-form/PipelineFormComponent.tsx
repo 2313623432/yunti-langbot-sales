@@ -37,6 +37,8 @@ import {
   Trash2,
   Copy,
   Workflow,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import PipelineWorkflowEditor from '@/app/home/pipelines/components/workflow-editor/PipelineWorkflowEditor';
 import { createDefaultWorkflow } from '@/app/home/pipelines/components/workflow-editor/workflowTemplates';
@@ -186,6 +188,7 @@ export default function PipelineFormComponent({
       ];
 
   const [activeSection, setActiveSection] = useState(formLabelList[0].name);
+  const [sectionNavCollapsed, setSectionNavCollapsed] = useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -369,8 +372,23 @@ export default function PipelineFormComponent({
           >
             <div className="flex-1 flex flex-col md:flex-row min-h-0">
               {/* Vertical section navigation (only show when multiple sections) */}
-              {formLabelList.length > 1 && (
+              {formLabelList.length > 1 && !sectionNavCollapsed && (
                 <nav className="shrink-0 mb-4 md:mb-0 md:w-44 md:pr-4 md:mr-4 md:border-r overflow-x-auto md:overflow-x-visible md:overflow-y-auto">
+                  <div className="mb-2 hidden items-center justify-between md:flex">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      配置分区
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7"
+                      title="收起配置面板"
+                      onClick={() => setSectionNavCollapsed(true)}
+                    >
+                      <PanelLeftClose className="size-4" />
+                    </Button>
+                  </div>
                   <ul className="flex md:flex-col gap-1 md:space-y-1">
                     {formLabelList.map((section) => {
                       const Icon = section.icon;
@@ -396,8 +414,49 @@ export default function PipelineFormComponent({
                 </nav>
               )}
 
+              {formLabelList.length > 1 && sectionNavCollapsed && (
+                <div className="hidden shrink-0 flex-col items-center gap-2 border-r pr-2 mr-2 md:flex">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-8"
+                    title="展开配置面板"
+                    onClick={() => setSectionNavCollapsed(false)}
+                  >
+                    <PanelLeftOpen className="size-4" />
+                  </Button>
+                  {formLabelList.map((section) => {
+                    const Icon = section.icon;
+                    return (
+                      <button
+                        key={section.name}
+                        type="button"
+                        title={section.label}
+                        onClick={() => setActiveSection(section.name)}
+                        className={cn(
+                          'flex size-8 items-center justify-center rounded-md transition-colors',
+                          activeSection === section.name
+                            ? 'bg-accent text-accent-foreground'
+                            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                        )}
+                      >
+                        <Icon className="size-4" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* Content panel */}
-              <div className="flex-1 overflow-y-auto min-h-0">
+              <div
+                className={cn(
+                  'flex-1 min-h-0',
+                  activeSection === 'workflow'
+                    ? 'flex flex-col overflow-hidden'
+                    : 'overflow-y-auto',
+                )}
+              >
                 {/* Basic info section */}
                 {activeSection === 'basic' && (
                   <div className="space-y-6">

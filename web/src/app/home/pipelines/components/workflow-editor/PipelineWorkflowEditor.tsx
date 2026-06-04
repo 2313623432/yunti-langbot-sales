@@ -7,6 +7,7 @@ import {
   type ElementType,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bell,
   BookOpen,
@@ -19,9 +20,15 @@ import {
   Image as ImageIcon,
   Link2,
   ListChecks,
+  Maximize2,
   MessageSquare,
+  Minimize2,
   MousePointer2,
   PackageSearch,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Plug,
   Plus,
   Save,
@@ -314,6 +321,9 @@ export default function PipelineWorkflowEditor({
   const [draftConnection, setDraftConnection] = useState<DraftConnection | null>(null);
   const [connectionTargetId, setConnectionTargetId] = useState<string>('');
   const [uploadingNodeId, setUploadingNodeId] = useState<string>('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
@@ -377,6 +387,22 @@ export default function PipelineWorkflowEditor({
       window.removeEventListener('pointerup', handleWindowPointerUp);
     };
   }, [draftConnection?.sourceId]);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isFullscreen]);
 
   function commit(next: PipelineWorkflow) {
     onChange(next);
@@ -584,11 +610,31 @@ export default function PipelineWorkflowEditor({
     {},
   );
 
-  return (
-    <div className="flex h-[720px] min-h-[560px] max-h-[calc(100vh-220px)] overflow-hidden rounded-lg border bg-background">
+  const editor = (
+    <div
+      className={cn(
+        'flex overflow-hidden bg-background',
+        isFullscreen
+          ? 'h-full w-full'
+          : 'h-[calc(100vh-240px)] min-h-[640px] rounded-lg border',
+      )}
+    >
+      {!leftPanelCollapsed ? (
       <aside className="flex w-64 shrink-0 flex-col border-r bg-muted/20">
         <div className="border-b p-3">
-          <div className="text-sm font-semibold">工作流模板</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm font-semibold">工作流模板</div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0"
+              title="收起节点库"
+              onClick={() => setLeftPanelCollapsed(true)}
+            >
+              <PanelLeftClose className="size-4" />
+            </Button>
+          </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <Button
               type="button"
@@ -650,9 +696,35 @@ export default function PipelineWorkflowEditor({
           </div>
         </div>
       </aside>
+      ) : (
+        <div className="flex w-10 shrink-0 flex-col items-center border-r bg-muted/20 py-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            title="展开节点库"
+            onClick={() => setLeftPanelCollapsed(false)}
+          >
+            <PanelLeftOpen className="size-4" />
+          </Button>
+        </div>
+      )}
 
       <main className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2 border-b px-3 py-2">
+          {leftPanelCollapsed && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8 shrink-0"
+              title="展开节点库"
+              onClick={() => setLeftPanelCollapsed(false)}
+            >
+              <PanelLeftOpen className="size-4" />
+            </Button>
+          )}
           <Input
             value={workflow.name}
             onChange={(event) => updateWorkflow({ name: event.target.value })}
@@ -666,9 +738,37 @@ export default function PipelineWorkflowEditor({
               拖到目标输入点
             </Badge>
           )}
-          <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-            <MousePointer2 className="size-3.5" />
-            拖动节点调整流程，从右侧圆点拉线
+          <div className="ml-auto flex items-center gap-2">
+            <span className="hidden text-xs text-muted-foreground xl:inline-flex xl:items-center xl:gap-1.5">
+              <MousePointer2 className="size-3.5" />
+              拖动节点调整流程，从右侧圆点拉线
+            </span>
+            {rightPanelCollapsed && (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-8"
+                title="展开节点配置"
+                onClick={() => setRightPanelCollapsed(false)}
+              >
+                <PanelRightOpen className="size-4" />
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8"
+              title={isFullscreen ? '退出全屏' : '全屏编辑'}
+              onClick={() => setIsFullscreen((current) => !current)}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="size-4" />
+              ) : (
+                <Maximize2 className="size-4" />
+              )}
+            </Button>
           </div>
         </div>
 
@@ -842,11 +942,24 @@ export default function PipelineWorkflowEditor({
         </div>
       </main>
 
+      {!rightPanelCollapsed ? (
       <aside className="flex w-80 shrink-0 flex-col border-l bg-background">
         <div className="border-b p-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-semibold">节点配置</div>
-            <Save className="size-4 text-muted-foreground" />
+            <div className="flex items-center gap-1">
+              <Save className="size-4 text-muted-foreground" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="收起节点配置"
+                onClick={() => setRightPanelCollapsed(true)}
+              >
+                <PanelRightClose className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
@@ -904,8 +1017,38 @@ export default function PipelineWorkflowEditor({
           </div>
         </div>
       </aside>
+      ) : null}
     </div>
   );
+
+  if (isFullscreen && typeof document !== 'undefined') {
+    return createPortal(
+      <div className="fixed inset-0 z-50 flex flex-col bg-background">
+        <div className="flex items-center justify-between border-b px-4 py-2">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold">工作流全屏编辑</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {workflow.name || '未命名工作流'}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setIsFullscreen(false)}
+          >
+            <Minimize2 className="size-4" />
+            退出全屏
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1">{editor}</div>
+      </div>,
+      document.body,
+    );
+  }
+
+  return editor;
 }
 
 function NodeConfigPanel({
