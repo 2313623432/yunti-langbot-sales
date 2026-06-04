@@ -5,6 +5,7 @@ import pytest
 
 from langbot.pkg.api.http.service.task_assistant import (
     TASK_ASSISTANT_MODEL_UUID,
+    TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
     TASK_ASSISTANT_TTS_VOICE_TYPE,
     TaskAssistantService,
 )
@@ -253,6 +254,29 @@ def test_task_assistant_pipeline_uses_real_bailian_local_agent_model():
     assert voice_node['config']['voice_type'] == TASK_ASSISTANT_TTS_VOICE_TYPE
     assert config['workflow']['voice']['encoding'] == 'ogg_opus'
     assert voice_node['config']['encoding'] == 'ogg_opus'
+
+
+def test_task_assistant_template_pipeline_config_matches_workflow_capabilities():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_template_pipeline_config()
+
+    assert TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID == 'task-assistant-ant-af-template-pipeline'
+    assert config['config_mode'] == 'template'
+    assert config['ai']['local-agent']['model']['primary'] == TASK_ASSISTANT_MODEL_UUID
+    assert config['workflow']['metadata']['scenario'] == 'task_assistant_ant_af'
+    assert config['workflow']['metadata']['source_mode'] == 'template'
+    template_config = config['template_config']
+    assert template_config['name'] == '任务助手模板配置版'
+    assert template_config['scheduled_push']['mode'] == 'daily'
+    assert template_config['scheduled_push']['message']
+    assert template_config['voice']['voice_type'] == TASK_ASSISTANT_TTS_VOICE_TYPE
+    assert template_config['voice']['encoding'] == 'ogg_opus'
+    assert len(template_config['image_text_bindings']) == 8
+    first_binding = template_config['image_text_bindings'][0]
+    assert first_binding['step_id'] == 'download_qr'
+    assert first_binding['text']
+    assert first_binding['file_key'].endswith('af_step_01.png')
 
 
 @pytest.mark.asyncio

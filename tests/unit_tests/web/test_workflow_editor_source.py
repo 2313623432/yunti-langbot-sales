@@ -7,6 +7,9 @@ WORKFLOW_EDITOR_PATH = Path(
 PIPELINE_FORM_PATH = Path(
     'web/src/app/home/pipelines/components/pipeline-form/PipelineFormComponent.tsx'
 )
+TEMPLATE_CONFIG_EDITOR_PATH = Path(
+    'web/src/app/home/pipelines/components/workflow-editor/PipelineTemplateConfigEditor.tsx'
+)
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -40,3 +43,23 @@ def test_ai_reply_node_can_select_real_model_and_sync_to_pipeline():
     assert 'syncWorkflowModelIntoAIConfig' in form_source
     assert "['local-agent']" in form_source
     assert 'primary: selectedModelUuid' in form_source
+
+
+def test_pipeline_editor_supports_template_and_workflow_modes():
+    form_source = PIPELINE_FORM_PATH.read_text(encoding='utf-8')
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+
+    assert 'PipelineTemplateConfigEditor' in form_source
+    assert 'config_mode' in form_source
+    assert 'template_config' in form_source
+    assert 'applyTemplateConfigToWorkflow' in form_source
+    assert '模板配置' in form_source
+    assert '工作流编排' in form_source
+
+    assert 'scheduled_push' in template_source
+    assert 'push_message' in template_source
+    assert 'image_text_bindings' in template_source
+    assert 'voice_type' in template_source
+    assert '每天推送' in template_source
+    assert '指定单天' in template_source
+    assert '图片文字绑定' in template_source

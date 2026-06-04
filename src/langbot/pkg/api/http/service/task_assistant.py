@@ -26,6 +26,7 @@ from .pipeline import default_stage_order
 
 TASK_ASSISTANT_SCENARIO = 'task_assistant_ant_af'
 TASK_ASSISTANT_PIPELINE_UUID = 'task-assistant-ant-af-pipeline'
+TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID = 'task-assistant-ant-af-template-pipeline'
 TASK_ASSISTANT_PROVIDER_UUID = 'task-assistant-bailian-provider'
 TASK_ASSISTANT_MODEL_UUID = 'task-assistant-qwen-vl-plus'
 TASK_ASSISTANT_MODEL_NAME = 'qwen-vl-plus'
@@ -535,6 +536,7 @@ class TaskAssistantService:
         await self._ensure_task_images()
         await self._ensure_bailian_model()
         await self._ensure_pipeline()
+        await self._ensure_template_pipeline()
 
     def build_pipeline_config(
         self,
@@ -563,6 +565,139 @@ class TaskAssistantService:
             voice_overrides=existing_voice if isinstance(existing_voice, dict) else None,
         )
         return config
+
+    def build_template_pipeline_config(
+        self,
+        *,
+        bailian_model_uuid: str = TASK_ASSISTANT_MODEL_UUID,
+        existing_config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        config = self.build_pipeline_config(
+            bailian_model_uuid=bailian_model_uuid,
+            existing_config=existing_config,
+        )
+        existing_template = existing_config.get('template_config') if isinstance(existing_config, dict) else {}
+        template_config = self.build_template_config(
+            overrides=existing_template if isinstance(existing_template, dict) else None,
+        )
+        config['config_mode'] = 'template'
+        config['template_config'] = template_config
+        config['workflow'] = self.build_workflow_from_template_config(template_config)
+        return config
+
+    def build_template_config(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        voice = {
+            'provider': 'volcengine',
+            'enabled': True,
+            'voice_type': TASK_ASSISTANT_TTS_VOICE_TYPE,
+            'encoding': 'ogg_opus',
+        }
+        scheduled_push = {
+            'enabled': True,
+            'mode': 'daily',
+            'time': '10:00',
+            'single_date': '',
+            'message': '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+            'push_message': '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+        }
+        template_config = {
+            'name': '任务助手模板配置版',
+            'role_prompt': self.compose_system_prompt(),
+            'opening_message': '我带你一步步完成实名认证。先用支付宝扫码下载蚂蚁阿福 App，完成后跟我说“下一步”。',
+            'recommended_questions': [
+                '我应该怎么完成这个任务？',
+                '我卡在这一步了怎么办？',
+                '下一步怎么做？',
+            ],
+            'model_uuid': TASK_ASSISTANT_MODEL_UUID,
+            'max_reasoning_steps': 2,
+            'reference_rounds': 2,
+            'knowledge_base_uuids': [],
+            'product_uuids': [],
+            'tools': {
+                'intent_recognition': True,
+                'knowledge_base': True,
+                'product_database': True,
+                'image_recognition': True,
+                'voice_reply': True,
+            },
+            'memory': {
+                'variables_enabled': True,
+                'table_enabled': True,
+                'segments_enabled': False,
+            },
+            'voice': voice,
+            'scheduled_push': scheduled_push,
+            'image_text_bindings': [
+                {
+                    'step_id': step['id'],
+                    'title': step['title'],
+                    'text': step['detail'],
+                    'file_key': step['image_key'],
+                    'trigger_intents': step['intents'],
+                    'enabled': True,
+                }
+                for step in ANT_AF_STEPS
+            ],
+        }
+        if overrides:
+            for key, value in overrides.items():
+                if key == 'voice' and isinstance(value, dict):
+                    template_config['voice'] = {**voice, **value}
+                elif key == 'scheduled_push' and isinstance(value, dict):
+                    template_config['scheduled_push'] = {**scheduled_push, **value}
+                elif key == 'image_text_bindings' and isinstance(value, list) and value:
+                    template_config['image_text_bindings'] = value
+                else:
+                    template_config[key] = value
+        return template_config
+
+    def build_workflow_from_template_config(self, template_config: dict[str, Any]) -> dict[str, Any]:
+        voice_overrides = template_config.get('voice') if isinstance(template_config.get('voice'), dict) else None
+        workflow = self.build_workflow_config(voice_overrides=voice_overrides)
+        workflow['name'] = str(template_config.get('name') or '任务助手模板配置版')
+        metadata = workflow.setdefault('metadata', {})
+        metadata['source_mode'] = 'template'
+        metadata['template_name'] = template_config.get('name') or '任务助手模板配置版'
+
+        model_uuid = str(template_config.get('model_uuid') or TASK_ASSISTANT_MODEL_UUID)
+        for node in workflow.get('nodes', []):
+            if not isinstance(node, dict):
+                continue
+            config = node.setdefault('config', {})
+            if node.get('type') in {'llm', 'vision'}:
+                config['model_uuid'] = model_uuid
+            if node.get('type') == 'voice' and isinstance(template_config.get('voice'), dict):
+                config.update(template_config['voice'])
+
+        bindings = template_config.get('image_text_bindings')
+        if isinstance(bindings, list):
+            binding_by_step = {
+                str(binding.get('step_id')): binding for binding in bindings if isinstance(binding, dict)
+            }
+            for node in workflow.get('nodes', []):
+                if not isinstance(node, dict):
+                    continue
+                config = node.setdefault('config', {})
+                step_id = str(config.get('step_id') or '')
+                binding = binding_by_step.get(step_id)
+                if not binding:
+                    continue
+                if node.get('type') == 'task':
+                    node['title'] = str(binding.get('title') or node.get('title') or '')
+                    node['description'] = str(binding.get('text') or node.get('description') or '')
+                    config['instruction'] = str(binding.get('text') or config.get('instruction') or '')
+                    config['enabled'] = binding.get('enabled', True)
+                elif node.get('type') == 'image':
+                    node['title'] = str(binding.get('title') or node.get('title') or '')
+                    config['file_key'] = str(binding.get('file_key') or config.get('file_key') or '')
+                    config['caption'] = str(binding.get('title') or config.get('caption') or '')
+                    config['enabled'] = binding.get('enabled', True)
+
+        scheduled_push = template_config.get('scheduled_push')
+        if isinstance(scheduled_push, dict):
+            workflow['scheduled_push'] = scheduled_push
+        return workflow
 
     def build_workflow_config(self, voice_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         voice_config = {
@@ -907,6 +1042,52 @@ class TaskAssistantService:
                 is_default=False,
                 stages=default_stage_order.copy(),
                 config=self.build_pipeline_config(),
+                extensions_preferences={
+                    'enable_all_plugins': True,
+                    'enable_all_mcp_servers': True,
+                    'plugins': [],
+                    'mcp_servers': [],
+                },
+            )
+        )
+
+    async def _ensure_template_pipeline(self) -> None:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid == TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID
+            )
+        )
+        existing_pipeline = result.first()
+        if existing_pipeline is not None:
+            existing_config = existing_pipeline.config if isinstance(existing_pipeline.config, dict) else {}
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+                .where(persistence_pipeline.LegacyPipeline.uuid == TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID)
+                .values(
+                    name='任务助手模板配置版',
+                    description='用表单模板配置蚂蚁阿福实名认证引导，自动同步为可运行工作流。',
+                    emoji='✅',
+                    config=self.build_template_pipeline_config(existing_config=existing_config),
+                    extensions_preferences={
+                        'enable_all_plugins': True,
+                        'enable_all_mcp_servers': True,
+                        'plugins': [],
+                        'mcp_servers': [],
+                    },
+                )
+            )
+            return
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_pipeline.LegacyPipeline).values(
+                uuid=TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
+                name='任务助手模板配置版',
+                description='用表单模板配置蚂蚁阿福实名认证引导，自动同步为可运行工作流。',
+                emoji='✅',
+                for_version=self.ap.ver_mgr.get_current_version(),
+                is_default=False,
+                stages=default_stage_order.copy(),
+                config=self.build_template_pipeline_config(),
                 extensions_preferences={
                     'enable_all_plugins': True,
                     'enable_all_mcp_servers': True,

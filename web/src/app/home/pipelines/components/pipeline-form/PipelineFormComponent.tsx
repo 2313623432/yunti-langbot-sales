@@ -40,9 +40,17 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
+import PipelineTemplateConfigEditor from '@/app/home/pipelines/components/workflow-editor/PipelineTemplateConfigEditor';
 import PipelineWorkflowEditor from '@/app/home/pipelines/components/workflow-editor/PipelineWorkflowEditor';
-import { createDefaultWorkflow } from '@/app/home/pipelines/components/workflow-editor/workflowTemplates';
-import { PipelineWorkflow } from '@/app/home/pipelines/components/workflow-editor/types';
+import {
+  applyTemplateConfigToWorkflow,
+  createDefaultWorkflow,
+  createTaskAssistantTemplateConfig,
+} from '@/app/home/pipelines/components/workflow-editor/workflowTemplates';
+import {
+  PipelineTemplateConfig,
+  PipelineWorkflow,
+} from '@/app/home/pipelines/components/workflow-editor/types';
 
 function selectedWorkflowModelUuid(workflow?: PipelineWorkflow): string {
   const llmNode = workflow?.nodes?.find(
@@ -144,6 +152,8 @@ export default function PipelineFormComponent({
         trigger: z.record(z.string(), z.any()),
         safety: z.record(z.string(), z.any()),
         output: z.record(z.string(), z.any()),
+        config_mode: z.enum(['template', 'workflow']).optional(),
+        template_config: z.any().optional(),
         workflow: z.any(),
       })
     : z.object({
@@ -156,6 +166,8 @@ export default function PipelineFormComponent({
         trigger: z.record(z.string(), z.any()).optional(),
         safety: z.record(z.string(), z.any()).optional(),
         output: z.record(z.string(), z.any()).optional(),
+        config_mode: z.enum(['template', 'workflow']).optional(),
+        template_config: z.any().optional(),
         workflow: z.any().optional(),
       });
 
@@ -200,6 +212,8 @@ export default function PipelineFormComponent({
       trigger: {},
       safety: {},
       output: {},
+      config_mode: 'workflow',
+      template_config: createTaskAssistantTemplateConfig(),
       workflow: createDefaultWorkflow(),
     },
   });
@@ -225,6 +239,11 @@ export default function PipelineFormComponent({
           setIsDefaultPipeline(resp.pipeline.is_default ?? false);
           const pipelineConfig = resp.pipeline.config as Record<string, any>;
           const aiConfig = pipelineConfig.ai || {};
+          const configMode: 'template' | 'workflow' =
+            pipelineConfig.config_mode === 'template' ? 'template' : 'workflow';
+          const templateConfig =
+            (pipelineConfig.template_config as PipelineTemplateConfig | undefined) ||
+            createTaskAssistantTemplateConfig();
           const workflowConfig = syncAIModelIntoWorkflow(
             (pipelineConfig.workflow as PipelineWorkflow | undefined) ||
               createDefaultWorkflow(),
@@ -240,6 +259,8 @@ export default function PipelineFormComponent({
             trigger: pipelineConfig.trigger || {},
             safety: pipelineConfig.safety || {},
             output: pipelineConfig.output || {},
+            config_mode: configMode,
+            template_config: templateConfig,
             workflow: workflowConfig,
           };
           form.reset(loadedValues);
@@ -256,6 +277,8 @@ export default function PipelineFormComponent({
           description: '',
           emoji: '⚙️',
         },
+        config_mode: 'workflow',
+        template_config: createTaskAssistantTemplateConfig(),
         workflow: createDefaultWorkflow(),
       });
     }
@@ -289,12 +312,22 @@ export default function PipelineFormComponent({
   }
 
   function handleModify(values: FormValues) {
-    const workflow = values.workflow || createDefaultWorkflow();
+    const configMode = values.config_mode || 'workflow';
+    const templateConfig =
+      (values.template_config as PipelineTemplateConfig | undefined) ||
+      createTaskAssistantTemplateConfig();
+    const baseWorkflow = (values.workflow as PipelineWorkflow | undefined) || createDefaultWorkflow();
+    const workflow =
+      configMode === 'template'
+        ? applyTemplateConfigToWorkflow(templateConfig, baseWorkflow)
+        : baseWorkflow;
     const realConfig = {
-      ai: syncWorkflowModelIntoAIConfig(workflow as PipelineWorkflow, values.ai),
+      ai: syncWorkflowModelIntoAIConfig(workflow, values.ai),
       trigger: values.trigger,
       safety: values.safety,
       output: values.output,
+      config_mode: configMode,
+      template_config: templateConfig,
       workflow,
     };
 
@@ -360,6 +393,40 @@ export default function PipelineFormComponent({
         });
     }
   };
+
+  function getTemplateConfigValue(): PipelineTemplateConfig {
+    return (
+      (form.getValues('template_config') as PipelineTemplateConfig | undefined) ||
+      createTaskAssistantTemplateConfig()
+    );
+  }
+
+  function getWorkflowValue(): PipelineWorkflow {
+    return (form.getValues('workflow') as PipelineWorkflow | undefined) || createDefaultWorkflow();
+  }
+
+  function setWorkflowValue(workflow: PipelineWorkflow) {
+    form.setValue('workflow', workflow, { shouldDirty: true });
+    form.setValue(
+      'ai',
+      syncWorkflowModelIntoAIConfig(workflow, form.getValues('ai')),
+      { shouldDirty: true },
+    );
+  }
+
+  function handleConfigModeChange(mode: 'template' | 'workflow') {
+    form.setValue('config_mode', mode, { shouldDirty: true });
+    if (mode === 'template') {
+      const templateConfig = getTemplateConfigValue();
+      form.setValue('template_config', templateConfig, { shouldDirty: true });
+      setWorkflowValue(applyTemplateConfigToWorkflow(templateConfig, getWorkflowValue()));
+    }
+  }
+
+  function handleTemplateConfigChange(templateConfig: PipelineTemplateConfig) {
+    form.setValue('template_config', templateConfig, { shouldDirty: true });
+    setWorkflowValue(applyTemplateConfigToWorkflow(templateConfig, getWorkflowValue()));
+  }
 
   return (
     <>
@@ -585,17 +652,52 @@ export default function PipelineFormComponent({
                 )}
 
                 {isEditMode && activeSection === 'workflow' && (
-                  <PipelineWorkflowEditor
-                    value={form.watch('workflow') as PipelineWorkflow}
-                    onChange={(workflow) => {
-                      form.setValue('workflow', workflow, { shouldDirty: true });
-                      form.setValue(
-                        'ai',
-                        syncWorkflowModelIntoAIConfig(workflow, form.getValues('ai')),
-                        { shouldDirty: true },
-                      );
-                    }}
-                  />
+                  <div className="space-y-4">
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base">配置方式</CardTitle>
+                        <CardDescription>
+                          模板配置适合快速上手，工作流编排适合像 Coze / n8n 一样精细调整节点和连线。
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="inline-flex rounded-lg border bg-muted/40 p-1">
+                          {[
+                            ['template', '模板配置'],
+                            ['workflow', '工作流编排'],
+                          ].map(([mode, label]) => (
+                            <Button
+                              key={mode}
+                              type="button"
+                              size="sm"
+                              variant={
+                                (form.watch('config_mode') || 'workflow') === mode
+                                  ? 'default'
+                                  : 'ghost'
+                              }
+                              onClick={() =>
+                                handleConfigModeChange(mode as 'template' | 'workflow')
+                              }
+                            >
+                              {label}
+                            </Button>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {(form.watch('config_mode') || 'workflow') === 'template' ? (
+                      <PipelineTemplateConfigEditor
+                        value={form.watch('template_config') as PipelineTemplateConfig}
+                        onChange={handleTemplateConfigChange}
+                      />
+                    ) : (
+                      <PipelineWorkflowEditor
+                        value={form.watch('workflow') as PipelineWorkflow}
+                        onChange={setWorkflowValue}
+                      />
+                    )}
+                  </div>
                 )}
               </div>
             </div>

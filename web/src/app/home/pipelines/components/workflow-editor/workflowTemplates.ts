@@ -1,4 +1,5 @@
 import {
+  PipelineTemplateConfig,
   PipelineWorkflow,
   PipelineWorkflowEdge,
   PipelineWorkflowNode,
@@ -276,6 +277,122 @@ export function createSupportWorkflowTemplate(): PipelineWorkflow {
 
 export function createDefaultWorkflow(): PipelineWorkflow {
   return createSalesWorkflowTemplate();
+}
+
+export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
+  const bindings = [
+    ['download_qr', '下载安装第一步', '先用支付宝扫码，进入蚂蚁阿福下载页，点击下载按钮。', 'task-assistant/ant-af/af_step_01.png'],
+    ['app_store_download', '应用商店下载', '跳到应用商店后确认是蚂蚁阿福，点击下载并等待安装完成。', 'task-assistant/ant-af/af_step_02.png'],
+    ['alipay_login', '支付宝一键登录', '打开 App 后点击支付宝一键登录。', 'task-assistant/ant-af/af_step_03.png'],
+    ['alipay_login_confirm', '同意支付宝授权', '在支付宝授权页确认申请方，点击同意完成登录。', 'task-assistant/ant-af/af_step_04.png'],
+    ['open_profile', '进入个人中心', '登录后点击左上角头像或菜单，进入个人中心。', 'task-assistant/ant-af/af_step_05.png'],
+    ['open_settings', '进入设置', '在个人中心点击用户信息区域或设置入口，进入我的/设置页面。', 'task-assistant/ant-af/af_step_06.png'],
+    ['open_real_person_verify', '点击实名认证', '在我的页面找到实名认证并进入，若显示已认证说明这步完成。', 'task-assistant/ant-af/af_step_07.png'],
+    ['import_identity', '支付宝导入身份信息', '在认证页面点击支付宝一键导入，按支付宝提示完成授权。', 'task-assistant/ant-af/af_step_08.png'],
+  ];
+
+  return {
+    name: '任务助手模板配置版',
+    role_prompt: '你是真人客服，负责一步步引导用户完成蚂蚁阿福实名认证。回复要短、自然、像真人，不要自称 AI、机器人或任务助手。',
+    opening_message: '我带你一步步完成实名认证。先用支付宝扫码下载蚂蚁阿福 App，完成后跟我说“下一步”。',
+    recommended_questions: ['我应该怎么完成这个任务？', '我卡在这一步了怎么办？', '下一步怎么做？'],
+    model_uuid: 'task-assistant-qwen-vl-plus',
+    max_reasoning_steps: 2,
+    reference_rounds: 2,
+    knowledge_base_uuids: [],
+    product_uuids: [],
+    tools: {
+      intent_recognition: true,
+      knowledge_base: true,
+      product_database: true,
+      image_recognition: true,
+      voice_reply: true,
+    },
+    memory: {
+      variables_enabled: true,
+      table_enabled: true,
+      segments_enabled: false,
+    },
+    voice: {
+      provider: 'volcengine',
+      enabled: true,
+      voice_type: 'zh_female_yuanqinvyou_moon_bigtts',
+      encoding: 'ogg_opus',
+    },
+    scheduled_push: {
+      enabled: true,
+      mode: 'daily',
+      time: '10:00',
+      single_date: '',
+      message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+      push_message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+    },
+    image_text_bindings: bindings.map(([step_id, title, text, file_key]) => ({
+      step_id,
+      title,
+      text,
+      file_key,
+      enabled: true,
+      trigger_intents: ['task_overview', 'screenshot_help'],
+    })),
+  };
+}
+
+export function applyTemplateConfigToWorkflow(
+  templateConfig: PipelineTemplateConfig,
+  workflow: PipelineWorkflow,
+): PipelineWorkflow {
+  const bindingByStepId = new Map(
+    templateConfig.image_text_bindings.map((binding) => [binding.step_id, binding]),
+  );
+  return {
+    ...workflow,
+    name: templateConfig.name || workflow.name,
+    metadata: {
+      ...(workflow.metadata || {}),
+      source_mode: 'template',
+      template_name: templateConfig.name,
+    },
+    voice: {
+      ...(workflow.voice || {}),
+      ...templateConfig.voice,
+    },
+    nodes: workflow.nodes.map((node) => {
+      const stepId = typeof node.config?.step_id === 'string' ? node.config.step_id : '';
+      const binding = bindingByStepId.get(stepId);
+      const nextNode: PipelineWorkflowNode = {
+        ...node,
+        config: { ...node.config },
+      };
+      if (node.type === 'llm' || node.type === 'vision') {
+        nextNode.config.model_uuid = templateConfig.model_uuid;
+      }
+      if (node.type === 'voice') {
+        nextNode.config = { ...nextNode.config, ...templateConfig.voice };
+      }
+      if (binding && node.type === 'task') {
+        nextNode.title = binding.title;
+        nextNode.description = binding.text;
+        nextNode.config.instruction = binding.text;
+        nextNode.config.enabled = binding.enabled !== false;
+      }
+      if (binding && node.type === 'image') {
+        nextNode.title = binding.title;
+        nextNode.description = binding.text;
+        nextNode.config.file_key = binding.file_key;
+        nextNode.config.image_url = binding.image_url || '';
+        nextNode.config.caption = binding.title;
+        nextNode.config.enabled = binding.enabled !== false;
+      }
+      return nextNode;
+    }),
+    variables: {
+      ...(workflow.variables || {}),
+      scheduled_push: templateConfig.scheduled_push,
+      opening_message: templateConfig.opening_message,
+      recommended_questions: templateConfig.recommended_questions,
+    },
+  };
 }
 
 export function getNodeDefaults(type: WorkflowNodeType) {
