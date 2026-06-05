@@ -56,10 +56,10 @@ export const sidebarConfigList = [
     section: 'home',
   }),
   new SidebarChildVO({
-    id: 'workflows',
+    id: 'pipelines',
     name: 'Workflow',
     icon: <Workflow className="text-sky-600" />,
-    route: '/home/workflows',
+    route: '/home/pipelines',
     description: '自动化销售流程',
     helpLink: {
       en_US: '',

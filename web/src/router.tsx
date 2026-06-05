@@ -23,7 +23,6 @@ import KnowledgePage from '@/app/home/knowledge/page';
 import PluginPagesPage from '@/app/home/plugin-pages/page';
 import SalesPage from '@/app/home/sales/page';
 import AiAgentsPage from '@/app/home/ai-agents/page';
-import WorkflowsPage from '@/app/home/workflows/page';
 
 const Loading = () => <div>加载中...</div>;
 
@@ -99,7 +98,7 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<Loading />}>
         <HomeLayout>
-          <WorkflowsPage />
+          <PipelinesPage />
         </HomeLayout>
       </Suspense>
     ),

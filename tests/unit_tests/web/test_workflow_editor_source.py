@@ -14,6 +14,8 @@ WORKFLOW_TEMPLATES_PATH = Path(
     'web/src/app/home/pipelines/components/workflow-editor/workflowTemplates.ts'
 )
 WORKFLOWS_PAGE_PATH = Path('web/src/app/home/workflows/page.tsx')
+SIDEBAR_CONFIG_PATH = Path('web/src/app/home/components/home-sidebar/sidbarConfigList.tsx')
+ROUTER_PATH = Path('web/src/router.tsx')
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -111,6 +113,19 @@ def test_node_library_is_on_demand_instead_of_persistent_sidebar():
     assert 'setLeftPanelCollapsed' not in source
     assert 'PanelLeftOpen' not in source
     assert 'PanelLeftClose' not in source
+
+
+def test_latest_workflow_navigation_opens_real_pipeline_orchestration():
+    sidebar_source = SIDEBAR_CONFIG_PATH.read_text(encoding='utf-8')
+    router_source = ROUTER_PATH.read_text(encoding='utf-8')
+
+    assert "id: 'pipelines'" in sidebar_source
+    assert "name: 'Workflow'" in sidebar_source
+    assert "route: '/home/pipelines'" in sidebar_source
+    assert "path: '/home/workflows'" in router_source
+    workflow_route_block = router_source.split("path: '/home/workflows'", 1)[1].split("path: '/home/monitoring'", 1)[0]
+    assert '<PipelinesPage />' in workflow_route_block
+    assert '<WorkflowsPage />' not in workflow_route_block
 
 
 def test_workflow_creation_settings_do_not_bind_agent():
