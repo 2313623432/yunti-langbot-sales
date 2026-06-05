@@ -1,13 +1,16 @@
-import type { ReactNode } from 'react';
+import { useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   Bot,
   CalendarClock,
   Image as ImageIcon,
   MessageSquareText,
   Mic2,
+  Plus,
   Sparkles,
+  Upload,
   type LucideIcon,
 } from 'lucide-react';
+import { httpClient } from '@/app/infra/http/HttpClient';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +24,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import {
   PipelineTemplateConfig,
   PipelineTemplateImageTextBinding,
@@ -90,11 +94,42 @@ function Section({
   );
 }
 
+function stringListToText(value?: string[]) {
+  return Array.isArray(value) ? value.join('\n') : '';
+}
+
+function textToStringList(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function imageAssetUrl(fileKey: string) {
+  const baseUrl = httpClient.getBaseUrl();
+  const prefix = baseUrl === '/' ? '' : baseUrl.replace(/\/$/, '');
+  return `${prefix}/api/v1/files/image/${encodeURIComponent(fileKey)}`;
+}
+
+function makeCustomImageBinding(): PipelineTemplateImageTextBinding {
+  const suffix = Date.now().toString(36);
+  return {
+    step_id: `custom_${suffix}`,
+    title: '新图文步骤',
+    text: '',
+    file_key: '',
+    image_url: '',
+    trigger_intents: [],
+    enabled: true,
+  };
+}
+
 export default function PipelineTemplateConfigEditor({
   value,
   onChange,
 }: PipelineTemplateConfigEditorProps) {
   const config = normalizeTemplateConfig(value);
+  const [uploadingBindingId, setUploadingBindingId] = useState('');
 
   function patch(next: Partial<PipelineTemplateConfig>) {
     onChange({ ...config, ...next });
@@ -126,6 +161,45 @@ export default function PipelineTemplateConfigEditor({
         bindingIndex === index ? { ...binding, ...next } : binding,
       ),
     });
+  }
+
+  function patchStringList(
+    key: 'knowledge_base_uuids' | 'product_uuids',
+    value: string,
+  ) {
+    patch({ [key]: textToStringList(value) } as Partial<PipelineTemplateConfig>);
+  }
+
+  function addImageTextBinding() {
+    patch({
+      image_text_bindings: [
+        ...config.image_text_bindings,
+        makeCustomImageBinding(),
+      ],
+    });
+  }
+
+  async function uploadImageForBinding(
+    index: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const binding = config.image_text_bindings[index];
+    const bindingId = binding?.step_id || `binding-${index}`;
+    try {
+      setUploadingBindingId(bindingId);
+      const result = await httpClient.uploadImage(file);
+      patchBinding(index, { file_key: result.file_key, image_url: '' });
+      toast.success('图片已上传并绑定');
+    } catch (error) {
+      console.error('Template image upload failed:', error);
+      toast.error('图片上传失败');
+    } finally {
+      setUploadingBindingId('');
+      event.target.value = '';
+    }
   }
 
   const scheduledMessage =
@@ -220,6 +294,47 @@ export default function PipelineTemplateConfigEditor({
             </div>
           </Section>
 
+          {(config.tools.knowledge_base || config.tools.product_database) && (
+            <Section
+              icon={Bot}
+              title="知识和数据"
+              description="开关打开后可以直接填写要关联的知识库或产品库 UUID，每行一个。"
+            >
+              <div className="grid gap-3">
+                {config.tools.knowledge_base && (
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      知识库 UUID
+                    </span>
+                    <Textarea
+                      value={stringListToText(config.knowledge_base_uuids)}
+                      onChange={(event) =>
+                        patchStringList('knowledge_base_uuids', event.target.value)
+                      }
+                      className="min-h-20"
+                      placeholder="每行一个知识库 UUID"
+                    />
+                  </label>
+                )}
+                {config.tools.product_database && (
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      产品库 UUID
+                    </span>
+                    <Textarea
+                      value={stringListToText(config.product_uuids)}
+                      onChange={(event) =>
+                        patchStringList('product_uuids', event.target.value)
+                      }
+                      className="min-h-20"
+                      placeholder="每行一个产品 UUID"
+                    />
+                  </label>
+                )}
+              </div>
+            </Section>
+          )}
+
           <Section icon={Bot} title="记忆">
             <div className="space-y-3">
               {[
@@ -293,6 +408,15 @@ export default function PipelineTemplateConfigEditor({
 
           <Section icon={ImageIcon} title="图片文字绑定">
             <div className="space-y-3">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={addImageTextBinding}
+              >
+                <Plus className="mr-1.5 size-4" />
+                新增图文绑定
+              </Button>
               {config.image_text_bindings.map((binding, index) => (
                 <div key={binding.step_id || index} className="rounded-md border p-3">
                   <div className="mb-2 flex items-center justify-between gap-3">
@@ -312,6 +436,48 @@ export default function PipelineTemplateConfigEditor({
                     className="mb-2 min-h-20"
                     placeholder="步骤说明"
                   />
+                  <input
+                    id={`template-image-${binding.step_id || index}`}
+                    className="hidden"
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => uploadImageForBinding(index, event)}
+                  />
+                  <div className="mb-2 flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={
+                        uploadingBindingId === (binding.step_id || `binding-${index}`)
+                      }
+                      onClick={() =>
+                        document
+                          .getElementById(`template-image-${binding.step_id || index}`)
+                          ?.click()
+                      }
+                    >
+                      <Upload className="mr-1.5 size-4" />
+                      {uploadingBindingId === (binding.step_id || `binding-${index}`)
+                        ? '上传中'
+                        : '直接上传图片'}
+                    </Button>
+                    <Input
+                      value={binding.image_url || ''}
+                      onChange={(event) =>
+                        patchBinding(index, { image_url: event.target.value })
+                      }
+                      placeholder="图片 URL（可选）"
+                    />
+                  </div>
+                  {(binding.image_url || binding.file_key) && (
+                    <div className="mb-2 overflow-hidden rounded-md border bg-muted">
+                      <img
+                        src={binding.image_url || imageAssetUrl(binding.file_key)}
+                        alt={binding.title}
+                        className="max-h-36 w-full object-contain"
+                      />
+                    </div>
+                  )}
                   <Input
                     value={binding.file_key}
                     onChange={(event) => patchBinding(index, { file_key: event.target.value })}

@@ -782,6 +782,76 @@ class TestSendResponseBackStage:
         storage_provider.load.assert_awaited_once_with('task-assistant/ant-af/af_step_01.png')
 
     @pytest.mark.asyncio
+    async def test_send_response_template_mode_uses_template_images_without_mutating_saved_workflow(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Template mode should render images from template config, not the saved workflow graph."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+        from types import SimpleNamespace
+
+        adapter, platform = fake_platform_adapter
+        storage_provider = Mock()
+        storage_provider.load = AsyncMock(return_value=b'uploaded-template-png')
+        pipeline_app.storage_mgr = SimpleNamespace(storage_provider=storage_provider)
+        active_workflow = {
+            'metadata': {'scenario': 'task_assistant_ant_af'},
+            'nodes': [
+                {
+                    'id': 'image_download_qr',
+                    'type': 'image',
+                    'config': {
+                        'file_key': 'uploads/template-step.png',
+                        'step_id': 'download_qr',
+                        'trigger_intents': ['task_overview'],
+                    },
+                },
+            ],
+        }
+        pipeline_app.task_assistant_service = Mock()
+        pipeline_app.task_assistant_service.active_workflow_from_config = Mock(return_value=active_workflow)
+        pipeline_app.task_assistant_service.synthesize_reply_voice = AsyncMock(return_value=None)
+
+        config = create_minimal_pipeline_config()
+        config['config_mode'] = 'template'
+        config['workflow'] = {
+            'metadata': {'scenario': 'custom-workflow'},
+            'nodes': [],
+            'edges': [],
+        }
+        config['template_config'] = {
+            'image_text_bindings': [
+                {
+                    'step_id': 'download_qr',
+                    'file_key': 'uploads/template-step.png',
+                    'trigger_intents': ['task_overview'],
+                    'enabled': True,
+                },
+            ],
+        }
+        query = text_query('鎬庝箞瀹屾垚浠诲姟')
+        query.adapter = adapter
+        query.pipeline_config = config
+        query.variables['workflow_intent'] = {'intent': 'task_overview', 'confidence': 0.91, 'step_ids': ['download_qr']}
+        query.resp_messages = [Message(role='assistant', content='ok')]
+        query.resp_message_chain = [text_chain('ok')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        pipeline_app.task_assistant_service.active_workflow_from_config.assert_called_with(config)
+        assert config['workflow']['nodes'] == []
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        assert [component.type for component in components] == ['Plain', 'Image']
+        assert components[1].base64.startswith('data:image/png;base64,')
+        storage_provider.load.assert_awaited_once_with('uploads/template-step.png')
+
+    @pytest.mark.asyncio
     async def test_send_response_sends_no_task_assistant_image_when_max_images_is_zero(
         self, pipeline_app, fake_platform_adapter
     ):

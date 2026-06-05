@@ -43,7 +43,6 @@ import {
 import PipelineTemplateConfigEditor from '@/app/home/pipelines/components/workflow-editor/PipelineTemplateConfigEditor';
 import PipelineWorkflowEditor from '@/app/home/pipelines/components/workflow-editor/PipelineWorkflowEditor';
 import {
-  applyTemplateConfigToWorkflow,
   createDefaultWorkflow,
   createTaskAssistantTemplateConfig,
 } from '@/app/home/pipelines/components/workflow-editor/workflowTemplates';
@@ -79,6 +78,38 @@ function syncWorkflowModelIntoAIConfig(
     existingModelConfig &&
     typeof existingModelConfig === 'object' &&
     Array.isArray(existingModelConfig.fallbacks)
+      ? existingModelConfig.fallbacks
+      : [];
+
+  return {
+    ...(aiConfig || {}),
+    runner: {
+      ...(aiConfig?.runner || {}),
+      runner: 'local-agent',
+    },
+    ['local-agent']: {
+      ...localAgentConfig,
+      model: {
+        primary: selectedModelUuid,
+        fallbacks: fallbackModels,
+      },
+    },
+  };
+}
+
+function syncTemplateModelIntoAIConfig(
+  templateConfig: PipelineTemplateConfig,
+  aiConfig: Record<string, any> | undefined,
+) {
+  const selectedModelUuid = templateConfig.model_uuid;
+  if (!selectedModelUuid) {
+    return aiConfig || {};
+  }
+
+  const localAgentConfig = aiConfig?.['local-agent'] || {};
+  const existingModelConfig = localAgentConfig.model;
+  const fallbackModels =
+    existingModelConfig && typeof existingModelConfig === 'object' && Array.isArray(existingModelConfig.fallbacks)
       ? existingModelConfig.fallbacks
       : [];
 
@@ -325,12 +356,12 @@ export default function PipelineFormComponent({
       (values.template_config as PipelineTemplateConfig | undefined) ||
       createTaskAssistantTemplateConfig();
     const baseWorkflow = (values.workflow as PipelineWorkflow | undefined) || createDefaultWorkflow();
-    const workflow =
-      configMode === 'template'
-        ? applyTemplateConfigToWorkflow(templateConfig, baseWorkflow)
-        : baseWorkflow;
+    const workflow = baseWorkflow;
     const realConfig = {
-      ai: syncWorkflowModelIntoAIConfig(workflow, values.ai),
+      ai:
+        configMode === 'template'
+          ? syncTemplateModelIntoAIConfig(templateConfig, values.ai)
+          : syncWorkflowModelIntoAIConfig(workflow, values.ai),
       trigger: values.trigger,
       safety: values.safety,
       output: values.output,
@@ -409,10 +440,6 @@ export default function PipelineFormComponent({
     );
   }
 
-  function getWorkflowValue(): PipelineWorkflow {
-    return (form.getValues('workflow') as PipelineWorkflow | undefined) || createDefaultWorkflow();
-  }
-
   function setWorkflowValue(workflow: PipelineWorkflow) {
     form.setValue('workflow', workflow, { shouldDirty: true });
     form.setValue(
@@ -427,13 +454,11 @@ export default function PipelineFormComponent({
     if (mode === 'template') {
       const templateConfig = getTemplateConfigValue();
       form.setValue('template_config', templateConfig, { shouldDirty: true });
-      setWorkflowValue(applyTemplateConfigToWorkflow(templateConfig, getWorkflowValue()));
     }
   }
 
   function handleTemplateConfigChange(templateConfig: PipelineTemplateConfig) {
     form.setValue('template_config', templateConfig, { shouldDirty: true });
-    setWorkflowValue(applyTemplateConfigToWorkflow(templateConfig, getWorkflowValue()));
   }
 
   return (

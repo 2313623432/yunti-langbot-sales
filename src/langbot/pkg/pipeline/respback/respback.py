@@ -65,6 +65,24 @@ class SendResponseBackStage(stage.PipelineStage):
             return {str(item) for item in value if str(item)}
         return set()
 
+    def _active_workflow(self, query: pipeline_query.Query) -> dict[str, Any] | None:
+        pipeline_config = query.pipeline_config if isinstance(query.pipeline_config, dict) else {}
+        task_assistant_service = getattr(self.ap, 'task_assistant_service', None)
+        active_workflow_from_config = getattr(task_assistant_service, 'active_workflow_from_config', None)
+        if callable(active_workflow_from_config):
+            try:
+                workflow = active_workflow_from_config(pipeline_config)
+            except Exception as exc:
+                logger = getattr(self.ap, 'logger', None)
+                if logger is not None:
+                    logger.warning('Failed to resolve active workflow from pipeline config: %s', exc)
+            else:
+                if isinstance(workflow, dict) and workflow:
+                    return workflow
+
+        workflow = pipeline_config.get('workflow')
+        return workflow if isinstance(workflow, dict) else None
+
     async def _image_component(self, file_key: str, image_url: str) -> platform_message.Image:
         if image_url:
             return platform_message.Image(url=image_url)
@@ -85,7 +103,7 @@ class SendResponseBackStage(stage.PipelineStage):
         return platform_message.Image(path=file_key)
 
     async def _matched_image_components(self, query: pipeline_query.Query) -> list[platform_message.MessageComponent]:
-        workflow = query.pipeline_config.get('workflow') if isinstance(query.pipeline_config, dict) else None
+        workflow = self._active_workflow(query)
         if not isinstance(workflow, dict):
             return []
 

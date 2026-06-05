@@ -55,7 +55,7 @@ def test_pipeline_editor_supports_template_and_workflow_modes():
     assert 'PipelineTemplateConfigEditor' in form_source
     assert 'config_mode' in form_source
     assert 'template_config' in form_source
-    assert 'applyTemplateConfigToWorkflow' in form_source
+    assert 'applyTemplateConfigToWorkflow' not in form_source
     assert '模板配置' in form_source
     assert '工作流编排' in form_source
 
@@ -63,6 +63,28 @@ def test_pipeline_editor_supports_template_and_workflow_modes():
     assert 'push_message' in template_source
     assert 'image_text_bindings' in template_source
     assert 'voice_type' in template_source
+
+
+def test_template_mode_keeps_template_and_workflow_configs_independent():
+    form_source = PIPELINE_FORM_PATH.read_text(encoding='utf-8')
+
+    assert 'applyTemplateConfigToWorkflow' not in form_source
+    assert 'const workflow = baseWorkflow' in form_source
+    assert "form.setValue('template_config', templateConfig" in form_source
+    assert "setWorkflowValue(applyTemplateConfigToWorkflow" not in form_source
+
+
+def test_template_config_editor_supports_direct_image_upload_and_expanded_controls():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+
+    assert 'httpClient.uploadImage' in template_source
+    assert 'uploadingBindingId' in template_source
+    assert 'type="file"' in template_source
+    assert 'accept="image/*"' in template_source
+    assert 'imageAssetUrl' in template_source
+    assert 'addImageTextBinding' in template_source
+    assert 'knowledge_base_uuids' in template_source
+    assert 'product_uuids' in template_source
     assert '每天推送' in template_source
     assert '指定单天' in template_source
     assert '图片文字绑定' in template_source

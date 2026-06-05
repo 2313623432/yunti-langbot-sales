@@ -121,14 +121,26 @@ class TaskAssistantService:
         self.ap = ap
         self._session_progress: dict[str, dict[str, Any]] = {}
 
-    def is_task_assistant_pipeline(self, pipeline_config: dict[str, Any] | None) -> bool:
-        if not isinstance(pipeline_config, dict):
-            return False
-        workflow = pipeline_config.get('workflow')
+    def _is_task_assistant_workflow(self, workflow: dict[str, Any] | None) -> bool:
         if not isinstance(workflow, dict):
             return False
         metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
         return metadata.get('scenario') == TASK_ASSISTANT_SCENARIO
+
+    def active_workflow_from_config(self, pipeline_config: dict[str, Any] | None) -> dict[str, Any]:
+        if not isinstance(pipeline_config, dict):
+            return {}
+        if pipeline_config.get('config_mode') == 'template':
+            template_config = pipeline_config.get('template_config')
+            if isinstance(template_config, dict):
+                return self.build_workflow_from_template_config(template_config)
+        workflow = pipeline_config.get('workflow')
+        return workflow if isinstance(workflow, dict) else {}
+
+    def is_task_assistant_pipeline(self, pipeline_config: dict[str, Any] | None) -> bool:
+        if not isinstance(pipeline_config, dict):
+            return False
+        return self._is_task_assistant_workflow(self.active_workflow_from_config(pipeline_config))
 
     async def prepare_query(self, query: pipeline_query.Query) -> dict[str, Any]:
         if not self.is_task_assistant_pipeline(getattr(query, 'pipeline_config', None)):
@@ -491,8 +503,8 @@ class TaskAssistantService:
         query.user_message = provider_message.Message(role='user', content=content)
 
     async def synthesize_reply_voice(self, query: pipeline_query.Query, text: str) -> str | None:
-        workflow = query.pipeline_config.get('workflow') if isinstance(query.pipeline_config, dict) else {}
-        if not self.is_task_assistant_pipeline(query.pipeline_config):
+        workflow = self.active_workflow_from_config(query.pipeline_config)
+        if not self._is_task_assistant_workflow(workflow):
             return None
         if not query.variables.get('task_assistant_voice_reply'):
             return None
@@ -580,9 +592,11 @@ class TaskAssistantService:
         template_config = self.build_template_config(
             overrides=existing_template if isinstance(existing_template, dict) else None,
         )
+        existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else None
         config['config_mode'] = 'template'
         config['template_config'] = template_config
-        config['workflow'] = self.build_workflow_from_template_config(template_config)
+        if isinstance(existing_workflow, dict) and existing_workflow:
+            config['workflow'] = existing_workflow
         return config
 
     def build_template_config(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -655,6 +669,11 @@ class TaskAssistantService:
     def build_workflow_from_template_config(self, template_config: dict[str, Any]) -> dict[str, Any]:
         voice_overrides = template_config.get('voice') if isinstance(template_config.get('voice'), dict) else None
         workflow = self.build_workflow_config(voice_overrides=voice_overrides)
+        if isinstance(voice_overrides, dict):
+            workflow_voice = workflow.setdefault('voice', {})
+            for key, value in voice_overrides.items():
+                if value is not None:
+                    workflow_voice[key] = value
         workflow['name'] = str(template_config.get('name') or '任务助手模板配置版')
         metadata = workflow.setdefault('metadata', {})
         metadata['source_mode'] = 'template'
@@ -680,6 +699,9 @@ class TaskAssistantService:
                     continue
                 config = node.setdefault('config', {})
                 step_id = str(config.get('step_id') or '')
+                node_id = str(node.get('id') or '')
+                if not step_id and node_id.startswith('image_'):
+                    step_id = node_id.removeprefix('image_')
                 binding = binding_by_step.get(step_id)
                 if not binding:
                     continue
@@ -688,11 +710,16 @@ class TaskAssistantService:
                     node['description'] = str(binding.get('text') or node.get('description') or '')
                     config['instruction'] = str(binding.get('text') or config.get('instruction') or '')
                     config['enabled'] = binding.get('enabled', True)
+                    if isinstance(binding.get('trigger_intents'), list):
+                        config['trigger_intents'] = binding['trigger_intents']
                 elif node.get('type') == 'image':
                     node['title'] = str(binding.get('title') or node.get('title') or '')
                     config['file_key'] = str(binding.get('file_key') or config.get('file_key') or '')
+                    config['image_url'] = str(binding.get('image_url') or config.get('image_url') or '')
                     config['caption'] = str(binding.get('title') or config.get('caption') or '')
                     config['enabled'] = binding.get('enabled', True)
+                    if isinstance(binding.get('trigger_intents'), list):
+                        config['trigger_intents'] = binding['trigger_intents']
 
         scheduled_push = template_config.get('scheduled_push')
         if isinstance(scheduled_push, dict):

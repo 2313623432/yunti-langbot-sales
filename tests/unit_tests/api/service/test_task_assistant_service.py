@@ -265,7 +265,7 @@ def test_task_assistant_template_pipeline_config_matches_workflow_capabilities()
     assert config['config_mode'] == 'template'
     assert config['ai']['local-agent']['model']['primary'] == TASK_ASSISTANT_MODEL_UUID
     assert config['workflow']['metadata']['scenario'] == 'task_assistant_ant_af'
-    assert config['workflow']['metadata']['source_mode'] == 'template'
+    assert 'source_mode' not in config['workflow']['metadata']
     template_config = config['template_config']
     assert template_config['name'] == '任务助手模板配置版'
     assert template_config['scheduled_push']['mode'] == 'daily'
@@ -277,6 +277,67 @@ def test_task_assistant_template_pipeline_config_matches_workflow_capabilities()
     assert first_binding['step_id'] == 'download_qr'
     assert first_binding['text']
     assert first_binding['file_key'].endswith('af_step_01.png')
+
+
+def test_task_assistant_template_pipeline_preserves_existing_workflow():
+    service = TaskAssistantService(SimpleNamespace())
+    existing_workflow = {
+        'version': 1,
+        'name': 'custom workflow kept independent',
+        'metadata': {'scenario': 'custom'},
+        'nodes': [],
+        'edges': [],
+    }
+
+    config = service.build_template_pipeline_config(
+        existing_config={
+            'workflow': existing_workflow,
+            'template_config': {'name': 'template changed only'},
+        },
+    )
+
+    assert config['workflow'] == existing_workflow
+    assert config['template_config']['name'] == 'template changed only'
+
+
+def test_template_mode_active_workflow_uses_template_config_without_mutating_saved_workflow():
+    service = TaskAssistantService(SimpleNamespace())
+    saved_workflow = {
+        'version': 1,
+        'metadata': {'scenario': 'custom-workflow'},
+        'nodes': [],
+        'edges': [],
+    }
+    template_config = service.build_template_config(
+        overrides={
+            'voice': {'app_id': 'template-app', 'token': 'template-token'},
+            'image_text_bindings': [
+                {
+                    'step_id': 'download_qr',
+                    'title': 'custom uploaded step',
+                    'text': 'custom uploaded text',
+                    'file_key': 'uploads/custom-step.png',
+                    'trigger_intents': ['task_overview'],
+                    'enabled': True,
+                },
+            ],
+        }
+    )
+    pipeline_config = {
+        'config_mode': 'template',
+        'workflow': saved_workflow,
+        'template_config': template_config,
+    }
+
+    active_workflow = service.active_workflow_from_config(pipeline_config)
+
+    assert active_workflow is not saved_workflow
+    assert active_workflow['metadata']['scenario'] == 'task_assistant_ant_af'
+    assert active_workflow['voice']['app_id'] == 'template-app'
+    image_node = next(node for node in active_workflow['nodes'] if node['id'] == 'image_download_qr')
+    assert image_node['config']['file_key'] == 'uploads/custom-step.png'
+    assert saved_workflow['nodes'] == []
+    assert service.is_task_assistant_pipeline(pipeline_config) is True
 
 
 @pytest.mark.asyncio
@@ -299,6 +360,38 @@ async def test_synthesize_reply_voice_uses_lark_friendly_ogg_opus_by_default():
     assert result == 'data:audio/ogg;base64,ZmFrZS1hdWRpbw=='
     service._request_volcengine_tts.assert_awaited_once()
     assert service._request_volcengine_tts.await_args.kwargs['encoding'] == 'ogg_opus'
+
+
+@pytest.mark.asyncio
+async def test_synthesize_reply_voice_uses_template_voice_config_in_template_mode():
+    logger = SimpleNamespace(warning=Mock())
+    service = TaskAssistantService(SimpleNamespace(logger=logger))
+    service._request_volcengine_tts = AsyncMock(return_value='ZmFrZS10ZW1wbGF0ZQ==')
+    query = SimpleNamespace(
+        variables={'task_assistant_voice_reply': True},
+        pipeline_config={
+            'config_mode': 'template',
+            'workflow': {'metadata': {'scenario': 'custom-workflow'}, 'voice': {'app_id': 'saved-app'}},
+            'template_config': {
+                'voice': {
+                    'enabled': True,
+                    'app_id': 'template-app',
+                    'token': 'template-token',
+                    'voice_type': 'template-voice',
+                    'encoding': 'ogg_opus',
+                },
+            },
+        },
+    )
+
+    result = await service.synthesize_reply_voice(query, '下一步我带你点实名认证。')
+
+    assert result == 'data:audio/ogg;base64,ZmFrZS10ZW1wbGF0ZQ=='
+    service._request_volcengine_tts.assert_awaited_once()
+    kwargs = service._request_volcengine_tts.await_args.kwargs
+    assert kwargs['app_id'] == 'template-app'
+    assert kwargs['token'] == 'template-token'
+    assert kwargs['voice_type'] == 'template-voice'
 
 
 def test_parse_volcengine_tts_ws_audio_message_returns_audio_and_final_state():
