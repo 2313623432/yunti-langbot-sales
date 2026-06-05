@@ -13,6 +13,7 @@ TEMPLATE_CONFIG_EDITOR_PATH = Path(
 WORKFLOW_TEMPLATES_PATH = Path(
     'web/src/app/home/pipelines/components/workflow-editor/workflowTemplates.ts'
 )
+WORKFLOWS_PAGE_PATH = Path('web/src/app/home/workflows/page.tsx')
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -110,3 +111,11 @@ def test_node_library_is_on_demand_instead_of_persistent_sidebar():
     assert 'setLeftPanelCollapsed' not in source
     assert 'PanelLeftOpen' not in source
     assert 'PanelLeftClose' not in source
+
+
+def test_workflow_creation_settings_do_not_bind_agent():
+    source = WORKFLOWS_PAGE_PATH.read_text(encoding='utf-8')
+
+    assert 'boundAgent' not in source
+    assert '绑定 AI Agent' not in source
+    assert '绑定 Agent' not in source

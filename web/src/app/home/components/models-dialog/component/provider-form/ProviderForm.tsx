@@ -30,6 +30,14 @@ import { toast } from 'sonner';
 import { extractI18nObject } from '@/i18n/I18nProvider';
 import { CustomApiError } from '@/app/infra/entities/common';
 
+const DEFAULT_REQUESTER = 'openai-chat-completions';
+const RECOMMENDED_REQUESTERS = [
+  DEFAULT_REQUESTER,
+  'anthropic-messages',
+  'ollama-chat',
+  'lmstudio-chat-completions',
+];
+
 const getFormSchema = (t: (key: string) => string) =>
   z.object({
     name: z.string().min(1, { message: t('models.providerNameRequired') }),
@@ -72,6 +80,20 @@ export default function ProviderForm({
     }[]
   >([]);
 
+  function getRequesterLabel(requester: { label: string; value: string }) {
+    if (requester.value === 'openai-chat-completions') {
+      return t('models.openaiCompatible');
+    }
+    if (requester.value === 'anthropic-messages') {
+      return t('models.anthropicCompatible');
+    }
+    return requester.label;
+  }
+
+  function isRecommendedRequester(requester: { value: string }) {
+    return RECOMMENDED_REQUESTERS.includes(requester.value);
+  }
+
   useEffect(() => {
     async function init() {
       await loadRequesters();
@@ -84,19 +106,46 @@ export default function ProviderForm({
 
   async function loadRequesters() {
     const resp = await httpClient.getProviderRequesters();
-    setRequesterList(
-      resp.requesters
-        .filter((item) => item.name !== 'space-chat-completions')
-        .map((item) => ({
-          label: extractI18nObject(item.label),
-          value: item.name,
-          category: item.spec.provider_category || 'manufacturer',
-          defaultUrl:
-            item.spec.config
-              .find((c) => c.name === 'base_url')
-              ?.default?.toString() || '',
-          description: extractI18nObject(item.description),
-        })),
+    const requesters = resp.requesters
+      .filter((item) => item.name !== 'space-chat-completions')
+      .map((item) => ({
+        label: extractI18nObject(item.label),
+        value: item.name,
+        category: item.spec.provider_category || 'manufacturer',
+        defaultUrl:
+          item.spec.config
+            .find((c) => c.name === 'base_url')
+            ?.default?.toString() || '',
+        description: extractI18nObject(item.description),
+      }));
+
+    setRequesterList(requesters);
+
+    if (!providerId && !form.getValues('requester')) {
+      const defaultRequester =
+        requesters.find((item) => item.value === DEFAULT_REQUESTER) ||
+        requesters.find(isRecommendedRequester);
+      if (defaultRequester) {
+        form.setValue('requester', defaultRequester.value);
+        form.setValue('base_url', defaultRequester.defaultUrl);
+      }
+    }
+  }
+
+  function renderRequesterOption(requester: { label: string; value: string }) {
+    const label = getRequesterLabel(requester);
+
+    return (
+      <SelectItem key={requester.value} value={requester.value}>
+        <div className="flex items-center gap-2">
+          <img
+            src={httpClient.getProviderRequesterIconURL(requester.value)}
+            alt={label}
+            className="h-5 w-5 rounded"
+          />
+          <span>{label}</span>
+        </div>
+      </SelectItem>
     );
   }
 
@@ -148,7 +197,10 @@ export default function ProviderForm({
                 <span className="text-red-500">*</span>
               </FormLabel>
               <FormControl>
-                <Input {...field} />
+                <Input
+                  {...field}
+                  placeholder={t('models.providerNamePlaceholder')}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -161,6 +213,15 @@ export default function ProviderForm({
           render={({ field }) => {
             const selectedRequester = requesterList.find(
               (r) => r.value === field.value,
+            );
+            const recommendedRequesters = requesterList.filter(
+              isRecommendedRequester,
+            );
+            const builtinRequesters = requesterList.filter(
+              (r) => r.category === 'builtin',
+            );
+            const otherRequesters = requesterList.filter(
+              (r) => !isRecommendedRequester(r) && r.category !== 'builtin',
             );
             return (
               <FormItem>
@@ -185,99 +246,46 @@ export default function ProviderForm({
                           src={httpClient.getProviderRequesterIconURL(
                             selectedRequester.value,
                           )}
-                          alt={selectedRequester.label}
+                          alt={getRequesterLabel(selectedRequester)}
                           className="h-5 w-5 rounded"
                         />
-                        <span>{selectedRequester.label}</span>
+                        <span>{getRequesterLabel(selectedRequester)}</span>
                       </div>
                     ) : (
                       <SelectValue placeholder={t('models.selectRequester')} />
                     )}
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectGroup>
-                      <SelectLabel>{t('models.builtin')}</SelectLabel>
-                      {requesterList
-                        .filter((r) => r.category === 'builtin')
-                        .map((r) => (
-                          <SelectItem key={r.value} value={r.value}>
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={httpClient.getProviderRequesterIconURL(
-                                  r.value,
-                                )}
-                                alt={r.label}
-                                className="h-5 w-5 rounded"
-                              />
-                              <span>{r.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                    </SelectGroup>
-                    <SelectGroup>
-                      <SelectLabel>{t('models.modelManufacturer')}</SelectLabel>
-                      {requesterList
-                        .filter((r) => r.category === 'manufacturer')
-                        .map((r) => (
-                          <SelectItem key={r.value} value={r.value}>
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={httpClient.getProviderRequesterIconURL(
-                                  r.value,
-                                )}
-                                alt={r.label}
-                                className="h-5 w-5 rounded"
-                              />
-                              <span>{r.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                    </SelectGroup>
-                    <SelectGroup>
-                      <SelectLabel>
-                        {t('models.aggregationPlatform')}
-                      </SelectLabel>
-                      {requesterList
-                        .filter((r) => r.category === 'maas')
-                        .map((r) => (
-                          <SelectItem key={r.value} value={r.value}>
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={httpClient.getProviderRequesterIconURL(
-                                  r.value,
-                                )}
-                                alt={r.label}
-                                className="h-5 w-5 rounded"
-                              />
-                              <span>{r.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                    </SelectGroup>
-                    <SelectGroup>
-                      <SelectLabel>{t('models.selfDeployed')}</SelectLabel>
-                      {requesterList
-                        .filter((r) => r.category === 'self-hosted')
-                        .map((r) => (
-                          <SelectItem key={r.value} value={r.value}>
-                            <div className="flex items-center gap-2">
-                              <img
-                                src={httpClient.getProviderRequesterIconURL(
-                                  r.value,
-                                )}
-                                alt={r.label}
-                                className="h-5 w-5 rounded"
-                              />
-                              <span>{r.label}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                    </SelectGroup>
+                    {recommendedRequesters.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>
+                          {t('models.recommendedProtocols')}
+                        </SelectLabel>
+                        {recommendedRequesters.map(renderRequesterOption)}
+                      </SelectGroup>
+                    )}
+                    {otherRequesters.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>
+                          {t('models.otherProtocolAdapters')}
+                        </SelectLabel>
+                        {otherRequesters.map(renderRequesterOption)}
+                      </SelectGroup>
+                    )}
+                    {builtinRequesters.length > 0 && (
+                      <SelectGroup>
+                        <SelectLabel>{t('models.builtin')}</SelectLabel>
+                        {builtinRequesters.map(renderRequesterOption)}
+                      </SelectGroup>
+                    )}
                   </SelectContent>
                 </Select>
                 <FormMessage />
+                <p className="text-sm text-muted-foreground">
+                  {t('models.requesterHint')}
+                </p>
                 {selectedRequester?.description && (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     {selectedRequester.description}
                   </p>
                 )}
