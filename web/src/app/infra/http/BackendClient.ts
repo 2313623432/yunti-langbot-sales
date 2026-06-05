@@ -305,6 +305,11 @@ export class BackendClient extends BaseHttpClient {
     pipelineId: string,
     imageFile: File,
   ): Promise<{ file_key: string }> {
+    void pipelineId;
+    return this.uploadImage(imageFile);
+  }
+
+  public async uploadImage(imageFile: File): Promise<{ file_key: string }> {
     const formData = new FormData();
     formData.append('file', imageFile);
 
@@ -939,6 +944,22 @@ export class BackendClient extends BaseHttpClient {
 
   public getSalesHandoffs(status?: string): Promise<{ handoffs: SalesHandoff[] }> {
     return this.get('/api/v1/sales/handoffs', status ? { status } : undefined);
+  }
+
+  public openSalesHandoffFromSession(data: {
+    session_id: string;
+    reason?: string;
+    assigned_to?: string;
+  }): Promise<{ handoff: SalesHandoff }> {
+    return this.post('/api/v1/sales/handoffs/from-session', data);
+  }
+
+  public replySalesHandoffFromSession(data: {
+    session_id: string;
+    reply: string;
+    assigned_to?: string;
+  }): Promise<{ sent: boolean; handoff_id: number }> {
+    return this.post('/api/v1/sales/handoffs/from-session/reply', data);
   }
 
   public replySalesHandoff(

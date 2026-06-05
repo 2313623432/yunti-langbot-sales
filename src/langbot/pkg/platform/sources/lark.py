@@ -61,17 +61,67 @@ class AESCipher(object):
 
 class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
     @staticmethod
+    def _decode_base64_media_data(data: str) -> tuple[bytes, str | None]:
+        mime_type = None
+        base64_data = data
+        if data.startswith('data:') and ',' in data:
+            metadata, base64_data = data.split(',', 1)
+            match = re.match(r'data:([^;]+);base64', metadata)
+            if match:
+                mime_type = match.group(1)
+
+        cleaned_data = re.sub(r'\s+', '', base64_data)
+        cleaned_data += '=' * (-len(cleaned_data) % 4)
+        return base64.b64decode(cleaned_data), mime_type
+
+    @staticmethod
+    def _image_suffix_for_upload(mime_type: str | None, image_bytes: bytes) -> str:
+        suffix = mimetypes.guess_extension(mime_type or '') if mime_type else None
+        if suffix == '.jpe':
+            suffix = '.jpg'
+        if suffix:
+            return suffix
+        if image_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+            return '.png'
+        if image_bytes.startswith(b'\xff\xd8\xff'):
+            return '.jpg'
+        if image_bytes.startswith(b'GIF8'):
+            return '.gif'
+        if image_bytes.startswith(b'RIFF') and image_bytes[8:12] == b'WEBP':
+            return '.webp'
+        return '.png'
+
+    @staticmethod
+    def _mime_type_from_media_source(source: str | None) -> str | None:
+        if not source:
+            return None
+        if source.startswith('data:'):
+            match = re.match(r'data:([^;]+);base64', source)
+            if match:
+                return match.group(1)
+            return None
+        return mimetypes.guess_type(source)[0]
+
+    @staticmethod
+    def _voice_upload_options(source: str | None) -> dict[str, str]:
+        mime_type = LarkMessageConverter._mime_type_from_media_source(source)
+        if mime_type in {'audio/ogg', 'audio/opus'}:
+            return {'file_type': 'opus', 'file_name': 'voice.opus'}
+        if mime_type in {'audio/mpeg', 'audio/mp3'}:
+            return {'file_type': 'stream', 'file_name': 'voice.mp3'}
+        if mime_type == 'audio/wav':
+            return {'file_type': 'stream', 'file_name': 'voice.wav'}
+        return {'file_type': 'opus', 'file_name': 'voice.opus'}
+
+    @staticmethod
     async def upload_image_to_lark(msg: platform_message.Image, api_client: lark_oapi.Client) -> typing.Optional[str]:
         """Upload an image to Lark and return the image_key, or None if upload fails."""
         image_bytes = None
+        mime_type = None
 
         if msg.base64:
             try:
-                # Remove data URL prefix if present
-                base64_data = msg.base64
-                if base64_data.startswith('data:'):
-                    base64_data = base64_data.split(',', 1)[1]
-                image_bytes = base64.b64decode(base64_data)
+                image_bytes, mime_type = LarkMessageConverter._decode_base64_media_data(msg.base64)
             except Exception as e:
                 print(f'Failed to decode base64 image: {e}')
                 traceback.print_exc()
@@ -82,6 +132,7 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
                 async with session.get(msg.url) as response:
                     if response.status == 200:
                         image_bytes = await response.read()
+                        mime_type = response.headers.get('Content-Type') or mimetypes.guess_type(msg.url)[0]
                     else:
                         print(f'Failed to download image from {msg.url}: HTTP {response.status}')
                         return None
@@ -93,6 +144,7 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
             try:
                 with open(msg.path, 'rb') as f:
                     image_bytes = f.read()
+                mime_type = mimetypes.guess_type(msg.path)[0]
             except Exception as e:
                 print(f'Failed to read image from path {msg.path}: {e}')
                 traceback.print_exc()
@@ -105,26 +157,24 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
             return None
 
         try:
-            # Create a temporary file to store the image bytes
-            import tempfile
-            import os
-
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            suffix = LarkMessageConverter._image_suffix_for_upload(mime_type, image_bytes)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
                 temp_file.write(image_bytes)
                 temp_file.flush()
                 temp_file_path = temp_file.name
 
             try:
                 # Create image request using the temporary file
-                request = (
-                    CreateImageRequest.builder()
-                    .request_body(
-                        CreateImageRequestBody.builder().image_type('message').image(open(temp_file_path, 'rb')).build()
+                with open(temp_file_path, 'rb') as image_file:
+                    request = (
+                        CreateImageRequest.builder()
+                        .request_body(
+                            CreateImageRequestBody.builder().image_type('message').image(image_file).build()
+                        )
+                        .build()
                     )
-                    .build()
-                )
 
-                response = await api_client.im.v1.image.acreate(request)
+                    response = await api_client.im.v1.image.acreate(request)
 
                 if not response.success():
                     print(
@@ -159,23 +209,25 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
             duration: Duration in milliseconds (for audio files).
         """
         try:
-            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            suffix = os.path.splitext(file_name)[1]
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
                 temp_file.write(file_bytes)
                 temp_file_path = temp_file.name
 
             try:
-                body_builder = (
-                    CreateFileRequestBody.builder()
-                    .file_type(file_type)
-                    .file_name(file_name)
-                    .file(open(temp_file_path, 'rb'))
-                )
-                if duration is not None:
-                    body_builder = body_builder.duration(duration)
+                with open(temp_file_path, 'rb') as upload_file:
+                    body_builder = (
+                        CreateFileRequestBody.builder()
+                        .file_type(file_type)
+                        .file_name(file_name)
+                        .file(upload_file)
+                    )
+                    if duration is not None:
+                        body_builder = body_builder.duration(duration)
 
-                request = CreateFileRequest.builder().request_body(body_builder.build()).build()
+                    request = CreateFileRequest.builder().request_body(body_builder.build()).build()
 
-                response = await api_client.im.v1.file.acreate(request)
+                    response = await api_client.im.v1.file.acreate(request)
 
                 if not response.success():
                     print(
@@ -200,10 +252,7 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
 
         if msg.base64:
             try:
-                base64_str = msg.base64
-                if ',' in base64_str:
-                    base64_str = base64_str.split(',', 1)[1]
-                data = base64.b64decode(base64_str)
+                data, _ = LarkMessageConverter._decode_base64_media_data(msg.base64)
             except Exception:
                 pass
         elif msg.url:
@@ -311,11 +360,18 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
                 data = await LarkMessageConverter._get_media_bytes(msg)
                 if data:
                     duration = int(msg.length * 1000) if msg.length else None
+                    source = msg.base64 or msg.url or msg.path
+                    upload_options = LarkMessageConverter._voice_upload_options(source)
                     file_key = await LarkMessageConverter.upload_file_to_lark(
-                        data, api_client, file_type='opus', file_name='voice.opus', duration=duration
+                        data,
+                        api_client,
+                        file_type=upload_options['file_type'],
+                        file_name=upload_options['file_name'],
+                        duration=duration if upload_options['file_type'] == 'opus' else None,
                     )
                     if file_key:
-                        media_items.append({'msg_type': 'audio', 'content': {'file_key': file_key}})
+                        msg_type = 'audio' if upload_options['file_type'] == 'opus' else 'file'
+                        media_items.append({'msg_type': msg_type, 'content': {'file_key': file_key}})
             elif isinstance(msg, platform_message.File):
                 data = await LarkMessageConverter._get_media_bytes(msg)
                 if data:

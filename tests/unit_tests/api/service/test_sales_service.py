@@ -121,6 +121,13 @@ class _FakeResult:
     def first(self):
         return self.row
 
+    def all(self):
+        if self.row is None:
+            return []
+        if isinstance(self.row, list):
+            return self.row
+        return [self.row]
+
 
 class _FakePersistenceManager:
     def __init__(self, handoff):
@@ -179,3 +186,83 @@ async def test_ensure_default_products_ignores_concurrent_duplicate_inserts():
     await service.ensure_default_products()
 
     assert persistence_mgr.insert_count >= 1
+
+
+class _SessionHandoffPersistence:
+    def __init__(self, session, message, handoff=None):
+        self.results = [_FakeResult(session), _FakeResult(message), _FakeResult(handoff)]
+        self.insert_values = None
+        self.update_values = None
+
+    async def execute_async(self, statement):
+        if getattr(statement, 'is_insert', False):
+            self.insert_values = dict(statement.compile().params)
+            return _FakeResult(None)
+        if getattr(statement, 'is_update', False):
+            self.update_values = dict(statement.compile().params)
+            return _FakeResult(None)
+        return self.results.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_open_handoff_from_monitoring_session_creates_open_handoff():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        platform='person',
+        user_id='customer-1',
+        user_name='Alice',
+    )
+    message = SimpleNamespace(message_content='I need help from sales')
+    persistence_mgr = _SessionHandoffPersistence(session, message)
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    handoff = await service.open_handoff_from_session('person_customer-1', 'Manual takeover', 'sales-admin')
+
+    assert handoff['session_id'] == 'person_customer-1'
+    assert handoff['bot_uuid'] == 'bot-uuid'
+    assert handoff['target_type'] == 'person'
+    assert handoff['target_id'] == 'customer-1'
+    assert handoff['reason'] == 'Manual takeover'
+    assert handoff['last_message'] == 'I need help from sales'
+    assert handoff['assigned_to'] == 'sales-admin'
+    assert persistence_mgr.insert_values['status'] == 'open'
+
+
+@pytest.mark.asyncio
+async def test_open_handoff_from_monitoring_session_reuses_existing_open_handoff():
+    session = SimpleNamespace(
+        session_id='group_room-1',
+        bot_id='bot-uuid',
+        platform='group',
+        user_id='customer-1',
+        user_name='Alice',
+    )
+    message = SimpleNamespace(message_content='Latest customer message')
+    existing = SimpleNamespace(id=9)
+    persistence_mgr = _SessionHandoffPersistence(session, message, existing)
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    handoff = await service.open_handoff_from_session('group_room-1')
+
+    assert handoff['id'] == 9
+    assert handoff['target_type'] == 'group'
+    assert handoff['target_id'] == 'room-1'
+    assert handoff['reason'] == '人工主动介入'
+    assert persistence_mgr.insert_values is None
+    assert persistence_mgr.update_values['last_message'] == 'Latest customer message'
+
+
+@pytest.mark.asyncio
+async def test_reply_handoff_from_session_opens_then_replies(monkeypatch):
+    service = SalesService(SimpleNamespace())
+    open_handoff = AsyncMock(return_value={'id': 7})
+    reply_handoff = AsyncMock()
+    monkeypatch.setattr(service, 'open_handoff_from_session', open_handoff)
+    monkeypatch.setattr(service, 'reply_handoff', reply_handoff)
+
+    result = await service.reply_handoff_from_session('person_customer-1', '人工已接入', 'sales-admin')
+
+    assert result == {'sent': True, 'handoff_id': 7}
+    open_handoff.assert_awaited_once_with('person_customer-1', '人工直接回复', 'sales-admin')
+    reply_handoff.assert_awaited_once_with(7, '人工已接入', 'sales-admin')

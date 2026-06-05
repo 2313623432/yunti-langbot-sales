@@ -63,6 +63,35 @@ class SalesRouterGroup(group.RouterGroup):
             status = quart.request.args.get('status')
             return self.success(data={'handoffs': await self.ap.sales_service.get_handoffs(status=status)})
 
+        @self.route('/handoffs/from-session', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            data = await quart.request.json
+            session_id = data.get('session_id', '').strip()
+            if not session_id:
+                return self.http_status(400, -1, 'session_id is required')
+            handoff = await self.ap.sales_service.open_handoff_from_session(
+                session_id,
+                data.get('reason', '人工主动介入'),
+                data.get('assigned_to', ''),
+            )
+            return self.success(data={'handoff': handoff})
+
+        @self.route('/handoffs/from-session/reply', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            data = await quart.request.json
+            session_id = data.get('session_id', '').strip()
+            reply = data.get('reply', '').strip()
+            if not session_id:
+                return self.http_status(400, -1, 'session_id is required')
+            if not reply:
+                return self.http_status(400, -1, 'reply is required')
+            result = await self.ap.sales_service.reply_handoff_from_session(
+                session_id,
+                reply,
+                data.get('assigned_to', ''),
+            )
+            return self.success(data=result)
+
         @self.route('/handoffs/<int:handoff_id>/reply', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _(handoff_id: int) -> str:
             data = await quart.request.json

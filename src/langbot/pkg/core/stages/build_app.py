@@ -30,6 +30,7 @@ from ...api.http.service import webhook as webhook_service
 from ...api.http.service import monitoring as monitoring_service
 from ...api.http.service import maintenance as maintenance_service
 from ...api.http.service import sales as sales_service
+from ...api.http.service import task_assistant as task_assistant_service
 from ...discover import engine as discover_engine
 from ...storage import mgr as storagemgr
 from ...utils import logcache
@@ -90,6 +91,9 @@ class BuildAppStage(stage.BootingStage):
         sales_service_inst = sales_service.SalesService(ap)
         ap.sales_service = sales_service_inst
 
+        task_assistant_service_inst = task_assistant_service.TaskAssistantService(ap)
+        ap.task_assistant_service = task_assistant_service_inst
+
         proxy_mgr = proxy.ProxyManager(ap)
         await proxy_mgr.initialize()
         ap.proxy_mgr = proxy_mgr
@@ -110,6 +114,7 @@ class BuildAppStage(stage.BootingStage):
         persistence_mgr_inst = persistencemgr.PersistenceManager(ap)
         ap.persistence_mgr = persistence_mgr_inst
         await persistence_mgr_inst.initialize()
+        await task_assistant_service_inst.ensure_default_resources()
 
         # Telemetry manager: attach to app so other components can call via self.ap.telemetry
         telemetry_inst = telemetry_module.TelemetryManager(ap)
