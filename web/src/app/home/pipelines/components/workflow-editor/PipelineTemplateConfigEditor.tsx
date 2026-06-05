@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   Bot,
   CalendarClock,
@@ -11,6 +11,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { httpClient } from '@/app/infra/http/HttpClient';
+import { useSidebarData } from '@/app/home/components/home-sidebar/SidebarDataContext';
+import { SalesProduct } from '@/app/infra/entities/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -94,17 +96,6 @@ function Section({
   );
 }
 
-function stringListToText(value?: string[]) {
-  return Array.isArray(value) ? value.join('\n') : '';
-}
-
-function textToStringList(value: string) {
-  return value
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function imageAssetUrl(fileKey: string) {
   const baseUrl = httpClient.getBaseUrl();
   const prefix = baseUrl === '/' ? '' : baseUrl.replace(/\/$/, '');
@@ -129,7 +120,16 @@ export default function PipelineTemplateConfigEditor({
   onChange,
 }: PipelineTemplateConfigEditorProps) {
   const config = normalizeTemplateConfig(value);
+  const { knowledgeBases } = useSidebarData();
+  const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
   const [uploadingBindingId, setUploadingBindingId] = useState('');
+
+  useEffect(() => {
+    httpClient
+      .getSalesProducts()
+      .then((resp) => setSalesProducts(resp.products || []))
+      .catch((error) => console.warn('Failed to load sales products', error));
+  }, []);
 
   function patch(next: Partial<PipelineTemplateConfig>) {
     onChange({ ...config, ...next });
@@ -163,11 +163,16 @@ export default function PipelineTemplateConfigEditor({
     });
   }
 
-  function patchStringList(
+  function toggleTemplateListValue(
     key: 'knowledge_base_uuids' | 'product_uuids',
     value: string,
   ) {
-    patch({ [key]: textToStringList(value) } as Partial<PipelineTemplateConfig>);
+    if (!value) return;
+    const current = Array.isArray(config[key]) ? config[key] : [];
+    const next = current.includes(value)
+      ? current.filter((item) => item !== value)
+      : [...current, value];
+    patch({ [key]: next } as Partial<PipelineTemplateConfig>);
   }
 
   function addImageTextBinding() {
@@ -298,38 +303,88 @@ export default function PipelineTemplateConfigEditor({
             <Section
               icon={Bot}
               title="知识和数据"
-              description="开关打开后可以直接填写要关联的知识库或产品库 UUID，每行一个。"
+              description="开关打开后直接选择已有知识库和产品库，不需要手填 ID。"
             >
               <div className="grid gap-3">
                 {config.tools.knowledge_base && (
-                  <label className="space-y-1">
+                  <div className="space-y-2">
                     <span className="text-xs font-medium text-muted-foreground">
-                      知识库 UUID
+                      关联知识库
                     </span>
-                    <Textarea
-                      value={stringListToText(config.knowledge_base_uuids)}
-                      onChange={(event) =>
-                        patchStringList('knowledge_base_uuids', event.target.value)
-                      }
-                      className="min-h-20"
-                      placeholder="每行一个知识库 UUID"
-                    />
-                  </label>
+                    <div className="grid gap-2">
+                      {knowledgeBases.map((kb) => (
+                        <button
+                          key={kb.id}
+                          type="button"
+                          onClick={() =>
+                            toggleTemplateListValue('knowledge_base_uuids', kb.id)
+                          }
+                          className={cn(
+                            'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors',
+                            config.knowledge_base_uuids.includes(kb.id)
+                              ? 'border-blue-300 bg-blue-50 text-blue-950'
+                              : 'border-slate-200 bg-white hover:bg-slate-50',
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate">{kb.name}</span>
+                            {kb.description && (
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {kb.description}
+                              </span>
+                            )}
+                          </span>
+                          {config.knowledge_base_uuids.includes(kb.id) && (
+                            <Badge>已选</Badge>
+                          )}
+                        </button>
+                      ))}
+                      {!knowledgeBases.length && (
+                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                          暂无知识库，请先在左侧知识库中创建
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
                 {config.tools.product_database && (
-                  <label className="space-y-1">
+                  <div className="space-y-2">
                     <span className="text-xs font-medium text-muted-foreground">
-                      产品库 UUID
+                      关联产品
                     </span>
-                    <Textarea
-                      value={stringListToText(config.product_uuids)}
-                      onChange={(event) =>
-                        patchStringList('product_uuids', event.target.value)
-                      }
-                      className="min-h-20"
-                      placeholder="每行一个产品 UUID"
-                    />
-                  </label>
+                    <div className="grid gap-2">
+                      {salesProducts.map((product) => (
+                        <button
+                          key={product.uuid}
+                          type="button"
+                          onClick={() =>
+                            toggleTemplateListValue('product_uuids', product.uuid || '')
+                          }
+                          className={cn(
+                            'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors',
+                            config.product_uuids.includes(product.uuid || '')
+                              ? 'border-blue-300 bg-blue-50 text-blue-950'
+                              : 'border-slate-200 bg-white hover:bg-slate-50',
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate">{product.name}</span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {product.price || product.category || product.description}
+                            </span>
+                          </span>
+                          {config.product_uuids.includes(product.uuid || '') && (
+                            <Badge>已选</Badge>
+                          )}
+                        </button>
+                      ))}
+                      {!salesProducts.length && (
+                        <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                          暂无产品，请先在销售工作台中创建
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </Section>

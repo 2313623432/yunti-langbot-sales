@@ -461,6 +461,10 @@ export default function PipelineFormComponent({
     form.setValue('template_config', templateConfig, { shouldDirty: true });
   }
 
+  const selectedConfigMode = (form.watch('config_mode') || 'workflow') as
+    | 'template'
+    | 'workflow';
+
   return (
     <>
       <div className="h-full p-0 flex flex-col">
@@ -572,7 +576,9 @@ export default function PipelineFormComponent({
                 className={cn(
                   'flex-1 min-h-0',
                   activeSection === 'workflow'
-                    ? 'flex flex-col overflow-hidden'
+                    ? selectedConfigMode === 'template'
+                      ? 'overflow-y-auto'
+                      : 'flex flex-col overflow-hidden'
                     : 'overflow-y-auto',
                 )}
               >
@@ -723,7 +729,7 @@ export default function PipelineFormComponent({
                               type="button"
                               size="sm"
                               variant={
-                                (form.watch('config_mode') || 'workflow') === mode
+                                selectedConfigMode === mode
                                   ? 'default'
                                   : 'ghost'
                               }
@@ -738,7 +744,7 @@ export default function PipelineFormComponent({
                       </CardContent>
                     </Card>
 
-                    {(form.watch('config_mode') || 'workflow') === 'template' ? (
+                    {selectedConfigMode === 'template' ? (
                       <PipelineTemplateConfigEditor
                         value={form.watch('template_config') as PipelineTemplateConfig}
                         onChange={handleTemplateConfigChange}

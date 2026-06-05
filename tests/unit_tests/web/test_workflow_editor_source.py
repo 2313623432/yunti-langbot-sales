@@ -79,6 +79,7 @@ def test_template_mode_keeps_template_and_workflow_configs_independent():
 
 def test_template_config_editor_supports_direct_image_upload_and_expanded_controls():
     template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    form_source = PIPELINE_FORM_PATH.read_text(encoding='utf-8')
 
     assert 'httpClient.uploadImage' in template_source
     assert 'uploadingBindingId' in template_source
@@ -88,6 +89,15 @@ def test_template_config_editor_supports_direct_image_upload_and_expanded_contro
     assert 'addImageTextBinding' in template_source
     assert 'knowledge_base_uuids' in template_source
     assert 'product_uuids' in template_source
+    assert 'useSidebarData' in template_source
+    assert 'knowledgeBases.map' in template_source
+    assert 'getSalesProducts' in template_source
+    assert 'salesProducts.map' in template_source
+    assert 'toggleTemplateListValue' in template_source
+    assert 'patchStringList' not in template_source
+    assert 'selectedConfigMode' in form_source
+    assert "selectedConfigMode === 'template'" in form_source
+    assert 'overflow-y-auto' in form_source
     assert '每天推送' in template_source
     assert '指定单天' in template_source
     assert '图片文字绑定' in template_source
