@@ -50,6 +50,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { extractI18nObject } from '@/i18n/I18nProvider';
 import { CustomApiError } from '@/app/infra/entities/common';
 import {
@@ -136,6 +137,11 @@ export default function BotForm({
   const [pipelineNameList, setPipelineNameList] = useState<IPipelineEntity[]>(
     [],
   );
+  const [bindingTargetType, setBindingTargetType] = useState<
+    'workflow' | 'agent'
+  >('workflow');
+  const [selectedAgentName, setSelectedAgentName] =
+    useState('售前 AI 销售员');
 
   const [dynamicFormConfigList, setDynamicFormConfigList] = useState<
     IDynamicFormItemSchema[]
@@ -147,6 +153,14 @@ export default function BotForm({
   // Watch adapter and adapter_config for filtering
   const currentAdapter = form.watch('adapter');
   const currentAdapterConfig = form.watch('adapter_config');
+  const workflowOptions =
+    pipelineNameList.length > 0
+      ? pipelineNameList
+      : [
+          { label: '销售 Workflow', value: 'sales-workflow', emoji: '💼' },
+          { label: '运营 Workflow', value: 'operations-workflow', emoji: '📣' },
+        ];
+  const agentOptions = ['售前 AI 销售员', '客服接待 AI'];
 
   // Group adapters by category for the Select dropdown
   const groupedAdapters = useMemo(
@@ -430,16 +444,72 @@ export default function BotForm({
           </CardContent>
         </Card>
 
-        {/* Card 2: Pipeline Binding (edit mode only) */}
-        {initBotId && (
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('bots.routingConnection')}</CardTitle>
-              <CardDescription>
-                {t('bots.routingConnectionDescription')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+        {/* Card 2: Message Handling Binding */}
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('bots.routingConnection')}</CardTitle>
+            <CardDescription>
+              {t('bots.routingConnectionDescription')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="bg-blue-600">发布层</Badge>
+                <span className="text-sm text-blue-800">
+                  这里只负责把通讯平台消息接入系统，不在这里配置 Agent 提示词或 Workflow 节点。
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <FormLabel>绑定类型</FormLabel>
+                <Select
+                  value={bindingTargetType}
+                  onValueChange={(value) =>
+                    setBindingTargetType(value as 'workflow' | 'agent')
+                  }
+                >
+                  <SelectTrigger className="mt-2">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="workflow">绑定 Workflow</SelectItem>
+                    <SelectItem value="agent">绑定 AI Agent</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  推荐绑定 Workflow，由 Workflow 决定何时调用 AI Agent。
+                </p>
+              </div>
+
+              {bindingTargetType === 'agent' && (
+                <div>
+                  <FormLabel>绑定 AI Agent</FormLabel>
+                  <Select
+                    value={selectedAgentName}
+                    onValueChange={setSelectedAgentName}
+                  >
+                    <SelectTrigger className="mt-2">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {agentOptions.map((agent) => (
+                        <SelectItem key={agent} value={agent}>
+                          {agent}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    适合简单接待场景，复杂分支仍建议绑定 Workflow。
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {bindingTargetType === 'workflow' && (
               <FormField
                 control={form.control}
                 name="use_pipeline_uuid"
@@ -473,7 +543,7 @@ export default function BotForm({
                         </SelectTrigger>
                         <SelectContent>
                           <SelectGroup>
-                            {pipelineNameList.map((item) => (
+                            {workflowOptions.map((item) => (
                               <SelectItem key={item.value} value={item.value}>
                                 <div className="flex items-center gap-2">
                                   {item.emoji && (
@@ -492,15 +562,16 @@ export default function BotForm({
                   </FormItem>
                 )}
               />
+            )}
 
-              {/* Pipeline Routing Rules */}
+            {bindingTargetType === 'workflow' && initBotId && (
               <RoutingRulesEditor
                 form={form}
                 pipelineNameList={pipelineNameList}
               />
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
 
         {/* Card 3: Adapter Configuration */}
         <Card>

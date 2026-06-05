@@ -61,3 +61,7 @@ node_modules/
 deploy/vercel-proxy/node_modules/
 deploy/vercel-proxy/.env.local
 deploy/vercel-proxy/.vercel/
+
+# Local tooling and generated outputs
+.codex/
+outputs/

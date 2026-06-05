@@ -22,6 +22,8 @@ import MCPPage from '@/app/home/mcp/page';
 import KnowledgePage from '@/app/home/knowledge/page';
 import PluginPagesPage from '@/app/home/plugin-pages/page';
 import SalesPage from '@/app/home/sales/page';
+import AiAgentsPage from '@/app/home/ai-agents/page';
+import WorkflowsPage from '@/app/home/workflows/page';
 
 const Loading = () => <div>加载中...</div>;
 
@@ -78,6 +80,26 @@ export const router = createBrowserRouter([
       <Suspense fallback={<Loading />}>
         <HomeLayout>
           <SalesPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/ai-agents',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <AiAgentsPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/workflows',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <WorkflowsPage />
         </HomeLayout>
       </Suspense>
     ),
