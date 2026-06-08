@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import datetime
+import mimetypes
 import re
 import uuid
 from typing import Any
@@ -481,6 +483,24 @@ class SalesService:
 
     async def create_outreach_plan(self, data: dict[str, Any]) -> int:
         payload = self._clean_outreach_payload(data)
+        dedupe_key = str(payload.get('dedupe_key') or '').strip()
+        if dedupe_key:
+            existing_result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_sales.SalesOutreachPlan).where(
+                    persistence_sales.SalesOutreachPlan.dedupe_key == dedupe_key
+                )
+            )
+            existing = self._first_row(existing_result)
+            if existing is not None:
+                if getattr(existing, 'last_sent_at', None) is not None and getattr(existing, 'enabled', True) is False:
+                    return int(existing.id)
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+                    .where(persistence_sales.SalesOutreachPlan.id == existing.id)
+                    .values(**payload, updated_at=datetime.datetime.now())
+                )
+                return int(existing.id)
+
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(**payload)
         )
@@ -499,17 +519,14 @@ class SalesService:
             if not plan.bot_uuid or not plan.target_id:
                 continue
             product = products.get(plan.product_uuid, {})
-            message = self._render_outreach_message(plan.message_template, product)
             try:
-                from langbot_plugin.api.entities.builtin.platform import message as platform_message
-
                 runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(plan.bot_uuid)
                 if runtime_bot is None:
                     raise ValueError(f'Bot {plan.bot_uuid} is not running')
                 await runtime_bot.adapter.send_message(
                     plan.target_type,
                     plan.target_id,
-                    platform_message.MessageChain([platform_message.Plain(text=message)]),
+                    await self._build_outreach_message_chain(plan, product),
                 )
             except Exception as e:
                 self.ap.logger.warning(f'Sales outreach plan {plan.id} failed: {e}')
@@ -527,6 +544,97 @@ class SalesService:
             )
             sent += 1
         return sent
+
+    async def get_chatted_outreach_targets(
+        self,
+        *,
+        bot_uuid: str = '',
+        pipeline_uuids: list[str] | None = None,
+    ) -> list[dict[str, str]]:
+        message_exists = (
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage.id)
+            .where(persistence_monitoring.MonitoringMessage.session_id == persistence_monitoring.MonitoringSession.session_id)
+            .where(
+                sqlalchemy.or_(
+                    persistence_monitoring.MonitoringMessage.role == 'user',
+                    persistence_monitoring.MonitoringMessage.role.is_(None),
+                )
+            )
+            .exists()
+        )
+        statement = sqlalchemy.select(persistence_monitoring.MonitoringSession).where(message_exists)
+        if bot_uuid:
+            statement = statement.where(persistence_monitoring.MonitoringSession.bot_id == bot_uuid)
+        if pipeline_uuids:
+            statement = statement.where(persistence_monitoring.MonitoringSession.pipeline_id.in_(pipeline_uuids))
+        statement = statement.order_by(persistence_monitoring.MonitoringSession.last_activity.desc())
+
+        result = await self.ap.persistence_mgr.execute_async(statement)
+        targets: list[dict[str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for session in result.all():
+            target_type, target_id = self._target_from_session(session)
+            bot_id = str(getattr(session, 'bot_id', '') or '')
+            if not bot_id or not target_id:
+                continue
+            key = (bot_id, target_type, target_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append(
+                {
+                    'bot_uuid': bot_id,
+                    'target_type': target_type,
+                    'target_id': target_id,
+                    'session_id': str(getattr(session, 'session_id', '') or ''),
+                    'pipeline_uuid': str(getattr(session, 'pipeline_id', '') or ''),
+                    'user_id': str(getattr(session, 'user_id', '') or target_id),
+                }
+            )
+        return targets
+
+    async def count_user_messages_for_session(self, session_id: str) -> int:
+        if not session_id:
+            return 0
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(sqlalchemy.func.count(persistence_monitoring.MonitoringMessage.id))
+            .where(persistence_monitoring.MonitoringMessage.session_id == session_id)
+            .where(
+                sqlalchemy.or_(
+                    persistence_monitoring.MonitoringMessage.role == 'user',
+                    persistence_monitoring.MonitoringMessage.role.is_(None),
+                )
+            )
+        )
+        return int(result.scalar() or 0)
+
+    async def disable_outreach_for_target(
+        self,
+        *,
+        bot_uuid: str,
+        target_type: str,
+        target_id: str,
+        segment_prefixes: list[str] | None = None,
+    ) -> None:
+        if not bot_uuid or not target_id:
+            return
+        statement = (
+            sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.bot_uuid == bot_uuid)
+            .where(persistence_sales.SalesOutreachPlan.target_type == (target_type or 'person'))
+            .where(persistence_sales.SalesOutreachPlan.target_id == target_id)
+            .where(persistence_sales.SalesOutreachPlan.enabled.is_(True))
+        )
+        prefixes = [prefix for prefix in (segment_prefixes or []) if prefix]
+        if prefixes:
+            statement = statement.where(
+                sqlalchemy.or_(
+                    *[persistence_sales.SalesOutreachPlan.segment.like(f'{prefix}%') for prefix in prefixes]
+                )
+            )
+        await self.ap.persistence_mgr.execute_async(
+            statement.values(enabled=False, updated_at=datetime.datetime.now())
+        )
 
     async def get_overview(self) -> dict[str, Any]:
         products = await self.get_products()
@@ -583,6 +691,7 @@ class SalesService:
             scheduled_at = datetime.datetime.fromisoformat(scheduled_at.replace('Z', '+00:00')).replace(tzinfo=None)
         elif not scheduled_at:
             scheduled_at = datetime.datetime.now()
+        message_components = self._normalize_message_components(data.get('message_components'))
         return {
             'name': data.get('name') or '产品触达计划',
             'product_uuid': data.get('product_uuid', ''),
@@ -590,11 +699,101 @@ class SalesService:
             'target_type': data.get('target_type', 'person'),
             'target_id': data.get('target_id', ''),
             'segment': data.get('segment', ''),
+            'dedupe_key': data.get('dedupe_key', ''),
             'message_template': data.get('message_template', ''),
+            'message_components': message_components,
             'scheduled_at': scheduled_at,
             'interval_minutes': int(data.get('interval_minutes') or 0),
             'enabled': bool(data.get('enabled', True)),
         }
+
+    def _normalize_message_components(self, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            return []
+        normalized: list[dict[str, Any]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            component_type = str(item.get('type') or '').strip().lower()
+            if component_type == 'plain':
+                text = str(item.get('text') or '')
+                if text:
+                    normalized.append({'type': 'plain', 'text': text})
+            elif component_type == 'image':
+                file_key = str(item.get('file_key') or item.get('path') or '').strip()
+                image_url = str(item.get('image_url') or item.get('url') or '').strip()
+                if file_key or image_url:
+                    normalized.append({'type': 'image', 'file_key': file_key, 'image_url': image_url})
+            elif component_type in {'link', 'wechat_link'}:
+                url = str(item.get('url') or item.get('link_url') or '').strip()
+                if not url:
+                    continue
+                normalized.append(
+                    {
+                        'type': 'link',
+                        'title': str(item.get('title') or item.get('link_title') or '查看链接'),
+                        'description': str(item.get('description') or item.get('link_desc') or ''),
+                        'url': url,
+                        'thumb_url': str(item.get('thumb_url') or item.get('link_thumb_url') or ''),
+                        'include_text_fallback': item.get('include_text_fallback') is not False,
+                    }
+                )
+        return normalized
+
+    async def _build_outreach_message_chain(self, plan: Any, product: dict[str, Any]):
+        from langbot_plugin.api.entities.builtin.platform import message as platform_message
+
+        components_data = getattr(plan, 'message_components', None)
+        components_data = components_data if isinstance(components_data, list) else []
+        rendered_components = await self._render_message_components(components_data)
+        if not rendered_components:
+            message = self._render_outreach_message(getattr(plan, 'message_template', ''), product)
+            rendered_components = [platform_message.Plain(text=message)]
+        return platform_message.MessageChain(rendered_components)
+
+    async def _render_message_components(self, components_data: list[dict[str, Any]]):
+        from langbot_plugin.api.entities.builtin.platform import message as platform_message
+
+        rendered = []
+        for component in self._normalize_message_components(components_data):
+            component_type = component.get('type')
+            if component_type == 'plain':
+                rendered.append(platform_message.Plain(text=component['text']))
+            elif component_type == 'image':
+                rendered.append(await self._image_component(component.get('file_key', ''), component.get('image_url', '')))
+            elif component_type == 'link':
+                if component.get('include_text_fallback') is not False:
+                    rendered.append(platform_message.Plain(text=f"{component['title']}\n{component['url']}"))
+                rendered.append(
+                    platform_message.WeChatLink(
+                        link_title=component['title'],
+                        link_desc=component.get('description', ''),
+                        link_url=component['url'],
+                        link_thumb_url=component.get('thumb_url', ''),
+                    )
+                )
+        return rendered
+
+    async def _image_component(self, file_key: str, image_url: str):
+        from langbot_plugin.api.entities.builtin.platform import message as platform_message
+
+        if image_url:
+            return platform_message.Image(url=image_url)
+
+        storage_mgr = getattr(self.ap, 'storage_mgr', None)
+        storage_provider = getattr(storage_mgr, 'storage_provider', None) if storage_mgr is not None else None
+        if storage_provider is not None and file_key:
+            try:
+                file_content = await storage_provider.load(file_key)
+                mime_type = mimetypes.guess_type(file_key)[0] or 'image/png'
+                image_base64 = base64.b64encode(file_content).decode('utf-8')
+                return platform_message.Image(base64=f'data:{mime_type};base64,{image_base64}')
+            except Exception as exc:
+                logger = getattr(self.ap, 'logger', None)
+                if logger is not None:
+                    logger.warning('Failed to load sales outreach image %s from storage: %s', file_key, exc)
+
+        return platform_message.Image(path=file_key)
 
     def _render_outreach_message(self, template: str, product: dict[str, Any]) -> str:
         if not template:

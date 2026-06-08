@@ -94,6 +94,11 @@ export interface PipelineTemplateFollowupMessage {
   message: string;
   schedule_time?: string;
   voice_optional?: boolean;
+  link_id?: string;
+  send_link_card?: boolean;
+  image_key?: string;
+  image_url?: string;
+  action?: string;
 }
 
 export interface PipelineTemplateFollowupSequence {

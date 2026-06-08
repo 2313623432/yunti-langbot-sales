@@ -121,12 +121,19 @@ def test_template_config_editor_supports_course_sales_radar_and_link_fields():
     assert 'sales_links' in template_source
     assert 'stop_rules' in template_source
     assert 'followup_sequences' in template_source
+    assert 'link_id?: string' in types_source
+    assert 'image_key?: string' in types_source
     assert 'long_term_broadcasts' in template_source
     assert 'config.radar?.rules' in template_source
     assert 'addRadarRule' in template_source
     assert 'addSalesLink' in template_source
     assert 'addFollowupSequence' in template_source
     assert 'addLongTermBroadcast' in template_source
+    assert '首次开场白' in template_source
+    assert 'patch({ opening_message: event.target.value })' in template_source
+    assert 'SOP定时群发' in template_source
+    assert '主动跟进话术矩阵' in template_source
+    assert '语音回复（课程销售请关闭）' in template_source
     assert "label: '雷达监测'" in editor_source
 
 

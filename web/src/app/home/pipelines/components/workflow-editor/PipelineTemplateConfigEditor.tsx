@@ -358,7 +358,7 @@ export default function PipelineTemplateConfigEditor({
         {
           id: `link_${Date.now().toString(36)}`,
           title: '新的报名链接',
-          url: 'https://radar.yunti.local/course/phonics',
+          url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen&reduceProxy=true',
           description: '',
           radar_enabled: true,
         },
@@ -498,12 +498,12 @@ export default function PipelineTemplateConfigEditor({
           </label>
         </div>
         <label className="block">
-          <FieldLabel hint="客户第一次进入会话时看到">开场白</FieldLabel>
+          <FieldLabel hint="用户加好友/首次进线先发这段文字；资源卡片单独通过报名链接里的图书配套学习资源卡片发送。">首次开场白</FieldLabel>
           <Textarea
             value={config.opening_message}
             onChange={(event) => patch({ opening_message: event.target.value })}
-            className="min-h-28 resize-none leading-6"
-            placeholder="请输入数字员工开场白"
+            className="min-h-36 resize-none leading-6"
+            placeholder="请输入首次开场白"
           />
         </label>
         <label className="block">
@@ -604,7 +604,7 @@ export default function PipelineTemplateConfigEditor({
             ['knowledge_base', '知识库', '从企业知识库中检索回答依据。'],
             ['product_database', '产品数据库', '结合产品信息推荐课程、服务或方案。'],
             ['image_recognition', '截图识别', '识别用户截图，并判断卡在哪一步。'],
-            ['voice_reply', '语音回复', '将关键回复转换成语音消息。'],
+            ['voice_reply', '语音回复（课程销售请关闭）', '将关键回复转换成语音消息。'],
           ].map(([key, label, description]) => (
             <ToggleRow
               key={key}
@@ -837,7 +837,7 @@ export default function PipelineTemplateConfigEditor({
                   value={link.url}
                   onChange={(event) => patchSalesLink(index, { url: event.target.value })}
                   className="h-10 bg-white"
-                  placeholder="https://radar.yunti.local/course/phonics"
+                  placeholder="https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen&reduceProxy=true"
                 />
                 <Textarea
                   value={link.description || ''}
@@ -1013,7 +1013,7 @@ export default function PipelineTemplateConfigEditor({
           </label>
         </Section>
 
-        <Section icon={MessageSquareText} title="跟进话术矩阵">
+        <Section icon={MessageSquareText} title="主动跟进话术矩阵">
           <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addFollowupSequence}>
             <Plus className="mr-1.5 size-4" />
             新增跟进场景
@@ -1316,7 +1316,7 @@ export default function PipelineTemplateConfigEditor({
           <div className="border-b border-slate-200 px-5 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-xl font-semibold tracking-normal text-slate-950">模板配置</h2>
+                <h2 className="text-xl font-semibold tracking-normal text-slate-950">Agent配置</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   用表单方式配置数字员工，适合业务团队快速上手。
                 </p>
@@ -1361,7 +1361,7 @@ export default function PipelineTemplateConfigEditor({
         <aside className="flex min-h-0 min-w-0 flex-col bg-white">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div>
-              <h2 className="text-base font-semibold text-slate-950">对话训练</h2>
+              <h2 className="text-base font-semibold text-slate-950">预览调试</h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 模拟客户看到的开场、雷达与回复效果
               </p>
@@ -1478,7 +1478,7 @@ export default function PipelineTemplateConfigEditor({
               </div>
               <div className="flex items-center gap-2">
                 <MessageCircleMore className="size-3.5" />
-                <span>这里展示模板配置的实时效果，页面右上角保存后生效。</span>
+                <span>这里展示Agent配置的实时效果，页面右上角保存后生效。</span>
               </div>
             </div>
           </div>
