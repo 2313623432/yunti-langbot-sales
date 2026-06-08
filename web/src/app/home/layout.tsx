@@ -119,15 +119,19 @@ function HomeLayoutInner({ children }: { children: React.ReactNode }) {
     : t('sidebar.home');
   const sectionLink = isExtensions ? '/home/plugins' : '/home/monitoring';
   const isSalesRoute =
-    pathname === '/home/sales' || pathname.startsWith('/home/sales/');
+    pathname === '/home/sales' ||
+    pathname.startsWith('/home/sales/') ||
+    pathname === '/home/sales-chat' ||
+    pathname.startsWith('/home/sales-chat/');
   const isSalesBuilderRoute =
     pathname === '/home/ai-agents' ||
     pathname.startsWith('/home/ai-agents/') ||
     pathname === '/home/workflows' ||
     pathname.startsWith('/home/workflows/');
-  const contentClassName = isSalesRoute || isSalesBuilderRoute
-    ? 'flex-1 min-h-0 min-w-0 overflow-hidden'
-    : 'flex-1 min-h-0 min-w-0 overflow-hidden p-4 pt-0';
+  const contentClassName =
+    isSalesRoute || isSalesBuilderRoute
+      ? 'flex-1 min-h-0 min-w-0 overflow-hidden'
+      : 'flex-1 min-h-0 min-w-0 overflow-hidden p-4 pt-0';
 
   return (
     <SidebarProvider>

@@ -1,6 +1,6 @@
 import { SidebarChildVO } from '@/app/home/components/home-sidebar/HomeSidebarChild';
 import i18n from '@/i18n';
-import { BadgeDollarSign, Workflow } from 'lucide-react';
+import { BadgeDollarSign, MessagesSquare, Workflow } from 'lucide-react';
 
 const t = (key: string) => {
   return i18n.t(key);
@@ -37,6 +37,18 @@ export const sidebarConfigList = [
     icon: <BadgeDollarSign className="text-emerald-600" />,
     route: '/home/sales',
     description: 'AI销售工作台',
+    helpLink: {
+      en_US: '',
+      zh_Hans: '',
+    },
+    section: 'home',
+  }),
+  new SidebarChildVO({
+    id: 'sales-chat',
+    name: '聚合聊天',
+    icon: <MessagesSquare className="text-indigo-500" />,
+    route: '/home/sales-chat',
+    description: '聚合客户会话与销售跟进信息',
     helpLink: {
       en_US: '',
       zh_Hans: '',

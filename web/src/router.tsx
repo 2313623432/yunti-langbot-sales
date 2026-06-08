@@ -22,6 +22,7 @@ import MCPPage from '@/app/home/mcp/page';
 import KnowledgePage from '@/app/home/knowledge/page';
 import PluginPagesPage from '@/app/home/plugin-pages/page';
 import SalesPage from '@/app/home/sales/page';
+import SalesChatPage from '@/app/home/sales-chat/page';
 import AiAgentsPage from '@/app/home/ai-agents/page';
 
 const Loading = () => <div>加载中...</div>;
@@ -79,6 +80,16 @@ export const router = createBrowserRouter([
       <Suspense fallback={<Loading />}>
         <HomeLayout>
           <SalesPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/sales-chat',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <SalesChatPage />
         </HomeLayout>
       </Suspense>
     ),
