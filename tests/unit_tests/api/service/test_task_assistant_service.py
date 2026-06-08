@@ -4,7 +4,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from langbot.pkg.api.http.service.task_assistant import (
+    COURSE_RESOURCE_CARD_LINK,
+    COURSE_OPENING_MESSAGE,
     COURSE_SALES_SCENARIO,
+    COURSE_SALES_RADAR_LINK,
     COURSE_SALES_TEMPLATE_PIPELINE_UUID,
     COURSE_SALES_TTS_VOICE_TYPE,
     COURSE_SALES_WORKFLOW_PIPELINE_UUID,
@@ -303,15 +306,153 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert len(template['followup_sequences']) >= 5
     assert len(template['long_term_broadcasts']) == 3
     assert template['radar']['enabled'] is True
-    assert template['radar']['link_url'].startswith('https://radar.yunti.local/course/phonics')
+    assert template['radar']['link_url'] == COURSE_SALES_RADAR_LINK
     assert len(template['radar']['rules']) >= 4
     assert any(rule['event'] == 'browse_30s' for rule in template['radar']['rules'])
+    assert template['tools']['voice_reply'] is False
+    assert template['voice']['enabled'] is False
     assert template['voice']['voice_type'] == COURSE_SALES_TTS_VOICE_TYPE
     assert template['voice']['encoding'] == 'ogg_opus'
-    assert len(template['image_text_bindings']) >= 6
-    assert any(binding['trigger_intents'] == ['course_intro'] for binding in template['image_text_bindings'])
+    assert template['opening_message'].startswith('您的图书配套学习资源点击')
+    assert COURSE_RESOURCE_CARD_LINK not in template['opening_message']
+    assert COURSE_RESOURCE_CARD_LINK not in template['role_prompt']
+    assert 'https://mp.bookln.cn/user/history/moment.htm' in template['opening_message']
+    assert '#小程序://教辅好帮手/la0KWwjPCx8S26C' in template['opening_message']
+    assert 'https://d.codeup.cn/d/UVruQn' in template['opening_message']
+    assert len(template['image_text_bindings']) >= 2
+    image_file_keys = {binding['file_key'] for binding in template['image_text_bindings']}
+    assert 'course-sales/phonics/phonics_poster.jpeg' in image_file_keys
+    assert 'course-sales/phonics/gift_qr.jpeg' in image_file_keys
+    assert all('day1_' not in file_key and 'day2_' not in file_key and 'day3_' not in file_key for file_key in image_file_keys)
+    broadcast_messages = '\n'.join(broadcast['message'] for broadcast in template['long_term_broadcasts'])
+    assert '9元共10节名师直播课' in broadcast_messages
+    assert '抽一分钟预约一下~我给您登记发送资料礼包激活学习' in broadcast_messages
+    assert '猿辅导现在了推出五天共10节【语数英名师直播课】' in broadcast_messages
+    assert '高效能力！完课还抽奖地球仪灯' in broadcast_messages
+    assert '五天共10节' in broadcast_messages
+    assert '优惠马上要截止了，所以我这边和您确定一下这个名额' in broadcast_messages
+    assert all(not broadcast.get('image_key') for broadcast in template['long_term_broadcasts'])
+    assert all(
+        'sop_doc_media' not in str(value).lower()
+        and 'image1.png' not in str(value).lower()
+        and 'image2.png' not in str(value).lower()
+        and 'image3.png' not in str(value).lower()
+        for broadcast in template['long_term_broadcasts']
+        for value in broadcast.values()
+    )
     assert template['stop_rules']['stop_keywords']
-    assert template['sales_links'][0]['url'].startswith('https://radar.yunti.local/course/phonics')
+    links_by_id = {link['id']: link for link in template['sales_links']}
+    assert links_by_id['phonics_resource_card']['url'] == COURSE_RESOURCE_CARD_LINK
+    assert links_by_id['phonics_resource_card']['radar_enabled'] is False
+    assert links_by_id['phonics_radar_apply']['url'] == COURSE_SALES_RADAR_LINK
+    assert links_by_id['phonics_radar_apply']['radar_enabled'] is True
+    followups_by_stage = {sequence['stage']: sequence for sequence in template['followup_sequences']}
+    assert any(
+        message.get('link_id') == 'phonics_radar_apply'
+        for message in followups_by_stage['purchase']['messages']
+    )
+    assert any(
+        message.get('image_key') == 'course-sales/phonics/phonics_poster.jpeg'
+        for message in followups_by_stage['not_buy']['messages']
+    )
+    assert any(
+        message.get('image_key') == 'course-sales/phonics/gift_qr.jpeg'
+        for message in followups_by_stage['purchased']['messages']
+    )
+    assert all(
+        not message.get('voice_optional')
+        for sequence in template['followup_sequences']
+        for message in sequence['messages']
+    )
+    assert (
+        followups_by_stage['radar_clicked']['messages'][0]['message']
+        == '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功的短信，我给您登记开课并赠送资料'
+    )
+
+
+def test_course_sales_template_config_migrates_legacy_default_assets_and_links():
+    service = TaskAssistantService(SimpleNamespace())
+
+    template = service.build_course_sales_template_config(
+        overrides={
+            'role_prompt': (
+                '你是微信/企微私域里的真人课程客服兼销售。'
+                '首次还要单独发送图书配套学习资源卡片：'
+                f'{COURSE_RESOURCE_CARD_LINK}。'
+                '按 SOP 图片转写后的文字群发，不发送 SOP 截图。'
+            ),
+            'opening_message': '家长您好，您扫描的图书配套学习资料已经发您了，您看这个资源能打开吗？',
+            'radar': {'link_url': 'https://radar.yunti.local/course/phonics'},
+            'sales_links': [
+                {
+                    'id': 'phonics_radar_apply',
+                    'title': '旧报名链接',
+                    'url': 'https://radar.yunti.local/course/phonics',
+                    'radar_enabled': True,
+                }
+            ],
+            'image_text_bindings': [
+                {
+                    'step_id': 'course_intro',
+                    'title': '旧课程介绍海报',
+                    'text': '旧素材',
+                    'file_key': 'course-sales/phonics/day1_course_intro.png',
+                    'trigger_intents': ['course_intro'],
+                    'enabled': True,
+                }
+            ],
+            'long_term_broadcasts': [
+                {
+                    'day': 1,
+                    'title': '旧群发',
+                    'time': '10:05',
+                    'message': '旧群发文案',
+                    'image_key': 'course-sales/phonics/day1_course_intro.png',
+                }
+            ],
+            'followup_sequences': [
+                {
+                    'stage': 'purchase',
+                    'label': '旧跟进',
+                    'messages': [{'delay_minutes': 0, 'message': '旧跟进文案'}],
+                }
+            ],
+        }
+    )
+
+    assert COURSE_RESOURCE_CARD_LINK not in template['opening_message']
+    assert COURSE_RESOURCE_CARD_LINK not in template['role_prompt']
+    assert 'radar.yunti.local' not in template['role_prompt']
+    assert '首次还要单独发送图书配套学习资源卡片' in template['role_prompt']
+    assert template['radar']['link_url'] == COURSE_SALES_RADAR_LINK
+    links_by_id = {link['id']: link for link in template['sales_links']}
+    assert links_by_id['phonics_resource_card']['url'] == COURSE_RESOURCE_CARD_LINK
+    assert links_by_id['phonics_radar_apply']['url'] == COURSE_SALES_RADAR_LINK
+    assert {binding['file_key'] for binding in template['image_text_bindings']} == {
+        'course-sales/phonics/phonics_poster.jpeg',
+        'course-sales/phonics/gift_qr.jpeg',
+    }
+    assert '9元共10节名师直播课' in template['long_term_broadcasts'][0]['message']
+    assert all(not broadcast.get('image_key') for broadcast in template['long_term_broadcasts'])
+    assert all(
+        'sop_doc_media' not in str(value).lower()
+        and 'image1.png' not in str(value).lower()
+        and 'image2.png' not in str(value).lower()
+        and 'image3.png' not in str(value).lower()
+        for broadcast in template['long_term_broadcasts']
+        for value in broadcast.values()
+    )
+    assert template['voice']['enabled'] is False
+    assert template['tools']['voice_reply'] is False
+    migrated_followups = {sequence['stage']: sequence for sequence in template['followup_sequences']}
+    assert any(
+        message.get('link_id') == 'phonics_radar_apply'
+        for message in migrated_followups['purchase']['messages']
+    )
+    assert any(
+        message.get('image_key') == 'course-sales/phonics/phonics_poster.jpeg'
+        for message in migrated_followups['not_buy']['messages']
+    )
 
 
 def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
@@ -334,23 +475,37 @@ def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
         'course_faq',
         'course_product',
         'sales_link',
+        'opening_message',
         'radar',
+        'radar_followup',
+        'long_term_broadcast',
         'stop_rules',
         'handoff',
         'reply',
-        'voice',
         'end',
     }
     assert required_nodes <= node_ids
     node_types = {node['type'] for node in workflow['nodes']}
-    assert {'knowledge', 'product', 'radar', 'outreach', 'image', 'voice'} <= node_types
+    assert {'knowledge', 'product', 'radar', 'outreach', 'image'} <= node_types
+    assert 'voice' not in node_types
     edges = {(edge['source'], edge['target']) for edge in workflow['edges']}
+    assert ('start', 'opening_message') in edges
+    assert ('opening_message', 'channel') in edges
     assert ('sales_link', 'radar') in edges
     assert ('radar', 'radar_followup') in edges
     assert ('course_product', 'sales_link') in edges
-    assert workflow['voice']['voice_type'] == COURSE_SALES_TTS_VOICE_TYPE
+    assert workflow['voice']['enabled'] is False
+    assert workflow['opening_message'].startswith('您的图书配套学习资源点击')
+    opening_node = next(node for node in workflow['nodes'] if node['id'] == 'opening_message')
+    assert opening_node['title'] == '首次开场白与资源卡片'
+    assert opening_node['config']['link_id'] == 'phonics_resource_card'
+    assert opening_node['config']['link_url'] == COURSE_RESOURCE_CARD_LINK
+    followup_node = next(node for node in workflow['nodes'] if node['id'] == 'radar_followup')
+    assert followup_node['title'] == '主动跟进话术矩阵'
+    broadcast_node = next(node for node in workflow['nodes'] if node['id'] == 'long_term_broadcast')
+    assert broadcast_node['title'] == 'SOP定时群发'
     radar_node = next(node for node in workflow['nodes'] if node['id'] == 'radar')
-    assert radar_node['config']['link_url'].startswith('https://radar.yunti.local/course/phonics')
+    assert radar_node['config']['link_url'] == COURSE_SALES_RADAR_LINK
     assert any(rule['event'] == 'click_apply_button' for rule in radar_node['config']['rules'])
 
 
@@ -360,7 +515,7 @@ def test_course_sales_template_mode_builds_active_workflow_from_independent_temp
         overrides={
             'radar': {
                 'enabled': True,
-                'link_url': 'https://radar.yunti.local/course/custom',
+                'link_url': 'https://example.com/course/custom',
                 'rules': [{'event': 'click', 'delay_minutes': 1, 'message': '自定义雷达跟进'}],
             },
             'voice': {'app_id': 'course-app', 'token': 'course-token'},
@@ -386,8 +541,27 @@ def test_course_sales_template_mode_builds_active_workflow_from_independent_temp
     assert active['metadata']['scenario'] == COURSE_SALES_SCENARIO
     assert active['voice']['app_id'] == 'course-app'
     radar_node = next(node for node in active['nodes'] if node['id'] == 'radar')
-    assert radar_node['config']['link_url'] == 'https://radar.yunti.local/course/custom'
+    assert radar_node['config']['link_url'] == 'https://example.com/course/custom'
     assert service.is_task_assistant_pipeline({'config_mode': 'template', 'template_config': template}) is True
+
+
+def test_course_sales_template_pipeline_rebuilds_legacy_course_sales_workflow():
+    service = TaskAssistantService(SimpleNamespace())
+    existing_workflow = {
+        'version': 1,
+        'name': 'old course sales workflow',
+        'metadata': {'scenario': COURSE_SALES_SCENARIO},
+        'nodes': [],
+        'edges': [],
+    }
+
+    config = service.build_course_sales_template_pipeline_config(
+        existing_config={'workflow': existing_workflow}
+    )
+
+    assert config['workflow'] is not existing_workflow
+    assert config['workflow']['metadata']['scenario'] == COURSE_SALES_SCENARIO
+    assert config['workflow']['nodes']
 
 
 @pytest.mark.asyncio
@@ -406,9 +580,88 @@ async def test_prepare_query_handles_course_sales_voice_and_radar_intents():
 
     assert result['handled'] is True
     assert query.variables['workflow_intent']['intent'] in {'course_schedule', 'radar_clicked'}
-    assert query.variables['task_assistant_voice_reply'] is True
+    assert query.variables['task_assistant_voice_reply'] is False
     assert '猿辅导英语自然拼读' in query.prompt.messages[0].content
     assert '雷达' in query.prompt.messages[0].content
+    assert '课程销售场景只回复文字，不发送语音回复' in query.prompt.messages[0].content
+
+
+class _CourseOutreachSalesService:
+    def __init__(self, user_message_count=1):
+        self.user_message_count = user_message_count
+        self.plans = []
+        self.disabled = []
+
+    async def count_user_messages_for_session(self, _session_id):
+        return self.user_message_count
+
+    async def create_outreach_plan(self, data):
+        self.plans.append(data)
+        return len(self.plans)
+
+    async def disable_outreach_for_target(self, **kwargs):
+        self.disabled.append(kwargs)
+
+
+@pytest.mark.asyncio
+async def test_course_sales_first_contact_schedules_opening_resource_card_and_sop_text_only():
+    sales_service = _CourseOutreachSalesService(user_message_count=1)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain('我想报名'), '我想报名', session_id='customer-1')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert any(
+        plan['segment'] == 'course-sales:opening:text'
+        and plan['message_components'] == [{'type': 'plain', 'text': COURSE_OPENING_MESSAGE}]
+        for plan in sales_service.plans
+    )
+    assert any(
+        plan['segment'] == 'course-sales:opening:resource-card'
+        and plan['message_components'][0]['type'] == 'link'
+        and plan['message_components'][0]['url'] == COURSE_RESOURCE_CARD_LINK
+        for plan in sales_service.plans
+    )
+    broadcast_plans = [plan for plan in sales_service.plans if plan['segment'] == 'course-sales:broadcast']
+    assert len(broadcast_plans) == 3
+    assert all(component['type'] == 'plain' for plan in broadcast_plans for component in plan['message_components'])
+    assert all(
+        'sop_doc_media' not in str(plan['message_components']).lower()
+        and 'image1.png' not in str(plan['message_components']).lower()
+        and 'image2.png' not in str(plan['message_components']).lower()
+        and 'image3.png' not in str(plan['message_components']).lower()
+        for plan in broadcast_plans
+    )
+    assert any(plan['segment'] == 'course-sales:followup:purchase' for plan in sales_service.plans)
+
+
+@pytest.mark.asyncio
+async def test_course_sales_purchased_stops_promotional_outreach_and_schedules_excel_qr_image():
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain('我已经报名成功了'), '我已经报名成功了', session_id='customer-2')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert sales_service.disabled
+    assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:broadcast', 'course-sales:followup']
+    assert not any(plan['segment'] == 'course-sales:broadcast' for plan in sales_service.plans)
+    assert any(
+        component.get('type') == 'image'
+        and component.get('file_key') == 'course-sales/phonics/gift_qr.jpeg'
+        for plan in sales_service.plans
+        for component in plan['message_components']
+    )
 
 
 def test_task_assistant_template_pipeline_preserves_existing_workflow():

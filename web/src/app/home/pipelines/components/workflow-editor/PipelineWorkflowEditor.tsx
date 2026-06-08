@@ -1798,7 +1798,7 @@ function NodeConfigPanel({
               onChange={(event) =>
                 onConfigChange({ link_url: event.target.value })
               }
-              placeholder="https://radar.yunti.local/course/phonics"
+              placeholder="https://m.yuanfudao.com/primary/templates/package"
             />
           </div>
           <div className="space-y-2">

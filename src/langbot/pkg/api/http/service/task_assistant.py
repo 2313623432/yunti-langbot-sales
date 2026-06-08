@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import datetime
 import gzip
 import json
 import os
@@ -40,7 +41,28 @@ COURSE_SALES_PRODUCT_UUID = 'yuanfudao-phonics-course'
 COURSE_SALES_TTS_VOICE_TYPE = TASK_ASSISTANT_TTS_VOICE_TYPE
 ASSISTED_SCENARIOS = {TASK_ASSISTANT_SCENARIO, COURSE_SALES_SCENARIO}
 
-COURSE_SALES_RADAR_LINK = 'https://radar.yunti.local/course/phonics?campaign=private_domain&product=yuanfudao_phonics'
+COURSE_SALES_SIGNUP_LINK = (
+    'https://m.yuanfudao.com/primary/templates/package?'
+    'pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen'
+    '&reduceProxy=true'
+)
+COURSE_SALES_RADAR_LINK = COURSE_SALES_SIGNUP_LINK
+COURSE_RESOURCE_CARD_LINK = (
+    'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?'
+    'resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977'
+    '&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1'
+    '&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347'
+)
+COURSE_RESOURCE_HISTORY_LINK = 'https://mp.bookln.cn/user/history/moment.htm'
+COURSE_RESOURCE_MINI_PROGRAM = '#小程序://教辅好帮手/la0KWwjPCx8S26C'
+COURSE_RESOURCE_GOODS_GROUP_LINK = 'https://d.codeup.cn/d/UVruQn'
+
+COURSE_OPENING_MESSAGE = (
+    '您的图书配套学习资源点击👇️下方卡片激活查看；\n'
+    f'也可点击➡️查看扫码记录  {COURSE_RESOURCE_HISTORY_LINK}\n\n'
+    f'✅ 搜本页答案，点击👉{COURSE_RESOURCE_MINI_PROGRAM}\n\n'
+    f'✅ 出版社内购好物群：{COURSE_RESOURCE_GOODS_GROUP_LINK}'
+)
 
 COURSE_SALES_PROFILE = {
     'course_name': '猿辅导英语自然拼读体验课/自然拼读集训营',
@@ -167,43 +189,118 @@ COURSE_FOLLOWUP_SEQUENCES = [
         'stage': 'purchase',
         'label': '要买/怎么买',
         'messages': [
-            {'delay_minutes': 0, 'message': '好的家长，我把报名通道发您，点开后支付9元就可以。'},
-            {'delay_minutes': 5, 'message': '家长领取到了吗？支付成功后截图发我，我给您登记开课和资料。'},
-            {'delay_minutes': 60, 'message': '孩子家长，你好，这边您给小孩领取好了吗？后台每个年级名额不多，您没领的话抽空领一下。', 'voice_optional': True},
-            {'delay_minutes': 0, 'schedule_time': '21:30', 'message': '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送名额还给您保留着呢。'},
+            {
+                'delay_minutes': 0,
+                'message': '好的',
+                'link_id': 'phonics_radar_apply',
+                'send_link_card': True,
+            },
+            {
+                'delay_minutes': 0,
+                'message': '点开上面报名链接👆🏻支付9元成功了记添加一下班主任辅导老师微信，方便给孩子辅导不懂不会的家庭作业\n\n截图发下这边登记排课，把全科学习资料发给您',
+                'link_id': 'phonics_radar_apply',
+            },
+            {'delay_minutes': 5, 'message': '家长领取到了吗？'},
+            {
+                'delay_minutes': 60,
+                'message': '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。',
+            },
+            {
+                'delay_minutes': 0,
+                'schedule_time': '21:30',
+                'message': '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~',
+            },
         ],
     },
     {
-        'stage': 'objection',
-        'label': '不买/考虑',
+        'stage': 'not_buy',
+        'label': '不买',
         'messages': [
-            {'delay_minutes': 0, 'message': '没关系家长，这个课主要是先低成本体验，9元压力小，孩子适合再继续。'},
-            {'delay_minutes': 0, 'message': '报名还赠资料和完课礼，名额就这一周有，您可以先给孩子试一轮。'},
+            {
+                'delay_minutes': 0,
+                'message': '不好意思 报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。\n\n主要是赠送实物的名额，就这一周有。',
+                'image_key': 'course-sales/phonics/phonics_poster.jpeg',
+            },
+            {
+                'delay_minutes': 0,
+                'message': '我感觉可以试试。 这个自然拼读特别适合3-4年级的小朋友。咱们的课主打180次高频次开口跟读，还有AI黑科技精准纠音，让孩子“见词能拼、听音能写”！！\n\n你觉得呢',
+            },
+            {
+                'delay_minutes': 0,
+                'message': '报名链接卡片',
+                'link_id': 'phonics_radar_apply',
+                'send_link_card': True,
+            },
+        ],
+    },
+    {
+        'stage': 'considering',
+        'label': '考虑',
+        'messages': [
+            {
+                'delay_minutes': 0,
+                'message': '不好意思 报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。\n\n主要是赠送实物的名额，就这一周有。',
+                'image_key': 'course-sales/phonics/phonics_poster.jpeg',
+            },
+            {
+                'delay_minutes': 0,
+                'message': '我感觉可以试试。 这个自然拼读特别适合3-4年级的小朋友。咱们的课主打180次高频次开口跟读，还有AI黑科技精准纠音，让孩子“见词能拼、听音能写”！！\n\n你觉得呢',
+            },
+            {
+                'delay_minutes': 0,
+                'message': '报名链接卡片',
+                'link_id': 'phonics_radar_apply',
+                'send_link_card': True,
+            },
         ],
     },
     {
         'stage': 'purchased',
         'label': '买了',
         'messages': [
-            {'delay_minutes': 0, 'message': '谢谢支持，报名后会出现指导老师二维码，您添加一下，老师会提醒上课。'},
-            {'delay_minutes': 0, 'message': '您也可以先下载猿辅导素养课APP，用报名手机号登录查看课程和开课时间。'},
+            {
+                'delay_minutes': 0,
+                'message': '谢谢支持 报名后会跳出一个微信二维码，是指导老师的，添加一下 老师会提醒你上课的哈，没添加也没关系，开课时老师也会主动联系你，留意下老师的电话和短信',
+            },
+            {
+                'delay_minutes': 0,
+                'message': '家长这个是赠送的资料。您可以长按识别关注一下，有空都可以打开学。一周内会有老师跟您联系的哈，咱们这边注意留意短信，报名成功会短信分配班主任的。9元的猿辅导课程，您可以先下载一个【猿辅导素养课】的APP，里面是可以看到购买的课程和开课时间的。',
+                'image_key': 'course-sales/phonics/gift_qr.jpeg',
+            },
+            {
+                'delay_minutes': 0,
+                'message': '实物的话，完课后 直接联系 猿辅导班主任就可以，想要什么私下和老师说哈',
+            },
         ],
     },
     {
         'stage': 'no_reply',
         'label': '不回复',
         'messages': [
-            {'delay_minutes': 1440, 'message': '家长，看您还没预约成功，是链接打不开、年级没选对，还是暂时不方便？我可以帮您看一下。'},
+            {'delay_minutes': 1440, 'message': '继续群发', 'action': 'continue_long_term_broadcasts'},
         ],
     },
     {
         'stage': 'radar_clicked',
         'label': '点雷达',
         'messages': [
-            {'delay_minutes': 0, 'message': '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功短信，我给您登记开课并赠送资料。'},
+            {'delay_minutes': 0, 'message': '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功的短信，我给您登记开课并赠送资料'},
+            {
+                'delay_minutes': 0,
+                'message': '预约通道已经发给您了👆，支付成功以后截图给我哦，给您登记发赠课~',
+                'link_id': 'phonics_radar_apply',
+                'send_link_card': True,
+            },
             {'delay_minutes': 5, 'message': '家长领取到了吗？'},
-            {'delay_minutes': 60, 'message': '孩子家长，你好，这边您给小孩领取好了吗？后台每个年级名额不多，您没领的话抽空领一下。', 'voice_optional': True},
-            {'delay_minutes': 0, 'schedule_time': '21:30', 'message': '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送名额还给您保留着呢。'},
+            {
+                'delay_minutes': 60,
+                'message': '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。',
+            },
+            {
+                'delay_minutes': 0,
+                'schedule_time': '21:30',
+                'message': '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~',
+            },
         ],
     },
 ]
@@ -213,72 +310,63 @@ COURSE_LONG_TERM_BROADCASTS = [
         'day': 1,
         'title': '第一天主打介绍',
         'time': '10:05',
-        'message': '对了家长，猿辅导现在推出5天共10节自然拼读体验课，9元即可学习，支持回放，适合大班到小学4年级。报名成功后我给您登记资料。',
-        'image_key': 'course-sales/phonics/day1_course_intro.png',
+        'message': (
+            '您好家长，再次打扰您了🤝 “9元共10节名师直播课”名额不多了，预约成功👉找我👈还免费赠送电子版《小学写作描写素材包》'
+            '+赠送1-6年级知识重难点解析资料+40套语数英期中期末试卷+40节英语精讲课+160首必读古诗音频\n\n'
+            '学习时间可以自由预约，孩子有可能学一次学不会，这个也支持回放，每次结束后还有指导师一对一伴读（这点比线下的强）👍 实在不想您错过😊\n'
+            '【如有打扰，请回复不需要哈，不会再打扰哦】\n\n'
+            '确实个人觉得好，所以多提醒了一次，家长觉得可以的话，抽一分钟预约一下~我给您登记发送资料礼包激活学习🌹'
+        ),
+        'image_key': '',
     },
     {
         'day': 2,
         'title': '第二天再次提醒',
         'time': '10:05',
-        'message': '您好家长，再次打扰您了。9元共10节直播课名额不多了，支持回放，还有资料和完课礼。觉得合适的话抽一分钟预约一下。',
-        'image_key': 'course-sales/phonics/day2_gift_followup.png',
+        'message': (
+            '对了家长，猿辅导现在了推出五天共10节【语数英名师直播课】，专门针对【1-6年级】重难点知识预习、强化提高，精讲实用又高效能力！'
+            '完课还抽奖地球仪灯、卡通卷笔刀、彩笔等实物好礼（包邮寄到家）🎁\n\n'
+            '👉《猿辅导👉语数英学科特训营》课程内容专题👇\n'
+            '✅语文：主讲最核心阅读理解、写作技巧\n'
+            '✅数学：讲解计算巧算、应用题解题技巧和培养新的思维模式\n'
+            '✅英语：教学常用发音、句型、语法知识重难点\n\n'
+            '📚可选年级，适合【1-6】年级，课程内容和孩子的教材同步\n'
+            '🎁9元即可学五天10节课，在手机上或者平板上就可学，支持回放，现在报名成功还赠送电子版小学语数英学习资料（语数英试卷、\n\n'
+            '课程有回放，随时可以学，限前39名哦，总共9元。您可以给孩子抢购体验一下哈？👇（预约成功找我领取资料哦）'
+        ),
+        'image_key': '',
     },
     {
         'day': 3,
         'title': '第三天最后确认',
         'time': '10:05',
-        'message': '在嘛家长，无论孩子体验不体验，给我个答复就行。9元一顿早饭钱，让孩子感受一下方法也是好的，优惠马上截止了。',
-        'image_key': 'course-sales/phonics/day3_final_confirm.png',
+        'message': (
+            '在嘛？家长，无论孩子体验不体验，给我个答复就行🤝这也不是那种几百上千的\n'
+            '9元一顿早饭钱，让孩子来感受学习一下效果也是好的嘛\n'
+            '【学习时间非常灵活，不用担心没时间，高效的帮孩子提升学习方法】\n\n'
+            '预约成功👉找我👈还免费赠送电子版《小学写作描写素材包》+赠送1-6年级全套知识重难点解析资料+40套语数英期中期末试卷'
+            '+40节英语精讲课+160节必备古诗词音频（预约成功找我领取）\n\n'
+            '优惠马上要截止了，所以我这边和您确定一下这个名额。'
+        ),
+        'image_key': '',
     },
 ]
 
 COURSE_IMAGE_BINDINGS = [
     {
-        'step_id': 'resource_card',
-        'title': '图书配套资源卡片',
-        'text': '用户进线后先发送图书配套学习资源卡片，并询问资源是否能打开。',
-        'file_key': 'course-sales/phonics/course_resource_card.png',
-        'trigger_intents': ['resource_help'],
-        'enabled': True,
-    },
-    {
-        'step_id': 'course_intro',
-        'title': '自然拼读课程介绍海报',
-        'text': '介绍9元5天10节自然拼读体验课，适合大班至小学4年级，支持回放。',
-        'file_key': 'course-sales/phonics/day1_course_intro.png',
-        'trigger_intents': ['course_intro'],
-        'enabled': True,
-    },
-    {
-        'step_id': 'gift',
-        'title': '完课礼和赠品说明',
-        'text': '说明报名和完课可获得资料与随机实物礼品。',
+        'step_id': 'gift_poster',
+        'title': '完课好礼海报',
+        'text': '表格内置素材：用户不买、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/phonics_poster.jpeg',
-        'trigger_intents': ['gift', 'objection'],
+        'trigger_intents': ['gift', 'objection', 'course_intro'],
         'enabled': True,
     },
     {
         'step_id': 'gift_qr',
-        'title': '资料领取二维码',
-        'text': '成交后补充资料领取二维码，引导家长保存并等班主任联系。',
+        'title': '书课通资料二维码',
+        'text': '表格内置素材：用户已报名/已支付后发送，引导长按识别关注，领取2026年最新幼小资源。',
         'file_key': 'course-sales/phonics/gift_qr.jpeg',
-        'trigger_intents': ['purchased'],
-        'enabled': True,
-    },
-    {
-        'step_id': 'registration_link',
-        'title': '报名链接卡片',
-        'text': '发送带雷达参数的报名通道，并说明支付后截图给客服登记。',
-        'file_key': 'course-sales/phonics/day2_gift_followup.png',
-        'trigger_intents': ['purchase', 'radar_clicked', 'course_schedule', 'course_replay'],
-        'enabled': True,
-    },
-    {
-        'step_id': 'final_confirm',
-        'title': '最后确认海报',
-        'text': '长期触达第三天用于最后确认名额和停发前收口。',
-        'file_key': 'course-sales/phonics/day3_final_confirm.png',
-        'trigger_intents': ['no_reply'],
+        'trigger_intents': ['purchased', 'resource_help', 'screenshot_help'],
         'enabled': True,
     },
 ]
@@ -826,9 +914,12 @@ class TaskAssistantService:
 
         text = query.variables.get('user_message_text', '')
         intent = self.classify_course_sales_intent(text, query.message_chain)
+        voice_config = workflow.get('voice') if isinstance(workflow.get('voice'), dict) else {}
+        course_voice_enabled = voice_config.get('enabled') is True
         query.variables['workflow_intent'] = intent
-        query.variables['task_assistant_voice_reply'] = self._has_voice(query.message_chain)
+        query.variables['task_assistant_voice_reply'] = self._has_voice(query.message_chain) and course_voice_enabled
         query.variables['course_sales_radar_link'] = intent.get('link_url') or COURSE_SALES_RADAR_LINK
+        await self._schedule_course_sales_outreach_for_query(query, workflow, intent)
         self._rewrite_user_message_for_course_sales(query, intent)
         self._append_course_sales_control_context(query, intent)
 
@@ -864,37 +955,42 @@ class TaskAssistantService:
                 'radar_clicked',
                 0.86,
                 '用户提到点击或进入报名通道，按雷达触发后跟进',
-                step_ids=['registration_link'],
+                step_ids=[],
                 include_link=True,
             )
         resource_keywords = {keyword for faq in COURSE_RESOURCE_FAQS for keyword in faq.get('keywords', [])}
         if any(keyword.lower() in normalized for keyword in resource_keywords):
-            return self._course_intent('resource_help', 0.82, '命中图书资源问题', step_ids=['resource_card'])
+            return self._course_intent('resource_help', 0.82, '命中图书资源问题', step_ids=['gift_qr'])
         for faq in COURSE_FAQS:
             if any(str(keyword).lower() in normalized for keyword in faq.get('keywords', [])):
                 intent = str(faq.get('intent') or 'course_intro')
                 step_id = self._course_step_for_intent(intent)
-                return self._course_intent(intent, 0.82, f'命中课程FAQ：{faq["question"]}', step_ids=[step_id])
+                return self._course_intent(
+                    intent,
+                    0.82,
+                    f'命中课程FAQ：{faq["question"]}',
+                    step_ids=[step_id] if step_id else [],
+                )
         if self._has_voice(message_chain):
-            return self._course_intent('voice_reply', 0.76, '用户发送语音，按课程客服短句回复', step_ids=['course_intro'])
+            return self._course_intent('course_intro', 0.76, '用户发送语音，按课程客服文字短句承接', step_ids=['gift_poster'])
         if any(keyword in normalized for keyword in ['报名', '购买', '怎么买', '要买', '链接', '领取']):
-            return self._course_intent('purchase', 0.8, '用户咨询报名或购买方式', step_ids=['registration_link'], include_link=True)
+            return self._course_intent('purchase', 0.8, '用户咨询报名或购买方式', step_ids=[], include_link=True)
         if any(keyword in normalized for keyword in ['不回复', '没人', '没回']):
-            return self._course_intent('no_reply', 0.68, '用户处于沉默跟进场景', step_ids=['final_confirm'])
-        return self._course_intent('course_intro', 0.64, '默认按自然拼读课程介绍承接', step_ids=['course_intro'])
+            return self._course_intent('no_reply', 0.68, '用户处于沉默跟进场景', step_ids=[])
+        return self._course_intent('course_intro', 0.64, '默认按自然拼读课程介绍承接', step_ids=['gift_poster'])
 
     def _course_step_for_intent(self, intent: str) -> str:
         if intent in {'purchase', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
-            return 'registration_link'
+            return ''
         if intent in {'purchased', 'screenshot_help'}:
             return 'gift_qr'
-        if intent in {'gift', 'objection'}:
-            return 'gift'
+        if intent in {'gift', 'objection', 'course_intro', 'course_content', 'grade'}:
+            return 'gift_poster'
         if intent in {'resource_help'}:
-            return 'resource_card'
+            return 'gift_qr'
         if intent in {'no_reply'}:
-            return 'final_confirm'
-        return 'course_intro'
+            return ''
+        return 'gift_poster'
 
     def _course_intent(
         self,
@@ -935,7 +1031,7 @@ class TaskAssistantService:
             content.append(
                 provider_message.ContentElement.from_text(
                     '用户发来一条语音咨询。请按猿辅导自然拼读课程客服/销售场景回复，'
-                    '短句、自然、像真人客服，适合直接转语音播报。'
+                    '短句、自然、像真人客服；本场景只输出文字，不要生成语音回复。'
                 )
             )
         for component in query.message_chain:
@@ -979,7 +1075,7 @@ class TaskAssistantService:
         elif intent_name in {'purchase', 'radar_clicked'}:
             control_text = (
                 '\n\n[课程销售上下文]\n'
-                f'本轮要给报名动作和雷达报名链接：{COURSE_SALES_RADAR_LINK}。'
+                f'本轮要给报名动作和报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
                 '说明支付9元后截图或报名成功短信发来，用于登记开课和资料。'
             )
         elif intent_name == 'purchased':
@@ -1001,6 +1097,272 @@ class TaskAssistantService:
 
         user_message.content.append(provider_message.ContentElement.from_text(control_text))
 
+    async def _schedule_course_sales_outreach_for_query(
+        self,
+        query: pipeline_query.Query,
+        workflow: dict[str, Any],
+        intent: dict[str, Any],
+    ) -> None:
+        sales_service = getattr(self.ap, 'sales_service', None)
+        if sales_service is None:
+            return
+
+        target = self._course_sales_target_from_query(query)
+        if not target.get('bot_uuid') or not target.get('target_id'):
+            return
+
+        intent_name = str(intent.get('intent') or '')
+        text = str(query.variables.get('user_message_text') or '')
+        try:
+            if intent_name == 'stop':
+                await sales_service.disable_outreach_for_target(
+                    bot_uuid=target['bot_uuid'],
+                    target_type=target['target_type'],
+                    target_id=target['target_id'],
+                    segment_prefixes=['course-sales:'],
+                )
+                return
+
+            if intent_name == 'purchased':
+                await sales_service.disable_outreach_for_target(
+                    bot_uuid=target['bot_uuid'],
+                    target_type=target['target_type'],
+                    target_id=target['target_id'],
+                    segment_prefixes=['course-sales:broadcast', 'course-sales:followup'],
+                )
+                await self._schedule_course_sales_followup_sequence(target, workflow, 'purchased')
+                return
+
+            if await self._is_course_sales_first_contact(query):
+                await self._schedule_course_sales_opening_for_target(target, workflow)
+                await self._schedule_course_sales_broadcasts_for_target(target, workflow)
+
+            followup_stage = self._course_followup_stage_for_intent(intent_name, text)
+            if followup_stage:
+                await self._schedule_course_sales_followup_sequence(target, workflow, followup_stage)
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to schedule course sales outreach: %s', exc)
+
+    async def _ensure_course_sales_outreach_for_chatted_users(self) -> None:
+        sales_service = getattr(self.ap, 'sales_service', None)
+        if sales_service is None:
+            return
+        try:
+            targets = await sales_service.get_chatted_outreach_targets(
+                pipeline_uuids=[COURSE_SALES_WORKFLOW_PIPELINE_UUID, COURSE_SALES_TEMPLATE_PIPELINE_UUID]
+            )
+            workflow = self.build_course_sales_workflow_config(template_config=self.build_course_sales_template_config())
+            for target in targets:
+                await self._schedule_course_sales_broadcasts_for_target(target, workflow)
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to backfill course sales outreach for chatted users: %s', exc)
+
+    def _course_sales_target_from_query(self, query: pipeline_query.Query) -> dict[str, str]:
+        target_type = getattr(getattr(query, 'launcher_type', None), 'value', None) or str(getattr(query, 'launcher_type', 'person'))
+        target_id = str(getattr(query, 'launcher_id', '') or '')
+        session_id = str(getattr(query, 'variables', {}).get('session_id') or self._query_session_key(query))
+        return {
+            'bot_uuid': str(getattr(query, 'bot_uuid', '') or ''),
+            'target_type': target_type,
+            'target_id': target_id,
+            'session_id': session_id,
+            'pipeline_uuid': str(getattr(query, 'pipeline_uuid', '') or ''),
+            'user_id': str(getattr(query, 'sender_id', '') or target_id),
+        }
+
+    async def _is_course_sales_first_contact(self, query: pipeline_query.Query) -> bool:
+        sales_service = getattr(self.ap, 'sales_service', None)
+        if sales_service is None:
+            return False
+        session_id = str(getattr(query, 'variables', {}).get('session_id') or self._query_session_key(query))
+        return await sales_service.count_user_messages_for_session(session_id) <= 1
+
+    def _course_followup_stage_for_intent(self, intent_name: str, text: str) -> str:
+        if intent_name in {'purchase', 'radar_clicked', 'no_reply'}:
+            return intent_name
+        if intent_name == 'objection':
+            return 'considering' if '考虑' in text else 'not_buy'
+        return ''
+
+    async def _schedule_course_sales_opening_for_target(self, target: dict[str, str], workflow: dict[str, Any]) -> None:
+        now = datetime.datetime.now()
+        links = self._course_sales_links_by_id(workflow)
+        resource_link = links.get('phonics_resource_card') or {
+            'title': '图书配套学习资源卡片',
+            'url': COURSE_RESOURCE_CARD_LINK,
+            'description': '激活查看图书配套学习资源',
+        }
+        await self._create_course_sales_outreach_plan(
+            target,
+            name='课程销售首次开场白',
+            segment='course-sales:opening:text',
+            dedupe_parts=['opening', 'text', target.get('session_id', '')],
+            scheduled_at=now,
+            components=[{'type': 'plain', 'text': COURSE_OPENING_MESSAGE}],
+        )
+        await self._create_course_sales_outreach_plan(
+            target,
+            name='课程销售首次资源卡片',
+            segment='course-sales:opening:resource-card',
+            dedupe_parts=['opening', 'resource-card', target.get('session_id', '')],
+            scheduled_at=now + datetime.timedelta(seconds=1),
+            components=[self._course_link_component(resource_link)],
+        )
+
+    async def _schedule_course_sales_broadcasts_for_target(self, target: dict[str, str], workflow: dict[str, Any]) -> None:
+        broadcasts = workflow.get('long_term_broadcasts') if isinstance(workflow.get('long_term_broadcasts'), list) else []
+        now = datetime.datetime.now()
+        first_time: datetime.datetime | None = None
+        for index, broadcast in enumerate(broadcasts):
+            if not isinstance(broadcast, dict):
+                continue
+            message = str(broadcast.get('message') or '').strip()
+            if not message:
+                continue
+            if self._contains_sop_image_reference(broadcast):
+                continue
+            if first_time is None:
+                first_time = self._next_course_wall_clock(str(broadcast.get('time') or '10:05'), now)
+            day_offset = max(0, int(broadcast.get('day') or (index + 1)) - 1)
+            await self._create_course_sales_outreach_plan(
+                target,
+                name=f"课程销售SOP定时群发 Day{broadcast.get('day') or index + 1}",
+                segment='course-sales:broadcast',
+                dedupe_parts=['broadcast', broadcast.get('day') or index + 1, target.get('session_id', '')],
+                scheduled_at=first_time + datetime.timedelta(days=day_offset),
+                components=[{'type': 'plain', 'text': message}],
+            )
+
+    async def _schedule_course_sales_followup_sequence(
+        self,
+        target: dict[str, str],
+        workflow: dict[str, Any],
+        stage_name: str,
+    ) -> None:
+        followups = workflow.get('followup_sequences') if isinstance(workflow.get('followup_sequences'), list) else []
+        sequence = next((item for item in followups if isinstance(item, dict) and item.get('stage') == stage_name), None)
+        if not sequence:
+            return
+        links = self._course_sales_links_by_id(workflow)
+        now = datetime.datetime.now()
+        for index, message in enumerate(sequence.get('messages') or []):
+            if not isinstance(message, dict):
+                continue
+            if message.get('action') == 'continue_long_term_broadcasts':
+                await self._schedule_course_sales_broadcasts_for_target(target, workflow)
+                continue
+            components = self._course_followup_message_components(message, links)
+            if not components:
+                continue
+            await self._create_course_sales_outreach_plan(
+                target,
+                name=f"课程销售主动跟进-{stage_name}-{index + 1}",
+                segment=f'course-sales:followup:{stage_name}',
+                dedupe_parts=['followup', stage_name, index, target.get('session_id', '')],
+                scheduled_at=self._course_message_scheduled_at(message, now),
+                components=components,
+            )
+
+    async def _create_course_sales_outreach_plan(
+        self,
+        target: dict[str, str],
+        *,
+        name: str,
+        segment: str,
+        dedupe_parts: list[Any],
+        scheduled_at: datetime.datetime,
+        components: list[dict[str, Any]],
+    ) -> None:
+        sales_service = getattr(self.ap, 'sales_service', None)
+        if sales_service is None:
+            return
+        await sales_service.create_outreach_plan(
+            {
+                'name': name,
+                'product_uuid': COURSE_SALES_PRODUCT_UUID,
+                'bot_uuid': target.get('bot_uuid', ''),
+                'target_type': target.get('target_type', 'person'),
+                'target_id': target.get('target_id', ''),
+                'segment': segment,
+                'dedupe_key': self._course_sales_dedupe_key(target, dedupe_parts),
+                'message_components': components,
+                'scheduled_at': scheduled_at,
+                'interval_minutes': 0,
+                'enabled': True,
+            }
+        )
+
+    def _course_followup_message_components(
+        self,
+        message: dict[str, Any],
+        links: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        components: list[dict[str, Any]] = []
+        text = str(message.get('message') or '').strip()
+        if text and text not in {'报名链接', '报名链接卡片'}:
+            components.append({'type': 'plain', 'text': text})
+        link = links.get(str(message.get('link_id') or ''))
+        if message.get('send_link_card') and link:
+            components.append(self._course_link_component(link))
+        image_key = str(message.get('image_key') or '').strip()
+        if image_key:
+            components.append({'type': 'image', 'file_key': image_key})
+        return components
+
+    def _course_sales_links_by_id(self, workflow: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        links = workflow.get('sales_links') if isinstance(workflow.get('sales_links'), list) else []
+        return {str(link.get('id') or ''): link for link in links if isinstance(link, dict)}
+
+    def _course_link_component(self, link: dict[str, Any]) -> dict[str, Any]:
+        return {
+            'type': 'link',
+            'title': str(link.get('title') or '报名链接卡片'),
+            'description': str(link.get('description') or ''),
+            'url': str(link.get('url') or ''),
+            'thumb_url': str(link.get('thumb_url') or ''),
+        }
+
+    def _course_sales_dedupe_key(self, target: dict[str, str], parts: list[Any]) -> str:
+        raw = '|'.join(
+            [
+                target.get('bot_uuid', ''),
+                target.get('target_type', ''),
+                target.get('target_id', ''),
+                *[str(part) for part in parts],
+            ]
+        )
+        return f'course-sales:{uuid.uuid5(uuid.NAMESPACE_URL, raw).hex}'
+
+    def _course_message_scheduled_at(self, message: dict[str, Any], now: datetime.datetime) -> datetime.datetime:
+        schedule_time = str(message.get('schedule_time') or '').strip()
+        if schedule_time:
+            return self._next_course_wall_clock(schedule_time, now)
+        try:
+            delay_minutes = int(message.get('delay_minutes') or 0)
+        except (TypeError, ValueError):
+            delay_minutes = 0
+        return now + datetime.timedelta(minutes=max(0, delay_minutes))
+
+    def _next_course_wall_clock(self, value: str, now: datetime.datetime) -> datetime.datetime:
+        hour, minute = 10, 5
+        match = re.match(r'^\s*(\d{1,2}):(\d{1,2})\s*$', value or '')
+        if match:
+            hour = max(0, min(23, int(match.group(1))))
+            minute = max(0, min(59, int(match.group(2))))
+        scheduled = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if scheduled <= now:
+            scheduled += datetime.timedelta(days=1)
+        return scheduled
+
+    def _contains_sop_image_reference(self, value: dict[str, Any]) -> bool:
+        image_key = str(value.get('image_key') or '')
+        combined = ' '.join(str(item) for item in value.values())
+        return bool(image_key) or any(token in combined for token in ['sop_doc_media', 'image1.png', 'image2.png', 'image3.png'])
+
     def compose_course_sales_prompt(self, workflow: dict[str, Any] | None = None) -> str:
         workflow = workflow if isinstance(workflow, dict) else {}
         profile = workflow.get('course_profile') if isinstance(workflow.get('course_profile'), dict) else COURSE_SALES_PROFILE
@@ -1021,9 +1383,10 @@ class TaskAssistantService:
 - 像真人客服一样短句、明确、自然；先服务，再转化。
 - 用户问图书资源，优先解决资源问题，不要急着推课。
 - 用户问课程，统一使用下面课程口径，不要自由发挥价格、赠品、课时、链接。
-- 用户要买或点击报名链接，发送带雷达参数的报名链接并说明支付后发截图登记。
+- 用户要买或点击报名链接，发送指定报名链接卡片并说明支付后发截图登记；雷达规则只用于模拟后续跟进。
 - 用户已报名/已支付/发支付截图后，立刻停止促单，转班主任、APP、短信、资料交付。
 - 用户拒绝、投诉、无孩子、非目标年级、老师身份或人工接管时停止后续触达。
+- 课程销售场景只回复文字，不发送语音回复；用户发来语音时只转成文字理解。
 - 不承诺固定提分、效果翻倍、百分百有效等绝对化结果。
 
 课程统一口径：
@@ -1035,8 +1398,18 @@ class TaskAssistantService:
 课程FAQ：
 {course_text}
 
+首次开场白：
+{COURSE_OPENING_MESSAGE}
+- 首次还要单独发送图书配套学习资源卡片（sales_links.phonics_resource_card）。
+- 不要把资源卡片 URL 混进首次文字里；文字里只说“下方卡片”。
+
+长期群发：
+- 按 SOP 图片转写后的文字群发，不发送 SOP 截图。
+- 群发命中用户拒绝、投诉、无孩子、非目标年级、老师身份、已报名/已付费后立即停止。
+- 表格跟进话术中标注“报名链接卡片/报名链接”时发送报名链接卡片；标注素材图时发送对应海报或二维码。
+
 雷达模拟规则：
-- 雷达报名链接：{radar.get('link_url') or COURSE_SALES_RADAR_LINK}
+- 报名链接卡片：{radar.get('link_url') or COURSE_SALES_RADAR_LINK}
 {radar_text}
 
 停发关键词：
@@ -1100,6 +1473,7 @@ class TaskAssistantService:
         await self._ensure_course_sales_product()
         await self._ensure_course_sales_workflow_pipeline()
         await self._ensure_course_sales_template_pipeline()
+        await self._ensure_course_sales_outreach_for_chatted_users()
 
     def build_pipeline_config(
         self,
@@ -1579,14 +1953,91 @@ class TaskAssistantService:
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else None
         config['config_mode'] = 'template'
         config['template_config'] = template_config
-        if isinstance(existing_workflow, dict) and existing_workflow:
+        if (
+            isinstance(existing_workflow, dict)
+            and existing_workflow
+            and not self._is_course_sales_workflow(existing_workflow)
+        ):
             config['workflow'] = existing_workflow
         return config
+
+    def _is_legacy_course_opening_message(self, value: str) -> bool:
+        return COURSE_RESOURCE_CARD_LINK in value or value.strip() != COURSE_OPENING_MESSAGE
+
+    def _is_legacy_course_role_prompt(self, value: str) -> bool:
+        return bool(
+            'radar.yunti.local' in value
+            or COURSE_RESOURCE_CARD_LINK in value
+            or '发送带雷达参数的报名链接' in value
+            or '首次还要单独发送图书配套学习资源卡片' not in value
+            or '不发送 SOP 截图' not in value
+        )
+
+    def _is_legacy_course_image_bindings(self, value: list[Any]) -> bool:
+        step_ids = {str(item.get('step_id') or '') for item in value if isinstance(item, dict)}
+        file_keys = {str(item.get('file_key') or '') for item in value if isinstance(item, dict)}
+        return bool(
+            {'resource_card', 'course_intro', 'registration_link', 'final_confirm'} & step_ids
+            or any(('day1_' in key or 'day2_' in key or 'day3_' in key) for key in file_keys)
+        )
+
+    def _is_legacy_course_broadcasts(self, value: list[Any]) -> bool:
+        if not value:
+            return False
+        image_keys = {str(item.get('image_key') or '') for item in value if isinstance(item, dict)}
+        messages = '\n'.join(str(item.get('message') or '') for item in value if isinstance(item, dict))
+        return bool(
+            any(('day1_' in key or 'day2_' in key or 'day3_' in key) for key in image_keys)
+            or '9元共10节名师直播课' not in messages
+            or '优惠马上要截止' not in messages
+        )
+
+    def _is_legacy_course_followups(self, value: list[Any]) -> bool:
+        if not value:
+            return False
+        messages = [
+            message
+            for sequence in value
+            if isinstance(sequence, dict)
+            for message in sequence.get('messages', [])
+            if isinstance(message, dict)
+        ]
+        stages = {str(sequence.get('stage') or '') for sequence in value if isinstance(sequence, dict)}
+        has_signup_link = any(message.get('link_id') == 'phonics_radar_apply' for message in messages)
+        has_poster = any(message.get('image_key') == 'course-sales/phonics/phonics_poster.jpeg' for message in messages)
+        has_gift_qr = any(message.get('image_key') == 'course-sales/phonics/gift_qr.jpeg' for message in messages)
+        return bool({'objection'} & stages or not (has_signup_link and has_poster and has_gift_qr))
+
+    def _is_legacy_course_sales_links(self, value: list[Any]) -> bool:
+        if not value:
+            return False
+        ids = {str(item.get('id') or '') for item in value if isinstance(item, dict)}
+        urls = {str(item.get('url') or '') for item in value if isinstance(item, dict)}
+        zhizhuma_as_radar = any(
+            isinstance(item, dict)
+            and 'zhizhuma.com' in str(item.get('url') or '')
+            and (item.get('id') != 'phonics_resource_card' or item.get('radar_enabled') is not False)
+            for item in value
+        )
+        return bool(
+            'phonics_resource_card' not in ids
+            or any('radar.yunti.local' in url for url in urls)
+            or zhizhuma_as_radar
+        )
+
+    def _normalize_course_radar_config(self, value: dict[str, Any]) -> dict[str, Any]:
+        normalized = {**value}
+        link_url = str(normalized.get('link_url') or '')
+        if not link_url or 'radar.yunti.local' in link_url or 'zhizhuma.com' in link_url:
+            normalized['link_url'] = COURSE_SALES_RADAR_LINK
+        if not normalized.get('link_title'):
+            normalized['link_title'] = COURSE_RADAR_CONFIG['link_title']
+        return normalized
 
     def build_course_sales_template_config(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         voice = {
             'provider': 'volcengine',
-            'enabled': True,
+            'enabled': False,
             'voice_type': COURSE_SALES_TTS_VOICE_TYPE,
             'encoding': 'ogg_opus',
         }
@@ -1605,13 +2056,12 @@ class TaskAssistantService:
                 'scenario': COURSE_SALES_SCENARIO,
                 'runtime_engine': 'langgraph',
                 'source_docs': [
-                    'AI客服需求与SOP梳理.docx',
-                    'AI销售聊天记录_SOP整理模板_B015资料版.xlsx',
+                    'SOP.doc（群发截图已转文字）',
                     '猿辅导自然拼读常见问题(1).xlsx',
                 ],
             },
             'role_prompt': self.compose_course_sales_prompt(),
-            'opening_message': '家长您好，您扫描的图书配套学习资料已经发您了，您看这个资源能打开吗？',
+            'opening_message': COURSE_OPENING_MESSAGE,
             'recommended_questions': [
                 '这个自然拼读课是什么？',
                 '什么时候上课，支持回放吗？',
@@ -1628,7 +2078,7 @@ class TaskAssistantService:
                 'knowledge_base': True,
                 'product_database': True,
                 'image_recognition': True,
-                'voice_reply': True,
+                'voice_reply': False,
                 'radar': True,
                 'scheduled_push': True,
                 'handoff': True,
@@ -1645,10 +2095,17 @@ class TaskAssistantService:
             'course_faqs': copy.deepcopy(COURSE_FAQS),
             'sales_links': [
                 {
+                    'id': 'phonics_resource_card',
+                    'title': '图书配套学习资源卡片',
+                    'url': COURSE_RESOURCE_CARD_LINK,
+                    'description': '首次打招呼发送，用于激活查看图书配套学习资源。',
+                    'radar_enabled': False,
+                },
+                {
                     'id': 'phonics_radar_apply',
                     'title': '猿辅导自然拼读9元体验课报名通道',
                     'url': COURSE_SALES_RADAR_LINK,
-                    'description': '假雷达链接：记录打开、浏览时长、点击报名、未支付等模拟事件。',
+                    'description': '报名链接卡片：模拟记录打开、浏览时长、点击报名、未支付等雷达事件。',
                     'radar_enabled': True,
                 }
             ],
@@ -1662,25 +2119,57 @@ class TaskAssistantService:
             for key, value in overrides.items():
                 if key == 'voice' and isinstance(value, dict):
                     template_config['voice'] = {**voice, **value}
+                    template_config['voice']['enabled'] = False
+                elif key == 'tools' and isinstance(value, dict):
+                    current_tools = template_config.get('tools') if isinstance(template_config.get('tools'), dict) else {}
+                    template_config['tools'] = {**current_tools, **value, 'voice_reply': False}
                 elif key == 'scheduled_push' and isinstance(value, dict):
                     template_config['scheduled_push'] = {**scheduled_push, **value}
-                elif key in {'radar', 'stop_rules', 'course_profile'} and isinstance(value, dict):
+                elif key == 'radar' and isinstance(value, dict):
+                    template_config['radar'] = {
+                        **COURSE_RADAR_CONFIG,
+                        **self._normalize_course_radar_config(value),
+                    }
+                elif key in {'stop_rules', 'course_profile'} and isinstance(value, dict):
                     current = template_config.get(key) if isinstance(template_config.get(key), dict) else {}
                     template_config[key] = {**current, **value}
+                elif key == 'opening_message' and isinstance(value, str):
+                    if not self._is_legacy_course_opening_message(value):
+                        template_config['opening_message'] = value
+                elif key == 'role_prompt' and isinstance(value, str):
+                    if not self._is_legacy_course_role_prompt(value):
+                        template_config['role_prompt'] = value
+                elif key == 'image_text_bindings' and isinstance(value, list) and value:
+                    if not self._is_legacy_course_image_bindings(value):
+                        template_config[key] = value
+                elif key == 'long_term_broadcasts' and isinstance(value, list) and value:
+                    if not self._is_legacy_course_broadcasts(value):
+                        template_config[key] = value
+                elif key == 'sales_links' and isinstance(value, list) and value:
+                    if not self._is_legacy_course_sales_links(value):
+                        template_config[key] = value
+                elif key == 'followup_sequences' and isinstance(value, list) and value:
+                    if not self._is_legacy_course_followups(value):
+                        template_config[key] = value
                 elif key in {
-                    'image_text_bindings',
                     'resource_faqs',
                     'course_faqs',
-                    'followup_sequences',
-                    'long_term_broadcasts',
-                    'sales_links',
                 } and isinstance(value, list) and value:
                     template_config[key] = value
                 else:
                     template_config[key] = value
+        template_config.setdefault('voice', {})['enabled'] = False
+        template_config.setdefault('tools', {})['voice_reply'] = False
+        for sequence in template_config.get('followup_sequences', []):
+            if not isinstance(sequence, dict):
+                continue
+            for message in sequence.get('messages', []):
+                if isinstance(message, dict):
+                    message.pop('voice_optional', None)
         return template_config
 
     def build_course_sales_workflow_from_template_config(self, template_config: dict[str, Any]) -> dict[str, Any]:
+        template_config = self.build_course_sales_template_config(overrides=template_config)
         voice_overrides = template_config.get('voice') if isinstance(template_config.get('voice'), dict) else None
         workflow = self.build_course_sales_workflow_config(
             voice_overrides=voice_overrides,
@@ -1738,10 +2227,17 @@ class TaskAssistantService:
             if isinstance(template_config.get('sales_links'), list) and template_config.get('sales_links')
             else [
                 {
+                    'id': 'phonics_resource_card',
+                    'title': '图书配套学习资源卡片',
+                    'url': COURSE_RESOURCE_CARD_LINK,
+                    'description': '首次打招呼发送，用于激活查看图书配套学习资源。',
+                    'radar_enabled': False,
+                },
+                {
                     'id': 'phonics_radar_apply',
                     'title': '猿辅导自然拼读9元体验课报名通道',
                     'url': radar.get('link_url') or COURSE_SALES_RADAR_LINK,
-                    'description': '假雷达链接，支持模拟点击、浏览时长和未支付触发。',
+                    'description': '报名链接卡片，支持模拟点击、浏览时长和未支付触发。',
                     'radar_enabled': True,
                 }
             ]
@@ -1751,10 +2247,11 @@ class TaskAssistantService:
             if isinstance(template_config.get('image_text_bindings'), list)
             else copy.deepcopy(COURSE_IMAGE_BINDINGS)
         )
+        opening_message = str(template_config.get('opening_message') or COURSE_OPENING_MESSAGE)
         model_uuid = str(template_config.get('model_uuid') or TASK_ASSISTANT_MODEL_UUID)
         voice_config = {
             'provider': 'volcengine',
-            'enabled': True,
+            'enabled': False,
             'app_id': os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_APP_ID', ''),
             'token': os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_TOKEN', ''),
             'cluster': 'volcano_tts',
@@ -1765,6 +2262,7 @@ class TaskAssistantService:
             for key, value in voice_overrides.items():
                 if value is not None:
                     voice_config[key] = value
+        voice_config['enabled'] = False
 
         nodes = [
             {
@@ -1776,11 +2274,26 @@ class TaskAssistantService:
                 'config': {'trigger': 'message'},
             },
             {
+                'id': 'opening_message',
+                'type': 'custom',
+                'title': '首次开场白与资源卡片',
+                'description': '用户加好友/首次进线时先发开场白，再单独发送图书配套学习资源卡片',
+                'position': {'x': 340, 'y': 320},
+                'config': {
+                    'trigger': 'first_contact',
+                    'message': opening_message,
+                    'link_id': 'phonics_resource_card',
+                    'link_url': COURSE_RESOURCE_CARD_LINK,
+                    'send_link_card': True,
+                    'radar_enabled': False,
+                },
+            },
+            {
                 'id': 'channel',
                 'type': 'channel',
                 'title': '渠道接入',
                 'description': '统一接收网页、微信、企微、飞书等渠道消息',
-                'position': {'x': 340, 'y': 320},
+                'position': {'x': 600, 'y': 320},
                 'config': {'channels': ['web', 'wechat', 'wecom', 'lark'], 'keep_session': True},
             },
             {
@@ -1788,7 +2301,7 @@ class TaskAssistantService:
                 'type': 'media',
                 'title': '消息类型判断',
                 'description': '区分文字、截图/图片和语音',
-                'position': {'x': 600, 'y': 320},
+                'position': {'x': 860, 'y': 320},
                 'config': {
                     'routes': [
                         {'when': 'has_text', 'target': 'text_input'},
@@ -1802,26 +2315,26 @@ class TaskAssistantService:
                 'type': 'custom',
                 'title': '文字问题整理',
                 'description': '提取家长问题、孩子年级、是否点击链接、是否已报名',
-                'position': {'x': 890, 'y': 120},
+                'position': {'x': 1160, 'y': 120},
                 'config': {'output_key': 'user_text', 'params': '{"from": "message_chain.plain_text"}'},
             },
             {
                 'id': 'voice_asr',
                 'type': 'asr',
                 'title': '语音输入处理',
-                'description': '用户发语音时，先转成课程咨询上下文，再要求回复也转语音',
-                'position': {'x': 890, 'y': 320},
-                'config': {'provider': 'bailian', 'fallback_text': '用户发来课程咨询语音，请用短句回复。'},
+                'description': '用户发语音时只转成课程咨询上下文，课程销售不发送语音回复',
+                'position': {'x': 1160, 'y': 320},
+                'config': {'provider': 'bailian', 'fallback_text': '用户发来课程咨询语音，请用文字短句回复。'},
             },
             {
                 'id': 'screenshot_input',
                 'type': 'vision',
                 'title': '截图识别',
                 'description': '识别支付成功页、报名页、白屏、资源页或二维码页',
-                'position': {'x': 890, 'y': 520},
+                'position': {'x': 1160, 'y': 520},
                 'config': {
                     'model_uuid': model_uuid,
-                    'target_steps': ['resource_card', 'registration_link', 'gift_qr', 'link_error'],
+                    'target_steps': ['gift_poster', 'gift_qr', 'link_error'],
                 },
             },
             {
@@ -1829,7 +2342,7 @@ class TaskAssistantService:
                 'type': 'intent',
                 'title': '意图识别',
                 'description': '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态',
-                'position': {'x': 1180, 'y': 320},
+                'position': {'x': 1460, 'y': 320},
                 'config': {
                     'intents': [
                         'resource_help',
@@ -1844,7 +2357,6 @@ class TaskAssistantService:
                         'radar_clicked',
                         'stop',
                         'screenshot_help',
-                        'voice_reply',
                     ],
                     'confidence_threshold': 0.55,
                     'image_intents': ['screenshot_help', 'purchased', 'link_error'],
@@ -1855,7 +2367,7 @@ class TaskAssistantService:
                 'type': 'condition',
                 'title': '停发规则',
                 'description': '已报名、投诉、拒绝、人工接管、无孩子等状态停止群发和促单',
-                'position': {'x': 1460, 'y': 320},
+                'position': {'x': 1740, 'y': 320},
                 'config': stop_rules,
             },
             {
@@ -1863,7 +2375,7 @@ class TaskAssistantService:
                 'type': 'knowledge',
                 'title': '图书资源FAQ',
                 'description': '听力、答案、验证码、暂无资源、资源不对、下载等问题',
-                'position': {'x': 1740, 'y': 80},
+                'position': {'x': 2040, 'y': 80},
                 'config': {'resource_faqs': resource_faqs, 'knowledge_base_uuids': [], 'top_k': 5},
             },
             {
@@ -1871,7 +2383,7 @@ class TaskAssistantService:
                 'type': 'knowledge',
                 'title': '课程FAQ',
                 'description': '自然拼读课程介绍、上课时间、回放、赠品、冲突和年级适配',
-                'position': {'x': 1740, 'y': 260},
+                'position': {'x': 2040, 'y': 260},
                 'config': {'course_faqs': course_faqs, 'knowledge_base_uuids': [], 'top_k': 5},
             },
             {
@@ -1879,15 +2391,15 @@ class TaskAssistantService:
                 'type': 'product',
                 'title': '课程产品库',
                 'description': '绑定猿辅导自然拼读体验课产品，输出价格、卖点、适龄和报名方式',
-                'position': {'x': 1740, 'y': 440},
+                'position': {'x': 2040, 'y': 440},
                 'config': {'product_uuids': [COURSE_SALES_PRODUCT_UUID], 'course_profile': course_profile},
             },
             {
                 'id': 'sales_link',
                 'type': 'custom',
                 'title': '发送报名链接',
-                'description': '发送带模拟雷达参数的假报名链接',
-                'position': {'x': 2040, 'y': 440},
+                'description': '发送指定报名链接卡片，并保留模拟雷达事件',
+                'position': {'x': 2340, 'y': 440},
                 'config': {'links': sales_links, 'link_url': radar.get('link_url') or COURSE_SALES_RADAR_LINK},
             },
             {
@@ -1895,23 +2407,23 @@ class TaskAssistantService:
                 'type': 'radar',
                 'title': '模拟雷达',
                 'description': '记录链接打开、浏览时长、报名按钮点击和点击未支付',
-                'position': {'x': 2340, 'y': 440},
+                'position': {'x': 2640, 'y': 440},
                 'config': radar,
             },
             {
                 'id': 'radar_followup',
                 'type': 'outreach',
-                'title': '雷达触达',
-                'description': '根据模拟雷达事件创建后续跟进消息',
-                'position': {'x': 2640, 'y': 440},
+                'title': '主动跟进话术矩阵',
+                'description': '按Excel跟进表在马上、5分钟、1小时、21:30主动跟进，必要时发送Excel素材图或报名链接卡片',
+                'position': {'x': 2940, 'y': 440},
                 'config': {'followup_sequences': followups, 'radar_rules': radar.get('rules', [])},
             },
             {
                 'id': 'long_term_broadcast',
                 'type': 'outreach',
-                'title': '长期群发',
-                'description': 'Day1-Day3 课程介绍、二次提醒、最后确认；可扩展到Day37',
-                'position': {'x': 2340, 'y': 700},
+                'title': 'SOP定时群发',
+                'description': '按SOP图片识别出的文字在每日10:05群发；不发送SOP图片',
+                'position': {'x': 2640, 'y': 700},
                 'config': {'broadcasts': broadcasts, 'stop_rules': stop_rules},
             },
             {
@@ -1919,7 +2431,7 @@ class TaskAssistantService:
                 'type': 'handoff',
                 'title': '人工接管',
                 'description': '投诉、高风险、订单纠纷或人工主动介入后停止AI和群发',
-                'position': {'x': 1740, 'y': 700},
+                'position': {'x': 2040, 'y': 700},
                 'config': {'reason': '课程咨询需要人工处理', 'stop_ai_reply': True, 'stop_outreach': True},
             },
             {
@@ -1927,7 +2439,7 @@ class TaskAssistantService:
                 'type': 'llm',
                 'title': '真人客服回复',
                 'description': '按SOP生成短句、明确、有下一步的课程客服/销售回复',
-                'position': {'x': 2940, 'y': 320},
+                'position': {'x': 3240, 'y': 320},
                 'config': {
                     'model_uuid': model_uuid,
                     'tone': '真人客服、短句、先服务后转化',
@@ -1943,19 +2455,11 @@ class TaskAssistantService:
                 },
             },
             {
-                'id': 'voice',
-                'type': 'voice',
-                'title': '火山语音回复',
-                'description': '用户发语音时，将文字回复转成火山TTS语音一起发出',
-                'position': {'x': 3240, 'y': 180},
-                'config': voice_config,
-            },
-            {
                 'id': 'end',
                 'type': 'end',
                 'title': '发送给用户',
-                'description': '发送文字、链接、图片和必要时的语音',
-                'position': {'x': 3240, 'y': 420},
+                'description': '发送文字、链接卡片和Excel素材图；课程销售不发送语音回复',
+                'position': {'x': 3540, 'y': 420},
                 'config': {},
             },
         ]
@@ -1990,7 +2494,8 @@ class TaskAssistantService:
             )
 
         edges = [
-            {'id': 'e-start-channel', 'source': 'start', 'target': 'channel'},
+            {'id': 'e-start-opening', 'source': 'start', 'target': 'opening_message'},
+            {'id': 'e-opening-channel', 'source': 'opening_message', 'target': 'channel'},
             {'id': 'e-channel-media', 'source': 'channel', 'target': 'media_router'},
             {'id': 'e-media-text', 'source': 'media_router', 'target': 'text_input', 'label': '文字'},
             {'id': 'e-media-voice', 'source': 'media_router', 'target': 'voice_asr', 'label': '语音'},
@@ -2012,19 +2517,15 @@ class TaskAssistantService:
             {'id': 'e-resource-reply', 'source': 'resource_faq', 'target': 'reply'},
             {'id': 'e-course-reply', 'source': 'course_faq', 'target': 'reply'},
             {'id': 'e-link-reply', 'source': 'sales_link', 'target': 'reply'},
-            {'id': 'e-reply-voice', 'source': 'reply', 'target': 'voice', 'label': '用户发语音'},
             {'id': 'e-reply-end', 'source': 'reply', 'target': 'end', 'label': '文字/图片/链接'},
-            {'id': 'e-voice-end', 'source': 'voice', 'target': 'end'},
         ]
         for binding in image_bindings:
             step_id = str(binding.get('step_id') or '')
             if not step_id:
                 continue
-            source = 'resource_faq' if step_id == 'resource_card' else 'course_product'
+            source = 'course_product'
             if step_id in {'gift_qr'}:
                 source = 'course_faq'
-            if step_id in {'final_confirm'}:
-                source = 'long_term_broadcast'
             image_node_id = f'image_{step_id}'
             edges.extend(
                 [
@@ -2040,7 +2541,7 @@ class TaskAssistantService:
             'metadata': {
                 'scenario': COURSE_SALES_SCENARIO,
                 'runtime_engine': 'langgraph',
-                'source': 'AI客服需求与SOP梳理.docx + B015销售SOP + 自然拼读FAQ',
+                'source': 'SOP.doc（群发截图转文字）+ 猿辅导自然拼读常见问题(1).xlsx',
                 'model_provider': 'bailian',
                 'tts_provider': 'volcengine',
                 'langgraph_state': {
@@ -2053,6 +2554,7 @@ class TaskAssistantService:
                 },
             },
             'scenario': 'sales',
+            'opening_message': opening_message,
             'course_profile': course_profile,
             'resource_faqs': resource_faqs,
             'course_faqs': course_faqs,
@@ -2066,6 +2568,7 @@ class TaskAssistantService:
             'variables': {
                 'customer_stage': 'resource_service',
                 'intent': '',
+                'opening_message': opening_message,
                 'radar_event': {},
                 'selected_product_uuid': COURSE_SALES_PRODUCT_UUID,
             },

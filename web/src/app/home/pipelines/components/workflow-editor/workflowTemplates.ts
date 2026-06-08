@@ -119,7 +119,7 @@ const nodeDefaults: Record<
     config: {
       enabled: true,
       link_title: '报名通道',
-      link_url: 'https://radar.yunti.local/course/phonics',
+      link_url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen&reduceProxy=true',
       tracking_fields: ['session_id', 'clicked_at', 'browse_seconds', 'clicked_apply_button'],
       rules: [
         {

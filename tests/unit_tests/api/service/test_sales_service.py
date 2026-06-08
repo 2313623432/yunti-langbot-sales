@@ -5,6 +5,7 @@ import pytest
 import sqlalchemy
 
 from langbot.pkg.api.http.service.sales import SalesService
+from langbot_plugin.api.entities.builtin.platform import message as platform_message
 
 
 def test_classify_intent_detects_handoff_request():
@@ -127,6 +128,156 @@ class _FakeResult:
         if isinstance(self.row, list):
             return self.row
         return [self.row]
+
+
+class _SilentLogger:
+    def warning(self, *_args, **_kwargs):
+        pass
+
+
+class _FakeStorageProvider:
+    async def load(self, _file_key):
+        return b'image-bytes'
+
+
+@pytest.mark.asyncio
+async def test_build_outreach_message_chain_supports_plain_link_and_image_without_voice():
+    service = SalesService(
+        SimpleNamespace(
+            storage_mgr=SimpleNamespace(storage_provider=_FakeStorageProvider()),
+            logger=_SilentLogger(),
+        )
+    )
+    plan = SimpleNamespace(
+        message_template='',
+        message_components=[
+            {'type': 'plain', 'text': '家长您好'},
+            {
+                'type': 'link',
+                'title': '报名链接卡片',
+                'description': '9元体验课报名通道',
+                'url': 'https://example.com/apply',
+            },
+            {'type': 'image', 'file_key': 'course-sales/phonics/phonics_poster.jpeg'},
+        ],
+    )
+
+    chain = await service._build_outreach_message_chain(plan, {})
+
+    assert any(isinstance(component, platform_message.Plain) and component.text == '家长您好' for component in chain)
+    assert any(isinstance(component, platform_message.WeChatLink) and component.link_url == 'https://example.com/apply' for component in chain)
+    assert any(isinstance(component, platform_message.Image) and component.base64.startswith('data:image/jpeg;base64,') for component in chain)
+    assert not any(isinstance(component, platform_message.Voice) for component in chain)
+
+
+class _CaptureAdapter:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, target_type, target_id, message_chain):
+        self.sent.append((target_type, target_id, message_chain))
+
+
+class _CapturePlatformManager:
+    def __init__(self, adapter):
+        self.adapter = adapter
+
+    async def get_bot_by_uuid(self, _bot_uuid):
+        return SimpleNamespace(adapter=self.adapter)
+
+
+class _OutreachPersistence:
+    def __init__(self, plan):
+        self.plan = plan
+        self.update_values = None
+
+    async def execute_async(self, statement):
+        if getattr(statement, 'is_update', False):
+            self.update_values = dict(statement.compile().params)
+            return _FakeResult(None)
+        return _FakeResult([self.plan])
+
+
+@pytest.mark.asyncio
+async def test_run_due_outreach_once_sends_components_and_marks_one_shot_disabled(monkeypatch):
+    plan = SimpleNamespace(
+        id=12,
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        product_uuid='',
+        message_template='',
+        message_components=[{'type': 'plain', 'text': 'SOP定时群发内容'}],
+        interval_minutes=0,
+    )
+    adapter = _CaptureAdapter()
+    persistence_mgr = _OutreachPersistence(plan)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            logger=_SilentLogger(),
+        )
+    )
+    monkeypatch.setattr(service, 'get_products', AsyncMock(return_value=[]))
+
+    sent = await service.run_due_outreach_once()
+
+    assert sent == 1
+    assert adapter.sent[0][0] == 'person'
+    assert adapter.sent[0][1] == 'customer-1'
+    assert any(component.text == 'SOP定时群发内容' for component in adapter.sent[0][2] if isinstance(component, platform_message.Plain))
+    assert persistence_mgr.update_values['enabled'] is False
+
+
+@pytest.mark.asyncio
+async def test_get_chatted_outreach_targets_uses_sessions_with_user_messages():
+    sessions = [
+        SimpleNamespace(
+            session_id='person_customer-1',
+            bot_id='bot-uuid',
+            pipeline_id='course-sales-template-pipeline',
+            platform='person',
+            user_id='customer-1',
+        ),
+        SimpleNamespace(
+            session_id='person_customer-1',
+            bot_id='bot-uuid',
+            pipeline_id='course-sales-template-pipeline',
+            platform='person',
+            user_id='customer-1',
+        ),
+        SimpleNamespace(
+            session_id='group_room-1',
+            bot_id='bot-uuid',
+            pipeline_id='course-sales-template-pipeline',
+            platform='group',
+            user_id='customer-2',
+        ),
+    ]
+    persistence_mgr = SimpleNamespace(execute_async=AsyncMock(return_value=_FakeResult(sessions)))
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    targets = await service.get_chatted_outreach_targets(pipeline_uuids=['course-sales-template-pipeline'])
+
+    assert targets == [
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'customer-1',
+            'session_id': 'person_customer-1',
+            'pipeline_uuid': 'course-sales-template-pipeline',
+            'user_id': 'customer-1',
+        },
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'group',
+            'target_id': 'room-1',
+            'session_id': 'group_room-1',
+            'pipeline_uuid': 'course-sales-template-pipeline',
+            'user_id': 'customer-2',
+        },
+    ]
 
 
 class _FakePersistenceManager:

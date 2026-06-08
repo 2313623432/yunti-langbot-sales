@@ -232,7 +232,7 @@ export default function PipelineTemplateConfigEditor({
         {
           id: `link_${Date.now().toString(36)}`,
           title: '新的报名链接',
-          url: 'https://radar.yunti.local/course/phonics',
+          url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen&reduceProxy=true',
           description: '',
           radar_enabled: true,
         },
@@ -362,6 +362,18 @@ export default function PipelineTemplateConfigEditor({
               placeholder="请输入角色指令"
             />
           </Section>
+          <Section
+            icon={MessageSquareText}
+            title="首次开场白"
+            description="用户加好友/首次进线先发这段文字；资源卡片单独通过报名链接里的图书配套学习资源卡片发送。"
+          >
+            <Textarea
+              value={config.opening_message}
+              onChange={(event) => patch({ opening_message: event.target.value })}
+              className="min-h-36 resize-none"
+              placeholder="请输入首次开场白"
+            />
+          </Section>
           <div className="mt-auto flex items-center gap-2 border-t px-5 py-3 text-xs text-muted-foreground">
             <span>输入或点击引入：</span>
             <Badge variant="outline">@ 工具</Badge>
@@ -415,7 +427,7 @@ export default function PipelineTemplateConfigEditor({
                 ['knowledge_base', '知识库'],
                 ['product_database', '产品数据库'],
                 ['image_recognition', '截图识别'],
-                ['voice_reply', '语音回复'],
+                ['voice_reply', '语音回复（课程销售请关闭）'],
               ].map(([key, label]) => (
                 <div key={key} className="flex items-center justify-between rounded-md border px-3 py-2">
                   <span className="text-sm">{label}</span>
@@ -544,7 +556,11 @@ export default function PipelineTemplateConfigEditor({
             </div>
           </Section>
 
-          <Section icon={CalendarClock} title="定时推送">
+          <Section
+            icon={CalendarClock}
+            title="定时推送总开关"
+            description="用于控制主动触达能力；课程销售的SOP群发内容在下方“SOP定时群发”里逐条配置。"
+          >
             <div className="grid gap-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm">启用定时推送</span>
@@ -616,7 +632,7 @@ export default function PipelineTemplateConfigEditor({
                   <Input
                     value={link.url}
                     onChange={(event) => patchSalesLink(index, { url: event.target.value })}
-                    placeholder="https://radar.yunti.local/course/phonics"
+                    placeholder="https://m.yuanfudao.com/primary/templates/package"
                   />
                   <Textarea
                     value={link.description || ''}
@@ -698,7 +714,7 @@ export default function PipelineTemplateConfigEditor({
             </div>
           </Section>
 
-          <Section icon={MessageSquareText} title="跟进话术矩阵">
+          <Section icon={MessageSquareText} title="主动跟进话术矩阵">
             <div className="space-y-3">
               <Button type="button" variant="outline" className="w-full" onClick={addFollowupSequence}>
                 <Plus className="mr-1.5 size-4" />
@@ -735,7 +751,11 @@ export default function PipelineTemplateConfigEditor({
             </div>
           </Section>
 
-          <Section icon={CalendarClock} title="长期群发">
+          <Section
+            icon={CalendarClock}
+            title="SOP定时群发"
+            description="这里填写从SOP图片识别出来的群发文字；不要填写或发送SOP图片。"
+          >
             <div className="space-y-3">
               <Button type="button" variant="outline" className="w-full" onClick={addLongTermBroadcast}>
                 <Plus className="mr-1.5 size-4" />
