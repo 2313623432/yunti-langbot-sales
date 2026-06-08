@@ -3,10 +3,11 @@ import {
   Bot,
   CalendarClock,
   Image as ImageIcon,
-  Link2,
   MessageSquareText,
   Mic2,
+  MousePointerClick,
   Plus,
+  SendHorizontal,
   Sparkles,
   Upload,
   type LucideIcon,
@@ -83,12 +84,14 @@ function Section({
   children?: ReactNode;
 }) {
   return (
-    <section className="border-b px-5 py-4 last:border-b-0">
+    <section className="px-5 py-4">
       <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="flex items-start gap-2">
-          <Icon className="mt-0.5 size-4 text-muted-foreground" />
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-slate-100 text-slate-600">
+            <Icon className="size-4" />
+          </span>
           <div>
-            <h3 className="text-sm font-semibold leading-5">{title}</h3>
+            <h3 className="text-sm font-semibold leading-5 text-slate-950">{title}</h3>
             {description && (
               <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
             )}
@@ -96,8 +99,32 @@ function Section({
         </div>
         {right}
       </div>
-      {children}
+      <div className="space-y-3">{children}</div>
     </section>
+  );
+}
+
+function ToggleRow({
+  label,
+  checked,
+  onCheckedChange,
+  description,
+}: {
+  label: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  description?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm transition-colors hover:border-slate-300">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-slate-900">{label}</p>
+        {description && (
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
+        )}
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
   );
 }
 
@@ -225,14 +252,23 @@ export default function PipelineTemplateConfigEditor({
     config.scheduled_push.message || config.scheduled_push.push_message || '';
 
   return (
-    <div className="min-h-[720px] overflow-hidden rounded-lg border bg-background">
-      <div className="grid min-h-[720px] grid-cols-1 lg:grid-cols-[1.05fr_1.1fr_0.9fr]">
-        <div className="flex min-h-0 flex-col border-r">
-          <div className="border-b px-5 py-4">
-            <div className="flex items-center gap-2">
-              <Bot className="size-4" />
-              <h2 className="text-base font-semibold">Agent配置</h2>
-              <Badge variant="secondary">模板配置</Badge>
+    <div className="min-h-[720px] overflow-hidden rounded-lg border border-slate-200 bg-slate-50 shadow-sm">
+      <div className="grid min-h-[720px] grid-cols-1 bg-white lg:grid-cols-[1.05fr_1.1fr_0.9fr] lg:divide-x lg:divide-slate-200">
+        <div className="flex min-h-0 min-w-0 flex-col bg-white">
+          <div className="border-b border-slate-200 bg-gradient-to-r from-white to-slate-50 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 place-items-center rounded-lg bg-blue-50 text-blue-600">
+                <Bot className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-semibold text-slate-950">Agent配置</h2>
+                  <Badge variant="secondary" className="rounded-md">模板配置</Badge>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  设置数字员工的人设、话术和触发动作
+                </p>
+              </div>
             </div>
           </div>
           <Section
@@ -243,25 +279,24 @@ export default function PipelineTemplateConfigEditor({
             <Textarea
               value={config.role_prompt}
               onChange={(event) => patch({ role_prompt: event.target.value })}
-              className="min-h-[320px] resize-none"
+              className="min-h-[300px] resize-none rounded-lg border-slate-200 bg-slate-50/70 text-sm leading-6 shadow-none transition-colors focus-visible:bg-white"
               placeholder="请输入角色指令"
             />
           </Section>
           <Section
-            icon={Link2}
+            icon={MousePointerClick}
             title="互动雷达"
             description="配置数字员工主动发送的雷达链接，以及用户点击后的自动回复。"
           >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                <span className="text-sm">启用互动雷达</span>
-                <Switch
-                  checked={config.interaction_radar.enabled}
-                  onCheckedChange={(checked) =>
-                    patchInteractionRadar({ enabled: checked })
-                  }
-                />
-              </div>
+            <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3 shadow-sm">
+              <ToggleRow
+                label="启用互动雷达"
+                description="用户点击链接后，数字员工自动感知并回复"
+                checked={config.interaction_radar.enabled}
+                onCheckedChange={(checked) =>
+                  patchInteractionRadar({ enabled: checked })
+                }
+              />
               <label className="space-y-1">
                 <span className="text-xs font-medium text-muted-foreground">
                   雷达链接
@@ -272,6 +307,7 @@ export default function PipelineTemplateConfigEditor({
                   onChange={(event) =>
                     patchInteractionRadar({ link_url: event.target.value })
                   }
+                  className="bg-white shadow-sm"
                   placeholder="https://example.com/course"
                 />
               </label>
@@ -284,34 +320,35 @@ export default function PipelineTemplateConfigEditor({
                   onChange={(event) =>
                     patchInteractionRadar({ click_reply: event.target.value })
                   }
-                  className="min-h-24 resize-none"
+                  className="min-h-24 resize-none bg-white shadow-sm"
                   placeholder="我看到您刚刚点开了链接，如果有问题可以直接问我。"
                 />
               </label>
             </div>
           </Section>
-          <div className="mt-auto flex items-center gap-2 border-t px-5 py-3 text-xs text-muted-foreground">
+          <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3 text-xs text-muted-foreground">
             <span>输入或点击引入：</span>
-            <Badge variant="outline">@ 工具</Badge>
-            <Badge variant="outline">{'{变量值}'}</Badge>
+            <Badge variant="outline" className="rounded-md bg-white">@ 工具</Badge>
+            <Badge variant="outline" className="rounded-md bg-white">{'{变量值}'}</Badge>
             <button type="button" className="text-primary">示例</button>
           </div>
         </div>
 
-        <div className="min-h-0 overflow-y-auto">
+        <div className="min-h-0 min-w-0 overflow-y-auto bg-slate-50/50">
           <Section
             icon={Sparkles}
             title="能力扩展"
             description="模型、工具、知识、数据库、记忆、图片和语音都可以在这里傻瓜式配置。"
           >
-            <div className="space-y-3">
+            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
               <label className="block text-xs font-medium text-muted-foreground">模型</label>
               <Input
                 value={config.model_uuid}
                 onChange={(event) => patch({ model_uuid: event.target.value })}
+                className="mt-1 bg-slate-50/60"
                 placeholder="模型 UUID"
               />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="mt-3 grid grid-cols-2 gap-3">
                 <label className="space-y-1">
                   <span className="text-xs text-muted-foreground">最大思考次数</span>
                   <Input
@@ -345,13 +382,12 @@ export default function PipelineTemplateConfigEditor({
                 ['image_recognition', '截图识别'],
                 ['voice_reply', '语音回复'],
               ].map(([key, label]) => (
-                <div key={key} className="flex items-center justify-between rounded-md border px-3 py-2">
-                  <span className="text-sm">{label}</span>
-                  <Switch
-                    checked={Boolean(config.tools[key])}
-                    onCheckedChange={(checked) => patchTool(key, checked)}
-                  />
-                </div>
+                <ToggleRow
+                  key={key}
+                  label={label}
+                  checked={Boolean(config.tools[key])}
+                  onCheckedChange={(checked) => patchTool(key, checked)}
+                />
               ))}
             </div>
           </Section>
@@ -454,33 +490,28 @@ export default function PipelineTemplateConfigEditor({
                 ['table_enabled', '记忆表', '记录聊天对话中的多维、大量的应用信息或用户信息。'],
                 ['segments_enabled', '记忆片段', '记录用户偏好、计划和长期上下文。'],
               ].map(([key, label, description]) => (
-                <div key={key} className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium">{label}</p>
-                    <p className="text-xs text-muted-foreground">{description}</p>
-                  </div>
-                  <Switch
-                    checked={Boolean(config.memory[key as keyof typeof config.memory])}
-                    onCheckedChange={(checked) =>
-                      patchMemory({
-                        [key]: checked,
-                      } as Partial<PipelineTemplateConfig['memory']>)
-                    }
-                  />
-                </div>
+                <ToggleRow
+                  key={key}
+                  label={label}
+                  description={description}
+                  checked={Boolean(config.memory[key as keyof typeof config.memory])}
+                  onCheckedChange={(checked) =>
+                    patchMemory({
+                      [key]: checked,
+                    } as Partial<PipelineTemplateConfig['memory']>)
+                  }
+                />
               ))}
             </div>
           </Section>
 
           <Section icon={CalendarClock} title="定时推送">
             <div className="grid gap-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">启用定时推送</span>
-                <Switch
-                  checked={config.scheduled_push.enabled}
-                  onCheckedChange={(checked) => patchScheduledPush({ enabled: checked })}
-                />
-              </div>
+              <ToggleRow
+                label="启用定时推送"
+                checked={config.scheduled_push.enabled}
+                onCheckedChange={(checked) => patchScheduledPush({ enabled: checked })}
+              />
               <div className="grid grid-cols-2 gap-3">
                 <Select
                   value={config.scheduled_push.mode}
@@ -512,7 +543,7 @@ export default function PipelineTemplateConfigEditor({
               <Textarea
                 value={scheduledMessage}
                 onChange={(event) => patchScheduledPush({ message: event.target.value })}
-                className="min-h-24"
+                className="min-h-24 resize-none bg-white"
                 placeholder="请输入定时推送的消息"
               />
             </div>
@@ -530,7 +561,7 @@ export default function PipelineTemplateConfigEditor({
                 新增图文绑定
               </Button>
               {config.image_text_bindings.map((binding, index) => (
-                <div key={binding.step_id || index} className="rounded-md border p-3">
+                <div key={binding.step_id || index} className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <Input
                       value={binding.title}
@@ -602,13 +633,11 @@ export default function PipelineTemplateConfigEditor({
 
           <Section icon={Mic2} title="声音和形象">
             <div className="grid gap-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">语音回复</span>
-                <Switch
-                  checked={config.voice.enabled}
-                  onCheckedChange={(checked) => patchVoice({ enabled: checked })}
-                />
-              </div>
+              <ToggleRow
+                label="语音回复"
+                checked={config.voice.enabled}
+                onCheckedChange={(checked) => patchVoice({ enabled: checked })}
+              />
               <Input
                 value={config.voice.voice_type}
                 onChange={(event) => patchVoice({ voice_type: event.target.value })}
@@ -623,33 +652,78 @@ export default function PipelineTemplateConfigEditor({
           </Section>
         </div>
 
-        <div className="flex min-h-0 flex-col bg-muted/40">
-          <div className="border-b px-5 py-4">
-            <h2 className="text-base font-semibold">预览与调试</h2>
-          </div>
-          <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
-            <div className="mb-5 grid size-16 place-items-center rounded-2xl bg-gradient-to-br from-sky-400 via-blue-300 to-amber-200 text-white shadow-sm">
-              <Bot className="size-8" />
-            </div>
-            <h3 className="mb-2 text-xl font-semibold">{config.name || '未命名数字员工'}</h3>
-            <p className="max-w-sm text-sm leading-6 text-muted-foreground">
-              {config.opening_message}
-            </p>
-            <div className="mt-6 flex flex-wrap justify-center gap-2">
-              {config.recommended_questions.map((question) => (
-                <Badge key={question} variant="outline" className="max-w-[220px] truncate">
-                  {question}
-                </Badge>
-              ))}
-            </div>
-          </div>
-          <div className="border-t bg-background/80 p-5">
-            <div className="flex items-center gap-2 rounded-full border bg-background px-4 py-3 shadow-sm">
-              <span className="flex-1 text-left text-sm text-muted-foreground">
-                请输入你的问题 支持对上传文件内容进行提问
+        <div className="flex min-h-0 min-w-0 flex-col bg-slate-100/70">
+          <div className="border-b border-slate-200 bg-white px-5 py-4">
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 place-items-center rounded-lg bg-emerald-50 text-emerald-600">
+                <Sparkles className="size-4" />
               </span>
-              <Mic2 className={cn('size-4', config.voice.enabled ? 'text-primary' : 'text-muted-foreground')} />
-              <Button type="button" size="sm" className="rounded-full">
+              <div>
+                <h2 className="text-base font-semibold text-slate-950">预览与调试</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">模拟客户看到的数字员工开场效果</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col p-5">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <span className="grid size-10 place-items-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 text-white shadow-sm">
+                    <Bot className="size-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold text-slate-950">
+                      {config.name || '未命名数字员工'}
+                    </h3>
+                    <p className="text-xs text-emerald-600">在线 · 可调试</p>
+                  </div>
+                </div>
+                <Badge variant="outline" className="rounded-md bg-slate-50">预览</Badge>
+              </div>
+              <div className="flex flex-1 flex-col justify-center gap-4 overflow-y-auto bg-gradient-to-b from-slate-50 to-white px-5 py-6">
+                <div className="flex gap-3">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600">
+                    <Bot className="size-4" />
+                  </span>
+                  <div className="max-w-[82%] rounded-lg rounded-tl-sm bg-white px-4 py-3 text-left text-sm leading-6 text-slate-700 shadow-sm ring-1 ring-slate-200">
+                    {config.opening_message || '您好，我是您的数字员工，可以帮您介绍课程、解答问题。'}
+                  </div>
+                </div>
+                {config.recommended_questions.length > 0 && (
+                  <div className="ml-11 flex flex-wrap gap-2">
+                    {config.recommended_questions.map((question) => (
+                      <Badge
+                        key={question}
+                        variant="outline"
+                        className="max-w-[220px] truncate rounded-md border-blue-100 bg-blue-50/70 text-blue-700"
+                      >
+                        {question}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {config.interaction_radar.enabled && config.interaction_radar.link_url && (
+                  <div className="ml-11 rounded-lg border border-blue-100 bg-blue-50/70 p-3 text-left">
+                    <div className="flex items-center gap-2 text-xs font-medium text-blue-700">
+                      <MousePointerClick className="size-3.5" />
+                      互动雷达链接
+                    </div>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                      {config.interaction_radar.link_url}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-slate-200 bg-white p-5">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 shadow-sm">
+              <span className="flex-1 truncate text-left text-sm text-muted-foreground">
+                请输入你的问题，支持对上传文件内容进行提问
+              </span>
+              <Mic2 className={cn('size-4 shrink-0', config.voice.enabled ? 'text-primary' : 'text-muted-foreground')} />
+              <Button type="button" size="sm" className="rounded-md px-3">
+                <SendHorizontal className="mr-1.5 size-3.5" />
                 发送
               </Button>
             </div>
