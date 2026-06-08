@@ -614,6 +614,11 @@ class TaskAssistantService:
             'message': '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
             'push_message': '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
         }
+        interaction_radar = {
+            'enabled': False,
+            'link_url': '',
+            'click_reply': '我看到您刚刚点开了链接，如果有不清楚的地方可以直接问我。',
+        }
         template_config = {
             'name': '任务助手模板配置版',
             'role_prompt': self.compose_system_prompt(),
@@ -642,6 +647,7 @@ class TaskAssistantService:
             },
             'voice': voice,
             'scheduled_push': scheduled_push,
+            'interaction_radar': interaction_radar,
             'image_text_bindings': [
                 {
                     'step_id': step['id'],
@@ -660,6 +666,8 @@ class TaskAssistantService:
                     template_config['voice'] = {**voice, **value}
                 elif key == 'scheduled_push' and isinstance(value, dict):
                     template_config['scheduled_push'] = {**scheduled_push, **value}
+                elif key == 'interaction_radar' and isinstance(value, dict):
+                    template_config['interaction_radar'] = {**interaction_radar, **value}
                 elif key == 'image_text_bindings' and isinstance(value, list) and value:
                     template_config['image_text_bindings'] = value
                 else:
@@ -724,6 +732,10 @@ class TaskAssistantService:
         scheduled_push = template_config.get('scheduled_push')
         if isinstance(scheduled_push, dict):
             workflow['scheduled_push'] = scheduled_push
+        interaction_radar = template_config.get('interaction_radar')
+        if isinstance(interaction_radar, dict):
+            workflow['interaction_radar'] = interaction_radar
+            workflow.setdefault('variables', {})['interaction_radar'] = interaction_radar
         return workflow
 
     def build_workflow_config(self, voice_overrides: dict[str, Any] | None = None) -> dict[str, Any]:

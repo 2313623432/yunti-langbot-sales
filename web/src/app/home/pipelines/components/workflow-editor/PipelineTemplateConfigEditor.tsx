@@ -3,6 +3,7 @@ import {
   Bot,
   CalendarClock,
   Image as ImageIcon,
+  Link2,
   MessageSquareText,
   Mic2,
   Plus,
@@ -58,6 +59,10 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
     scheduled_push: {
       ...defaults.scheduled_push,
       ...(value?.scheduled_push || {}),
+    },
+    interaction_radar: {
+      ...defaults.interaction_radar,
+      ...(value?.interaction_radar || {}),
     },
     image_text_bindings:
       value?.image_text_bindings?.length ? value.image_text_bindings : defaults.image_text_bindings,
@@ -147,6 +152,15 @@ export default function PipelineTemplateConfigEditor({
     patch({ scheduled_push: scheduledPush });
   }
 
+  function patchInteractionRadar(next: Partial<PipelineTemplateConfig['interaction_radar']>) {
+    patch({
+      interaction_radar: {
+        ...config.interaction_radar,
+        ...next,
+      },
+    });
+  }
+
   function patchMemory(next: Partial<PipelineTemplateConfig['memory']>) {
     patch({ memory: { ...config.memory, ...next } });
   }
@@ -232,6 +246,49 @@ export default function PipelineTemplateConfigEditor({
               className="min-h-[320px] resize-none"
               placeholder="请输入角色指令"
             />
+          </Section>
+          <Section
+            icon={Link2}
+            title="互动雷达"
+            description="配置数字员工主动发送的雷达链接，以及用户点击后的自动回复。"
+          >
+            <div className="space-y-3">
+              <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                <span className="text-sm">启用互动雷达</span>
+                <Switch
+                  checked={config.interaction_radar.enabled}
+                  onCheckedChange={(checked) =>
+                    patchInteractionRadar({ enabled: checked })
+                  }
+                />
+              </div>
+              <label className="space-y-1">
+                <span className="text-xs font-medium text-muted-foreground">
+                  雷达链接
+                </span>
+                <Input
+                  type="url"
+                  value={config.interaction_radar.link_url}
+                  onChange={(event) =>
+                    patchInteractionRadar({ link_url: event.target.value })
+                  }
+                  placeholder="https://example.com/course"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs font-medium text-muted-foreground">
+                  点击后回复
+                </span>
+                <Textarea
+                  value={config.interaction_radar.click_reply}
+                  onChange={(event) =>
+                    patchInteractionRadar({ click_reply: event.target.value })
+                  }
+                  className="min-h-24 resize-none"
+                  placeholder="我看到您刚刚点开了链接，如果有问题可以直接问我。"
+                />
+              </label>
+            </div>
           </Section>
           <div className="mt-auto flex items-center gap-2 border-t px-5 py-3 text-xs text-muted-foreground">
             <span>输入或点击引入：</span>
@@ -574,7 +631,7 @@ export default function PipelineTemplateConfigEditor({
             <div className="mb-5 grid size-16 place-items-center rounded-2xl bg-gradient-to-br from-sky-400 via-blue-300 to-amber-200 text-white shadow-sm">
               <Bot className="size-8" />
             </div>
-            <h3 className="mb-2 text-xl font-semibold">{config.name || '未命名流水线'}</h3>
+            <h3 className="mb-2 text-xl font-semibold">{config.name || '未命名数字员工'}</h3>
             <p className="max-w-sm text-sm leading-6 text-muted-foreground">
               {config.opening_message}
             </p>

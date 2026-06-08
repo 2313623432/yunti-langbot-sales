@@ -1403,7 +1403,7 @@ function NodeConfigPanel({
               <SelectValue placeholder="选择 AI 回复模型" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__none__">跟随流水线默认模型</SelectItem>
+              <SelectItem value="__none__">跟随数字员工默认模型</SelectItem>
               {llmModels.map((model) => (
                 <SelectItem key={model.uuid} value={model.uuid}>
                   {model.name}
@@ -1413,7 +1413,7 @@ function NodeConfigPanel({
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            保存后会同步为这条流水线实际调用的主模型。
+            保存后会同步为这个数字员工实际调用的主模型。
           </p>
         </div>
       )}

@@ -95,5 +95,10 @@ export interface PipelineTemplateConfig {
     message: string;
     push_message?: string;
   };
+  interaction_radar: {
+    enabled: boolean;
+    link_url: string;
+    click_reply: string;
+  };
   image_text_bindings: PipelineTemplateImageTextBinding[];
 }

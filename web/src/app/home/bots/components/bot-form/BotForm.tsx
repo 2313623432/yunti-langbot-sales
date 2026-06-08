@@ -137,11 +137,7 @@ export default function BotForm({
   const [pipelineNameList, setPipelineNameList] = useState<IPipelineEntity[]>(
     [],
   );
-  const [bindingTargetType, setBindingTargetType] = useState<
-    'workflow' | 'agent'
-  >('workflow');
-  const [selectedAgentName, setSelectedAgentName] =
-    useState('售前 AI 销售员');
+  const bindingTargetType = 'workflow';
 
   const [dynamicFormConfigList, setDynamicFormConfigList] = useState<
     IDynamicFormItemSchema[]
@@ -157,10 +153,9 @@ export default function BotForm({
     pipelineNameList.length > 0
       ? pipelineNameList
       : [
-          { label: '销售 Workflow', value: 'sales-workflow', emoji: '💼' },
-          { label: '运营 Workflow', value: 'operations-workflow', emoji: '📣' },
+          { label: '销售数字员工', value: 'sales-workflow', emoji: '💼' },
+          { label: '运营数字员工', value: 'operations-workflow', emoji: '📣' },
         ];
-  const agentOptions = ['售前 AI 销售员', '客服接待 AI'];
 
   // Group adapters by category for the Select dropdown
   const groupedAdapters = useMemo(
@@ -457,7 +452,7 @@ export default function BotForm({
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="bg-blue-600">发布层</Badge>
                 <span className="text-sm text-blue-800">
-                  这里只负责把通讯平台消息接入系统，不在这里配置 Agent 提示词或 Workflow 节点。
+                  这里只负责把通讯平台消息接入系统，不在这里配置数字员工的提示词或流程节点。
                 </span>
               </div>
             </div>
@@ -465,48 +460,18 @@ export default function BotForm({
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <FormLabel>绑定类型</FormLabel>
-                <Select
-                  value={bindingTargetType}
-                  onValueChange={(value) =>
-                    setBindingTargetType(value as 'workflow' | 'agent')
-                  }
-                >
+                <Select value={bindingTargetType} disabled>
                   <SelectTrigger className="mt-2">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="workflow">绑定 Workflow</SelectItem>
-                    <SelectItem value="agent">绑定 AI Agent</SelectItem>
+                    <SelectItem value="workflow">绑定数字员工</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  推荐绑定 Workflow，由 Workflow 决定何时调用 AI Agent。
+                  发布渠道只负责接入消息，具体回复和流程由数字员工配置决定。
                 </p>
               </div>
-
-              {bindingTargetType === 'agent' && (
-                <div>
-                  <FormLabel>绑定 AI Agent</FormLabel>
-                  <Select
-                    value={selectedAgentName}
-                    onValueChange={setSelectedAgentName}
-                  >
-                    <SelectTrigger className="mt-2">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {agentOptions.map((agent) => (
-                        <SelectItem key={agent} value={agent}>
-                          {agent}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    适合简单接待场景，复杂分支仍建议绑定 Workflow。
-                  </p>
-                </div>
-              )}
             </div>
 
             {bindingTargetType === 'workflow' && (

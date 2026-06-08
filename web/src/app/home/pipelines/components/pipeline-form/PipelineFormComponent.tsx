@@ -224,7 +224,7 @@ export default function PipelineFormComponent({
           icon: SECTION_ICONS.basic,
         },
         {
-          label: '工作流编排',
+          label: '数字员工配置',
           name: 'workflow',
           icon: SECTION_ICONS.workflow,
         },
@@ -713,9 +713,9 @@ export default function PipelineFormComponent({
                   <div className="space-y-4">
                     <Card>
                       <CardHeader className="pb-3">
-                        <CardTitle className="text-base">配置方式</CardTitle>
+                        <CardTitle className="text-base">数字员工配置方式</CardTitle>
                         <CardDescription>
-                          模板配置适合快速上手，工作流编排适合像 Coze / n8n 一样精细调整节点和连线。
+                          模板配置是简单 Agent 配置，适合业务团队快速上手；工作流编排适合精细调整节点和连线。
                         </CardDescription>
                       </CardHeader>
                       <CardContent>

@@ -50,7 +50,7 @@ export default function PipelineDetailContent({ id }: { id: string }) {
               {t('pipelines.createPipeline')}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              创建一个可复用的销售会话处理流程
+              创建一个可复用的数字员工
             </p>
           </div>
           <Button type="submit" form="pipeline-form">
@@ -90,7 +90,7 @@ export default function PipelineDetailContent({ id }: { id: string }) {
             {t('pipelines.editPipeline')}
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            编排客户消息、意图识别、知识检索与回复生成的执行链路
+            配置客户消息处理、意图识别、知识检索与回复生成方式
           </p>
         </div>
         <Button

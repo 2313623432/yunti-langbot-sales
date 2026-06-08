@@ -380,6 +380,11 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
       push_message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
     },
+    interaction_radar: {
+      enabled: false,
+      link_url: '',
+      click_reply: '我看到您刚刚点开了链接，如果有不清楚的地方可以直接问我。',
+    },
     image_text_bindings: bindings.map(([step_id, title, text, file_key]) => ({
       step_id,
       title,
@@ -442,6 +447,7 @@ export function applyTemplateConfigToWorkflow(
     variables: {
       ...(workflow.variables || {}),
       scheduled_push: templateConfig.scheduled_push,
+      interaction_radar: templateConfig.interaction_radar,
       opening_message: templateConfig.opening_message,
       recommended_questions: templateConfig.recommended_questions,
     },

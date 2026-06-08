@@ -270,6 +270,9 @@ def test_task_assistant_template_pipeline_config_matches_workflow_capabilities()
     assert template_config['name'] == '任务助手模板配置版'
     assert template_config['scheduled_push']['mode'] == 'daily'
     assert template_config['scheduled_push']['message']
+    assert template_config['interaction_radar']['enabled'] is False
+    assert template_config['interaction_radar']['link_url'] == ''
+    assert template_config['interaction_radar']['click_reply']
     assert template_config['voice']['voice_type'] == TASK_ASSISTANT_TTS_VOICE_TYPE
     assert template_config['voice']['encoding'] == 'ogg_opus'
     assert len(template_config['image_text_bindings']) == 8
@@ -311,6 +314,11 @@ def test_template_mode_active_workflow_uses_template_config_without_mutating_sav
     template_config = service.build_template_config(
         overrides={
             'voice': {'app_id': 'template-app', 'token': 'template-token'},
+            'interaction_radar': {
+                'enabled': True,
+                'link_url': 'https://example.com/course',
+                'click_reply': '我看到您刚刚点开了课程链接。',
+            },
             'image_text_bindings': [
                 {
                     'step_id': 'download_qr',
@@ -334,6 +342,8 @@ def test_template_mode_active_workflow_uses_template_config_without_mutating_sav
     assert active_workflow is not saved_workflow
     assert active_workflow['metadata']['scenario'] == 'task_assistant_ant_af'
     assert active_workflow['voice']['app_id'] == 'template-app'
+    assert active_workflow['interaction_radar']['link_url'] == 'https://example.com/course'
+    assert active_workflow['variables']['interaction_radar']['click_reply'] == '我看到您刚刚点开了课程链接。'
     image_node = next(node for node in active_workflow['nodes'] if node['id'] == 'image_download_qr')
     assert image_node['config']['file_key'] == 'uploads/custom-step.png'
     assert saved_workflow['nodes'] == []

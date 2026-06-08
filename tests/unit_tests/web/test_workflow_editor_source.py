@@ -94,6 +94,10 @@ def test_template_config_editor_supports_direct_image_upload_and_expanded_contro
     assert 'getSalesProducts' in template_source
     assert 'salesProducts.map' in template_source
     assert 'toggleTemplateListValue' in template_source
+    assert '互动雷达' in template_source
+    assert 'interaction_radar' in template_source
+    assert 'link_url' in template_source
+    assert 'click_reply' in template_source
     assert 'patchStringList' not in template_source
     assert 'selectedConfigMode' in form_source
     assert "selectedConfigMode === 'template'" in form_source
@@ -130,7 +134,7 @@ def test_latest_workflow_navigation_opens_real_pipeline_orchestration():
     router_source = ROUTER_PATH.read_text(encoding='utf-8')
 
     assert "id: 'pipelines'" in sidebar_source
-    assert "name: 'Workflow'" in sidebar_source
+    assert "name: '数字员工'" in sidebar_source
     assert "route: '/home/pipelines'" in sidebar_source
     assert "path: '/home/workflows'" in router_source
     workflow_route_block = router_source.split("path: '/home/workflows'", 1)[1].split("path: '/home/monitoring'", 1)[0]

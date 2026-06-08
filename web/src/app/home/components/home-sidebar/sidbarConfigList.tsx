@@ -1,6 +1,6 @@
 import { SidebarChildVO } from '@/app/home/components/home-sidebar/HomeSidebarChild';
 import i18n from '@/i18n';
-import { BadgeDollarSign, Bot, Workflow } from 'lucide-react';
+import { BadgeDollarSign, Workflow } from 'lucide-react';
 
 const t = (key: string) => {
   return i18n.t(key);
@@ -44,23 +44,11 @@ export const sidebarConfigList = [
     section: 'home',
   }),
   new SidebarChildVO({
-    id: 'ai-agents',
-    name: 'AI Agent',
-    icon: <Bot className="text-indigo-600" />,
-    route: '/home/ai-agents',
-    description: 'AI销售员配置',
-    helpLink: {
-      en_US: '',
-      zh_Hans: '',
-    },
-    section: 'home',
-  }),
-  new SidebarChildVO({
     id: 'pipelines',
-    name: 'Workflow',
+    name: '数字员工',
     icon: <Workflow className="text-sky-600" />,
     route: '/home/pipelines',
-    description: '自动化销售流程',
+    description: '配置数字员工的回复能力和执行流程',
     helpLink: {
       en_US: '',
       zh_Hans: '',
