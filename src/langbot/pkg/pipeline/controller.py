@@ -60,7 +60,10 @@ class Controller:
                             pipeline_uuid = selected_query.pipeline_uuid
 
                             if pipeline_uuid:
-                                pipeline = await self.ap.pipeline_mgr.get_pipeline_by_uuid(pipeline_uuid)
+                                pipeline = await self.ap.pipeline_mgr.get_pipeline_by_uuid(
+                                    pipeline_uuid,
+                                    load_if_missing=True,
+                                )
                                 if pipeline:
                                     await pipeline.run(selected_query)
                                 else:

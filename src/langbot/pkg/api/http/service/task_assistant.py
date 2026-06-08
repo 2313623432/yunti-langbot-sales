@@ -23,7 +23,7 @@ from ....entity.persistence import model as persistence_model
 from ....entity.persistence import pipeline as persistence_pipeline
 from ....entity.persistence import sales as persistence_sales
 from ....utils import paths as path_utils
-from .pipeline import default_stage_order
+from .pipeline_defaults import default_stage_order
 
 
 TASK_ASSISTANT_SCENARIO = 'task_assistant_ant_af'

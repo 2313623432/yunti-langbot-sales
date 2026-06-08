@@ -446,7 +446,30 @@ class PipelineManager:
         runtime_pipeline = RuntimePipeline(self.ap, pipeline_entity, stage_containers)
         self.pipelines.append(runtime_pipeline)
 
-    async def get_pipeline_by_uuid(self, uuid: str) -> RuntimePipeline | None:
+    async def get_pipeline_by_uuid(self, uuid: str, load_if_missing: bool = False) -> RuntimePipeline | None:
+        for pipeline in self.pipelines:
+            if pipeline.pipeline_entity.uuid == uuid:
+                return pipeline
+
+        if not load_if_missing:
+            return None
+
+        self.ap.logger.info(f'Runtime pipeline {uuid} missing, trying to load it from db...')
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid == uuid
+            )
+        )
+        pipeline_entity = result.first()
+        if pipeline_entity is None:
+            return None
+
+        # Another task may have loaded it while the DB lookup was in flight.
+        for pipeline in self.pipelines:
+            if pipeline.pipeline_entity.uuid == uuid:
+                return pipeline
+
+        await self.load_pipeline(pipeline_entity)
         for pipeline in self.pipelines:
             if pipeline.pipeline_entity.uuid == uuid:
                 return pipeline
