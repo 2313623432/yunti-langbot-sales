@@ -422,6 +422,7 @@ export interface SalesCustomerMemory {
   stage: string;
   last_intent: string;
   preferred_product_uuid: string;
+  profile?: Record<string, unknown>;
   intents: Array<Record<string, unknown>>;
   last_seen_at?: string;
   updated_at?: string;

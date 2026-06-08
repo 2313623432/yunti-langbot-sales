@@ -59,7 +59,7 @@ def test_pipeline_editor_supports_template_and_workflow_modes():
     assert 'config_mode' in form_source
     assert 'template_config' in form_source
     assert 'applyTemplateConfigToWorkflow' not in form_source
-    assert '模板配置' in form_source
+    assert 'Agent配置' in form_source
     assert '工作流编排' in form_source
 
     assert 'scheduled_push' in template_source

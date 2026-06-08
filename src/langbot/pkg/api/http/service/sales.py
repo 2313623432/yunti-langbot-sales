@@ -320,6 +320,46 @@ class SalesService:
         )
         return [self._serialize(persistence_sales.SalesCustomerMemory, row) for row in result.all()]
 
+    async def update_memory(self, session_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id == session_id
+            )
+        )
+        existing = self._first_row(result)
+        if existing is None:
+            raise ValueError('Customer memory not found')
+
+        profile = dict(existing.profile or {})
+        incoming_profile = data.get('profile')
+        if isinstance(incoming_profile, dict):
+            profile.update(incoming_profile)
+
+        values: dict[str, Any] = {
+            'profile': profile,
+            'updated_at': datetime.datetime.now(),
+        }
+        if 'customer_name' in data:
+            values['customer_name'] = str(data.get('customer_name') or '').strip()
+        if 'stage' in data:
+            values['stage'] = str(data.get('stage') or '').strip() or existing.stage
+        if 'summary' in data:
+            values['summary'] = str(data.get('summary') or '').strip()
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesCustomerMemory)
+            .where(persistence_sales.SalesCustomerMemory.session_id == session_id)
+            .values(**values)
+        )
+
+        updated_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id == session_id
+            )
+        )
+        updated = self._first_row(updated_result)
+        return self._serialize(persistence_sales.SalesCustomerMemory, updated)
+
     async def get_open_handoff_for_query(self, query: Any) -> dict[str, Any] | None:
         session_id = self._query_session_id(query)
         result = await self.ap.persistence_mgr.execute_async(

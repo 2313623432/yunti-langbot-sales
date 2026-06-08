@@ -912,11 +912,16 @@ export class BackendClient extends BaseHttpClient {
     return this.get('/api/v1/sales/products');
   }
 
-  public createSalesProduct(product: Partial<SalesProduct>): Promise<{ uuid: string }> {
+  public createSalesProduct(
+    product: Partial<SalesProduct>,
+  ): Promise<{ uuid: string }> {
     return this.post('/api/v1/sales/products', product);
   }
 
-  public updateSalesProduct(uuid: string, product: Partial<SalesProduct>): Promise<object> {
+  public updateSalesProduct(
+    uuid: string,
+    product: Partial<SalesProduct>,
+  ): Promise<object> {
     return this.put(`/api/v1/sales/products/${uuid}`, product);
   }
 
@@ -942,7 +947,24 @@ export class BackendClient extends BaseHttpClient {
     return this.get('/api/v1/sales/memories');
   }
 
-  public getSalesHandoffs(status?: string): Promise<{ handoffs: SalesHandoff[] }> {
+  public updateSalesMemory(
+    sessionId: string,
+    data: {
+      customer_name?: string;
+      stage?: string;
+      summary?: string;
+      profile?: Record<string, unknown>;
+    },
+  ): Promise<{ memory: SalesCustomerMemory }> {
+    return this.put(
+      `/api/v1/sales/memories/${encodeURIComponent(sessionId)}`,
+      data,
+    );
+  }
+
+  public getSalesHandoffs(
+    status?: string,
+  ): Promise<{ handoffs: SalesHandoff[] }> {
     return this.get('/api/v1/sales/handoffs', status ? { status } : undefined);
   }
 
@@ -977,7 +999,9 @@ export class BackendClient extends BaseHttpClient {
     return this.get('/api/v1/sales/outreach');
   }
 
-  public createSalesOutreachPlan(plan: Partial<SalesOutreachPlan>): Promise<{ id: number }> {
+  public createSalesOutreachPlan(
+    plan: Partial<SalesOutreachPlan>,
+  ): Promise<{ id: number }> {
     return this.post('/api/v1/sales/outreach', plan);
   }
 

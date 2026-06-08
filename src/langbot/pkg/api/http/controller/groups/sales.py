@@ -58,6 +58,12 @@ class SalesRouterGroup(group.RouterGroup):
         async def _() -> str:
             return self.success(data={'memories': await self.ap.sales_service.get_memories()})
 
+        @self.route('/memories/<session_id>', methods=['PUT'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(session_id: str) -> str:
+            data = await quart.request.json
+            memory = await self.ap.sales_service.update_memory(session_id, data or {})
+            return self.success(data={'memory': memory})
+
         @self.route('/handoffs', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
             status = quart.request.args.get('status')

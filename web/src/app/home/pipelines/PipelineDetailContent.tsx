@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PipelineFormComponent from '@/app/home/pipelines/components/pipeline-form/PipelineFormComponent';
-import DebugDialog from '@/app/home/pipelines/components/debug-dialog/DebugDialog';
 import PipelineMonitoringTab from '@/app/home/pipelines/components/monitoring-tab/PipelineMonitoringTab';
 import { useSidebarData } from '@/app/home/components/home-sidebar/SidebarDataContext';
 import { useTranslation } from 'react-i18next';
-import { Settings, Bug, BarChart3 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { BarChart3 } from 'lucide-react';
 
 export default function PipelineDetailContent({ id }: { id: string }) {
   const isCreateMode = id === 'new';
@@ -27,8 +25,7 @@ export default function PipelineDetailContent({ id }: { id: string }) {
     return () => setDetailEntityName(null);
   }, [id, isCreateMode, pipelines, setDetailEntityName, t]);
 
-  const [activeTab, setActiveTab] = useState('config');
-  const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
+  const [monitoringOpen, setMonitoringOpen] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
 
   function handleFinish() {
@@ -83,9 +80,8 @@ export default function PipelineDetailContent({ id }: { id: string }) {
   // ==================== Edit Mode ====================
   return (
     <div className="flex h-full flex-col gap-4">
-      {/* Sticky Header: title + save button */}
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 pb-4">
-        <div>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold">
             {t('pipelines.editPipeline')}
           </h1>
@@ -93,98 +89,52 @@ export default function PipelineDetailContent({ id }: { id: string }) {
             配置客户消息处理、意图识别、知识检索与回复生成方式
           </p>
         </div>
-        <Button
-          type="submit"
-          form="pipeline-form"
-          disabled={!formDirty}
-          className={cn(
-            'h-10 rounded-lg px-5 shadow-sm',
-            activeTab !== 'config' ? 'invisible' : '',
-          )}
-        >
-          {t('common.save')}
-        </Button>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-10 rounded-lg px-3 text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+            onClick={() => setMonitoringOpen(true)}
+          >
+            <BarChart3 className="mr-1.5 size-4" />
+            {t('pipelines.monitoring.title')}
+          </Button>
+          <Button
+            type="submit"
+            form="pipeline-form"
+            disabled={!formDirty}
+            className="h-10 rounded-lg px-5 shadow-sm"
+          >
+            {t('common.save')}
+          </Button>
+        </div>
       </div>
 
-      {/* Horizontal Tabs */}
-      <Tabs
-        key={id}
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="flex flex-1 flex-col min-h-0"
-      >
-        <TabsList className="h-10 w-fit shrink-0 rounded-xl bg-slate-100 p-1">
-          <TabsTrigger
-            value="config"
-            className="gap-1.5 rounded-lg px-3 data-[state=active]:bg-white data-[state=active]:shadow-sm"
-          >
-            <Settings className="size-3.5" />
-            {t('pipelines.configuration')}
-          </TabsTrigger>
-          <TabsTrigger
-            value="debug"
-            className="gap-1.5 rounded-lg px-3 data-[state=active]:bg-white data-[state=active]:shadow-sm"
-          >
-            <Bug className="size-3.5" />
-            {t('pipelines.debugChat')}
-            {activeTab === 'debug' && (
-              <span
-                className={`inline-block size-2 rounded-full ${
-                  isWebSocketConnected ? 'bg-green-500' : 'bg-red-500'
-                }`}
-              />
-            )}
-          </TabsTrigger>
-          <TabsTrigger
-            value="monitoring"
-            className="gap-1.5 rounded-lg px-3 data-[state=active]:bg-white data-[state=active]:shadow-sm"
-          >
-            <BarChart3 className="size-3.5" />
-            {t('pipelines.monitoring.title')}
-          </TabsTrigger>
-        </TabsList>
+      <div className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+        <PipelineFormComponent
+          pipelineId={id}
+          isEditMode={true}
+          disableForm={false}
+          showButtons={false}
+          onFinish={handleFinish}
+          onNewPipelineCreated={handleNewPipelineCreated}
+          onDeletePipeline={handleDeletePipeline}
+          onCancel={() => navigate('/home/pipelines')}
+          onDirtyChange={setFormDirty}
+        />
+      </div>
 
-        {/* Tab: Configuration */}
-        <TabsContent
-          value="config"
-          className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
-        >
-          <PipelineFormComponent
-            pipelineId={id}
-            isEditMode={true}
-            disableForm={false}
-            showButtons={false}
-            onFinish={handleFinish}
-            onNewPipelineCreated={handleNewPipelineCreated}
-            onDeletePipeline={handleDeletePipeline}
-            onCancel={() => navigate('/home/pipelines')}
-            onDirtyChange={setFormDirty}
-          />
-        </TabsContent>
-
-        {/* Tab: Debug */}
-        <TabsContent value="debug" className="mt-0 flex-1 min-h-0">
-          <DebugDialog
-            open={activeTab === 'debug'}
-            pipelineId={id}
-            isEmbedded={true}
-            onConnectionStatusChange={setIsWebSocketConnected}
-          />
-        </TabsContent>
-
-        {/* Tab: Monitoring */}
-        <TabsContent
-          value="monitoring"
-          className="mt-0 flex-1 min-h-0 overflow-y-auto"
-        >
+      <Dialog open={monitoringOpen} onOpenChange={setMonitoringOpen}>
+        <DialogContent className="flex h-[78vh] !max-w-[92vw] flex-col rounded-2xl p-6 sm:max-w-[1180px]">
           <PipelineMonitoringTab
             pipelineId={id}
             onNavigateToMonitoring={() => {
+              setMonitoringOpen(false);
               navigate('/home/monitoring');
             }}
           />
-        </TabsContent>
-      </Tabs>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

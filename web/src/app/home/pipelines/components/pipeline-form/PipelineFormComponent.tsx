@@ -720,7 +720,7 @@ export default function PipelineFormComponent({
                       </div>
                       <div className="inline-flex rounded-md border border-slate-200 bg-white p-1 shadow-sm">
                         {[
-                          ['template', '模板配置'],
+                          ['template', 'Agent配置'],
                           ['workflow', '工作流编排'],
                         ].map(([mode, label]) => (
                           <Button

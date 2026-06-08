@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   Bot,
   Brain,
@@ -261,9 +261,12 @@ export default function PipelineTemplateConfigEditor({
 }: PipelineTemplateConfigEditorProps) {
   const config = normalizeTemplateConfig(value);
   const { knowledgeBases } = useSidebarData();
-  const [activeTab, setActiveTab] = useState<TemplateConfigTab>('role');
+  const [activeTab, setActiveTab] = useState<TemplateConfigTab>('basic');
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
   const [uploadingBindingId, setUploadingBindingId] = useState('');
+  const [previewQuestion, setPreviewQuestion] = useState('');
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const sectionRefs = useRef<Partial<Record<TemplateConfigTab, HTMLDivElement | null>>>({});
 
   useEffect(() => {
     httpClient
@@ -468,6 +471,45 @@ export default function PipelineTemplateConfigEditor({
   const enabledImageBindings = config.image_text_bindings.filter(
     (binding) => binding.enabled !== false,
   );
+
+  function setSectionRef(tabId: TemplateConfigTab, node: HTMLDivElement | null) {
+    sectionRefs.current[tabId] = node;
+  }
+
+  function scrollToSection(tabId: TemplateConfigTab) {
+    const container = scrollContainerRef.current;
+    const section = sectionRefs.current[tabId];
+    setActiveTab(tabId);
+
+    if (!container || !section) return;
+
+    container.scrollTo({
+      top: section.offsetTop - container.offsetTop,
+      behavior: 'smooth',
+    });
+  }
+
+  function syncActiveTabFromScroll() {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const containerTop = container.getBoundingClientRect().top;
+    let current = CONFIG_TABS[0].id;
+
+    for (const tab of CONFIG_TABS) {
+      const section = sectionRefs.current[tab.id];
+      if (!section) continue;
+
+      const top = section.getBoundingClientRect().top - containerTop;
+      if (top <= 120) {
+        current = tab.id;
+      } else {
+        break;
+      }
+    }
+
+    setActiveTab((previous) => (previous === current ? previous : current));
+  }
 
   function renderBasicInfo() {
     return (
@@ -1052,7 +1094,7 @@ export default function PipelineTemplateConfigEditor({
           </div>
         </Section>
 
-        <Section icon={CalendarClock} title="长期群发">
+        <Section icon={CalendarClock} title="SOP定时群发">
           <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addLongTermBroadcast}>
             <Plus className="mr-1.5 size-4" />
             新增长期群发
@@ -1284,8 +1326,8 @@ export default function PipelineTemplateConfigEditor({
     );
   }
 
-  function renderActivePanel() {
-    switch (activeTab) {
+  function renderPanelByTab(tabId: TemplateConfigTab) {
+    switch (tabId) {
       case 'basic':
         return renderBasicInfo();
       case 'role':
@@ -1310,21 +1352,16 @@ export default function PipelineTemplateConfigEditor({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="grid min-h-[720px] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="min-w-0 border-r border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-5 py-4">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:h-[calc(100vh-220px)]">
+      <div className="grid min-h-[720px] grid-cols-1 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="flex min-w-0 flex-col border-r border-slate-200 bg-white lg:min-h-0 lg:overflow-hidden">
+          <div className="shrink-0 border-b border-slate-200 px-5 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold tracking-normal text-slate-950">Agent配置</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   用表单方式配置数字员工，适合业务团队快速上手。
                 </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <SummaryPill active>{enabledToolCount} 个工具</SummaryPill>
-                <SummaryPill active={config.interaction_radar.enabled}>互动雷达</SummaryPill>
-                <SummaryPill active={config.scheduled_push.enabled}>定时推送</SummaryPill>
               </div>
             </div>
             <div className="mt-4 overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-1">
@@ -1336,7 +1373,7 @@ export default function PipelineTemplateConfigEditor({
                     <button
                       key={tab.id}
                       type="button"
-                      onClick={() => setActiveTab(tab.id)}
+                      onClick={() => scrollToSection(tab.id)}
                       className={cn(
                         'inline-flex h-9 items-center gap-1.5 rounded px-3 text-sm font-medium transition-colors',
                         active
@@ -1353,12 +1390,24 @@ export default function PipelineTemplateConfigEditor({
             </div>
           </div>
 
-          <div className="space-y-4 bg-slate-50/60 p-5">
-            {renderActivePanel()}
+          <div
+            ref={scrollContainerRef}
+            className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/60 p-5 scroll-smooth"
+            onScroll={syncActiveTabFromScroll}
+          >
+            {CONFIG_TABS.map((tab) => (
+              <div
+                key={tab.id}
+                ref={(node) => setSectionRef(tab.id, node)}
+                className="scroll-mt-5"
+              >
+                {renderPanelByTab(tab.id)}
+              </div>
+            ))}
           </div>
         </div>
 
-        <aside className="flex min-h-0 min-w-0 flex-col bg-white">
+        <aside className="flex min-h-0 min-w-0 flex-col bg-white lg:sticky lg:top-0 lg:h-full lg:overflow-hidden">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div>
               <h2 className="text-base font-semibold text-slate-950">预览调试</h2>
@@ -1383,12 +1432,6 @@ export default function PipelineTemplateConfigEditor({
                   </h3>
                   <p className="text-xs text-emerald-600">在线 · 可调试</p>
                 </div>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <SummaryPill active={config.tools.intent_recognition}>意图识别</SummaryPill>
-                <SummaryPill active={config.tools.knowledge_base}>知识库</SummaryPill>
-                <SummaryPill active={config.tools.image_recognition}>截图识别</SummaryPill>
-                <SummaryPill active={config.voice.enabled}>语音</SummaryPill>
               </div>
             </div>
 
@@ -1460,11 +1503,24 @@ export default function PipelineTemplateConfigEditor({
 
             <div className="mt-4 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
               <div className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2.5">
-                <span className="flex-1 truncate text-left text-sm text-muted-foreground">
-                  在此提问，测试基于配置的回答效果
-                </span>
+                <Input
+                  value={previewQuestion}
+                  onChange={(event) => setPreviewQuestion(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                    }
+                  }}
+                  className="h-8 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+                  placeholder="在此提问，测试基于配置的回答效果"
+                />
                 <Mic2 className={cn('size-4 shrink-0', config.voice.enabled ? 'text-indigo-600' : 'text-muted-foreground')} />
-                <Button type="button" size="sm" className="h-8 rounded-md px-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-8 rounded-md px-3"
+                  disabled={!previewQuestion.trim()}
+                >
                   <SendHorizontal className="mr-1.5 size-3.5" />
                   发送
                 </Button>
