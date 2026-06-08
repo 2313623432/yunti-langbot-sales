@@ -711,38 +711,39 @@ export default function PipelineFormComponent({
 
                 {isEditMode && activeSection === 'workflow' && (
                   <div className="space-y-4">
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-base">数字员工配置方式</CardTitle>
-                        <CardDescription>
-                          模板配置是简单 Agent 配置，适合业务团队快速上手；工作流编排适合精细调整节点和连线。
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="inline-flex rounded-lg border bg-muted/40 p-1">
-                          {[
-                            ['template', '模板配置'],
-                            ['workflow', '工作流编排'],
-                          ].map(([mode, label]) => (
-                            <Button
-                              key={mode}
-                              type="button"
-                              size="sm"
-                              variant={
-                                selectedConfigMode === mode
-                                  ? 'default'
-                                  : 'ghost'
-                              }
-                              onClick={() =>
-                                handleConfigModeChange(mode as 'template' | 'workflow')
-                              }
-                            >
-                              {label}
-                            </Button>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
+                    <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-1 pb-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-semibold text-slate-950">
+                          数字员工配置方式
+                        </h2>
+                        <Info className="size-4 text-slate-400" />
+                      </div>
+                      <div className="inline-flex rounded-md border border-slate-200 bg-white p-1 shadow-sm">
+                        {[
+                          ['template', '模板配置'],
+                          ['workflow', '工作流编排'],
+                        ].map(([mode, label]) => (
+                          <Button
+                            key={mode}
+                            type="button"
+                            size="sm"
+                            variant={
+                              selectedConfigMode === mode ? 'default' : 'ghost'
+                            }
+                            className={cn(
+                              'h-9 rounded px-5 text-sm',
+                              selectedConfigMode !== mode &&
+                                'text-slate-700 hover:bg-slate-50 hover:text-slate-950',
+                            )}
+                            onClick={() =>
+                              handleConfigModeChange(mode as 'template' | 'workflow')
+                            }
+                          >
+                            {label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
 
                     {selectedConfigMode === 'template' ? (
                       <PipelineTemplateConfigEditor

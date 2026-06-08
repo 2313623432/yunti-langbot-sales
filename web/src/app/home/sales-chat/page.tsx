@@ -3,22 +3,26 @@ import {
   Archive,
   AtSign,
   BriefcaseBusiness,
+  CalendarDays,
   ChevronDown,
   CircleCheck,
   Clock,
+  Eye,
   FileText,
+  Funnel,
   History,
   ImageIcon,
+  Megaphone,
   MessageSquare,
   PenLine,
   RotateCcw,
   Search,
   Send,
-  Settings,
   SlidersHorizontal,
   Smile,
   Sparkles,
   SquarePen,
+  Star,
   UserPlus,
   Users,
   Video,
@@ -54,6 +58,8 @@ type CustomerField = {
 
 type RightPanel = 'customer' | 'talk' | 'material' | 'assistant' | 'history';
 type FilterKey = 'account' | 'type' | 'reply' | null;
+type MainView = 'conversation' | 'customers' | 'workbench' | 'settings';
+type AddressBookTab = 'friends' | 'groups';
 type CustomerFieldValues = Record<string, string>;
 type CheckedMap = Record<string, boolean>;
 
@@ -264,6 +270,127 @@ const materialItems = [
 
 const customerStages = ['意向客户', '中性客户', '低意向', '已成交'];
 
+type CustomerRow = {
+  name: string;
+  need: string;
+  tags: string[];
+  type: '意向客户' | '非意向客户' | '潜在客户';
+  date: string;
+  tone: string;
+  dot: string;
+};
+
+const customerRows: CustomerRow[] = [
+  {
+    name: '郑雪',
+    need: '我们专注用AI技术帮助企业提升销售效率，想了解一下你们的需求。',
+    tags: [],
+    type: '潜在客户',
+    date: '2026-05-22 10:18',
+    tone: 'from-sky-300 to-blue-600',
+    dot: 'bg-[#6a63ff]',
+  },
+  {
+    name: '阿曼达',
+    need: '您好，我们的业务提供媒体门户、私域转化和销售自动化服务。',
+    tags: ['公司名称:杭州韬画科技有限公司'],
+    type: '意向客户',
+    date: '2025-09-17 10:26',
+    tone: 'from-lime-100 to-emerald-500',
+    dot: 'bg-[#51b970]',
+  },
+  {
+    name: '宫英',
+    need: '好的，收到～请问怎么称呼您呢？',
+    tags: ['公司名称:青岛银行', '客户称呼:宫老师'],
+    type: '意向客户',
+    date: '2026-03-16 14:39',
+    tone: 'from-cyan-200 to-slate-600',
+    dot: 'bg-[#51b970]',
+  },
+  {
+    name: '云麟',
+    need: '不是客户，属于合作伙伴',
+    tags: ['合作伙伴', '联系方式:13302917964'],
+    type: '非意向客户',
+    date: '2026-01-28 15:43',
+    tone: 'from-stone-900 to-yellow-700',
+    dot: 'bg-[#e5a933]',
+  },
+  {
+    name: '陈敏慧',
+    need: '- DearLink Plus：更偏销售侧，能自动筛选线索并转人工。',
+    tags: [],
+    type: '潜在客户',
+    date: '2026-05-15 16:01',
+    tone: 'from-rose-200 to-orange-400',
+    dot: 'bg-[#6a63ff]',
+  },
+  {
+    name: 'Linette.Wu（吴雪莲）',
+    need: '您这是自动回复吗',
+    tags: ['公司名称：火星语盟AI事业部'],
+    type: '非意向客户',
+    date: '2026-02-27 11:52',
+    tone: 'from-zinc-500 to-zinc-900',
+    dot: 'bg-[#e5a933]',
+  },
+  {
+    name: '李立中',
+    need: '不能先看效果嘛，看完之后再决定',
+    tags: ['用户基本信息（五邑大学图灵实验室、...）'],
+    type: '意向客户',
+    date: '2025-11-01 16:21',
+    tone: 'from-sky-400 to-blue-700',
+    dot: 'bg-[#51b970]',
+  },
+  {
+    name: '张辉',
+    need: '好的 多谢',
+    tags: ['用户基本信息（公司名称：北京登时信）'],
+    type: '非意向客户',
+    date: '2026-03-06 10:16',
+    tone: 'from-stone-200 to-stone-500',
+    dot: 'bg-[#e5a933]',
+  },
+  {
+    name: '龙丽君',
+    need: '价格这块我没有权限直接提供呢',
+    tags: ['禾禾融数科', '龙总', '13530713917'],
+    type: '意向客户',
+    date: '2026-03-06 18:41',
+    tone: 'from-amber-100 to-amber-700',
+    dot: 'bg-[#51b970]',
+  },
+  {
+    name: '姜浩然',
+    need: '我们专注用AI技术帮助企业提升获客效率。',
+    tags: [],
+    type: '潜在客户',
+    date: '2026-03-10 14:06',
+    tone: 'from-red-900 to-zinc-900',
+    dot: 'bg-[#6a63ff]',
+  },
+];
+
+const addressFriends = [
+  { id: 'zhenglei', name: '郑雷', tone: 'from-sky-300 to-blue-600' },
+  { id: 'amanda', name: '阿曼达', tone: 'from-lime-100 to-emerald-500' },
+  { id: 'guan', name: '官英', tone: 'from-cyan-200 to-slate-600' },
+  { id: 'yunlin', name: '云麟', tone: 'from-stone-900 to-yellow-700' },
+  { id: 'chen', name: '陈敏慧', tone: 'from-rose-200 to-orange-400' },
+  { id: 'linette', name: 'Linette.Wu（吴雪莲）', tone: 'from-zinc-500 to-zinc-900' },
+  { id: 'lizhong', name: '李立中', tone: 'from-sky-400 to-blue-700' },
+  { id: 'zhanghui', name: '张辉', tone: 'from-stone-200 to-stone-500' },
+];
+
+const addressGroups = [
+  { id: 'k12-sales', name: 'K12教辅客户跟进群', tone: 'from-indigo-400 to-blue-600' },
+  { id: 'ops', name: '私域运营转化群', tone: 'from-violet-300 to-indigo-600' },
+  { id: 'service', name: '售后协作群', tone: 'from-emerald-300 to-teal-700' },
+  { id: 'demo', name: '演示预约群', tone: 'from-amber-300 to-orange-600' },
+];
+
 function makeCustomerFieldValues(): CustomerFieldValues {
   return Object.fromEntries(
     baseFields.map((field) => [field.label, field.value]),
@@ -350,13 +477,19 @@ function ToggleSwitch({
   );
 }
 
-function AppRail() {
-  const items = [
-    { label: '对话', icon: MessageSquare, active: true },
-    { label: '客户', icon: Users },
-    { label: '工作台', icon: BriefcaseBusiness },
-    { label: '设置', icon: Settings },
-  ];
+function AppRail({
+  activeView,
+  onViewChange,
+}: {
+  activeView: MainView;
+  onViewChange: (view: MainView) => void;
+}) {
+  const items: { label: string; icon: typeof MessageSquare; view: MainView }[] =
+    [
+      { label: '对话', icon: MessageSquare, view: 'conversation' },
+      { label: '客户', icon: Users, view: 'customers' },
+      { label: '工作台', icon: BriefcaseBusiness, view: 'workbench' },
+    ];
 
   return (
     <nav className="border-r border-[#dde0e6] bg-[#eef0f3] py-2">
@@ -365,9 +498,12 @@ function AppRail() {
           <button
             key={item.label}
             type="button"
+            onClick={() => onViewChange(item.view)}
             className={cn(
               'flex w-12 flex-col items-center gap-1 rounded-xl py-2 text-xs transition',
-              item.active ? 'bg-[#e3e4ff] text-[#5a55ff]' : 'text-[#8e96a6]',
+              activeView === item.view
+                ? 'bg-[#e3e4ff] text-[#5a55ff]'
+                : 'text-[#8e96a6]',
             )}
           >
             <item.icon className="size-5" />
@@ -393,7 +529,7 @@ function FilterButton({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex items-center gap-1 rounded-md px-2 py-1 text-base text-[#283248] transition',
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-sm text-[#283248] transition',
         active && 'bg-[#f0f1f5]',
       )}
     >
@@ -540,6 +676,8 @@ function ConversationList({
   onTypeChange,
   onReplyToggle,
   onSelect,
+  onAddFriend,
+  onOpenAddressBook,
 }: {
   selectedConversation: Conversation;
   openFilter: FilterKey;
@@ -551,6 +689,8 @@ function ConversationList({
   onTypeChange: (value: string) => void;
   onReplyToggle: (value: string) => void;
   onSelect: (id: string) => void;
+  onAddFriend: () => void;
+  onOpenAddressBook: () => void;
 }) {
   return (
     <aside className="relative min-h-0 border-r border-[#dde0e6] bg-white">
@@ -559,12 +699,16 @@ function ConversationList({
         <div className="flex items-center gap-3">
           <button
             type="button"
+            onClick={onAddFriend}
+            aria-label="加好友"
             className="rounded-xl border border-[#dbe0ea] p-2 text-[#8c93a3]"
           >
             <UserPlus className="size-5" />
           </button>
           <button
             type="button"
+            onClick={onOpenAddressBook}
+            aria-label="通讯录"
             className="rounded-xl border border-[#dbe0ea] p-2 text-[#8c93a3]"
           >
             <FileText className="size-5" />
@@ -572,15 +716,15 @@ function ConversationList({
         </div>
       </div>
 
-      <div className="space-y-5 px-5 py-5">
+      <div className="space-y-4 px-4 py-4">
         <label className="relative block">
           <Search className="absolute right-3 top-1/2 size-5 -translate-y-1/2 text-[#9aa3b5]" />
           <input
-            className="h-10 w-full rounded-lg border border-[#dce1ea] bg-white px-4 pr-10 text-base outline-none placeholder:text-[#9aa3b5]"
+            className="h-10 w-full rounded-lg border border-[#dce1ea] bg-white px-3 pr-10 text-sm outline-none placeholder:text-[#9aa3b5]"
             placeholder="搜索备注/昵称/群名"
           />
         </label>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <FilterButton
             label="所属账号"
             active={openFilter === 'account'}
@@ -632,7 +776,7 @@ function ConversationList({
 function MessageBubble({ message }: { message: ChatMessage }) {
   const isAgent = message.role === 'agent';
   return (
-    <div className="flex gap-3 px-9">
+    <div className="flex gap-3 px-5">
       <Avatar
         name={message.author}
         tone={
@@ -642,7 +786,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         }
         size="sm"
       />
-      <div className="max-w-[560px]">
+      <div className="max-w-[min(560px,calc(100%-3rem))]">
         <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-[#626b7c]">
           <span>{message.author}</span>
           <span>{message.time}</span>
@@ -664,7 +808,7 @@ function InsightCard() {
   ];
 
   return (
-    <div className="mx-auto w-[430px] rounded-xl bg-white/70 px-8 py-5 shadow-sm">
+    <div className="mx-auto w-[min(430px,calc(100%-2rem))] rounded-xl bg-white/70 px-5 py-5 shadow-sm">
       <div className="mb-4 rounded-full border border-[#e1e4ed] bg-white/70 px-5 py-3 text-center text-base font-semibold text-[#2f3442]">
         <Sparkles className="mr-2 inline size-4 text-[#5d57ff]" />
         K12教辅企业咨询AI销售智能体
@@ -719,7 +863,7 @@ function ChatCenter({
 }) {
   return (
     <main className="grid min-h-0 grid-rows-[64px_minmax(0,1fr)_216px] bg-[#dedee6]">
-      <header className="flex items-center justify-between border-b border-[#dde0e6] bg-white px-6">
+      <header className="flex items-center justify-between gap-3 border-b border-[#dde0e6] bg-white px-4">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="truncate text-xl font-semibold text-[#1f2a44]">
             {selectedConversation.name}
@@ -727,7 +871,7 @@ function ChatCenter({
           <SquarePen className="size-5 shrink-0 text-[#778198]" />
           <span className="shrink-0 text-base text-[#4b5568]">来源-微信</span>
         </div>
-        <div className="flex items-center gap-5">
+        <div className="flex shrink-0 items-center gap-3">
           <button
             type="button"
             onClick={onEndConversation}
@@ -749,7 +893,7 @@ function ChatCenter({
             type="button"
             onClick={onEndConversation}
             className={cn(
-              'rounded-md border px-4 py-2 text-base font-medium',
+              'rounded-md border px-3 py-2 text-sm font-medium',
               conversationClosed
                 ? 'border-[#cfd4df] text-[#8a93a6]'
                 : 'border-[#625cff] text-[#5a55ff]',
@@ -772,7 +916,7 @@ function ChatCenter({
         </div>
       </div>
 
-      <footer className="border-t border-[#dde0e6] bg-white px-6 py-3">
+      <footer className="border-t border-[#dde0e6] bg-white px-4 py-3">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-5 text-[#98a1b4]">
             <Smile className="size-5" />
@@ -879,7 +1023,7 @@ function CustomerInfoPanel({
   return (
     <div className="grid min-h-0 grid-rows-[64px_minmax(0,1fr)] bg-white">
       <PanelHeader title="客户信息" onClose={onClose} />
-      <div className="min-h-0 overflow-y-auto px-6 py-5">
+      <div className="min-h-0 overflow-y-auto px-4 py-5">
         <div className="flex items-center gap-3">
           <Avatar
             name={conversation.name}
@@ -936,7 +1080,7 @@ function CustomerInfoPanel({
             {baseFields.map((field) => (
               <div
                 key={field.label}
-                className="grid grid-cols-[116px_1fr] items-center gap-4 text-base"
+                className="grid grid-cols-[92px_1fr] items-center gap-3 text-sm"
               >
                 <span className="text-[#7b8495]">{field.label}</span>
                 <span className="flex min-w-0 items-center gap-2 text-[#4a5568]">
@@ -1416,34 +1560,661 @@ function ToolRail({
 
   return (
     <aside className="flex min-h-0 flex-col items-center border-l border-[#dde0e6] bg-white py-3">
-      <div className="flex flex-1 flex-col items-center gap-4">
+      <div className="flex flex-1 flex-col items-center gap-2">
         {tools.map((tool) => (
           <button
             key={tool.panel}
             type="button"
             onClick={() => onChange(tool.panel)}
             className={cn(
-              'flex w-full flex-col items-center gap-1 px-2 py-1.5 text-sm transition',
+              'flex w-full flex-col items-center gap-1 px-1 py-1.5 text-xs transition',
               panelOpen && activePanel === tool.panel
                 ? 'text-[#5f58ff]'
                 : 'text-[#8d95a6]',
             )}
           >
-            <tool.icon className="size-6" />
-            <span className="leading-5">{tool.label}</span>
+            <tool.icon className="size-5" />
+            <span className="whitespace-nowrap leading-4">{tool.label}</span>
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        className="mb-8 flex size-10 items-center justify-center rounded-full bg-[#5f58ff] text-white shadow-lg"
-      >
-        <Archive className="size-5" />
-      </button>
-      <div className="size-16 rounded-full bg-white p-1 shadow-[0_8px_24px_rgba(15,23,42,0.18)]">
-        <Avatar name="珊珊" tone="from-rose-200 to-slate-700" size="lg" />
-      </div>
     </aside>
+  );
+}
+
+function MiniSparkline({ color }: { color: string }) {
+  return (
+    <svg width="88" height="36" viewBox="0 0 88 36" aria-hidden="true">
+      <polyline
+        points="2,28 12,14 22,18 32,16 42,4 52,29 62,12 72,28 86,28"
+        fill="none"
+        stroke={color}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+    </svg>
+  );
+}
+
+function CustomerManagementView() {
+  const [activeMenu, setActiveMenu] = useState('全部客户');
+  const [query, setQuery] = useState('');
+  const [favoriteNames, setFavoriteNames] = useState<CheckedMap>({});
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+
+  const menus = [
+    { label: '全部客户', icon: Users },
+    { label: '意向客户', icon: UserPlus },
+    { label: '非意向客户', icon: UserPlus },
+    { label: '潜在客户', icon: UserPlus },
+  ];
+
+  const filteredCustomers = customerRows.filter((customer) => {
+    const matchesMenu =
+      activeMenu === '全部客户' || customer.type === activeMenu;
+    const matchesQuery =
+      !query.trim() ||
+      `${customer.name}${customer.need}${customer.tags.join('')}`
+        .toLowerCase()
+        .includes(query.trim().toLowerCase());
+    return matchesMenu && matchesQuery;
+  });
+
+  return (
+    <>
+      <aside className="border-r border-[#e2e5ec] bg-white px-5 py-8">
+        <h2 className="mb-7 text-xl font-semibold text-[#111827]">客户管理</h2>
+        <div className="space-y-2">
+          {menus.map((menu) => (
+            <button
+              key={menu.label}
+              type="button"
+              onClick={() => setActiveMenu(menu.label)}
+              className={cn(
+                'flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left text-base transition',
+                activeMenu === menu.label
+                  ? 'bg-[#f0f0ff] text-[#5a55ff]'
+                  : 'text-[#6b7280] hover:bg-[#f7f8fb]',
+              )}
+            >
+              <menu.icon className="size-5" />
+              {menu.label}
+            </button>
+          ))}
+        </div>
+      </aside>
+      <main className="min-h-0 overflow-auto bg-white px-7 py-7">
+        <div className="mb-8 flex items-start justify-between">
+          <h1 className="text-xl font-semibold text-[#1f2a44]">
+            {activeMenu}（
+            {activeMenu === '全部客户' ? 640 : filteredCustomers.length}）
+          </h1>
+          <div className="relative flex items-center gap-3">
+            <div className="flex h-12 w-[470px] items-center justify-between rounded-md border border-[#e4e7ef] px-4 text-[#a0a7b7]">
+              <span>开始日期</span>
+              <span>→</span>
+              <span>结束日期</span>
+              <CalendarDays className="size-5" />
+            </div>
+            <button
+              type="button"
+              onClick={() => setFilterOpen((current) => !current)}
+              className={cn(
+                'flex size-12 items-center justify-center rounded-md border border-[#e4e7ef] text-[#586174] transition',
+                filterOpen && 'border-[#5f58ff] text-[#5f58ff]',
+              )}
+            >
+              <Funnel className="size-6" />
+            </button>
+            {filterOpen && (
+              <div className="absolute right-0 top-14 z-10 w-52 rounded-lg bg-white p-3 shadow-[0_8px_30px_rgba(15,23,42,0.18)]">
+                {['按客户类型', '按所属账号', '按加好友时间'].map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#475569] hover:bg-[#f7f8fb]"
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <section className="overflow-hidden rounded-2xl border border-[#e0e4ec] bg-white">
+          <div className="px-5 py-6">
+            <div className="mb-9 flex items-start justify-between">
+              <div>
+                <div className="mb-8 text-lg text-[#283248]">客户筛选进度</div>
+                <div className="flex gap-14">
+                  <div>
+                    <div className="text-[#5f58ff]">已完成筛选</div>
+                    <div className="text-3xl font-semibold text-[#6c68ff]">
+                      161
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[#49ad6b]">意向客户</div>
+                    <div className="text-3xl font-semibold text-[#49ad6b]">
+                      131
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[#9aa2b2]">潜在客户筛选中</div>
+                    <div className="text-3xl font-semibold text-[#9aa2b2]">
+                      378
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[#687086]">已完成</div>
+                <div className="text-5xl font-semibold text-[#5f58ff]">25%</div>
+              </div>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-[#edf0f5]">
+              <div className="flex h-full w-[84%]">
+                <div className="w-[28%] bg-[#6767ff]" />
+                <div className="w-[22%] bg-[#53b86f]" />
+                <div className="flex-1 bg-[#c6cbd5]" />
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-5 border-t border-[#e0e4ec]">
+            {[
+              { label: '全部客户', value: '640', color: '#5f62ff' },
+              { label: '意向客户', value: '131', color: '#ff7a30' },
+              { label: '非意向客户', value: '30', color: '#58b973' },
+              { label: '潜在客户', value: '479', color: '#7a36f0' },
+              { label: '意向客户率', value: '81%', color: '#5f62ff' },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="flex h-28 items-center justify-between border-r border-[#e0e4ec] px-5 last:border-r-0"
+              >
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-[#7c8496]">
+                    <Users className="size-5 text-[#5f58ff]" />
+                    {item.label}
+                  </div>
+                  <div className="text-3xl font-semibold">{item.value}</div>
+                </div>
+                <MiniSparkline color={item.color} />
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div className="mt-5 flex items-center justify-between">
+          <div className="flex h-10 w-[270px] items-center gap-2 rounded-md border border-[#e4e7ef] px-4 text-[#a0a7b7]">
+            <Search className="size-5" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="w-full bg-transparent outline-none"
+              placeholder="搜索用户昵称/备注"
+            />
+          </div>
+          <button
+            type="button"
+            className="flex h-10 items-center gap-2 rounded-md border border-[#e4e7ef] px-3 text-[#586174]"
+          >
+            <SlidersHorizontal className="size-5" />列
+          </button>
+        </div>
+
+        <div className="mt-5 overflow-hidden rounded-lg">
+          <table className="w-full table-fixed border-collapse text-left">
+            <thead>
+              <tr className="h-16 bg-[#f8f8fb] text-[#34415c]">
+                <th className="w-[180px] px-5 font-semibold">客户</th>
+                <th className="w-[360px] px-5 font-semibold">需求标签</th>
+                <th className="w-[360px] px-5 font-semibold">画像标签</th>
+                <th className="w-[180px] px-5 font-semibold">客户类型</th>
+                <th className="w-[240px] px-5 font-semibold">所属账号</th>
+                <th className="w-[180px] px-5 font-semibold">加好友时间</th>
+                <th className="w-[120px] px-5 font-semibold">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCustomers.map((customer) => (
+                <tr
+                  key={customer.name}
+                  className={cn(
+                    'h-[76px] border-b border-[#f0f2f6] text-[#465169]',
+                    selectedCustomer === customer.name && 'bg-[#f3f5ff]',
+                  )}
+                >
+                  <td className="px-5">
+                    <div className="flex items-center gap-3">
+                      <Avatar
+                        name={customer.name}
+                        tone={customer.tone}
+                        size="sm"
+                      />
+                      {customer.name}
+                    </div>
+                  </td>
+                  <td className="truncate px-5 text-[#8c94a8]">
+                    <span className="rounded bg-[#f4f5ff] px-2 py-1">
+                      {customer.need}
+                    </span>
+                  </td>
+                  <td className="px-5">
+                    {customer.tags.length === 0 ? (
+                      <span className="text-[#98a0b3]">-</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {customer.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full bg-[#f2f1ff] px-3 py-1 text-[#5f58ff]"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-5">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-[#e0e4ec] px-3 py-1">
+                      <span
+                        className={cn('size-2 rounded-full', customer.dot)}
+                      />
+                      {customer.type}
+                    </span>
+                  </td>
+                  <td className="px-5">
+                    <div className="flex items-center gap-2">
+                      <Avatar
+                        name="张小琪"
+                        tone="from-stone-800 to-stone-500"
+                        size="xs"
+                      />
+                      张小琪
+                    </div>
+                  </td>
+                  <td className="px-5">{customer.date}</td>
+                  <td className="px-5">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCustomer(customer.name)}
+                        className="flex size-8 items-center justify-center rounded-md border border-[#e4e7ef] text-[#697287]"
+                      >
+                        <Eye className="size-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFavoriteNames((current) => ({
+                            ...current,
+                            [customer.name]: !current[customer.name],
+                          }))
+                        }
+                        className={cn(
+                          'flex size-8 items-center justify-center rounded-md border border-[#e4e7ef]',
+                          favoriteNames[customer.name]
+                            ? 'text-[#5f58ff]'
+                            : 'text-[#697287]',
+                        )}
+                      >
+                        <Star className="size-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-8 flex items-center justify-end gap-6 text-[#5d667a]">
+          <button type="button" className="text-[#c0c6d2]">
+            ‹
+          </button>
+          {[1, 2, 3, 4, 5].map((page) => (
+            <button
+              key={page}
+              type="button"
+              className={cn(
+                'flex size-10 items-center justify-center rounded-md',
+                page === 1
+                  ? 'border border-[#5f58ff] text-[#5f58ff]'
+                  : 'text-[#4b5563]',
+              )}
+            >
+              {page}
+            </button>
+          ))}
+          <span>…</span>
+          <span>64</span>
+          <button type="button">›</button>
+          <button
+            type="button"
+            className="rounded-md border border-[#e0e4ec] px-4 py-2"
+          >
+            10 条/页
+          </button>
+          <span>跳至</span>
+          <input className="h-10 w-16 rounded-md border border-[#e0e4ec] px-2 outline-none" />
+          <span>页</span>
+        </div>
+      </main>
+    </>
+  );
+}
+
+function WorkbenchView() {
+  const [activeAction, setActiveAction] = useState('新建群聊');
+  const actions = [
+    {
+      title: '新建群聊',
+      desc: '选择本企业同事发起群聊',
+      icon: UserPlus,
+      tone: 'text-[#111827]',
+    },
+    {
+      title: '群聊群发',
+      desc: '向多个群聊同时发送消息',
+      icon: Users,
+      tone: 'text-[#111827]',
+    },
+    {
+      title: '群公告',
+      desc: '向群聊发布公告通知',
+      icon: Megaphone,
+      tone: 'text-[#f5a12b]',
+    },
+    {
+      title: '私聊群发',
+      desc: '向多个好友同时发送消息',
+      icon: MessageSquare,
+      tone: 'text-[#111827]',
+    },
+    {
+      title: '发朋友圈',
+      desc: '配置朋友圈发布任务',
+      icon: ImageIcon,
+      tone: 'text-[#111827]',
+    },
+  ];
+
+  return (
+    <main className="min-h-0 overflow-auto bg-[#edf2f8] px-5 py-6">
+      <h1 className="mb-6 text-2xl font-semibold text-[#111827]">工作台</h1>
+      <div className="grid w-[1180px] grid-cols-3 gap-5">
+        {actions.map((action) => (
+          <button
+            key={action.title}
+            type="button"
+            onClick={() => setActiveAction(action.title)}
+            className={cn(
+              'flex h-[154px] items-center gap-9 rounded-3xl border bg-white px-11 text-left transition',
+              activeAction === action.title
+                ? 'border-[#cfd5e3] shadow-sm'
+                : 'border-[#d8deea]',
+            )}
+          >
+            <action.icon className={cn('size-9 shrink-0', action.tone)} />
+            <div>
+              <div className="mb-4 text-xl font-semibold text-[#111827]">
+                {action.title}
+              </div>
+              <div className="text-base text-[#8b94a7]">{action.desc}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </main>
+  );
+}
+
+function AddressBookModal({ onClose }: { onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState<AddressBookTab>('friends');
+  const [query, setQuery] = useState('');
+  const list = activeTab === 'friends' ? addressFriends : addressGroups;
+  const filteredList = list.filter((item) =>
+    item.name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-6 py-8">
+      <div className="grid h-[min(760px,calc(100vh-80px))] w-[min(1080px,calc(100vw-80px))] grid-cols-[240px_minmax(0,1fr)] overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <aside className="border-r border-[#e5e8ef] px-4 py-8">
+          <h2 className="mb-8 px-2 text-xl font-semibold text-[#111827]">
+            通讯录
+          </h2>
+          <button
+            type="button"
+            className="flex w-full items-center gap-3 rounded-lg bg-[#f3f5fb] px-3 py-3 text-left"
+          >
+            <Avatar name="张小琪" tone="from-stone-800 to-stone-500" size="sm" />
+            <span className="truncate text-sm font-medium text-[#1f2a44]">
+              张小琪 @独到科技
+            </span>
+          </button>
+        </aside>
+
+        <section className="flex min-h-0 flex-col">
+          <header className="flex h-20 items-center justify-between border-b border-[#eef0f3] px-7">
+            <div className="flex h-full items-end gap-8">
+              {[
+                ['friends', '好友'],
+                ['groups', '群聊'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setActiveTab(value as AddressBookTab)}
+                  className={cn(
+                    'h-12 border-b-4 px-0 text-base font-semibold transition',
+                    activeTab === value
+                      ? 'border-[#5f58ff] text-[#1f2a44]'
+                      : 'border-transparent text-[#4b5568]',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-4">
+              <label className="relative block">
+                <Search className="absolute right-3 top-1/2 size-5 -translate-y-1/2 text-[#9aa3b5]" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="h-10 w-[260px] rounded-lg border border-[#dce1ea] px-4 pr-10 text-sm outline-none placeholder:text-[#a0a7b7]"
+                  placeholder="搜索备注/昵称/群名"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-md p-1 text-[#111827] hover:bg-[#f4f6fa]"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-7 py-5">
+            <div className="space-y-3">
+              {filteredList.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex h-[68px] items-center justify-between rounded-xl border border-[#eef0f3] bg-white px-5 transition hover:bg-[#f8f9fc]"
+                >
+                  <div className="flex min-w-0 items-center gap-4">
+                    <Avatar name={item.name} tone={item.tone} size="sm" />
+                    <span className="truncate text-base font-medium text-[#374151]">
+                      {item.name}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="shrink-0 text-base font-medium text-[#5f58ff]"
+                  >
+                    发送消息
+                  </button>
+                </div>
+              ))}
+              {!filteredList.length && (
+                <div className="rounded-xl border border-dashed border-[#dce1ea] py-12 text-center text-[#8b94a7]">
+                  没有找到匹配的联系人
+                </div>
+              )}
+            </div>
+          </div>
+
+          <footer className="flex h-16 items-center justify-between border-t border-[#eef0f3] px-7 text-sm text-[#5d667a]">
+            <span>
+              第 1 页，共 {activeTab === 'friends' ? 640 : addressGroups.length} 条
+            </span>
+            <div className="flex items-center gap-3">
+              <button type="button" className="text-[#c0c6d2]">
+                ‹
+              </button>
+              {[1, 2, 3].map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  className={cn(
+                    'flex size-9 items-center justify-center rounded-md border',
+                    page === 1
+                      ? 'border-[#5f58ff] bg-[#f7f7ff] text-[#5f58ff]'
+                      : 'border-[#e2e6ef] text-[#4b5563]',
+                  )}
+                >
+                  {page}
+                </button>
+              ))}
+              <span>…</span>
+              <button
+                type="button"
+                className="flex size-9 items-center justify-center rounded-md border border-[#e2e6ef]"
+              >
+                32
+              </button>
+              <button type="button">›</button>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-[#e2e6ef] px-3"
+              >
+                20条/页
+                <ChevronDown className="size-4" />
+              </button>
+            </div>
+          </footer>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function AddFriendModal({ onClose }: { onClose: () => void }) {
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [account, setAccount] = useState('张小琪');
+  const [phone, setPhone] = useState('');
+  const [message, setMessage] = useState(
+    '我是独到科技的张小琪，添加我的企业微信与我联系吧。',
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-6 py-8">
+      <div className="w-[520px] rounded-lg bg-white p-8 shadow-2xl">
+        <div className="mb-6 flex justify-end">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 text-[#8a8f9c] hover:bg-[#f4f6fa]"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <div className="relative mb-6">
+          <button
+            type="button"
+            onClick={() => setAccountOpen((current) => !current)}
+            className="flex h-16 w-full items-center justify-between rounded-xl border border-[#dce1ea] px-5 text-left shadow-sm"
+          >
+            <span className="text-base font-semibold text-[#6b7280]">
+              加好友账号：
+            </span>
+            <span className="ml-auto mr-3 flex items-center gap-2 text-base font-semibold text-[#1f2937]">
+              <span className="size-2 rounded-full bg-[#51b970]" />
+              {account}
+            </span>
+            <ChevronDown className="size-5 text-[#9aa3b5]" />
+          </button>
+          {accountOpen && (
+            <div className="absolute left-0 top-[72px] z-10 w-full rounded-lg border border-[#e5e8ef] bg-white p-2 shadow-xl">
+              {['张小琪', '珊珊', '小琪'].map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => {
+                    setAccount(item);
+                    setAccountOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-[#f7f8fb]"
+                >
+                  <span className="size-2 rounded-full bg-[#51b970]" />
+                  {item}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <label className="relative mb-6 block">
+          <Search className="absolute left-4 top-1/2 size-5 -translate-y-1/2 text-[#9aa3b5]" />
+          <input
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            className="h-11 w-full rounded-md border border-[#dce1ea] px-12 text-base outline-none placeholder:text-[#a0a7b7]"
+            placeholder="请输入手机号"
+          />
+        </label>
+
+        <label className="block">
+          <div className="mb-3 text-base font-semibold text-[#374151]">
+            发送提醒：
+          </div>
+          <textarea
+            value={message}
+            onChange={(event) => setMessage(event.target.value.slice(0, 100))}
+            className="h-44 w-full resize-none rounded-md border border-[#b7b9ff] px-5 py-4 text-base leading-7 text-[#374151] outline-none focus:border-[#5f58ff]"
+          />
+          <div className="mt-1 text-right text-sm text-[#9aa3b5]">
+            {message.length} / 100
+          </div>
+        </label>
+
+        <div className="mt-10 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 rounded-md border border-[#dce1ea] px-5 text-base text-[#374151]"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 rounded-md bg-[#5f58ff] px-5 text-base font-medium text-white disabled:bg-[#c5c8d6]"
+            disabled={!phone.trim()}
+          >
+            发送申请
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1451,6 +2222,7 @@ export default function SalesChatPage() {
   const defaultConversation =
     conversations.find((conversation) => conversation.active) ||
     conversations[0];
+  const [mainView, setMainView] = useState<MainView>('conversation');
   const [selectedId, setSelectedId] = useState(defaultConversation.id);
   const [draft, setDraft] = useState('');
   const [aiReply, setAiReply] = useState(true);
@@ -1473,6 +2245,8 @@ export default function SalesChatPage() {
   const [smartRecommend, setSmartRecommend] = useState(false);
   const [customerAssistant, setCustomerAssistant] = useState(false);
   const [conversationClosed, setConversationClosed] = useState(false);
+  const [addressBookOpen, setAddressBookOpen] = useState(false);
+  const [addFriendOpen, setAddFriendOpen] = useState(false);
   const [localMessages, setLocalMessages] = useState<
     Record<string, ChatMessage[]>
   >({});
@@ -1523,19 +2297,49 @@ export default function SalesChatPage() {
     }));
   }
 
+  if (mainView === 'customers') {
+    return (
+      <div className="h-full min-h-0 overflow-hidden bg-[#eef0f3] text-[#1f2a44]">
+        <div className="h-full min-h-0 overflow-x-auto">
+          <div className="h-full min-w-[1520px] rounded-lg border border-[#dde0e6] bg-white">
+            <div className="grid h-full min-h-0 grid-cols-[68px_280px_minmax(1020px,1fr)]">
+              <AppRail activeView={mainView} onViewChange={setMainView} />
+              <CustomerManagementView />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (mainView === 'workbench') {
+    return (
+      <div className="h-full min-h-0 overflow-hidden bg-[#eef0f3] text-[#1f2a44]">
+        <div className="h-full min-h-0 overflow-x-auto">
+          <div className="h-full min-w-[1520px] rounded-lg border border-[#dde0e6] bg-white">
+            <div className="grid h-full min-h-0 grid-cols-[68px_minmax(1200px,1fr)]">
+              <AppRail activeView={mainView} onViewChange={setMainView} />
+              <WorkbenchView />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full min-h-0 overflow-hidden bg-[#eef0f3] text-[#1f2a44]">
-      <div className="h-full min-h-0 overflow-x-auto">
-        <div className="h-full min-w-[1520px] rounded-lg border border-[#dde0e6] bg-white">
+      <div className="h-full min-h-0 overflow-hidden">
+        <div className="h-full min-w-0 rounded-lg border border-[#dde0e6] bg-white">
           <div
             className={cn(
               'grid h-full min-h-0',
               panelOpen
-                ? 'grid-cols-[68px_388px_minmax(560px,1fr)_430px_76px]'
-                : 'grid-cols-[68px_388px_minmax(560px,1fr)_76px]',
+                ? 'grid-cols-[60px_minmax(260px,300px)_minmax(320px,1fr)_minmax(270px,340px)_64px] 2xl:grid-cols-[60px_340px_minmax(420px,1fr)_360px_64px]'
+                : 'grid-cols-[60px_minmax(260px,300px)_minmax(320px,1fr)_64px] 2xl:grid-cols-[60px_340px_minmax(420px,1fr)_64px]',
             )}
           >
-            <AppRail />
+            <AppRail activeView={mainView} onViewChange={setMainView} />
             <ConversationList
               selectedConversation={selectedConversation}
               openFilter={openFilter}
@@ -1547,6 +2351,8 @@ export default function SalesChatPage() {
               onTypeChange={setSelectedType}
               onReplyToggle={toggleReplyFilter}
               onSelect={setSelectedId}
+              onAddFriend={() => setAddFriendOpen(true)}
+              onOpenAddressBook={() => setAddressBookOpen(true)}
             />
             <ChatCenter
               selectedConversation={selectedConversation}
@@ -1599,6 +2405,12 @@ export default function SalesChatPage() {
           </div>
         </div>
       </div>
+      {addressBookOpen && (
+        <AddressBookModal onClose={() => setAddressBookOpen(false)} />
+      )}
+      {addFriendOpen && (
+        <AddFriendModal onClose={() => setAddFriendOpen(false)} />
+      )}
     </div>
   );
 }
