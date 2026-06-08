@@ -107,6 +107,29 @@ def test_template_config_editor_supports_direct_image_upload_and_expanded_contro
     assert '图片文字绑定' in template_source
 
 
+def test_template_config_editor_supports_course_sales_radar_and_link_fields():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    types_source = Path('web/src/app/home/pipelines/components/workflow-editor/types.ts').read_text(
+        encoding='utf-8'
+    )
+    editor_source = WORKFLOW_EDITOR_PATH.read_text(encoding='utf-8')
+
+    assert "'radar'" in types_source
+    assert 'radar:' in workflow_source
+    assert '模拟雷达' in template_source
+    assert 'sales_links' in template_source
+    assert 'stop_rules' in template_source
+    assert 'followup_sequences' in template_source
+    assert 'long_term_broadcasts' in template_source
+    assert 'config.radar?.rules' in template_source
+    assert 'addRadarRule' in template_source
+    assert 'addSalesLink' in template_source
+    assert 'addFollowupSequence' in template_source
+    assert 'addLongTermBroadcast' in template_source
+    assert "label: '雷达监测'" in editor_source
+
+
 def test_default_workflow_is_blank_start_to_end_canvas():
     source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
 

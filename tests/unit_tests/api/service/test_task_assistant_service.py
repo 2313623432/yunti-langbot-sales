@@ -4,6 +4,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from langbot.pkg.api.http.service.task_assistant import (
+    COURSE_SALES_SCENARIO,
+    COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+    COURSE_SALES_TTS_VOICE_TYPE,
+    COURSE_SALES_WORKFLOW_PIPELINE_UUID,
     TASK_ASSISTANT_MODEL_UUID,
     TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
     TASK_ASSISTANT_TTS_VOICE_TYPE,
@@ -280,6 +284,134 @@ def test_task_assistant_template_pipeline_config_matches_workflow_capabilities()
     assert first_binding['step_id'] == 'download_qr'
     assert first_binding['text']
     assert first_binding['file_key'].endswith('af_step_01.png')
+
+
+def test_course_sales_template_pipeline_contains_full_sop_capabilities():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_pipeline_config()
+
+    assert COURSE_SALES_TEMPLATE_PIPELINE_UUID == 'course-sales-template-pipeline'
+    assert config['config_mode'] == 'template'
+    assert config['workflow']['metadata']['scenario'] == COURSE_SALES_SCENARIO
+    assert config['ai']['runner']['runner'] == 'local-agent'
+    assert config['ai']['local-agent']['model']['primary'] == TASK_ASSISTANT_MODEL_UUID
+    template = config['template_config']
+    assert template['name'] == '课程销售模板'
+    assert template['course_profile']['course_name'] == '猿辅导英语自然拼读体验课/自然拼读集训营'
+    assert template['course_profile']['price'] == '9元体验'
+    assert template['course_profile']['target_grade'] == '大班至小学4年级'
+    assert len(template['resource_faqs']) >= 7
+    assert len(template['course_faqs']) >= 10
+    assert len(template['followup_sequences']) >= 5
+    assert len(template['long_term_broadcasts']) == 3
+    assert template['radar']['enabled'] is True
+    assert template['radar']['link_url'].startswith('https://radar.yunti.local/course/phonics')
+    assert len(template['radar']['rules']) >= 4
+    assert any(rule['event'] == 'browse_30s' for rule in template['radar']['rules'])
+    assert template['voice']['voice_type'] == COURSE_SALES_TTS_VOICE_TYPE
+    assert template['voice']['encoding'] == 'ogg_opus'
+    assert len(template['image_text_bindings']) >= 6
+    assert any(binding['trigger_intents'] == ['course_intro'] for binding in template['image_text_bindings'])
+    assert template['stop_rules']['stop_keywords']
+    assert template['sales_links'][0]['url'].startswith('https://radar.yunti.local/course/phonics')
+
+
+def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
+    service = TaskAssistantService(SimpleNamespace())
+
+    workflow = service.build_course_sales_workflow_config()
+
+    assert COURSE_SALES_WORKFLOW_PIPELINE_UUID == 'course-sales-workflow-pipeline'
+    assert workflow['name'] == '课程 销售模板'
+    assert workflow['metadata']['scenario'] == COURSE_SALES_SCENARIO
+    node_ids = {node['id'] for node in workflow['nodes']}
+    required_nodes = {
+        'start',
+        'channel',
+        'media_router',
+        'voice_asr',
+        'screenshot_input',
+        'intent',
+        'resource_faq',
+        'course_faq',
+        'course_product',
+        'sales_link',
+        'radar',
+        'stop_rules',
+        'handoff',
+        'reply',
+        'voice',
+        'end',
+    }
+    assert required_nodes <= node_ids
+    node_types = {node['type'] for node in workflow['nodes']}
+    assert {'knowledge', 'product', 'radar', 'outreach', 'image', 'voice'} <= node_types
+    edges = {(edge['source'], edge['target']) for edge in workflow['edges']}
+    assert ('sales_link', 'radar') in edges
+    assert ('radar', 'radar_followup') in edges
+    assert ('course_product', 'sales_link') in edges
+    assert workflow['voice']['voice_type'] == COURSE_SALES_TTS_VOICE_TYPE
+    radar_node = next(node for node in workflow['nodes'] if node['id'] == 'radar')
+    assert radar_node['config']['link_url'].startswith('https://radar.yunti.local/course/phonics')
+    assert any(rule['event'] == 'click_apply_button' for rule in radar_node['config']['rules'])
+
+
+def test_course_sales_template_mode_builds_active_workflow_from_independent_template():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(
+        overrides={
+            'radar': {
+                'enabled': True,
+                'link_url': 'https://radar.yunti.local/course/custom',
+                'rules': [{'event': 'click', 'delay_minutes': 1, 'message': '自定义雷达跟进'}],
+            },
+            'voice': {'app_id': 'course-app', 'token': 'course-token'},
+        }
+    )
+    saved_workflow = {
+        'version': 1,
+        'name': 'kept workflow',
+        'metadata': {'scenario': 'custom'},
+        'nodes': [],
+        'edges': [],
+    }
+
+    active = service.active_workflow_from_config(
+        {
+            'config_mode': 'template',
+            'template_config': template,
+            'workflow': saved_workflow,
+        }
+    )
+
+    assert active is not saved_workflow
+    assert active['metadata']['scenario'] == COURSE_SALES_SCENARIO
+    assert active['voice']['app_id'] == 'course-app'
+    radar_node = next(node for node in active['nodes'] if node['id'] == 'radar')
+    assert radar_node['config']['link_url'] == 'https://radar.yunti.local/course/custom'
+    assert service.is_task_assistant_pipeline({'config_mode': 'template', 'template_config': template}) is True
+
+
+@pytest.mark.asyncio
+async def test_prepare_query_handles_course_sales_voice_and_radar_intents():
+    service = TaskAssistantService(SimpleNamespace())
+    query = voice_query('https://example.com/audio.mp3')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.variables = {'user_message_text': '我点了报名链接，什么时候上课'}
+    query.prompt = SimpleNamespace(messages=[])
+    query.user_message = provider_message.Message(
+        role='user',
+        content=[provider_message.ContentElement.from_text('我点了报名链接，什么时候上课')],
+    )
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert query.variables['workflow_intent']['intent'] in {'course_schedule', 'radar_clicked'}
+    assert query.variables['task_assistant_voice_reply'] is True
+    assert '猿辅导英语自然拼读' in query.prompt.messages[0].content
+    assert '雷达' in query.prompt.messages[0].content
 
 
 def test_task_assistant_template_pipeline_preserves_existing_workflow():

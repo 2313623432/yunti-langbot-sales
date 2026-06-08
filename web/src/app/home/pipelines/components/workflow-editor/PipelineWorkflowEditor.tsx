@@ -29,6 +29,7 @@ import {
   PanelRightOpen,
   Plug,
   Plus,
+  RadioTower,
   Save,
   Search,
   Send,
@@ -187,6 +188,12 @@ const nodeMeta: Record<
     icon: Tags,
     accent: 'border-lime-200 bg-lime-50 text-lime-700',
   },
+  radar: {
+    label: '雷达监测',
+    group: '销售',
+    icon: RadioTower,
+    accent: 'border-sky-200 bg-sky-50 text-sky-700',
+  },
   outreach: {
     label: '定时推送',
     group: '销售',
@@ -253,6 +260,7 @@ const paletteOrder: WorkflowNodeType[] = [
   'lead',
   'image',
   'memory',
+  'radar',
   'outreach',
   'handoff',
   'http',
@@ -1776,6 +1784,45 @@ function NodeConfigPanel({
               className="min-h-24"
             />
           </div>
+        </>
+      )}
+
+      {node.type === 'radar' && (
+        <>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">
+              雷达链接
+            </label>
+            <Input
+              value={asString(node.config.link_url)}
+              onChange={(event) =>
+                onConfigChange({ link_url: event.target.value })
+              }
+              placeholder="https://radar.yunti.local/course/phonics"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">
+              链接标题
+            </label>
+            <Input
+              value={asString(node.config.link_title)}
+              onChange={(event) =>
+                onConfigChange({ link_title: event.target.value })
+              }
+            />
+          </div>
+          <JsonLikeTextarea
+            label="雷达规则 JSON"
+            value={JSON.stringify(node.config.rules || [], null, 2)}
+            onChange={(value) => {
+              try {
+                onConfigChange({ rules: JSON.parse(value) });
+              } catch {
+                onConfigChange({ rules_text: value });
+              }
+            }}
+          />
         </>
       )}
 

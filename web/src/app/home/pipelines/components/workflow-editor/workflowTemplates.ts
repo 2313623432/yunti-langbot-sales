@@ -113,6 +113,23 @@ const nodeDefaults: Record<
     description: '沉淀客户阶段、兴趣产品和摘要',
     config: { stage: 'new', tags: ['高意向', '待跟进'] },
   },
+  radar: {
+    title: '模拟雷达',
+    description: '按链接点击、浏览时长和按钮行为触发跟进',
+    config: {
+      enabled: true,
+      link_title: '报名通道',
+      link_url: 'https://radar.yunti.local/course/phonics',
+      tracking_fields: ['session_id', 'clicked_at', 'browse_seconds', 'clicked_apply_button'],
+      rules: [
+        {
+          event: 'link_open',
+          delay_minutes: 0,
+          message: '家长，看您进入报名通道了，支付以后截图发我，我给您登记开课。',
+        },
+      ],
+    },
+  },
   outreach: {
     title: '定时跟进',
     description: '创建销售触达计划',
@@ -354,6 +371,21 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
     reference_rounds: 2,
     knowledge_base_uuids: [],
     product_uuids: [],
+    sales_links: [],
+    radar: {
+      enabled: false,
+      link_title: '',
+      link_url: '',
+      tracking_fields: [],
+      rules: [],
+    },
+    followup_sequences: [],
+    long_term_broadcasts: [],
+    stop_rules: {
+      stop_keywords: [],
+      stop_tags: [],
+      message: '',
+    },
     tools: {
       intent_recognition: true,
       knowledge_base: true,
@@ -450,6 +482,11 @@ export function applyTemplateConfigToWorkflow(
       interaction_radar: templateConfig.interaction_radar,
       opening_message: templateConfig.opening_message,
       recommended_questions: templateConfig.recommended_questions,
+      sales_links: templateConfig.sales_links || [],
+      radar: templateConfig.radar,
+      followup_sequences: templateConfig.followup_sequences || [],
+      long_term_broadcasts: templateConfig.long_term_broadcasts || [],
+      stop_rules: templateConfig.stop_rules,
     },
   };
 }
