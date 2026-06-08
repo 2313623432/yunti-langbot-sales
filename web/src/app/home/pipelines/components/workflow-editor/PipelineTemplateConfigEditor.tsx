@@ -3,9 +3,12 @@ import {
   Bot,
   CalendarClock,
   Image as ImageIcon,
+  Link2,
   MessageSquareText,
   Mic2,
   Plus,
+  RadioTower,
+  ShieldCheck,
   Sparkles,
   Upload,
   type LucideIcon,
@@ -61,6 +64,29 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
     },
     image_text_bindings:
       value?.image_text_bindings?.length ? value.image_text_bindings : defaults.image_text_bindings,
+    sales_links: value?.sales_links?.length ? value.sales_links : defaults.sales_links || [],
+    radar: {
+      ...(defaults.radar || {
+        enabled: false,
+        link_title: '',
+        link_url: '',
+        tracking_fields: [],
+        rules: [],
+      }),
+      ...(value?.radar || {}),
+    },
+    followup_sequences:
+      value?.followup_sequences?.length ? value.followup_sequences : defaults.followup_sequences || [],
+    long_term_broadcasts:
+      value?.long_term_broadcasts?.length ? value.long_term_broadcasts : defaults.long_term_broadcasts || [],
+    stop_rules: {
+      ...(defaults.stop_rules || {
+        stop_keywords: [],
+        stop_tags: [],
+        message: '',
+      }),
+      ...(value?.stop_rules || {}),
+    },
   };
 }
 
@@ -115,6 +141,13 @@ function makeCustomImageBinding(): PipelineTemplateImageTextBinding {
   };
 }
 
+function textToList(value: string): string[] {
+  return value
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export default function PipelineTemplateConfigEditor({
   value,
   onChange,
@@ -155,6 +188,14 @@ export default function PipelineTemplateConfigEditor({
     patch({ tools: { ...config.tools, [key]: enabled } });
   }
 
+  function patchRadar(next: Partial<NonNullable<PipelineTemplateConfig['radar']>>) {
+    patch({ radar: { ...config.radar!, ...next } });
+  }
+
+  function patchStopRules(next: Partial<NonNullable<PipelineTemplateConfig['stop_rules']>>) {
+    patch({ stop_rules: { ...config.stop_rules!, ...next } });
+  }
+
   function patchBinding(index: number, next: Partial<PipelineTemplateImageTextBinding>) {
     patch({
       image_text_bindings: config.image_text_bindings.map((binding, bindingIndex) =>
@@ -181,6 +222,94 @@ export default function PipelineTemplateConfigEditor({
         ...config.image_text_bindings,
         makeCustomImageBinding(),
       ],
+    });
+  }
+
+  function addSalesLink() {
+    patch({
+      sales_links: [
+        ...(config.sales_links || []),
+        {
+          id: `link_${Date.now().toString(36)}`,
+          title: '新的报名链接',
+          url: 'https://radar.yunti.local/course/phonics',
+          description: '',
+          radar_enabled: true,
+        },
+      ],
+    });
+  }
+
+  function patchSalesLink(index: number, next: Record<string, unknown>) {
+    patch({
+      sales_links: (config.sales_links || []).map((link, linkIndex) =>
+        linkIndex === index ? { ...link, ...next } : link,
+      ),
+    });
+  }
+
+  function addRadarRule() {
+    patchRadar({
+      rules: [
+        ...(config.radar?.rules || []),
+        {
+          event: 'link_open',
+          delay_minutes: 0,
+          message: '家长，看您进入报名通道了，支付以后截图发我，我给您登记开课。',
+        },
+      ],
+    });
+  }
+
+  function patchRadarRule(index: number, next: Record<string, unknown>) {
+    patchRadar({
+      rules: (config.radar?.rules || []).map((rule, ruleIndex) =>
+        ruleIndex === index ? { ...rule, ...next } : rule,
+      ),
+    });
+  }
+
+  function addFollowupSequence() {
+    patch({
+      followup_sequences: [
+        ...(config.followup_sequences || []),
+        {
+          stage: 'custom',
+          label: '自定义跟进',
+          messages: [{ delay_minutes: 5, message: '家长领取到了吗？' }],
+        },
+      ],
+    });
+  }
+
+  function patchFollowupSequence(index: number, next: Record<string, unknown>) {
+    patch({
+      followup_sequences: (config.followup_sequences || []).map((sequence, sequenceIndex) =>
+        sequenceIndex === index ? { ...sequence, ...next } : sequence,
+      ),
+    });
+  }
+
+  function addLongTermBroadcast() {
+    patch({
+      long_term_broadcasts: [
+        ...(config.long_term_broadcasts || []),
+        {
+          day: (config.long_term_broadcasts?.length || 0) + 1,
+          title: '新的长期群发',
+          time: '10:05',
+          message: '',
+          image_key: '',
+        },
+      ],
+    });
+  }
+
+  function patchLongTermBroadcast(index: number, next: Record<string, unknown>) {
+    patch({
+      long_term_broadcasts: (config.long_term_broadcasts || []).map((broadcast, broadcastIndex) =>
+        broadcastIndex === index ? { ...broadcast, ...next } : broadcast,
+      ),
     });
   }
 
@@ -457,6 +586,220 @@ export default function PipelineTemplateConfigEditor({
                 onChange={(event) => patchScheduledPush({ message: event.target.value })}
                 className="min-h-24"
                 placeholder="请输入定时推送的消息"
+              />
+            </div>
+          </Section>
+
+          <Section
+            icon={Link2}
+            title="报名链接"
+            description="可配置普通链接或带雷达参数的假链接，发送后由雷达规则继续跟进。"
+          >
+            <div className="space-y-3">
+              <Button type="button" variant="outline" className="w-full" onClick={addSalesLink}>
+                <Plus className="mr-1.5 size-4" />
+                新增报名链接
+              </Button>
+              {(config.sales_links || []).map((link, index) => (
+                <div key={link.id || index} className="space-y-2 rounded-md border p-3">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={link.title}
+                      onChange={(event) => patchSalesLink(index, { title: event.target.value })}
+                      placeholder="链接标题"
+                    />
+                    <Switch
+                      checked={link.radar_enabled !== false}
+                      onCheckedChange={(checked) => patchSalesLink(index, { radar_enabled: checked })}
+                    />
+                  </div>
+                  <Input
+                    value={link.url}
+                    onChange={(event) => patchSalesLink(index, { url: event.target.value })}
+                    placeholder="https://radar.yunti.local/course/phonics"
+                  />
+                  <Textarea
+                    value={link.description || ''}
+                    onChange={(event) => patchSalesLink(index, { description: event.target.value })}
+                    className="min-h-16"
+                    placeholder="链接用途说明"
+                  />
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section
+            icon={RadioTower}
+            title="模拟雷达"
+            description="模拟用户点击链接、浏览时长、点击报名按钮和点击后未支付等事件。"
+            right={
+              <Switch
+                checked={config.radar?.enabled !== false}
+                onCheckedChange={(checked) => patchRadar({ enabled: checked })}
+              />
+            }
+          >
+            <div className="space-y-3">
+              <Input
+                value={config.radar?.link_title || ''}
+                onChange={(event) => patchRadar({ link_title: event.target.value })}
+                placeholder="雷达链接标题"
+              />
+              <Input
+                value={config.radar?.link_url || ''}
+                onChange={(event) => patchRadar({ link_url: event.target.value })}
+                placeholder="雷达链接 URL"
+              />
+              <Input
+                value={(config.radar?.tracking_fields || []).join('，')}
+                onChange={(event) => patchRadar({ tracking_fields: textToList(event.target.value) })}
+                placeholder="追踪字段"
+              />
+              <Button type="button" variant="outline" className="w-full" onClick={addRadarRule}>
+                <Plus className="mr-1.5 size-4" />
+                新增雷达规则
+              </Button>
+              {(config.radar?.rules || []).map((rule, index) => (
+                <div key={`${rule.event}-${index}`} className="space-y-2 rounded-md border p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      value={rule.event}
+                      onChange={(event) => patchRadarRule(index, { event: event.target.value })}
+                      placeholder="事件，如 browse_30s"
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      value={rule.delay_minutes}
+                      onChange={(event) =>
+                        patchRadarRule(index, { delay_minutes: Number(event.target.value || 0) })
+                      }
+                      placeholder="延迟分钟"
+                    />
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={rule.min_browse_seconds || 0}
+                    onChange={(event) =>
+                      patchRadarRule(index, { min_browse_seconds: Number(event.target.value || 0) })
+                    }
+                    placeholder="最少浏览秒数"
+                  />
+                  <Textarea
+                    value={rule.message}
+                    onChange={(event) => patchRadarRule(index, { message: event.target.value })}
+                    className="min-h-20"
+                    placeholder="触发后发送的消息"
+                  />
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section icon={MessageSquareText} title="跟进话术矩阵">
+            <div className="space-y-3">
+              <Button type="button" variant="outline" className="w-full" onClick={addFollowupSequence}>
+                <Plus className="mr-1.5 size-4" />
+                新增跟进场景
+              </Button>
+              {(config.followup_sequences || []).map((sequence, index) => (
+                <div key={`${sequence.stage}-${index}`} className="space-y-2 rounded-md border p-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      value={sequence.label}
+                      onChange={(event) => patchFollowupSequence(index, { label: event.target.value })}
+                      placeholder="场景名称"
+                    />
+                    <Input
+                      value={sequence.stage}
+                      onChange={(event) => patchFollowupSequence(index, { stage: event.target.value })}
+                      placeholder="阶段标识"
+                    />
+                  </div>
+                  <Textarea
+                    value={JSON.stringify(sequence.messages, null, 2)}
+                    onChange={(event) => {
+                      try {
+                        patchFollowupSequence(index, { messages: JSON.parse(event.target.value) });
+                      } catch {
+                        patchFollowupSequence(index, { messages_text: event.target.value });
+                      }
+                    }}
+                    className="min-h-28 font-mono text-xs"
+                    placeholder="跟进消息 JSON"
+                  />
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section icon={CalendarClock} title="长期群发">
+            <div className="space-y-3">
+              <Button type="button" variant="outline" className="w-full" onClick={addLongTermBroadcast}>
+                <Plus className="mr-1.5 size-4" />
+                新增长期群发
+              </Button>
+              {(config.long_term_broadcasts || []).map((broadcast, index) => (
+                <div key={`${broadcast.day}-${index}`} className="space-y-2 rounded-md border p-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={broadcast.day}
+                      onChange={(event) => patchLongTermBroadcast(index, { day: Number(event.target.value || 1) })}
+                    />
+                    <Input
+                      value={broadcast.title}
+                      onChange={(event) => patchLongTermBroadcast(index, { title: event.target.value })}
+                      placeholder="标题"
+                    />
+                    <Input
+                      type="time"
+                      value={broadcast.time}
+                      onChange={(event) => patchLongTermBroadcast(index, { time: event.target.value })}
+                    />
+                  </div>
+                  <Textarea
+                    value={broadcast.message}
+                    onChange={(event) => patchLongTermBroadcast(index, { message: event.target.value })}
+                    className="min-h-20"
+                    placeholder="群发消息"
+                  />
+                  <Input
+                    value={broadcast.image_key || ''}
+                    onChange={(event) => patchLongTermBroadcast(index, { image_key: event.target.value })}
+                    placeholder="图片 file_key"
+                  />
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          <Section
+            icon={ShieldCheck}
+            title="停发规则"
+            description="命中拒绝、投诉、已报名、人工接管等状态后停止营销触达。"
+          >
+            <div className="space-y-3">
+              <Textarea
+                value={(config.stop_rules?.stop_keywords || []).join('\n')}
+                onChange={(event) => patchStopRules({ stop_keywords: textToList(event.target.value) })}
+                className="min-h-24"
+                placeholder="停发关键词，每行一个"
+              />
+              <Textarea
+                value={(config.stop_rules?.stop_tags || []).join('\n')}
+                onChange={(event) => patchStopRules({ stop_tags: textToList(event.target.value) })}
+                className="min-h-20"
+                placeholder="停发标签，每行一个"
+              />
+              <Textarea
+                value={config.stop_rules?.message || ''}
+                onChange={(event) => patchStopRules({ message: event.target.value })}
+                className="min-h-16"
+                placeholder="停发确认话术"
               />
             </div>
           </Section>

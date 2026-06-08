@@ -14,6 +14,7 @@ export type WorkflowNodeType =
   | 'lead'
   | 'image'
   | 'memory'
+  | 'radar'
   | 'outreach'
   | 'handoff'
   | 'http'
@@ -65,6 +66,56 @@ export interface PipelineTemplateImageTextBinding {
   enabled?: boolean;
 }
 
+export interface PipelineTemplateSalesLink {
+  id: string;
+  title: string;
+  url: string;
+  description?: string;
+  radar_enabled?: boolean;
+}
+
+export interface PipelineTemplateRadarRule {
+  event: string;
+  delay_minutes: number;
+  message: string;
+  min_browse_seconds?: number;
+}
+
+export interface PipelineTemplateRadarConfig {
+  enabled: boolean;
+  link_title: string;
+  link_url: string;
+  tracking_fields: string[];
+  rules: PipelineTemplateRadarRule[];
+}
+
+export interface PipelineTemplateFollowupMessage {
+  delay_minutes: number;
+  message: string;
+  schedule_time?: string;
+  voice_optional?: boolean;
+}
+
+export interface PipelineTemplateFollowupSequence {
+  stage: string;
+  label: string;
+  messages: PipelineTemplateFollowupMessage[];
+}
+
+export interface PipelineTemplateBroadcast {
+  day: number;
+  title: string;
+  time: string;
+  message: string;
+  image_key?: string;
+}
+
+export interface PipelineTemplateStopRules {
+  stop_keywords: string[];
+  stop_tags: string[];
+  message: string;
+}
+
 export interface PipelineTemplateConfig {
   name: string;
   role_prompt: string;
@@ -96,4 +147,12 @@ export interface PipelineTemplateConfig {
     push_message?: string;
   };
   image_text_bindings: PipelineTemplateImageTextBinding[];
+  course_profile?: Record<string, string>;
+  resource_faqs?: Record<string, unknown>[];
+  course_faqs?: Record<string, unknown>[];
+  sales_links?: PipelineTemplateSalesLink[];
+  radar?: PipelineTemplateRadarConfig;
+  followup_sequences?: PipelineTemplateFollowupSequence[];
+  long_term_broadcasts?: PipelineTemplateBroadcast[];
+  stop_rules?: PipelineTemplateStopRules;
 }
