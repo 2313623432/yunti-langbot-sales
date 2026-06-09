@@ -199,6 +199,7 @@ const esES = {
     selectModelAbilities: 'Seleccionar capacidades del modelo',
     visionAbility: 'Capacidad de visión',
     functionCallAbility: 'Llamada a funciones',
+    ttsAbility: 'Síntesis de voz',
     extraParameters: 'Parámetros adicionales',
     addParameter: 'Añadir parámetro',
     keyName: 'Nombre de la clave',

@@ -186,6 +186,7 @@ const zhHant = {
     selectModelAbilities: '選擇模型能力',
     visionAbility: '視覺能力',
     functionCallAbility: '函數呼叫',
+    ttsAbility: '語音合成',
     extraParameters: '額外參數',
     addParameter: '新增參數',
     keyName: '鍵名',

@@ -20,6 +20,10 @@ import uuid
 import json
 
 from langbot.pkg.api.http.service.pipeline import PipelineService, default_stage_order
+from langbot.pkg.api.http.service.task_assistant import (
+    COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+    TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
+)
 from langbot.pkg.entity.persistence.pipeline import LegacyPipeline
 
 
@@ -555,6 +559,26 @@ class TestPipelineServiceDeletePipeline:
 
         # Verify
         ap.pipeline_mgr.remove_pipeline.assert_called_once()
+
+    async def test_delete_pipeline_rejects_builtin_digital_employees(self):
+        """Built-in template digital employees cannot be deleted."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        ap.persistence_mgr.execute_async = AsyncMock()
+        ap.pipeline_mgr = SimpleNamespace()
+        ap.pipeline_mgr.remove_pipeline = AsyncMock()
+
+        service = PipelineService(ap)
+
+        for pipeline_uuid in (
+            TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
+            COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+        ):
+            with pytest.raises(ValueError, match='Built-in digital employee cannot be deleted'):
+                await service.delete_pipeline(pipeline_uuid)
+
+        ap.persistence_mgr.execute_async.assert_not_called()
+        ap.pipeline_mgr.remove_pipeline.assert_not_called()
 
 
 class TestPipelineServiceCopyPipeline:

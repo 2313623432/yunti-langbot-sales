@@ -23,6 +23,7 @@ from langbot.pkg.api.http.service.model import (
     RerankModelsService,
     _parse_provider_api_keys,
     _runtime_model_data,
+    _is_voice_only_model,
 )
 from langbot.pkg.entity.persistence.model import LLMModel, EmbeddingModel, RerankModel, ModelProvider
 
@@ -79,12 +80,13 @@ def _create_mock_provider(
     provider_uuid: str = 'provider-uuid',
     name: str = 'Test Provider',
     api_keys: list = None,
+    requester: str = 'openai',
 ) -> Mock:
     """Helper to create mock ModelProvider entity."""
     provider = Mock(spec=ModelProvider)
     provider.uuid = provider_uuid
     provider.name = name
-    provider.requester = 'openai'
+    provider.requester = requester
     provider.base_url = 'https://api.openai.com'
     provider.api_keys = api_keys or ['key']
     return provider
@@ -218,6 +220,56 @@ class TestLLMModelsServiceGetLLMModels:
         # Verify
         assert len(result) == 1
         assert result[0]['name'] == 'Test LLM'
+
+    async def test_get_llm_models_can_exclude_space_and_system_models(self):
+        """Returns only user-configured models when cloud and system models are excluded."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+
+        user_model = _create_mock_llm_model(model_uuid='user-model', provider_uuid='user-provider')
+        space_model = _create_mock_llm_model(model_uuid='space-model', provider_uuid='space-provider')
+        system_model = _create_mock_llm_model(
+            model_uuid='task-assistant-qwen-vl-plus',
+            provider_uuid='task-assistant-bailian-provider',
+        )
+        user_provider = _create_mock_provider(provider_uuid='user-provider', requester='openai-chat-completions')
+        space_provider = _create_mock_provider(
+            provider_uuid='space-provider',
+            name='LangBot Models',
+            requester='space-chat-completions',
+        )
+        system_provider = _create_mock_provider(
+            provider_uuid='task-assistant-bailian-provider',
+            name='任务助手-阿里云百炼',
+            requester='bailian-chat-completions',
+        )
+
+        mock_model_result = _create_mock_result([user_model, space_model, system_model])
+        mock_provider_result = _create_mock_result([user_provider, space_provider, system_provider])
+
+        call_count = 0
+
+        async def mock_execute(query):
+            nonlocal call_count
+            call_count += 1
+            return mock_model_result if call_count == 1 else mock_provider_result
+
+        ap.persistence_mgr.execute_async = AsyncMock(side_effect=mock_execute)
+        ap.persistence_mgr.serialize_model = Mock(
+            side_effect=lambda model_cls, entity: {
+                'uuid': entity.uuid,
+                'name': entity.name,
+                'provider_uuid': entity.provider_uuid if hasattr(entity, 'provider_uuid') else None,
+                'requester': entity.requester if hasattr(entity, 'requester') else None,
+                'api_keys': entity.api_keys if hasattr(entity, 'api_keys') else None,
+            }
+        )
+
+        service = LLMModelsService(ap)
+
+        result = await service.get_llm_models(include_space_models=False, include_system_models=False)
+
+        assert [model['uuid'] for model in result] == ['user-model']
 
     async def test_get_llm_models_hide_secret_keys(self):
         """Hides secret API keys when include_secret=False."""
@@ -462,6 +514,34 @@ class TestLLMModelsServiceCreateLLMModel:
         # Verify - provider_service was called and UUID generated
         ap.provider_service.find_or_create_provider.assert_called_once()
         assert result_uuid is not None
+
+    async def test_create_voice_only_model_does_not_set_default_pipeline_model(self):
+        """Voice-only LLM models are selectable for TTS but not as default chat models."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        ap.model_mgr = SimpleNamespace()
+        ap.model_mgr.provider_dict = {'provider-uuid': Mock()}
+        ap.model_mgr.llm_models = []
+        ap.model_mgr.load_llm_model_with_provider = AsyncMock(return_value=Mock())
+        ap.pipeline_service = SimpleNamespace()
+        ap.pipeline_service.update_pipeline = AsyncMock()
+
+        ap.persistence_mgr.execute_async = AsyncMock(return_value=_create_mock_result([]))
+
+        service = LLMModelsService(ap)
+
+        model_uuid = await service.create_llm_model({
+            'name': 'Voice Model',
+            'provider_uuid': 'provider-uuid',
+            'abilities': ['tts'],
+            'extra_args': {},
+        })
+
+        assert model_uuid
+        assert ap.persistence_mgr.execute_async.await_count == 1
+        ap.pipeline_service.update_pipeline.assert_not_awaited()
+        assert _is_voice_only_model({'abilities': ['tts']}) is True
+        assert _is_voice_only_model({'abilities': ['vision', 'tts']}) is False
 
 
 class TestLLMModelsServiceUpdateLLMModel:

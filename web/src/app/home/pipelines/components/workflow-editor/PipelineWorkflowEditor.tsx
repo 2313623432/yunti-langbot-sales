@@ -388,7 +388,10 @@ export default function PipelineWorkflowEditor({
       .then((resp) => setSalesProducts(resp.products || []))
       .catch((error) => console.warn('Failed to load sales products', error));
     httpClient
-      .getProviderLLMModels()
+      .getProviderLLMModels(undefined, {
+        include_space_models: false,
+        include_system_models: false,
+      })
       .then((resp) => setLlmModels(resp.models || []))
       .catch((error) => console.warn('Failed to load LLM models', error));
   }, []);
@@ -1467,12 +1470,14 @@ function NodeConfigPanel({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">跟随数字员工默认模型</SelectItem>
-              {llmModels.map((model) => (
-                <SelectItem key={model.uuid} value={model.uuid}>
-                  {model.name}
-                  {model.provider?.name ? ` · ${model.provider.name}` : ''}
-                </SelectItem>
-              ))}
+              {llmModels
+                .filter((model) => model.provider?.requester !== 'space-chat-completions')
+                .map((model) => (
+                  <SelectItem key={model.uuid} value={model.uuid}>
+                    {model.name}
+                    {model.provider?.name ? ` · ${model.provider.name}` : ''}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">

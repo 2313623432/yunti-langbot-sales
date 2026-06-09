@@ -196,6 +196,7 @@ const viVN = {
     selectModelAbilities: 'Chọn khả năng mô hình',
     visionAbility: 'Khả năng thị giác',
     functionCallAbility: 'Gọi hàm',
+    ttsAbility: 'Tổng hợp giọng nói',
     extraParameters: 'Tham số bổ sung',
     addParameter: 'Thêm tham số',
     keyName: 'Tên khóa',

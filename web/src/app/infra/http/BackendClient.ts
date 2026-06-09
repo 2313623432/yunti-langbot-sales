@@ -4,6 +4,7 @@ import {
   ApiRespProviderRequester,
   ApiRespProviderLLMModels,
   ApiRespProviderLLMModel,
+  ApiRespWorkflows,
   LLMModel,
   ApiRespPipelines,
   Pipeline,
@@ -129,8 +130,12 @@ export class BackendClient extends BaseHttpClient {
   // ============ Provider Model LLM ============
   public getProviderLLMModels(
     providerUuid?: string,
+    options?: { include_space_models?: boolean; include_system_models?: boolean },
   ): Promise<ApiRespProviderLLMModels> {
-    const params = providerUuid ? { provider_uuid: providerUuid } : {};
+    const params = {
+      ...(providerUuid ? { provider_uuid: providerUuid } : {}),
+      ...(options || {}),
+    };
     return this.get('/api/v1/provider/models/llm', params);
   }
 
@@ -263,6 +268,40 @@ export class BackendClient extends BaseHttpClient {
 
   public copyPipeline(uuid: string): Promise<{ uuid: string }> {
     return this.post(`/api/v1/pipelines/${uuid}/copy`);
+  }
+
+  // ============ Workflow Library API ============
+  public getWorkflows(): Promise<ApiRespWorkflows> {
+    return this.get('/api/v1/workflows');
+  }
+
+  public createWorkflow(workflow: {
+    folder: string;
+    name: string;
+    description: string;
+    workflow: object;
+  }): Promise<{ uuid: string }> {
+    return this.post('/api/v1/workflows', workflow);
+  }
+
+  public updateWorkflow(
+    uuid: string,
+    workflow: {
+      folder?: string;
+      name?: string;
+      description?: string;
+      workflow?: object;
+    },
+  ): Promise<object> {
+    return this.put(`/api/v1/workflows/${uuid}`, workflow);
+  }
+
+  public deleteWorkflow(uuid: string): Promise<object> {
+    return this.delete(`/api/v1/workflows/${uuid}`);
+  }
+
+  public createWorkflowFolder(name: string): Promise<object> {
+    return this.post('/api/v1/workflows/folders', { name });
   }
 
   public getPipelineExtensions(uuid: string): Promise<{

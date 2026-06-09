@@ -11,6 +11,17 @@ from ....entity.persistence import pipeline as persistence_pipeline
 from ....provider.modelmgr import requester as model_requester
 
 
+SYSTEM_SEEDED_PROVIDER_UUIDS = {'task-assistant-bailian-provider'}
+SYSTEM_SEEDED_LLM_MODEL_UUIDS = {'task-assistant-qwen-vl-plus'}
+
+
+def _is_voice_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'tts' in abilities and all(ability == 'tts' for ability in abilities)
+
+
 def _parse_provider_api_keys(provider_dict: dict) -> dict:
     """Parse api_keys if it's a JSON string"""
     if isinstance(provider_dict.get('api_keys'), str):
@@ -40,7 +51,12 @@ class LLMModelsService:
     def __init__(self, ap: app.Application) -> None:
         self.ap = ap
 
-    async def get_llm_models(self, include_secret: bool = True) -> list[dict]:
+    async def get_llm_models(
+        self,
+        include_secret: bool = True,
+        include_space_models: bool = True,
+        include_system_models: bool = True,
+    ) -> list[dict]:
         """Get all LLM models with provider info"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.LLMModel))
         models = result.all()
@@ -53,9 +69,15 @@ class LLMModelsService:
 
         models_list = []
         for model in models:
+            if not include_system_models and (
+                model.uuid in SYSTEM_SEEDED_LLM_MODEL_UUIDS or model.provider_uuid in SYSTEM_SEEDED_PROVIDER_UUIDS
+            ):
+                continue
             model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, model)
             provider = providers.get(model.provider_uuid)
             if provider:
+                if not include_space_models and provider.requester == 'space-chat-completions':
+                    continue
                 provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
                 provider_dict = _parse_provider_api_keys(provider_dict)
                 if not include_secret:
@@ -108,7 +130,7 @@ class LLMModelsService:
         )
         self.ap.model_mgr.llm_models.append(runtime_llm_model)
 
-        if auto_set_to_default_pipeline:
+        if auto_set_to_default_pipeline and not _is_voice_only_model(model_data):
             # set the default pipeline model to this model
             result = await self.ap.persistence_mgr.execute_async(
                 sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(

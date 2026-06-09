@@ -192,6 +192,18 @@ class TestGetResourcePath:
 
         paths._is_source_install = None
 
+    def test_finds_resource_under_package_resources_directory(self):
+        """Should resolve bundled resources stored under langbot/resources/."""
+        from langbot.pkg.utils import paths
+
+        paths._is_source_install = None
+
+        result = paths.get_resource_path("templates/course-sales/phonics/images")
+        assert os.path.isdir(result)
+        assert os.path.exists(os.path.join(result, "gift_poster.jpeg"))
+
+        paths._is_source_install = None
+
 
 class TestPathFunctionsCaching:
     """Test that path functions use caching correctly."""

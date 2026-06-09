@@ -15,7 +15,6 @@ from langbot.pkg.api.http.service.task_assistant import (
     COURSE_SALES_TEMPLATE_PIPELINE_UUID,
     COURSE_SALES_TTS_VOICE_TYPE,
     COURSE_SALES_WORKFLOW_PIPELINE_UUID,
-    TASK_ASSISTANT_MODEL_UUID,
     TASK_ASSISTANT_PIPELINE_UUID,
     TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
     TASK_ASSISTANT_TTS_VOICE_TYPE,
@@ -23,6 +22,14 @@ from langbot.pkg.api.http.service.task_assistant import (
 )
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
 from tests.factories.message import image_chain, text_chain, voice_query
+
+
+class _FirstResult:
+    def __init__(self, value):
+        self.value = value
+
+    def first(self):
+        return self.value
 
 
 def _query(message_chain, text='', session_id='user-1'):
@@ -149,7 +156,7 @@ def test_classify_next_step_uses_previous_assistant_step_as_progress_context():
 
 
 @pytest.mark.asyncio
-async def test_ensure_default_resources_removes_seeded_workflow_mode_pipelines():
+async def test_ensure_default_resources_removes_seeded_digital_employee_templates():
     ap = SimpleNamespace(
         persistence_mgr=SimpleNamespace(execute_async=AsyncMock()),
         pipeline_mgr=SimpleNamespace(remove_pipeline=AsyncMock()),
@@ -158,7 +165,6 @@ async def test_ensure_default_resources_removes_seeded_workflow_mode_pipelines()
     service = TaskAssistantService(ap)
     service._ensure_task_images = AsyncMock()
     service._ensure_course_sales_images = AsyncMock()
-    service._ensure_bailian_model = AsyncMock()
     service._ensure_pipeline = AsyncMock()
     service._ensure_template_pipeline = AsyncMock()
     service._ensure_course_sales_product = AsyncMock()
@@ -168,15 +174,21 @@ async def test_ensure_default_resources_removes_seeded_workflow_mode_pipelines()
 
     await service.ensure_default_resources()
 
+    assert not hasattr(service, '_ensure_bailian_model')
     service._ensure_pipeline.assert_not_called()
     service._ensure_course_sales_workflow_pipeline.assert_not_called()
     service._ensure_template_pipeline.assert_awaited_once()
     service._ensure_course_sales_template_pipeline.assert_awaited_once()
     removed_pipeline_uuids = [call.args[0] for call in ap.pipeline_mgr.remove_pipeline.await_args_list]
-    assert removed_pipeline_uuids == [TASK_ASSISTANT_PIPELINE_UUID, COURSE_SALES_WORKFLOW_PIPELINE_UUID]
+    assert removed_pipeline_uuids == [
+        TASK_ASSISTANT_PIPELINE_UUID,
+        COURSE_SALES_WORKFLOW_PIPELINE_UUID,
+    ]
     delete_statement = ap.persistence_mgr.execute_async.await_args_list[0].args[0]
     assert TASK_ASSISTANT_PIPELINE_UUID in str(delete_statement.compile(compile_kwargs={'literal_binds': True}))
     assert COURSE_SALES_WORKFLOW_PIPELINE_UUID in str(delete_statement.compile(compile_kwargs={'literal_binds': True}))
+    assert TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID not in str(delete_statement.compile(compile_kwargs={'literal_binds': True}))
+    assert COURSE_SALES_TEMPLATE_PIPELINE_UUID not in str(delete_statement.compile(compile_kwargs={'literal_binds': True}))
 
 
 @pytest.mark.asyncio
@@ -191,17 +203,119 @@ async def test_course_sales_outreach_backfill_queries_template_pipeline_only():
     )
 
 
-def test_task_assistant_pipeline_config_uses_bailian_local_agent_model():
+@pytest.mark.asyncio
+async def test_task_assistant_template_seed_preserves_existing_identity_and_avatar():
+    existing_pipeline = SimpleNamespace(
+        name='自定义任务助手',
+        description='用户改过的任务助手描述',
+        emoji='🧪',
+        config={'basic': {'avatar': '/agent-avatars/custom-task.png'}},
+        extensions_preferences={
+            'enable_all_plugins': False,
+            'enable_all_mcp_servers': False,
+            'plugins': ['plugin-a'],
+            'mcp_servers': ['mcp-a'],
+        },
+    )
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(side_effect=[_FirstResult(existing_pipeline), None])),
+        ver_mgr=SimpleNamespace(get_current_version=Mock(return_value='test-version')),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_template_pipeline()
+
+    update_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
+    params = update_statement.compile().params
+    assert params['name'] == '自定义任务助手'
+    assert params['description'] == '用户改过的任务助手描述'
+    assert params['emoji'] == '🧪'
+    assert params['config']['basic']['avatar'] == '/agent-avatars/custom-task.png'
+    assert params['extensions_preferences']['enable_all_plugins'] is False
+    assert params['extensions_preferences']['plugins'] == ['plugin-a']
+
+
+@pytest.mark.asyncio
+async def test_course_sales_template_seed_preserves_existing_identity_and_avatar():
+    existing_pipeline = SimpleNamespace(
+        name='自定义课程销售',
+        description='用户改过的课程销售描述',
+        emoji='🎯',
+        config={'basic': {'avatar': '/agent-avatars/custom-course.png'}},
+        extensions_preferences={
+            'enable_all_plugins': False,
+            'enable_all_mcp_servers': False,
+            'plugins': ['plugin-course'],
+            'mcp_servers': ['mcp-course'],
+        },
+    )
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(side_effect=[_FirstResult(existing_pipeline), None])),
+        ver_mgr=SimpleNamespace(get_current_version=Mock(return_value='test-version')),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_template_pipeline()
+
+    update_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
+    params = update_statement.compile().params
+    assert params['name'] == '自定义课程销售'
+    assert params['description'] == '用户改过的课程销售描述'
+    assert params['emoji'] == '🎯'
+    assert params['config']['basic']['avatar'] == '/agent-avatars/custom-course.png'
+    assert params['extensions_preferences']['enable_all_plugins'] is False
+    assert params['extensions_preferences']['plugins'] == ['plugin-course']
+
+
+@pytest.mark.asyncio
+async def test_course_sales_product_seed_preserves_existing_product_edits():
+    existing_product = SimpleNamespace(
+        uuid='yuanfudao-phonics-course',
+        name='用户改过的课程产品',
+        price='用户改过的价格',
+        enabled=False,
+    )
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(return_value=_FirstResult(existing_product))),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_product()
+
+    assert ap.persistence_mgr.execute_async.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_course_sales_product_seed_respects_deleted_product_when_other_products_exist():
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(
+            execute_async=AsyncMock(
+                side_effect=[
+                    _FirstResult(None),
+                    _FirstResult(SimpleNamespace(uuid='user-product')),
+                ]
+            )
+        ),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_product()
+
+    assert ap.persistence_mgr.execute_async.await_count == 2
+    second_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
+    assert str(second_statement).lstrip().upper().startswith('SELECT')
+
+
+def test_task_assistant_pipeline_config_starts_without_hardcoded_model():
     service = TaskAssistantService(SimpleNamespace())
 
     config = service.build_pipeline_config()
 
     assert config['ai']['runner']['runner'] == 'local-agent'
-    assert config['ai']['local-agent']['model']['primary'] == 'task-assistant-qwen-vl-plus'
+    assert config['ai']['local-agent']['model']['primary'] == ''
     workflow = config['workflow']
-    assert workflow['metadata']['model_provider'] == 'bailian'
     reply_node = next(node for node in workflow['nodes'] if node['id'] == 'reply')
-    assert reply_node['config']['model_uuid'] == 'task-assistant-qwen-vl-plus'
+    assert reply_node['config']['model_uuid'] == ''
 
 
 def test_task_assistant_workflow_is_fully_visualized_with_step_nodes_and_assets():
@@ -294,18 +408,17 @@ async def test_prepare_query_repeated_general_question_keeps_current_step_short(
     assert '不要重复完整流程' in repeated_query.user_message.content[-1].text
 
 
-def test_task_assistant_pipeline_uses_real_bailian_local_agent_model():
+def test_task_assistant_pipeline_uses_frontend_configured_model_only():
     service = TaskAssistantService(SimpleNamespace())
 
     config = service.build_pipeline_config()
 
     assert config['ai']['runner']['runner'] == 'local-agent'
-    assert config['ai']['local-agent']['model']['primary'] == TASK_ASSISTANT_MODEL_UUID
-    assert config['workflow']['metadata']['model_provider'] == 'bailian'
+    assert config['ai']['local-agent']['model']['primary'] == ''
     assert config['workflow']['voice']['voice_type'] == TASK_ASSISTANT_TTS_VOICE_TYPE
     reply_node = next(node for node in config['workflow']['nodes'] if node['id'] == 'reply')
     voice_node = next(node for node in config['workflow']['nodes'] if node['id'] == 'voice')
-    assert reply_node['config']['model_uuid'] == TASK_ASSISTANT_MODEL_UUID
+    assert reply_node['config']['model_uuid'] == ''
     assert voice_node['config']['voice_type'] == TASK_ASSISTANT_TTS_VOICE_TYPE
     assert config['workflow']['voice']['encoding'] == 'ogg_opus'
     assert voice_node['config']['encoding'] == 'ogg_opus'
@@ -318,7 +431,7 @@ def test_task_assistant_template_pipeline_config_matches_workflow_capabilities()
 
     assert TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID == 'task-assistant-ant-af-template-pipeline'
     assert config['config_mode'] == 'template'
-    assert config['ai']['local-agent']['model']['primary'] == TASK_ASSISTANT_MODEL_UUID
+    assert config['ai']['local-agent']['model']['primary'] == ''
     assert config['workflow']['metadata']['scenario'] == 'task_assistant_ant_af'
     assert 'source_mode' not in config['workflow']['metadata']
     template_config = config['template_config']
@@ -346,7 +459,7 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert config['config_mode'] == 'template'
     assert config['workflow']['metadata']['scenario'] == COURSE_SALES_SCENARIO
     assert config['ai']['runner']['runner'] == 'local-agent'
-    assert config['ai']['local-agent']['model']['primary'] == TASK_ASSISTANT_MODEL_UUID
+    assert config['ai']['local-agent']['model']['primary'] == ''
     template = config['template_config']
     assert template['name'] == '课程销售模板'
     assert template['course_profile']['course_name'] == '猿辅导英语自然拼读体验课/自然拼读集训营'
@@ -360,8 +473,8 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert template['radar']['link_url'] == COURSE_SALES_RADAR_LINK
     assert len(template['radar']['rules']) >= 4
     assert any(rule['event'] == 'browse_30s' for rule in template['radar']['rules'])
-    assert template['tools']['voice_reply'] is False
-    assert template['voice']['enabled'] is False
+    assert template['tools']['voice_reply'] is True
+    assert template['voice']['enabled'] is True
     assert template['voice']['voice_type'] == COURSE_SALES_TTS_VOICE_TYPE
     assert template['voice']['encoding'] == 'ogg_opus'
     assert template['opening_message'].startswith('您的图书配套学习资源点击')
@@ -493,8 +606,8 @@ def test_course_sales_template_config_migrates_legacy_default_assets_and_links()
         for broadcast in template['long_term_broadcasts']
         for value in broadcast.values()
     )
-    assert template['voice']['enabled'] is False
-    assert template['tools']['voice_reply'] is False
+    assert template['voice']['enabled'] is True
+    assert template['tools']['voice_reply'] is True
     migrated_followups = {sequence['stage']: sequence for sequence in template['followup_sequences']}
     assert any(
         message.get('link_id') == 'phonics_radar_apply'
@@ -545,7 +658,7 @@ def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
     assert ('sales_link', 'radar') in edges
     assert ('radar', 'radar_followup') in edges
     assert ('course_product', 'sales_link') in edges
-    assert workflow['voice']['enabled'] is False
+    assert workflow['voice']['enabled'] is True
     assert workflow['opening_message'].startswith('您的图书配套学习资源点击')
     opening_node = next(node for node in workflow['nodes'] if node['id'] == 'opening_message')
     assert opening_node['title'] == '首次开场白与资源卡片'
@@ -615,6 +728,23 @@ def test_course_sales_template_pipeline_rebuilds_legacy_course_sales_workflow():
     assert config['workflow']['nodes']
 
 
+def test_course_sales_template_preserves_user_disabled_voice_reply():
+    service = TaskAssistantService(SimpleNamespace())
+
+    template = service.build_course_sales_template_config(
+        overrides={
+            'tools': {'voice_reply': False},
+            'voice': {'enabled': False, 'voice_type': 'custom-voice'},
+        }
+    )
+    workflow = service.build_course_sales_workflow_from_template_config(template)
+
+    assert template['tools']['voice_reply'] is False
+    assert template['voice']['enabled'] is False
+    assert workflow['voice']['enabled'] is False
+    assert workflow['voice']['voice_type'] == 'custom-voice'
+
+
 @pytest.mark.asyncio
 async def test_prepare_query_handles_course_sales_voice_and_radar_intents():
     service = TaskAssistantService(SimpleNamespace())
@@ -631,10 +761,10 @@ async def test_prepare_query_handles_course_sales_voice_and_radar_intents():
 
     assert result['handled'] is True
     assert query.variables['workflow_intent']['intent'] in {'course_schedule', 'radar_clicked'}
-    assert query.variables['task_assistant_voice_reply'] is False
+    assert query.variables['task_assistant_voice_reply'] is True
     assert '猿辅导英语自然拼读' in query.prompt.messages[0].content
     assert '雷达' in query.prompt.messages[0].content
-    assert '课程销售场景只回复文字，不发送语音回复' in query.prompt.messages[0].content
+    assert '如果已启用语音回复' in query.prompt.messages[0].content
 
 
 class _CourseOutreachSalesService:
@@ -835,6 +965,101 @@ async def test_synthesize_reply_voice_uses_template_voice_config_in_template_mod
     assert kwargs['app_id'] == 'template-app'
     assert kwargs['token'] == 'template-token'
     assert kwargs['voice_type'] == 'template-voice'
+
+
+@pytest.mark.asyncio
+async def test_synthesize_reply_voice_uses_selected_voice_model_config():
+    logger = SimpleNamespace(warning=Mock())
+    voice_model = SimpleNamespace(
+        uuid='voice-model-1',
+        provider_uuid='provider-1',
+        extra_args={
+            'app_id': 'extra-app',
+            'cluster': 'extra-cluster',
+            'voice_type': 'extra-voice',
+            'encoding': 'wav',
+        },
+    )
+    provider = SimpleNamespace(
+        uuid='provider-1',
+        requester='volcengine',
+        name='Volcengine',
+        api_keys=['provider-token'],
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(side_effect=[_FirstResult(voice_model), _FirstResult(provider)])
+    )
+    service = TaskAssistantService(SimpleNamespace(logger=logger, persistence_mgr=persistence_mgr))
+    service._request_volcengine_tts = AsyncMock(return_value='ZmFrZS12b2ljZQ==')
+    query = SimpleNamespace(
+        variables={'task_assistant_voice_reply': True},
+        pipeline_config={
+            'workflow': {
+                'metadata': {'scenario': 'task_assistant_ant_af'},
+                'voice': {'enabled': True, 'model_uuid': 'voice-model-1'},
+            },
+        },
+    )
+
+    result = await service.synthesize_reply_voice(query, '下一步我带你点实名认证。')
+
+    assert result == 'data:audio/wav;base64,ZmFrZS12b2ljZQ=='
+    service._request_volcengine_tts.assert_awaited_once()
+    kwargs = service._request_volcengine_tts.await_args.kwargs
+    assert kwargs['app_id'] == 'extra-app'
+    assert kwargs['token'] == 'provider-token'
+    assert kwargs['cluster'] == 'extra-cluster'
+    assert kwargs['voice_type'] == 'extra-voice'
+    assert kwargs['encoding'] == 'wav'
+
+
+@pytest.mark.asyncio
+async def test_synthesize_reply_voice_uses_dashscope_qwen_tts_model_config():
+    logger = SimpleNamespace(warning=Mock())
+    voice_model = SimpleNamespace(
+        uuid='qwen-tts-model',
+        name='qwen3-tts-flash',
+        provider_uuid='dashscope-provider',
+        extra_args={
+            'provider': 'dashscope',
+            'voice': 'Cherry',
+            'voice_type': 'Cherry',
+            'language_type': 'Chinese',
+            'encoding': 'wav',
+        },
+    )
+    provider = SimpleNamespace(
+        uuid='dashscope-provider',
+        requester='bailian-chat-completions',
+        name='阿里云百炼 Qwen TTS',
+        base_url='https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+        api_keys=['dashscope-token'],
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(side_effect=[_FirstResult(voice_model), _FirstResult(provider)])
+    )
+    service = TaskAssistantService(SimpleNamespace(logger=logger, persistence_mgr=persistence_mgr))
+    service._request_dashscope_tts = AsyncMock(return_value='ZmFrZS1xd2VuLXR0cw==')
+    query = SimpleNamespace(
+        variables={'task_assistant_voice_reply': True},
+        pipeline_config={
+            'workflow': {
+                'metadata': {'scenario': 'task_assistant_ant_af'},
+                'voice': {'enabled': True, 'model_uuid': 'qwen-tts-model'},
+            },
+        },
+    )
+
+    result = await service.synthesize_reply_voice(query, '下一步我带你点实名认证。')
+
+    assert result == 'data:audio/wav;base64,ZmFrZS1xd2VuLXR0cw=='
+    service._request_dashscope_tts.assert_awaited_once()
+    kwargs = service._request_dashscope_tts.await_args.kwargs
+    assert kwargs['token'] == 'dashscope-token'
+    assert kwargs['model'] == 'qwen3-tts-flash'
+    assert kwargs['voice'] == 'Cherry'
+    assert kwargs['language_type'] == 'Chinese'
+    assert kwargs['base_url'] == provider.base_url
 
 
 def test_parse_volcengine_tts_ws_audio_message_returns_audio_and_final_state():

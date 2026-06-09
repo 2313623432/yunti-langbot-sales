@@ -194,6 +194,7 @@ const enUS = {
     selectModelAbilities: 'Select model abilities',
     visionAbility: 'Vision Ability',
     functionCallAbility: 'Function Call',
+    ttsAbility: 'Text to Speech',
     extraParameters: 'Extra Parameters',
     addParameter: 'Add Parameter',
     keyName: 'Key Name',

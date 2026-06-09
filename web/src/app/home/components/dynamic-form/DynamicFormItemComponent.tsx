@@ -91,7 +91,10 @@ export default function DynamicFormItemComponent({
 
   const fetchLlmModels = () => {
     httpClient
-      .getProviderLLMModels()
+      .getProviderLLMModels(undefined, {
+        include_space_models: false,
+        include_system_models: false,
+      })
       .then((resp) => {
         setLlmModels(resp.models);
       })

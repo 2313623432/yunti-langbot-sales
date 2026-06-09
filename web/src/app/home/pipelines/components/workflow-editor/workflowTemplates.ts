@@ -162,6 +162,7 @@ const nodeDefaults: Record<
     title: '语音回复',
     description: '把文字回复转换成语音消息',
     config: {
+      model_uuid: '',
       provider: 'volcengine',
       enabled: true,
       voice_type: 'zh_female_yuanqinvyou_moon_bigtts',
@@ -487,7 +488,7 @@ export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
       knowledge_base_uuids: templateConfig.knowledge_base_uuids,
       top_k: 4,
     }),
-    workflowNode('reply', 'llm', '真人客服式回复', '用百炼生成自然、短句、可执行的下一步指引', { x: 3030, y: 260 }, {
+    workflowNode('reply', 'llm', '真人客服式回复', '生成自然、短句、可执行的下一步指引', { x: 3030, y: 260 }, {
       model_uuid: templateConfig.model_uuid,
       tone: '真人客服、短句、具体',
       prompt: templateConfig.role_prompt,
@@ -569,7 +570,6 @@ export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
       source: '蚂蚁阿福.docx',
       source_mode: 'template',
       template_name: '任务助手模板配置版',
-      model_provider: 'bailian',
       tts_provider: 'volcengine',
     },
     voice: templateConfig.voice,
@@ -722,7 +722,7 @@ const courseLongTermBroadcasts = [
 ];
 
 export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
-  const modelUuid = 'task-assistant-qwen-vl-plus';
+  const modelUuid = '';
   const nodes: PipelineWorkflowNode[] = [
     workflowNode('start', 'start', '用户进线', '用户扫码、添加微信/企微或在网页咨询课程与图书资源', { x: 80, y: 320 }, { trigger: 'message' }),
     workflowNode('opening_message', 'custom', '首次开场白与资源卡片', '用户加好友/首次进线时先发开场白，再单独发送图书配套学习资源卡片', { x: 340, y: 320 }, {
@@ -742,7 +742,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       ],
     }),
     workflowNode('text_input', 'custom', '文字问题整理', '提取家长问题、孩子年级、是否点击链接、是否已报名', { x: 1160, y: 120 }, { output_key: 'user_text', params: '{"from": "message_chain.plain_text"}' }),
-    workflowNode('voice_asr', 'asr', '语音输入处理', '用户发语音时只转成课程咨询上下文，课程销售不发送语音回复', { x: 1160, y: 320 }, { provider: 'bailian', fallback_text: '用户发来课程咨询语音，请用文字短句回复。' }),
+    workflowNode('voice_asr', 'asr', '语音输入处理', '用户发语音时先理解课程咨询内容，语音回复开关开启时可用语音回复', { x: 1160, y: 320 }, { provider: 'bailian', fallback_text: '用户发来课程咨询语音，请用文字短句回复。' }),
     workflowNode('screenshot_input', 'vision', '截图识别', '识别支付成功页、报名页、白屏、资源页或二维码页', { x: 1160, y: 520 }, { model_uuid: modelUuid, target_steps: ['gift_poster', 'gift_qr', 'link_error'] }),
     workflowNode('intent', 'intent', '意图识别', '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态', { x: 1460, y: 320 }, {
       intents: ['resource_help', 'course_intro', 'course_schedule', 'course_replay', 'course_content', 'purchase', 'purchased', 'objection', 'gift', 'radar_clicked', 'stop', 'screenshot_help'],
@@ -763,7 +763,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       tone: '真人客服、短句、先服务后转化',
       prompt: '你是真人课程客服，先处理图书资源问题，再自然承接猿辅导自然拼读体验课咨询。回复要短、具体、有下一步动作。',
     }),
-    workflowNode('end', 'end', '发送给用户', '发送文字、链接卡片和Excel素材图；课程销售不发送语音回复', { x: 3540, y: 420 }, {}),
+    workflowNode('end', 'end', '发送给用户', '发送文字、链接卡片、Excel素材图；用户语音咨询时可按配置追加语音回复', { x: 3540, y: 420 }, {}),
   ];
 
   const imagePositions = [
@@ -834,7 +834,6 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       source_mode: 'template',
       template_name: '课程销售模板',
       source: 'SOP.doc（群发截图转文字）+ 猿辅导自然拼读常见问题(1).xlsx',
-      model_provider: 'bailian',
       tts_provider: 'volcengine',
       langgraph_state: {
         messages: 'list',
@@ -846,8 +845,9 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       },
     },
     voice: {
+      model_uuid: '',
       provider: 'volcengine',
-      enabled: false,
+      enabled: true,
       voice_type: 'zh_female_yuanqinvyou_moon_bigtts',
       encoding: 'ogg_opus',
     },
@@ -882,6 +882,69 @@ export function createDefaultWorkflow(): PipelineWorkflow {
   return createBlankWorkflow();
 }
 
+export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
+  return {
+    name: '',
+    role_prompt: '',
+    opening_message: '',
+    recommended_questions: [],
+    model_uuid: '',
+    max_reasoning_steps: 0,
+    reference_rounds: 0,
+    response_diversity: 0.3,
+    knowledge_base_uuids: [],
+    product_uuids: [],
+    sales_links: [],
+    radar: {
+      enabled: false,
+      link_title: '',
+      link_url: '',
+      tracking_fields: [],
+      rules: [],
+    },
+    followup_sequences: [],
+    long_term_broadcasts: [],
+    stop_rules: {
+      stop_keywords: [],
+      stop_tags: [],
+      message: '',
+    },
+    tools: {
+      intent_recognition: false,
+      knowledge_base: false,
+      product_database: false,
+      image_recognition: false,
+      voice_reply: false,
+    },
+    memory: {
+      variables_enabled: false,
+      table_enabled: false,
+      segments_enabled: false,
+    },
+    voice: {
+      model_uuid: '',
+      provider: '',
+      enabled: false,
+      voice_type: '',
+      encoding: '',
+    },
+    scheduled_push: {
+      enabled: false,
+      mode: 'daily',
+      time: '',
+      single_date: '',
+      message: '',
+      push_message: '',
+    },
+    interaction_radar: {
+      enabled: false,
+      link_url: '',
+      click_reply: '',
+    },
+    image_text_bindings: [],
+  };
+}
+
 export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
   const bindings = [
     ['download_qr', '下载安装第一步', '先用支付宝扫码，进入蚂蚁阿福下载页，点击下载按钮。', 'task-assistant/ant-af/af_step_01.png'],
@@ -899,7 +962,7 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
     role_prompt: '你是真人客服，负责一步步引导用户完成蚂蚁阿福实名认证。回复要短、自然、像真人，不要自称 AI、机器人或任务助手。',
     opening_message: '我带你一步步完成实名认证。先用支付宝扫码下载蚂蚁阿福 App，完成后跟我说“下一步”。',
     recommended_questions: ['我应该怎么完成这个任务？', '我卡在这一步了怎么办？', '下一步怎么做？'],
-    model_uuid: 'task-assistant-qwen-vl-plus',
+    model_uuid: '',
     max_reasoning_steps: 2,
     reference_rounds: 2,
     response_diversity: 0.3,
@@ -933,6 +996,7 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       segments_enabled: false,
     },
     voice: {
+      model_uuid: '',
       provider: 'volcengine',
       enabled: true,
       voice_type: 'zh_female_yuanqinvyou_moon_bigtts',

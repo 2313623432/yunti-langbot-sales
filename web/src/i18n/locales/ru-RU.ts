@@ -196,6 +196,7 @@ const ruRU = {
     selectModelAbilities: 'Выберите возможности модели',
     visionAbility: 'Распознавание изображений',
     functionCallAbility: 'Вызов функций',
+    ttsAbility: 'Синтез речи',
     extraParameters: 'Дополнительные параметры',
     addParameter: 'Добавить параметр',
     keyName: 'Имя ключа',

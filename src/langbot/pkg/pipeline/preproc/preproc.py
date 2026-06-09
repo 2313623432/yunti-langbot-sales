@@ -174,6 +174,8 @@ class PreProcessor(stage.PipelineStage):
                 ):
                     if me.base64 is not None:
                         content_list.append(provider_message.ContentElement.from_image_base64(me.base64))
+                    elif me.url:
+                        content_list.append(provider_message.ContentElement.from_image_url(me.url))
             elif isinstance(me, platform_message.Voice):
                 # 转成文件链接，让下游 runner 上传到目标模型
                 if me.base64:
@@ -195,6 +197,8 @@ class PreProcessor(stage.PipelineStage):
                         ):
                             if msg.base64 is not None:
                                 content_list.append(provider_message.ContentElement.from_image_base64(msg.base64))
+                            elif msg.url:
+                                content_list.append(provider_message.ContentElement.from_image_url(msg.url))
                     elif isinstance(msg, platform_message.File):
                         if msg.base64:
                             content_list.append(provider_message.ContentElement.from_file_base64(msg.base64, msg.name))

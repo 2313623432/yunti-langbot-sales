@@ -139,6 +139,7 @@ export interface PipelineTemplateConfig {
     segments_enabled: boolean;
   };
   voice: {
+    model_uuid?: string;
     provider: string;
     enabled: boolean;
     voice_type: string;

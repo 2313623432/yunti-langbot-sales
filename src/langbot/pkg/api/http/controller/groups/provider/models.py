@@ -14,7 +14,16 @@ class LLMModelsRouterGroup(group.RouterGroup):
                     return self.success(
                         data={'models': await self.ap.llm_model_service.get_llm_models_by_provider(provider_uuid)}
                     )
-                return self.success(data={'models': await self.ap.llm_model_service.get_llm_models()})
+                include_space_models = quart.request.args.get('include_space_models', 'true').lower() != 'false'
+                include_system_models = quart.request.args.get('include_system_models', 'true').lower() != 'false'
+                return self.success(
+                    data={
+                        'models': await self.ap.llm_model_service.get_llm_models(
+                            include_space_models=include_space_models,
+                            include_system_models=include_system_models,
+                        )
+                    }
+                )
             elif quart.request.method == 'POST':
                 json_data = await quart.request.json
                 model_uuid = await self.ap.llm_model_service.create_llm_model(json_data)

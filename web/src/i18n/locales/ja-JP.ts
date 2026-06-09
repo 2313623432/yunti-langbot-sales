@@ -197,6 +197,7 @@
     selectModelAbilities: 'モデル機能を選択',
     visionAbility: '視覚機能',
     functionCallAbility: '関数呼び出し',
+    ttsAbility: '音声合成',
     extraParameters: '追加パラメータ',
     addParameter: 'パラメータを追加',
     keyName: 'キー名',

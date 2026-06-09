@@ -15,7 +15,6 @@ import {
   RadioTower,
   SendHorizontal,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Upload,
   UserRound,
@@ -45,7 +44,7 @@ import {
   PipelineTemplateConfig,
   PipelineTemplateImageTextBinding,
 } from './types';
-import { createTaskAssistantTemplateConfig } from './workflowTemplates';
+import { createBlankAgentTemplateConfig } from './workflowTemplates';
 
 interface PipelineTemplateConfigEditorProps {
   value?: PipelineTemplateConfig;
@@ -82,11 +81,70 @@ const CONFIG_TABS: Array<{
   { id: 'memory', label: '记忆', icon: Bot },
   { id: 'radar', label: '互动雷达', icon: MousePointerClick },
   { id: 'push', label: '定时推送', icon: CalendarClock },
-  { id: 'media', label: '图文语音', icon: ImageIcon },
+  { id: 'media', label: '图文素材', icon: ImageIcon },
 ];
 
+type VoiceToneOption = {
+  value: string;
+  label: string;
+};
+
+function modelExtraArgs(model?: LLMModel): Record<string, unknown> {
+  const extraArgs = model?.extra_args;
+  if (!extraArgs || typeof extraArgs !== 'object' || Array.isArray(extraArgs)) {
+    return {};
+  }
+  return extraArgs as Record<string, unknown>;
+}
+
+function stringExtraArg(extraArgs: Record<string, unknown>, key: string): string {
+  const value = extraArgs[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function voiceToneOptionsFromModel(model?: LLMModel): VoiceToneOption[] {
+  const extraArgs = modelExtraArgs(model);
+  const rawVoices = extraArgs.voices;
+  const voices = Array.isArray(rawVoices) ? rawVoices : [];
+  const options = voices
+    .map((voice): VoiceToneOption | null => {
+      if (typeof voice === 'string') {
+        return { value: voice, label: voice };
+      }
+      if (!voice || typeof voice !== 'object' || Array.isArray(voice)) {
+        return null;
+      }
+      const item = voice as Record<string, unknown>;
+      const value = String(item.value || item.id || item.voice_type || '');
+      if (!value) {
+        return null;
+      }
+      return {
+        value,
+        label: String(item.label || item.name || value),
+      };
+    })
+    .filter((option): option is VoiceToneOption => Boolean(option));
+
+  const defaultVoiceType =
+    stringExtraArg(extraArgs, 'voice_type') ||
+    stringExtraArg(extraArgs, 'default_voice_type');
+  if (
+    defaultVoiceType &&
+    !options.some((option) => option.value === defaultVoiceType)
+  ) {
+    options.unshift({ value: defaultVoiceType, label: defaultVoiceType });
+  }
+  return options;
+}
+
+function isVoiceOnlyModel(model: LLMModel): boolean {
+  const abilities = model.abilities || [];
+  return abilities.includes('tts') && abilities.every((ability) => ability === 'tts');
+}
+
 function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTemplateConfig {
-  const defaults = createTaskAssistantTemplateConfig();
+  const defaults = createBlankAgentTemplateConfig();
   return {
     ...defaults,
     ...(value || {}),
@@ -264,7 +322,10 @@ export default function PipelineTemplateConfigEditor({
       .then((resp) => setSalesProducts(resp.products || []))
       .catch((error) => console.warn('Failed to load sales products', error));
     httpClient
-      .getProviderLLMModels()
+      .getProviderLLMModels(undefined, {
+        include_space_models: false,
+        include_system_models: false,
+      })
       .then((resp) => setLlmModels(resp.models || []))
       .catch((error) => console.warn('Failed to load LLM models', error));
   }, []);
@@ -341,15 +402,6 @@ export default function PipelineTemplateConfigEditor({
       ? current.filter((item) => item !== value)
       : [...current, value];
     patch({ [key]: next } as Partial<PipelineTemplateConfig>);
-  }
-
-  function patchRecommendedQuestions(text: string) {
-    patch({
-      recommended_questions: text
-        .split('\n')
-        .map((item) => item.trim())
-        .filter(Boolean),
-    });
   }
 
   function addImageTextBinding() {
@@ -506,7 +558,13 @@ export default function PipelineTemplateConfigEditor({
 
   const scheduledMessage =
     config.scheduled_push.message || config.scheduled_push.push_message || '';
-  const enabledToolCount = Object.values(config.tools).filter(Boolean).length;
+  const visibleToolKeys = [
+    'intent_recognition',
+    'knowledge_base',
+    'product_database',
+    'image_recognition',
+  ];
+  const enabledToolCount = visibleToolKeys.filter((key) => Boolean(config.tools[key])).length;
   const enabledImageBindings = config.image_text_bindings.filter(
     (binding) => binding.enabled !== false,
   );
@@ -533,7 +591,7 @@ export default function PipelineTemplateConfigEditor({
             onChange={(event) => handleNameChange(event.target.value)}
             className="h-11"
             maxLength={30}
-            placeholder="例如：课程顾问"
+            placeholder="请输入数字员工名称，例如：课程顾问"
           />
         </label>
         <label className="block">
@@ -544,7 +602,7 @@ export default function PipelineTemplateConfigEditor({
               onPipelineDescriptionChange?.(event.target.value)
             }
             className="h-11"
-            placeholder="请输入数字员工描述"
+            placeholder="请输入数字员工描述，例如：负责售前咨询和线索跟进"
           />
         </label>
         <label className="block">
@@ -553,16 +611,7 @@ export default function PipelineTemplateConfigEditor({
             value={config.opening_message}
             onChange={(event) => patch({ opening_message: event.target.value })}
             className="min-h-36 resize-none leading-6"
-            placeholder="请输入首次开场白"
-          />
-        </label>
-        <label className="block">
-          <FieldLabel hint="每行一个问题">推荐问题</FieldLabel>
-          <Textarea
-            value={config.recommended_questions.join('\n')}
-            onChange={(event) => patchRecommendedQuestions(event.target.value)}
-            className="min-h-28 resize-none leading-6"
-            placeholder={'我应该怎么完成这个任务？\n我卡在这一步了怎么办？'}
+            placeholder="请输入客户首次进线时看到的开场白，例如：您好，我是您的课程顾问，可以帮您介绍课程并解答报名问题。"
           />
         </label>
       </Section>
@@ -597,84 +646,203 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderModelSettings() {
-    const selectedModel = llmModels.find(
+    const visibleLlmModels = llmModels.filter(
+      (model) => model.provider?.requester !== 'space-chat-completions',
+    );
+    const chatLlmModels = visibleLlmModels.filter((model) => !isVoiceOnlyModel(model));
+    const voiceModels = visibleLlmModels.filter((model) =>
+      model.abilities?.includes('tts'),
+    );
+    const selectedModel = chatLlmModels.find(
       (model) => model.uuid === config.model_uuid,
+    );
+    const selectedVoiceModel = voiceModels.find(
+      (model) => model.uuid === config.voice.model_uuid,
     );
     const responseDiversity = Number.isFinite(config.response_diversity)
       ? config.response_diversity
       : 0.3;
+    const voiceToneOptions = voiceToneOptionsFromModel(selectedVoiceModel);
+    const selectedVoiceTone = voiceToneOptions.find(
+      (option) => option.value === config.voice.voice_type,
+    );
+
+    function handleVoiceModelChange(modelUuid: string) {
+      const model = voiceModels.find((item) => item.uuid === modelUuid);
+      if (!model) {
+        return;
+      }
+      const extraArgs = modelExtraArgs(model);
+      const options = voiceToneOptionsFromModel(model);
+      patch({
+        voice: {
+          ...config.voice,
+          enabled: true,
+          model_uuid: model.uuid,
+          provider:
+            stringExtraArg(extraArgs, 'provider') ||
+            model.provider?.requester ||
+            model.provider?.name ||
+            config.voice.provider,
+          voice_type: options[0]?.value || '',
+          encoding: stringExtraArg(extraArgs, 'encoding') || config.voice.encoding || 'ogg_opus',
+        },
+        tools: { ...config.tools, voice_reply: true },
+      });
+    }
 
     return (
-      <Section
-        icon={Brain}
-        title="模型能力"
-        description="控制模型、上下文语义识别和回复表达变化。"
-      >
-        <label className="block">
-          <FieldLabel required>选择模型</FieldLabel>
-          <Select
-            value={selectedModel?.uuid}
-            onValueChange={(modelUuid) => patch({ model_uuid: modelUuid })}
-            disabled={!llmModels.length}
-          >
-            <SelectTrigger className="h-11 w-full bg-white">
-              <SelectValue
-                placeholder={
-                  llmModels.length ? '请选择模型' : '请先在模型配置中添加模型'
-                }
+      <div className="grid gap-5">
+        <Section
+          icon={Brain}
+          title="模型能力"
+          description="控制模型、上下文语义识别和回复表达变化。"
+        >
+          <label className="block">
+            <FieldLabel required>选择模型</FieldLabel>
+            <Select
+              value={selectedModel?.uuid}
+              onValueChange={(modelUuid) => patch({ model_uuid: modelUuid })}
+              disabled={!chatLlmModels.length}
+            >
+              <SelectTrigger className="h-11 w-full bg-white">
+                <SelectValue
+                  placeholder={
+                    chatLlmModels.length ? '请选择模型' : '请先在模型配置中添加模型'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {chatLlmModels.map((model) => (
+                  <SelectItem
+                    key={model.uuid}
+                    value={model.uuid}
+                    description={model.provider?.name}
+                  >
+                    {model.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label>
+              <FieldLabel>识别上下文语义</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={config.reference_rounds}
+                onChange={(event) => patch({ reference_rounds: Number(event.target.value || 1) })}
+                className="h-11"
               />
-            </SelectTrigger>
-            <SelectContent>
-              {llmModels.map((model) => (
-                <SelectItem
-                  key={model.uuid}
-                  value={model.uuid}
-                  description={model.provider?.name}
-                >
-                  {model.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label>
-            <FieldLabel>识别上下文语义</FieldLabel>
-            <Input
-              type="number"
-              min={1}
-              max={20}
-              value={config.reference_rounds}
-              onChange={(event) => patch({ reference_rounds: Number(event.target.value || 1) })}
-              className="h-11"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              识别最近 {config.reference_rounds || 1} 条对话
-            </p>
-          </label>
-          <label>
-            <FieldLabel>回复多样性</FieldLabel>
-            <Input
-              type="range"
-              min={0}
-              max={1}
-              step={0.1}
-              value={responseDiversity}
-              onChange={(event) =>
-                patch({ response_diversity: Number(event.target.value) })
-              }
-              className="h-11 accent-indigo-600"
-            />
-            <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-              <span>每次回复都一样</span>
-              <span className="font-medium text-slate-700">
-                {responseDiversity.toFixed(1)}
-              </span>
-              <span>每次回复不一样</span>
-            </div>
-          </label>
-        </div>
-      </Section>
+              <p className="mt-1 text-xs text-muted-foreground">
+                识别最近 {config.reference_rounds || 1} 条对话
+              </p>
+            </label>
+            <label>
+              <FieldLabel>回复多样性</FieldLabel>
+              <Input
+                type="range"
+                min={0}
+                max={1}
+                step={0.1}
+                value={responseDiversity}
+                onChange={(event) =>
+                  patch({ response_diversity: Number(event.target.value) })
+                }
+                className="h-11 accent-indigo-600"
+              />
+              <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                <span>每次回复都一样</span>
+                <span className="font-medium text-slate-700">
+                  {responseDiversity.toFixed(1)}
+                </span>
+                <span>每次回复不一样</span>
+              </div>
+            </label>
+          </div>
+        </Section>
+
+        <Section
+          icon={Mic2}
+          title="语音回复模型"
+          description="配置用户发语音时使用的语音模型和音色。"
+          right={
+            <SummaryPill active={config.voice.enabled}>
+              {config.voice.enabled ? '语音已启用' : '语音未启用'}
+            </SummaryPill>
+          }
+        >
+          <ToggleRow
+            label="语音回复"
+            description="开启后，用户用语音咨询时，数字员工会把关键回复转换成语音。"
+            checked={config.voice.enabled}
+            onCheckedChange={(checked) => {
+              patch({
+                voice: { ...config.voice, enabled: checked },
+                tools: { ...config.tools, voice_reply: checked },
+              });
+            }}
+          />
+          <div className="grid gap-4 md:grid-cols-2">
+            <label>
+              <FieldLabel>语音模型</FieldLabel>
+              <Select
+                value={selectedVoiceModel?.uuid}
+                onValueChange={handleVoiceModelChange}
+                disabled={!voiceModels.length}
+              >
+                <SelectTrigger className="h-11 w-full bg-white">
+                  <SelectValue
+                    placeholder={
+                      voiceModels.length
+                        ? '请选择语音模型'
+                        : '请先在模型配置中添加语音模型'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {voiceModels.map((model) => (
+                    <SelectItem
+                      key={model.uuid}
+                      value={model.uuid}
+                      description={model.provider?.name}
+                    >
+                      {model.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label>
+              <FieldLabel>选择音色</FieldLabel>
+              <Select
+                value={selectedVoiceTone?.value}
+                onValueChange={(voiceType) => patchVoice({ voice_type: voiceType })}
+                disabled={!selectedVoiceModel || !voiceToneOptions.length}
+              >
+                <SelectTrigger className="h-11 w-full bg-white">
+                  <SelectValue
+                    placeholder={
+                      selectedVoiceModel
+                        ? '请选择音色'
+                        : '请先选择语音模型'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {voiceToneOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+          </div>
+        </Section>
+      </div>
     );
   }
 
@@ -692,7 +860,6 @@ export default function PipelineTemplateConfigEditor({
             ['knowledge_base', '知识库', '从企业知识库中检索回答依据。'],
             ['product_database', '产品数据库', '结合产品信息推荐课程、服务或方案。'],
             ['image_recognition', '截图识别', '识别用户截图，并判断卡在哪一步。'],
-            ['voice_reply', '语音回复（课程销售请关闭）', '将关键回复转换成语音消息。'],
           ].map(([key, label, description]) => (
             <ToggleRow
               key={key}
@@ -1372,52 +1539,6 @@ export default function PipelineTemplateConfigEditor({
           </div>
         </Section>
 
-        <Section
-          icon={Mic2}
-          title="声音和形象"
-          description="控制语音回复开关、音色和输出编码。"
-          right={
-            <SummaryPill active={config.voice.enabled}>
-              {config.voice.enabled ? '语音已启用' : '语音未启用'}
-            </SummaryPill>
-          }
-        >
-          <ToggleRow
-            label="语音回复"
-            description="开启后，数字员工可把关键回复转换成语音。"
-            checked={config.voice.enabled}
-            onCheckedChange={(checked) => patchVoice({ enabled: checked })}
-          />
-          <div className="grid gap-4 md:grid-cols-3">
-            <label>
-              <FieldLabel>语音服务</FieldLabel>
-              <Input
-                value={config.voice.provider}
-                onChange={(event) => patchVoice({ provider: event.target.value })}
-                className="h-11"
-                placeholder="provider"
-              />
-            </label>
-            <label>
-              <FieldLabel>音色 ID</FieldLabel>
-              <Input
-                value={config.voice.voice_type}
-                onChange={(event) => patchVoice({ voice_type: event.target.value })}
-                className="h-11"
-                placeholder="音色ID"
-              />
-            </label>
-            <label>
-              <FieldLabel>音频编码</FieldLabel>
-              <Input
-                value={config.voice.encoding}
-                onChange={(event) => patchVoice({ encoding: event.target.value })}
-                className="h-11"
-                placeholder="音频编码"
-              />
-            </label>
-          </div>
-        </Section>
       </div>
     );
   }
@@ -1486,16 +1607,8 @@ export default function PipelineTemplateConfigEditor({
         </div>
 
         <aside className="flex min-h-0 min-w-0 flex-col bg-white lg:sticky lg:top-0 lg:h-full lg:overflow-hidden">
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-            <div>
-              <h2 className="text-base font-semibold text-slate-950">预览调试</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                模拟客户看到的开场、雷达与回复效果
-              </p>
-            </div>
-            <span className="grid size-9 place-items-center rounded-md border border-slate-200 bg-white text-slate-600">
-              <Sparkles className="size-4" />
-            </span>
+          <div className="border-b border-slate-200 px-5 py-4">
+            <h2 className="text-base font-semibold text-slate-950">预览调试</h2>
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col bg-slate-50/70 p-5">
@@ -1510,7 +1623,6 @@ export default function PipelineTemplateConfigEditor({
                   <h3 className="truncate text-sm font-semibold text-slate-950">
                     {config.name || '未命名数字员工'}
                   </h3>
-                  <p className="text-xs text-emerald-600">在线 · 可调试</p>
                 </div>
               </div>
             </div>
@@ -1524,23 +1636,15 @@ export default function PipelineTemplateConfigEditor({
                     className="size-8 shrink-0 rounded-full border border-white bg-white object-cover shadow-sm"
                   />
                   <div className="max-w-[82%] rounded-lg rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800">
-                    {config.opening_message || '您好，我是您的数字员工，可以帮您介绍课程、解答问题。'}
+                    {config.opening_message.trim() ? (
+                      config.opening_message
+                    ) : (
+                      <span className="text-slate-400">
+                        开场白会显示在这里
+                      </span>
+                    )}
                   </div>
                 </div>
-
-                {config.recommended_questions.length > 0 && (
-                  <div className="ml-11 flex flex-wrap gap-2">
-                    {config.recommended_questions.map((question) => (
-                      <Badge
-                        key={question}
-                        variant="outline"
-                        className="max-w-[230px] truncate rounded-md border-indigo-100 bg-indigo-50 text-indigo-700"
-                      >
-                        {question}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
 
                 {config.interaction_radar.enabled && config.interaction_radar.link_url && (
                   <>
@@ -1572,14 +1676,27 @@ export default function PipelineTemplateConfigEditor({
                 )}
 
                 {enabledImageBindings[0] && (
-                  <div className="ml-11 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                    <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
-                      <ImageIcon className="size-3.5" />
-                      {enabledImageBindings[0].title}
+                  <div className="ml-11 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    {(enabledImageBindings[0].image_url ||
+                      enabledImageBindings[0].file_key) && (
+                      <img
+                        src={
+                          enabledImageBindings[0].image_url ||
+                          imageAssetUrl(enabledImageBindings[0].file_key)
+                        }
+                        alt={enabledImageBindings[0].title}
+                        className="max-h-48 w-full object-contain"
+                      />
+                    )}
+                    <div className="p-3">
+                      <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                        <ImageIcon className="size-3.5" />
+                        {enabledImageBindings[0].title}
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                        {enabledImageBindings[0].text}
+                      </p>
                     </div>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                      {enabledImageBindings[0].text}
-                    </p>
                   </div>
                 )}
               </div>
@@ -1614,7 +1731,7 @@ export default function PipelineTemplateConfigEditor({
             <div className="mt-4 grid gap-2 text-xs text-muted-foreground">
               <div className="flex items-center gap-2">
                 <Handshake className="size-3.5" />
-                <span>转人工、群聊回复等复杂能力可在工作流编排中继续扩展。</span>
+                <span>转人工、群聊回复等复杂能力可在独立工作流页面中继续扩展。</span>
               </div>
               <div className="flex items-center gap-2">
                 <MessageCircleMore className="size-3.5" />

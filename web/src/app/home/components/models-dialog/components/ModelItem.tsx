@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2, Eye, Wrench, Check } from 'lucide-react';
+import { Trash2, Eye, Wrench, Volume2, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -172,6 +172,12 @@ export default function ModelItem({
                   <Wrench className="h-3 w-3" />
                 </Badge>
               )}
+            {modelType === 'llm' &&
+              (model as LLMModel).abilities?.includes('tts') && (
+                <Badge variant="outline" className="text-xs gap-1">
+                  <Volume2 className="h-3 w-3" />
+                </Badge>
+              )}
           </div>
           {!isLangBotModels && (
             <Popover
@@ -248,7 +254,7 @@ export default function ModelItem({
           {modelType === 'llm' && (
             <div className="space-y-2">
               <Label>{t('models.abilities')}</Label>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4">
                 <div className="flex items-center gap-2">
                   <Checkbox
                     id={`edit-vision-${model.uuid}`}
@@ -281,6 +287,23 @@ export default function ModelItem({
                   >
                     <Wrench className="h-3 w-3 inline mr-1" />
                     {t('models.functionCallAbility')}
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id={`edit-tts-${model.uuid}`}
+                    checked={editAbilities.includes('tts')}
+                    disabled={isLangBotModels}
+                    onCheckedChange={(checked) =>
+                      toggleAbility('tts', checked as boolean)
+                    }
+                  />
+                  <Label
+                    htmlFor={`edit-tts-${model.uuid}`}
+                    className="text-sm"
+                  >
+                    <Volume2 className="h-3 w-3 inline mr-1" />
+                    {t('models.ttsAbility')}
                   </Label>
                 </div>
               </div>

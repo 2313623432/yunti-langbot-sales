@@ -15,8 +15,12 @@ WORKFLOW_TEMPLATES_PATH = Path(
     'web/src/app/home/pipelines/components/workflow-editor/workflowTemplates.ts'
 )
 WORKFLOWS_PAGE_PATH = Path('web/src/app/home/workflows/page.tsx')
+PIPELINE_PAGE_PATH = Path('web/src/app/home/pipelines/page.tsx')
+PIPELINE_DETAIL_PATH = Path('web/src/app/home/pipelines/PipelineDetailContent.tsx')
 SIDEBAR_CONFIG_PATH = Path('web/src/app/home/components/home-sidebar/sidbarConfigList.tsx')
 ROUTER_PATH = Path('web/src/router.tsx')
+ADD_MODEL_POPOVER_PATH = Path('web/src/app/home/components/models-dialog/components/AddModelPopover.tsx')
+MODEL_ITEM_PATH = Path('web/src/app/home/components/models-dialog/components/ModelItem.tsx')
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -47,12 +51,12 @@ def test_ai_reply_node_can_select_real_model_and_sync_to_pipeline():
     assert 'llmModels' in editor_source
     assert "node.type === 'llm'" in editor_source
     assert 'model_uuid' in editor_source
-    assert 'syncWorkflowModelIntoAIConfig' in form_source
+    assert 'syncTemplateModelIntoAIConfig' in form_source
     assert "['local-agent']" in form_source
     assert 'primary: selectedModelUuid' in form_source
 
 
-def test_pipeline_editor_supports_template_and_workflow_modes():
+def test_pipeline_editor_keeps_only_agent_template_config():
     form_source = PIPELINE_FORM_PATH.read_text(encoding='utf-8')
     template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
 
@@ -61,7 +65,11 @@ def test_pipeline_editor_supports_template_and_workflow_modes():
     assert 'template_config' in form_source
     assert 'applyTemplateConfigToWorkflow' not in form_source
     assert 'Agent配置' in form_source
-    assert '工作流编排' in form_source
+    assert 'Agent配置方式' not in form_source
+    assert '工作流编排' not in form_source
+    assert 'PipelineWorkflowEditor' not in form_source
+    assert 'selectedConfigMode' not in form_source
+    assert 'handleConfigModeChange' not in form_source
 
     assert 'scheduled_push' in template_source
     assert 'push_message' in template_source
@@ -76,6 +84,7 @@ def test_template_mode_keeps_template_and_workflow_configs_independent():
     assert 'const workflow = baseWorkflow' in form_source
     assert "form.setValue('template_config', templateConfig" in form_source
     assert "setWorkflowValue(applyTemplateConfigToWorkflow" not in form_source
+    assert "selectedConfigMode === 'template'" not in form_source
 
 
 def test_pipeline_form_reload_effect_tracks_selected_pipeline_id():
@@ -109,8 +118,8 @@ def test_template_config_editor_supports_direct_image_upload_and_expanded_contro
     assert 'link_url' in template_source
     assert 'click_reply' in template_source
     assert 'patchStringList' not in template_source
-    assert 'selectedConfigMode' in form_source
-    assert "selectedConfigMode === 'template'" in form_source
+    assert 'selectedConfigMode' not in form_source
+    assert "selectedConfigMode === 'template'" not in form_source
     assert 'overflow-y-auto' in form_source
     assert '每天推送' in template_source
     assert '指定单天' in template_source
@@ -119,8 +128,27 @@ def test_template_config_editor_supports_direct_image_upload_and_expanded_contro
 
 def test_template_model_capability_uses_configured_llm_model_select():
     template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    model_settings = re.search(
+        r'function renderModelSettings\(\) \{([\s\S]+?)\n  function renderToolSettings',
+        template_source,
+    ).group(1)
+    media_settings = re.search(
+        r'function renderMediaSettings\(\) \{([\s\S]+?)\n  function renderPanelByTab',
+        template_source,
+    ).group(1)
 
     assert 'getProviderLLMModels' in template_source
+    assert "include_space_models: false" in template_source
+    assert "include_system_models: false" in template_source
+    assert 'visibleLlmModels' in template_source
+    assert 'chatLlmModels' in model_settings
+    assert 'voiceModels' in model_settings
+    assert "model.abilities?.includes('tts')" in model_settings
+    assert 'isVoiceOnlyModel' in template_source
+    assert 'handleVoiceModelChange' in model_settings
+    assert 'voiceToneOptionsFromModel' in template_source
+    assert 'model_uuid' in model_settings
+    assert "space-chat-completions" in template_source
     assert 'llmModels' in template_source
     assert '<Select' in template_source
     assert re.search(
@@ -131,9 +159,30 @@ def test_template_model_capability_uses_configured_llm_model_select():
     assert '识别上下文语义' in template_source
     assert '回复多样性' in template_source
     assert 'response_diversity' in template_source
+    assert '语音回复模型' in model_settings
+    assert '语音模型' in model_settings
+    assert '选择音色' in model_settings
+    assert '自定义音色 ID' not in model_settings
+    assert '音频编码' not in model_settings
+    assert "tools: { ...config.tools, voice_reply: checked }" in model_settings
+    assert '声音和形象' not in template_source
+    assert '图文语音' not in template_source
+    assert '语音回复模型' not in media_settings
     assert '最大思考次数' not in template_source
     assert 'max_reasoning_steps' not in template_source
     assert 'value={config.model_uuid}' not in template_source
+
+
+def test_model_configuration_can_mark_llm_models_as_tts_capable():
+    add_model_source = ADD_MODEL_POPOVER_PATH.read_text(encoding='utf-8')
+    model_item_source = MODEL_ITEM_PATH.read_text(encoding='utf-8')
+
+    assert 'ttsAbility' in add_model_source
+    assert 'ttsAbility' in model_item_source
+    assert "toggleAbility('tts', checked as boolean)" in add_model_source
+    assert re.search(r"toggleScannedModelAbility\(\s*model\.id,\s*'tts'", add_model_source)
+    assert re.search(r"abilities\?\.includes\('tts'\)", model_item_source)
+    assert "editAbilities.includes('tts')" in model_item_source
 
 
 def test_image_file_keys_preserve_path_segments_for_preview_urls():
@@ -181,7 +230,7 @@ def test_template_config_editor_supports_course_sales_radar_and_link_fields():
     assert 'patch({ opening_message: event.target.value })' in template_source
     assert 'SOP定时群发' in template_source
     assert '主动跟进话术矩阵' in template_source
-    assert '语音回复（课程销售请关闭）' in template_source
+    assert '语音回复' in template_source
     assert "label: '雷达监测'" in editor_source
 
 
@@ -251,12 +300,11 @@ def test_latest_workflow_navigation_opens_real_pipeline_orchestration():
     assert '<PipelinesPage />' not in workflow_route_block
     assert 'PipelineWorkflowEditor' in workflows_source
     assert 'createBlankWorkflow' in workflows_source
-    assert 'createCourseSalesWorkflowTemplate' in workflows_source
-    assert 'createTaskAssistantWorkflowTemplate' in workflows_source
-    assert 'createInitialWorkflowItems' in workflows_source
-    assert "const initialFolders = ['我的项目'];" in workflows_source
-    assert "useState(() => [...initialFolders])" in workflows_source
-    assert "useState('我的项目')" in workflows_source
+    assert 'getWorkflows' in workflows_source
+    assert 'fromWorkflowProject' in workflows_source
+    assert "const defaultFolder = '我的项目';" in workflows_source
+    assert "useState(() => [defaultFolder])" in workflows_source
+    assert 'useState(defaultFolder)' in workflows_source
     assert 'setFolders' in workflows_source
     assert 'newFolderName' in workflows_source
     assert 'createFolder' in workflows_source
@@ -269,10 +317,6 @@ def test_latest_workflow_navigation_opens_real_pipeline_orchestration():
     assert '示例DEMO' not in workflows_source
     assert '销售转化工作流' not in workflows_source
     assert '客服接待工作流' not in workflows_source
-    assert '空白工作流' not in workflows_source
-    assert "name: '课程销售模板'" in workflows_source
-    assert "name: '任务助手模板配置版'" in workflows_source
-    assert 'useState<WorkflowItem[]>(() => createInitialWorkflowItems())' in workflows_source
 
 
 def test_standalone_workflow_templates_preserve_digital_employee_nodes():
@@ -337,9 +381,105 @@ def test_standalone_workflow_templates_preserve_digital_employee_nodes():
     assert 'task-assistant/ant-af/af_step_08.png' in source
 
 
+def test_workflow_cards_open_on_click_and_delete_with_confirmation():
+    source = WORKFLOWS_PAGE_PATH.read_text(encoding='utf-8')
+
+    assert 'AlertDialog' in source
+    assert 'workflowPendingDelete' in source
+    assert 'deleteWorkflow' in source
+    assert '确认删除工作流' in source
+    assert '删除后无法恢复' in source
+    assert 'group-hover/card:opacity-100' in source
+    assert 'event.stopPropagation()' in source
+    assert 'onClick={() => setEditingId(item.id)}' in source
+
+    assert 'Download' not in source
+    assert 'Copy' not in source
+    assert 'Edit3' not in source
+    assert 'workflowCardMeta' not in source
+    assert 'selectedIds' not in source
+    assert 'toggleSelected' not in source
+    assert 'toggleSelectAll' not in source
+    assert '全选' not in source
+    assert 'type="checkbox"' not in source
+    assert '个节点 ·' not in source
+    assert 'border-t border-slate-100' not in source
+    assert '编辑' not in source
+
+
 def test_workflow_creation_settings_do_not_bind_agent():
     source = WORKFLOWS_PAGE_PATH.read_text(encoding='utf-8')
 
     assert 'boundAgent' not in source
     assert '绑定 AI Agent' not in source
     assert '绑定 Agent' not in source
+
+
+def test_pipeline_create_entry_uses_two_employee_type_choices():
+    source = PIPELINE_PAGE_PATH.read_text(encoding='utf-8')
+    detail_source = PIPELINE_DETAIL_PATH.read_text(encoding='utf-8')
+
+    assert 'showCreateTypeDialog' in source
+    assert '选择数字员工类型' in source
+    assert '自定义Agent' in source
+    assert '工作流回答' in source
+    assert "startCreatePipeline('custom')" in source
+    assert "startCreatePipeline('workflow')" in source
+    assert 'createBlankCustomPipeline' in source
+    assert 'createBlankWorkflowAnswerPipeline' in source
+    assert 'httpClient.createPipeline' in source
+    assert 'createBlankAgentTemplateConfig()' in source
+    assert "config_mode: 'workflow'" in source
+    assert "workflow_source: {" in source
+    assert "navigate(`/home/pipelines?id=${encodeURIComponent(resp.uuid)}`)" in source
+    assert "navigate('/home/pipelines?id=new&type=custom')" not in source
+    assert "navigate('/home/pipelines?id=new&type=workflow')" not in source
+    assert "createType === 'workflow'" in detail_source
+    assert 'createMode={createType}' in detail_source
+
+    assert 'FAQ匹配回答' not in source
+    assert '推理回答' not in source
+    assert '自定义Prompt回答' not in source
+    assert '长记忆回答' not in source
+
+
+def test_custom_agent_creation_and_editor_defaults_are_blank():
+    page_source = PIPELINE_PAGE_PATH.read_text(encoding='utf-8')
+    form_source = PIPELINE_FORM_PATH.read_text(encoding='utf-8')
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+
+    assert 'createBlankAgentTemplateConfig' in workflow_source
+    assert "name: ''" in workflow_source
+    assert "role_prompt: ''" in workflow_source
+    assert "opening_message: ''" in workflow_source
+    assert 'recommended_questions: []' in workflow_source
+    assert 'image_text_bindings: []' in workflow_source
+    assert 'createTaskAssistantTemplateConfig()' not in page_source
+    assert 'createBlankAgentTemplateConfig()' in page_source
+    assert 'createBlankAgentTemplateConfig()' in form_source
+    assert '推荐问题' not in template_source
+    assert 'patchRecommendedQuestions' not in template_source
+    assert 'config.opening_message ||' not in template_source
+    assert '您好，我是您的数字员工' not in template_source
+
+
+def test_workflow_answer_pipeline_form_uses_library_workflow_selection():
+    source = PIPELINE_FORM_PATH.read_text(encoding='utf-8')
+
+    assert "type PipelineCreateMode = 'custom' | 'workflow'" in source
+    assert 'workflowProjects' in source
+    assert 'getWorkflows' in source
+    assert '工作流绑定' in source
+    assert 'workflow_source' in source
+    assert "config_mode: 'workflow'" in source
+    assert 'template_config: templateConfig' in source
+    assert "name=\"template_config.opening_message\"" in source
+    assert 'selectedWorkflowProject?.workflow' in source
+    assert 'renderWorkflowAnswerEditor' in source
+    assert 'renderWorkflowPreview' in source
+    assert '预览调试' in source
+    assert '尚未绑定工作流' in source
+    assert '角色设定</CardTitle>' not in source
+    assert '选择工作流</CardTitle>' not in source
+    assert '请选择工作流' not in source

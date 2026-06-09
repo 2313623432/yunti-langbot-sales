@@ -91,5 +91,9 @@ def get_resource_path(resource: str) -> str:
     if resource_path.exists():
         return str(resource_path)
 
+    resources_path = pkg_dir / 'resources' / resource
+    if resources_path.exists():
+        return str(resources_path)
+
     # Return the original path
     return resource

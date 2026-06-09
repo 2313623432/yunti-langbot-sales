@@ -9,6 +9,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -29,11 +30,26 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination';
-import { Bot, Copy, MoreHorizontal, Plus, Search, Trash2 } from 'lucide-react';
+import {
+  Bot,
+  Copy,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Trash2,
+  Workflow,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { DEFAULT_AGENT_AVATAR } from './components/agent-avatar/agentAvatar';
+import {
+  createBlankAgentTemplateConfig,
+  createDefaultWorkflow,
+} from './components/workflow-editor/workflowTemplates';
 
 const PAGE_SIZE = 8;
+
+type PipelineCreateType = 'custom' | 'workflow';
 
 const avatarPalettes = [
   'bg-blue-100 text-blue-700',
@@ -42,19 +58,30 @@ const avatarPalettes = [
   'bg-pink-100 text-pink-700',
 ];
 
+function getErrorMessage(error: unknown) {
+  if (typeof error === 'object' && error !== null && 'msg' in error) {
+    const message = (error as { msg?: unknown }).msg;
+    return typeof message === 'string' ? message : '';
+  }
+  return '';
+}
+
 export default function PipelineConfigPage() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const detailId = searchParams.get('id');
   const navigate = useNavigate();
-  const { pipelines, refreshPipelines, setDetailEntityName } =
-    useSidebarData();
+  const { pipelines, refreshPipelines, setDetailEntityName } = useSidebarData();
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
   const [pipelineToDelete, setPipelineToDelete] = useState<{
     id: string;
     name: string;
   } | null>(null);
+  const [showCreateTypeDialog, setShowCreateTypeDialog] = useState(false);
+  const [creatingType, setCreatingType] = useState<PipelineCreateType | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!detailId) {
@@ -88,7 +115,75 @@ export default function PipelineConfigPage() {
   }, [keyword, pipelines.length]);
 
   function goToCreate() {
-    navigate('/home/pipelines?id=new');
+    setShowCreateTypeDialog(true);
+  }
+
+  async function startCreatePipeline(type: PipelineCreateType) {
+    if (type === 'custom') {
+      await createBlankCustomPipeline();
+      return;
+    }
+    await createBlankWorkflowAnswerPipeline();
+  }
+
+  async function createBlankCustomPipeline() {
+    setCreatingType('custom');
+    try {
+      const resp = await httpClient.createPipeline({
+        name: '',
+        description: '',
+        emoji: '⚙️',
+        config: {
+          basic: {
+            avatar: DEFAULT_AGENT_AVATAR,
+          },
+          config_mode: 'template',
+          template_config: createBlankAgentTemplateConfig(),
+          workflow: createDefaultWorkflow(),
+        },
+      });
+      setShowCreateTypeDialog(false);
+      refreshPipelines();
+      navigate(`/home/pipelines?id=${encodeURIComponent(resp.uuid)}`);
+      toast.success(t('pipelines.createSuccess'));
+    } catch (err: unknown) {
+      toast.error(t('pipelines.createError') + getErrorMessage(err));
+    } finally {
+      setCreatingType(null);
+    }
+  }
+
+  async function createBlankWorkflowAnswerPipeline() {
+    setCreatingType('workflow');
+    try {
+      const resp = await httpClient.createPipeline({
+        name: '',
+        description: '',
+        emoji: '🔁',
+        config: {
+          basic: {
+            avatar: DEFAULT_AGENT_AVATAR,
+          },
+          config_mode: 'workflow',
+          template_config: createBlankAgentTemplateConfig(),
+          role_prompt: '',
+          workflow_source: {
+            workflow_uuid: '',
+            workflow_name: '',
+            workflow_folder: '',
+          },
+          workflow: createDefaultWorkflow(),
+        },
+      });
+      setShowCreateTypeDialog(false);
+      refreshPipelines();
+      navigate(`/home/pipelines?id=${encodeURIComponent(resp.uuid)}`);
+      toast.success(t('pipelines.createSuccess'));
+    } catch (err: unknown) {
+      toast.error(t('pipelines.createError') + getErrorMessage(err));
+    } finally {
+      setCreatingType(null);
+    }
   }
 
   function copyPipeline(pipelineId: string) {
@@ -181,8 +276,9 @@ export default function PipelineConfigPage() {
                           alt={`${pipeline.name} 头像`}
                           className="size-full rounded-full object-cover"
                         />
-                      ) : pipeline.emoji || pipeline.name.slice(0, 1) || (
-                        <Bot className="size-10" />
+                      ) : (
+                        pipeline.emoji ||
+                        pipeline.name.slice(0, 1) || <Bot className="size-10" />
                       )}
                     </div>
                     <h2 className="mt-4 max-w-full truncate text-center text-base font-semibold text-slate-900">
@@ -193,7 +289,6 @@ export default function PipelineConfigPage() {
                         `Hi，我是${pipeline.name}，正在等待配置更多能力。`}
                     </p>
                   </CardContent>
-
                 </button>
                 <CardFooter className="mt-auto flex items-center justify-end border-t border-slate-100 px-5 py-4 text-slate-400">
                   <DropdownMenu>
@@ -218,7 +313,7 @@ export default function PipelineConfigPage() {
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           variant="destructive"
-                          disabled={pipeline.isDefault}
+                          disabled={pipeline.isDefault || pipeline.isBuiltin}
                           onClick={() =>
                             setPipelineToDelete({
                               id: pipeline.id,
@@ -309,6 +404,54 @@ export default function PipelineConfigPage() {
           </Pagination>
         </div>
       )}
+
+      <Dialog
+        open={showCreateTypeDialog}
+        onOpenChange={setShowCreateTypeDialog}
+      >
+        <DialogContent className="sm:max-w-[620px]">
+          <DialogHeader>
+            <DialogTitle className="text-xl">选择数字员工类型</DialogTitle>
+            <DialogDescription>
+              选择创建空白自定义 Agent，或绑定工作流库中的流程。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 sm:grid-cols-2">
+            <button
+              type="button"
+              className="rounded-lg border border-blue-200 bg-blue-50/60 p-5 text-left transition hover:border-blue-300 hover:bg-blue-50"
+              disabled={creatingType !== null}
+              onClick={() => startCreatePipeline('custom')}
+            >
+              <span className="flex size-9 items-center justify-center rounded-md bg-blue-600 text-white">
+                <Bot className="size-5" />
+              </span>
+              <h3 className="mt-4 text-base font-semibold text-slate-950">
+                自定义Agent
+              </h3>
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                自定义数字员工的基础信息、角色设定和完整能力配置。
+              </p>
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-violet-200 bg-violet-50/60 p-5 text-left transition hover:border-violet-300 hover:bg-violet-50"
+              disabled={creatingType !== null}
+              onClick={() => startCreatePipeline('workflow')}
+            >
+              <span className="flex size-9 items-center justify-center rounded-md bg-violet-600 text-white">
+                <Workflow className="size-5" />
+              </span>
+              <h3 className="mt-4 text-base font-semibold text-slate-950">
+                工作流回答
+              </h3>
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                选择工作流库中的流程，用角色设定驱动固定流程生成回复。
+              </p>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={pipelineToDelete !== null}

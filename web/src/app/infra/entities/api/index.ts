@@ -135,6 +135,22 @@ export interface ApiRespPipelines {
   pipelines: Pipeline[];
 }
 
+export interface WorkflowProject {
+  uuid: string;
+  folder: string;
+  name: string;
+  description: string;
+  workflow: object;
+  is_builtin?: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ApiRespWorkflows {
+  folders: string[];
+  workflows: WorkflowProject[];
+}
+
 export interface Pipeline {
   uuid?: string;
   name: string;
@@ -143,6 +159,7 @@ export interface Pipeline {
   config: object;
   stages?: string[];
   is_default?: boolean;
+  is_builtin?: boolean;
   created_at?: string;
   updated_at?: string;
   emoji?: string;

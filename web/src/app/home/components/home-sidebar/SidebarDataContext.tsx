@@ -23,6 +23,7 @@ export interface SidebarEntityItem {
   iconURL?: string;
   updatedAt?: string; // ISO timestamp for sorting by most recently edited
   isDefault?: boolean;
+  isBuiltin?: boolean;
   // Bot-specific fields
   enabled?: boolean;
   // MCP-specific fields
@@ -125,6 +126,7 @@ export function SidebarDataProvider({
             iconURL: agentAvatarUrl(avatar),
             updatedAt: p.updated_at,
             isDefault: p.is_default,
+            isBuiltin: p.is_builtin,
           };
         }),
       );

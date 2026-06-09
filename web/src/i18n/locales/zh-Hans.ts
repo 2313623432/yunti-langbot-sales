@@ -186,6 +186,7 @@ const zhHans = {
     selectModelAbilities: '选择模型能力',
     visionAbility: '视觉能力',
     functionCallAbility: '函数调用',
+    ttsAbility: '语音合成',
     extraParameters: '额外参数',
     addParameter: '添加参数',
     keyName: '键名',

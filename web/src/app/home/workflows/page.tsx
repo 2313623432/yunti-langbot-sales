@@ -1,9 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
-  Copy,
-  Download,
-  Edit3,
   Folder,
   FolderPlus,
   Plus,
@@ -13,15 +10,24 @@ import {
 } from 'lucide-react';
 
 import PipelineWorkflowEditor from '@/app/home/pipelines/components/workflow-editor/PipelineWorkflowEditor';
-import {
-  createBlankWorkflow,
-  createCourseSalesWorkflowTemplate,
-  createTaskAssistantWorkflowTemplate,
-} from '@/app/home/pipelines/components/workflow-editor/workflowTemplates';
+import { createBlankWorkflow } from '@/app/home/pipelines/components/workflow-editor/workflowTemplates';
 import { PipelineWorkflow } from '@/app/home/pipelines/components/workflow-editor/types';
+import type { WorkflowProject } from '@/app/infra/entities/api';
+import { httpClient } from '@/app/infra/http/HttpClient';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 type WorkflowItem = {
   id: string;
@@ -29,50 +35,69 @@ type WorkflowItem = {
   name: string;
   description: string;
   workflow: PipelineWorkflow;
+  isBuiltin: boolean;
 };
 
-const initialFolders = ['我的项目'];
+const defaultFolder = '我的项目';
 
-function createInitialWorkflowItems(): WorkflowItem[] {
-  const courseSalesWorkflow = createCourseSalesWorkflowTemplate();
-  const taskAssistantWorkflow = createTaskAssistantWorkflowTemplate();
-
-  return [
-    {
-      id: 'course-sales-template',
-      folder: '我的项目',
-      name: '课程销售模板',
-      description: '承接图书资源咨询、自然拼读课程答疑、报名转化、雷达跟进和人工接管。',
-      workflow: courseSalesWorkflow,
-    },
-    {
-      id: 'task-assistant-template',
-      folder: '我的项目',
-      name: '任务助手模板配置版',
-      description: '引导用户完成蚂蚁阿福实名认证，保留步骤图片、截图识别和语音回复节点。',
-      workflow: taskAssistantWorkflow,
-    },
-  ];
-}
-
-function workflowCardMeta(item: WorkflowItem) {
+function fromWorkflowProject(project: WorkflowProject): WorkflowItem {
   return {
-    nodeCount: item.workflow.nodes.length,
-    updatedAt: item.workflow.metadata?.source_mode === 'template' ? '模板迁移' : '画布模板',
+    id: project.uuid,
+    folder: project.folder || defaultFolder,
+    name: project.name,
+    description: project.description || '',
+    workflow: project.workflow as PipelineWorkflow,
+    isBuiltin: project.is_builtin || false,
   };
 }
 
 export default function WorkflowsPage() {
-  const [folders, setFolders] = useState(() => [...initialFolders]);
-  const [workflows, setWorkflows] = useState<WorkflowItem[]>(() => createInitialWorkflowItems());
-  const [activeFolder, setActiveFolder] = useState('我的项目');
+  const [folders, setFolders] = useState(() => [defaultFolder]);
+  const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
+  const [activeFolder, setActiveFolder] = useState(defaultFolder);
   const [keyword, setKeyword] = useState('');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [workflowPendingDeleteId, setWorkflowPendingDeleteId] = useState<
+    string | null
+  >(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    httpClient
+      .getWorkflows()
+      .then((data) => {
+        if (cancelled) return;
+        const nextFolders = data.folders.length
+          ? data.folders
+          : [defaultFolder];
+        setFolders(nextFolders);
+        setWorkflows((data.workflows || []).map(fromWorkflowProject));
+        setActiveFolder((current) =>
+          nextFolders.includes(current) ? current : nextFolders[0],
+        );
+      })
+      .catch((error) => {
+        toast.error(`工作流加载失败${error?.msg ? `：${error.msg}` : ''}`);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const editingWorkflow = workflows.find((item) => item.id === editingId);
+  const workflowPendingDelete = workflows.find(
+    (item) => item.id === workflowPendingDeleteId,
+  );
   const visibleWorkflows = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
     return workflows.filter((item) => {
@@ -85,22 +110,6 @@ export default function WorkflowsPage() {
       return inFolder && matchesKeyword;
     });
   }, [activeFolder, keyword, workflows]);
-
-  function toggleSelected(id: string) {
-    setSelectedIds((current) =>
-      current.includes(id)
-        ? current.filter((selectedId) => selectedId !== id)
-        : [...current, id],
-    );
-  }
-
-  function toggleSelectAll() {
-    if (selectedIds.length === visibleWorkflows.length) {
-      setSelectedIds([]);
-      return;
-    }
-    setSelectedIds(visibleWorkflows.map((item) => item.id));
-  }
 
   function updateWorkflow(nextWorkflow: PipelineWorkflow) {
     if (!editingId) return;
@@ -117,26 +126,36 @@ export default function WorkflowsPage() {
     );
   }
 
-  function createNewWorkflow() {
+  async function createNewWorkflow() {
     const workflow = createBlankWorkflow();
-    const id = `workflow-${Date.now()}`;
+    const payload = {
+      folder: activeFolder,
+      name: '新建工作流',
+      description: '从空白画布开始搭建新的自动化流程。',
+      workflow: {
+        ...workflow,
+        name: '新建工作流',
+      },
+    };
+    let resp: { uuid: string };
+    try {
+      resp = await httpClient.createWorkflow(payload);
+    } catch (error: any) {
+      toast.error(`工作流创建失败${error?.msg ? `：${error.msg}` : ''}`);
+      return;
+    }
     setWorkflows((current) => [
       {
-        id,
-        folder: activeFolder,
-        name: '新建工作流',
-        description: '从空白画布开始搭建新的自动化流程。',
-        workflow: {
-          ...workflow,
-          name: '新建工作流',
-        },
+        id: resp.uuid,
+        ...payload,
+        isBuiltin: false,
       },
       ...current,
     ]);
-    setEditingId(id);
+    setEditingId(resp.uuid);
   }
 
-  function createFolder() {
+  async function createFolder() {
     const folderName = newFolderName.trim();
     if (!folderName || folders.includes(folderName)) {
       setCreatingFolder(false);
@@ -144,10 +163,52 @@ export default function WorkflowsPage() {
       return;
     }
 
+    try {
+      await httpClient.createWorkflowFolder(folderName);
+    } catch (error: any) {
+      toast.error(`目录创建失败${error?.msg ? `：${error.msg}` : ''}`);
+      return;
+    }
     setFolders((current) => [...current, folderName]);
     setActiveFolder(folderName);
     setCreatingFolder(false);
     setNewFolderName('');
+  }
+
+  async function deleteWorkflow() {
+    if (!workflowPendingDeleteId) return;
+    try {
+      await httpClient.deleteWorkflow(workflowPendingDeleteId);
+    } catch (error: any) {
+      toast.error(`工作流删除失败${error?.msg ? `：${error.msg}` : ''}`);
+      return;
+    }
+    setWorkflows((current) =>
+      current.filter((item) => item.id !== workflowPendingDeleteId),
+    );
+    if (editingId === workflowPendingDeleteId) {
+      setEditingId(null);
+    }
+    setWorkflowPendingDeleteId(null);
+  }
+
+  async function saveEditingWorkflow() {
+    if (!editingWorkflow) return;
+    setSaving(true);
+    try {
+      await httpClient.updateWorkflow(editingWorkflow.id, {
+        folder: editingWorkflow.folder,
+        name: editingWorkflow.name,
+        description: editingWorkflow.description,
+        workflow: editingWorkflow.workflow,
+      });
+      setEditingId(null);
+      toast.success('工作流已保存');
+    } catch (error: any) {
+      toast.error(`工作流保存失败${error?.msg ? `：${error.msg}` : ''}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (editingWorkflow) {
@@ -169,12 +230,13 @@ export default function WorkflowsPage() {
                 {editingWorkflow.name}
               </h1>
               <p className="mt-1 text-sm text-slate-500">
-                {editingWorkflow.workflow.nodes.length} 个节点，{editingWorkflow.workflow.edges.length} 条连线
+                {editingWorkflow.workflow.nodes.length} 个节点，
+                {editingWorkflow.workflow.edges.length} 条连线
               </p>
             </div>
           </div>
-          <Button type="button" onClick={() => setEditingId(null)}>
-            保存并返回
+          <Button type="button" onClick={saveEditingWorkflow} disabled={saving}>
+            {saving ? '保存中' : '保存并返回'}
           </Button>
         </header>
         <div className="min-h-0 flex-1">
@@ -201,6 +263,7 @@ export default function WorkflowsPage() {
             type="button"
             className="mt-1 h-11 rounded-md bg-indigo-600 px-5 text-white hover:bg-indigo-700"
             onClick={createNewWorkflow}
+            disabled={loading}
           >
             <Plus className="size-4" />
             新建工作流
@@ -284,7 +347,7 @@ export default function WorkflowsPage() {
         </aside>
 
         <section className="min-h-0 overflow-y-auto px-5 pb-8 lg:px-9">
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
             <div className="relative w-full max-w-[360px]">
               <Search className="absolute right-4 top-1/2 size-5 -translate-y-1/2 text-slate-500" />
               <Input
@@ -294,106 +357,97 @@ export default function WorkflowsPage() {
                 placeholder="搜索流程和组件"
               />
             </div>
-            <div className="flex items-center gap-4 text-slate-700">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-9"
-              >
-                <Download className="size-5" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-9"
-              >
-                <Copy className="size-5" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-9"
-              >
-                <Trash2 className="size-5" />
-              </Button>
-            </div>
           </div>
 
-          <label className="mb-7 flex w-fit items-center gap-3 text-base font-semibold">
-            <input
-              type="checkbox"
-              className="size-5 rounded border-slate-300"
-              checked={
-                visibleWorkflows.length > 0 &&
-                selectedIds.length === visibleWorkflows.length
-              }
-              onChange={toggleSelectAll}
-            />
-            全选
-          </label>
+          {loading ? (
+            <div className="mt-12 rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+              正在加载工作流...
+            </div>
+          ) : (
+            <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
+              {visibleWorkflows.map((item) => {
+                return (
+                  <article
+                    key={item.id}
+                    role="button"
+                    tabIndex={0}
+                    className="group/card relative min-h-[168px] cursor-pointer rounded-2xl bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                    onClick={() => setEditingId(item.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setEditingId(item.id);
+                      }
+                    }}
+                  >
+                    {!item.isBuiltin && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-4 top-4 size-9 text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover/card:opacity-100"
+                        title="删除工作流"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setWorkflowPendingDeleteId(item.id);
+                        }}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
 
-          <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
-            {visibleWorkflows.map((item) => {
-              const meta = workflowCardMeta(item);
-              const selected = selectedIds.includes(item.id);
-              return (
-                <article
-                  key={item.id}
-                  className="min-h-[200px] rounded-2xl bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:shadow-md"
-                >
-                  <div className="mb-5 flex items-start justify-between gap-4">
-                    <button
-                      type="button"
-                      className="flex min-w-0 items-center gap-4 text-left"
-                      onClick={() => setEditingId(item.id)}
-                    >
+                    <div className="mb-5 flex items-start gap-4 pr-10">
                       <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white shadow-sm">
                         <WorkflowIcon className="size-5" />
                       </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-xl font-semibold text-slate-950">
+                      <div className="min-w-0">
+                        <h2 className="truncate text-xl font-semibold text-slate-950">
                           {item.name}
-                        </span>
-                        <span className="mt-1 block text-sm text-slate-400">
-                          {meta.nodeCount} 个节点 · {meta.updatedAt}
-                        </span>
-                      </span>
-                    </button>
-                    <input
-                      type="checkbox"
-                      className="mt-1 size-6 rounded border-slate-300"
-                      checked={selected}
-                      onChange={() => toggleSelected(item.id)}
-                    />
-                  </div>
+                        </h2>
+                      </div>
+                    </div>
 
-                  <p className="line-clamp-2 min-h-[52px] text-base leading-7 text-slate-500">
-                    {item.description}
-                  </p>
+                    <p className="line-clamp-2 min-h-[52px] text-base leading-7 text-slate-500">
+                      {item.description}
+                    </p>
+                  </article>
+                );
+              })}
+            </div>
+          )}
 
-                  <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
-                    <span className="text-sm text-slate-400">
-                      {item.folder}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-8 gap-2 px-2 text-base font-semibold text-slate-800 hover:bg-slate-50"
-                      onClick={() => setEditingId(item.id)}
-                    >
-                      <Edit3 className="size-4" />
-                      编辑
-                    </Button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+          <AlertDialog
+            open={!!workflowPendingDelete}
+            onOpenChange={(open) => {
+              if (!open) {
+                setWorkflowPendingDeleteId(null);
+              }
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>确认删除工作流</AlertDialogTitle>
+                <AlertDialogDescription>
+                  删除后无法恢复，确定要删除
+                  {workflowPendingDelete
+                    ? `「${workflowPendingDelete.name}」`
+                    : ''}
+                  吗？
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-red-600 text-white hover:bg-red-700"
+                  onClick={deleteWorkflow}
+                >
+                  删除
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
-          {visibleWorkflows.length === 0 && (
+          {!loading && visibleWorkflows.length === 0 && (
             <div className="mt-12 flex min-h-[280px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white">
               <div className="text-center">
                 <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PipelineFormComponent from '@/app/home/pipelines/components/pipeline-form/PipelineFormComponent';
@@ -11,6 +11,9 @@ import { BarChart3 } from 'lucide-react';
 export default function PipelineDetailContent({ id }: { id: string }) {
   const isCreateMode = id === 'new';
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const createType =
+    searchParams.get('type') === 'workflow' ? 'workflow' : 'custom';
   const { t } = useTranslation();
   const { refreshPipelines, pipelines, setDetailEntityName } = useSidebarData();
 
@@ -47,7 +50,9 @@ export default function PipelineDetailContent({ id }: { id: string }) {
               {t('pipelines.createPipeline')}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              创建一个可复用的数字员工
+              {createType === 'workflow'
+                ? '创建一个通过工作流库回答客户消息的数字员工'
+                : '创建一个可复用的数字员工'}
             </p>
           </div>
           <Button type="submit" form="pipeline-form">
@@ -60,6 +65,7 @@ export default function PipelineDetailContent({ id }: { id: string }) {
             <PipelineFormComponent
               pipelineId={undefined}
               isEditMode={false}
+              createMode={createType}
               disableForm={false}
               showButtons={false}
               onFinish={handleFinish}

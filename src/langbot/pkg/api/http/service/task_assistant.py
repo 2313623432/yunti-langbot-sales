@@ -30,9 +30,7 @@ from .pipeline_defaults import default_stage_order
 TASK_ASSISTANT_SCENARIO = 'task_assistant_ant_af'
 TASK_ASSISTANT_PIPELINE_UUID = 'task-assistant-ant-af-pipeline'
 TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID = 'task-assistant-ant-af-template-pipeline'
-TASK_ASSISTANT_PROVIDER_UUID = 'task-assistant-bailian-provider'
-TASK_ASSISTANT_MODEL_UUID = 'task-assistant-qwen-vl-plus'
-TASK_ASSISTANT_MODEL_NAME = 'qwen-vl-plus'
+DEFAULT_ASSISTANT_MODEL_UUID = ''
 TASK_ASSISTANT_TTS_VOICE_TYPE = 'zh_female_yuanqinvyou_moon_bigtts'
 COURSE_SALES_SCENARIO = 'course_sales_yuanfudao_phonics'
 COURSE_SALES_WORKFLOW_PIPELINE_UUID = 'course-sales-workflow-pipeline'
@@ -1031,7 +1029,7 @@ class TaskAssistantService:
             content.append(
                 provider_message.ContentElement.from_text(
                     '用户发来一条语音咨询。请按猿辅导自然拼读课程客服/销售场景回复，'
-                    '短句、自然、像真人客服；本场景只输出文字，不要生成语音回复。'
+                    '短句、自然、像真人客服；如果用户用语音咨询且语音回复已启用，可生成适合 TTS 的短句。'
                 )
             )
         for component in query.message_chain:
@@ -1386,7 +1384,7 @@ class TaskAssistantService:
 - 用户要买或点击报名链接，发送指定报名链接卡片并说明支付后发截图登记；雷达规则只用于模拟后续跟进。
 - 用户已报名/已支付/发支付截图后，立刻停止促单，转班主任、APP、短信、资料交付。
 - 用户拒绝、投诉、无孩子、非目标年级、老师身份或人工接管时停止后续触达。
-- 课程销售场景只回复文字，不发送语音回复；用户发来语音时只转成文字理解。
+- 用户发来语音时先理解语音内容；如果已启用语音回复，输出适合 TTS 的短句。
 - 不承诺固定提分、效果翻倍、百分百有效等绝对化结果。
 
 课程统一口径：
@@ -1430,8 +1428,34 @@ class TaskAssistantService:
             return None
 
         voice_config = workflow.get('voice') if isinstance(workflow.get('voice'), dict) else {}
+        voice_config = await self._resolve_voice_model_config(voice_config)
         if voice_config.get('enabled') is False:
             return None
+
+        plain_text = self._compact_tts_text(text)
+        if not plain_text:
+            return None
+
+        encoding = voice_config.get('encoding') or ('wav' if self._is_dashscope_tts_config(voice_config) else 'ogg_opus')
+        if self._is_dashscope_tts_config(voice_config):
+            token = voice_config.get('token') or os.getenv('DASHSCOPE_API_KEY')
+            if not token:
+                self.ap.logger.warning('Task assistant TTS skipped: DashScope api key is not configured')
+                return None
+            audio_base64 = await self._request_dashscope_tts(
+                text=plain_text,
+                token=token,
+                model=voice_config.get('model') or 'qwen3-tts-flash',
+                voice=voice_config.get('voice') or voice_config.get('voice_type') or 'Cherry',
+                language_type=voice_config.get('language_type') or 'Chinese',
+                base_url=voice_config.get('base_url')
+                or 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+                instructions=voice_config.get('instructions'),
+                optimize_instructions=voice_config.get('optimize_instructions'),
+            )
+            if not audio_base64:
+                return None
+            return f'data:{self._tts_mime_type(encoding)};base64,{audio_base64}'
 
         app_id = (
             voice_config.get('app_id')
@@ -1447,11 +1471,6 @@ class TaskAssistantService:
             self.ap.logger.warning('Task assistant TTS skipped: Volcengine app_id/token is not configured')
             return None
 
-        plain_text = self._compact_tts_text(text)
-        if not plain_text:
-            return None
-
-        encoding = voice_config.get('encoding') or 'ogg_opus'
         audio_base64 = await self._request_volcengine_tts(
             text=plain_text,
             app_id=app_id,
@@ -1464,34 +1483,96 @@ class TaskAssistantService:
             return None
         return f'data:{self._tts_mime_type(encoding)};base64,{audio_base64}'
 
+    async def _resolve_voice_model_config(self, voice_config: dict[str, Any]) -> dict[str, Any]:
+        model_uuid = str(voice_config.get('model_uuid') or '')
+        if not model_uuid:
+            return voice_config
+
+        resolved = copy.deepcopy(voice_config)
+        model_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.LLMModel).where(persistence_model.LLMModel.uuid == model_uuid)
+        )
+        model = model_result.first()
+        if model is None:
+            return resolved
+
+        model_name = getattr(model, 'name', None)
+        if not resolved.get('model') and model_name:
+            resolved['model'] = model_name
+        extra_args = model.extra_args if isinstance(model.extra_args, dict) else {}
+        for key in (
+            'provider',
+            'app_id',
+            'token',
+            'cluster',
+            'voice_type',
+            'voice',
+            'encoding',
+            'language_type',
+            'base_url',
+            'instructions',
+            'optimize_instructions',
+        ):
+            if not resolved.get(key) and extra_args.get(key):
+                resolved[key] = extra_args[key]
+
+        provider_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == model.provider_uuid
+            )
+        )
+        provider = provider_result.first()
+        if provider is not None:
+            if not resolved.get('provider'):
+                resolved['provider'] = provider.requester or provider.name
+            base_url = getattr(provider, 'base_url', None)
+            if not resolved.get('base_url') and base_url:
+                resolved['base_url'] = base_url
+            if not resolved.get('token') and provider.api_keys:
+                resolved['token'] = provider.api_keys[0]
+
+        return resolved
+
+    def _is_dashscope_tts_config(self, voice_config: dict[str, Any]) -> bool:
+        provider = str(voice_config.get('provider') or '').lower()
+        base_url = str(voice_config.get('base_url') or '').lower()
+        model = str(voice_config.get('model') or '').lower()
+        return (
+            provider in {'dashscope', 'dashscope-tts', 'bailian-tts', 'qwen-tts'}
+            or 'multimodal-generation/generation' in base_url
+            or model.startswith('qwen3-tts')
+        )
+
     async def ensure_default_resources(self) -> None:
         await self._ensure_task_images()
         await self._ensure_course_sales_images()
-        await self._ensure_bailian_model()
         await self._remove_seeded_workflow_mode_pipelines()
         await self._ensure_template_pipeline()
-        await self._ensure_course_sales_product()
         await self._ensure_course_sales_template_pipeline()
+        await self._ensure_course_sales_product()
         await self._ensure_course_sales_outreach_for_chatted_users()
 
     async def _remove_seeded_workflow_mode_pipelines(self) -> None:
-        workflow_pipeline_uuids = [TASK_ASSISTANT_PIPELINE_UUID, COURSE_SALES_WORKFLOW_PIPELINE_UUID]
+        pipeline_uuids = [
+            TASK_ASSISTANT_PIPELINE_UUID,
+            COURSE_SALES_WORKFLOW_PIPELINE_UUID,
+        ]
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.delete(persistence_pipeline.LegacyPipeline).where(
-                persistence_pipeline.LegacyPipeline.uuid.in_(workflow_pipeline_uuids)
+                persistence_pipeline.LegacyPipeline.uuid.in_(pipeline_uuids)
             )
         )
         pipeline_mgr = getattr(self.ap, 'pipeline_mgr', None)
         remove_pipeline = getattr(pipeline_mgr, 'remove_pipeline', None)
         if not callable(remove_pipeline):
             return
-        for pipeline_uuid in workflow_pipeline_uuids:
+        for pipeline_uuid in pipeline_uuids:
             await remove_pipeline(pipeline_uuid)
 
     def build_pipeline_config(
         self,
         *,
-        bailian_model_uuid: str = TASK_ASSISTANT_MODEL_UUID,
+        model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
         existing_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         import json
@@ -1502,7 +1583,7 @@ class TaskAssistantService:
 
         config['ai']['runner']['runner'] = 'local-agent'
         config['ai']['runner']['expire-time'] = 0
-        config['ai']['local-agent']['model'] = {'primary': bailian_model_uuid, 'fallbacks': []}
+        config['ai']['local-agent']['model'] = {'primary': model_uuid, 'fallbacks': []}
         config['ai']['local-agent']['max-round'] = 8
         config['ai']['local-agent']['prompt'] = [
             {'role': 'system', 'content': self.compose_system_prompt()},
@@ -1512,18 +1593,20 @@ class TaskAssistantService:
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else {}
         existing_voice = existing_workflow.get('voice') if isinstance(existing_workflow, dict) else {}
         config['workflow'] = self.build_workflow_config(
+            model_uuid=model_uuid,
             voice_overrides=existing_voice if isinstance(existing_voice, dict) else None,
         )
+        self._preserve_existing_basic_config(config, existing_config)
         return config
 
     def build_template_pipeline_config(
         self,
         *,
-        bailian_model_uuid: str = TASK_ASSISTANT_MODEL_UUID,
+        model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
         existing_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         config = self.build_pipeline_config(
-            bailian_model_uuid=bailian_model_uuid,
+            model_uuid=model_uuid,
             existing_config=existing_config,
         )
         existing_template = existing_config.get('template_config') if isinstance(existing_config, dict) else {}
@@ -1537,10 +1620,47 @@ class TaskAssistantService:
             config['workflow'] = existing_workflow
         return config
 
+    def _preserve_existing_basic_config(
+        self,
+        config: dict[str, Any],
+        existing_config: dict[str, Any] | None,
+    ) -> None:
+        if not isinstance(existing_config, dict):
+            return
+        basic = existing_config.get('basic')
+        if isinstance(basic, dict):
+            config['basic'] = copy.deepcopy(basic)
+
+    def _existing_pipeline_display_values(
+        self,
+        existing_pipeline: Any,
+        *,
+        default_name: str,
+        default_description: str,
+        default_emoji: str,
+    ) -> dict[str, Any]:
+        return {
+            'name': getattr(existing_pipeline, 'name', None) or default_name,
+            'description': getattr(existing_pipeline, 'description', None) or default_description,
+            'emoji': getattr(existing_pipeline, 'emoji', None) or default_emoji,
+        }
+
+    def _existing_pipeline_extensions_preferences(self, existing_pipeline: Any) -> dict[str, Any]:
+        preferences = getattr(existing_pipeline, 'extensions_preferences', None)
+        if isinstance(preferences, dict):
+            return copy.deepcopy(preferences)
+        return {
+            'enable_all_plugins': True,
+            'enable_all_mcp_servers': True,
+            'plugins': [],
+            'mcp_servers': [],
+        }
+
     def build_template_config(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         voice = {
             'provider': 'volcengine',
             'enabled': True,
+            'model_uuid': '',
             'voice_type': TASK_ASSISTANT_TTS_VOICE_TYPE,
             'encoding': 'ogg_opus',
         }
@@ -1566,7 +1686,7 @@ class TaskAssistantService:
                 '我卡在这一步了怎么办？',
                 '下一步怎么做？',
             ],
-            'model_uuid': TASK_ASSISTANT_MODEL_UUID,
+            'model_uuid': DEFAULT_ASSISTANT_MODEL_UUID,
             'max_reasoning_steps': 2,
             'reference_rounds': 2,
             'knowledge_base_uuids': [],
@@ -1625,7 +1745,7 @@ class TaskAssistantService:
         metadata['source_mode'] = 'template'
         metadata['template_name'] = template_config.get('name') or '任务助手模板配置版'
 
-        model_uuid = str(template_config.get('model_uuid') or TASK_ASSISTANT_MODEL_UUID)
+        model_uuid = str(template_config.get('model_uuid') or DEFAULT_ASSISTANT_MODEL_UUID)
         for node in workflow.get('nodes', []):
             if not isinstance(node, dict):
                 continue
@@ -1676,10 +1796,15 @@ class TaskAssistantService:
             workflow.setdefault('variables', {})['interaction_radar'] = interaction_radar
         return workflow
 
-    def build_workflow_config(self, voice_overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    def build_workflow_config(
+        self,
+        model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
+        voice_overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         voice_config = {
             'provider': 'volcengine',
             'enabled': True,
+            'model_uuid': '',
             'app_id': os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_APP_ID', ''),
             'token': os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_TOKEN', ''),
             'cluster': 'volcano_tts',
@@ -1687,9 +1812,9 @@ class TaskAssistantService:
             'encoding': 'ogg_opus',
         }
         if voice_overrides:
-            for key in ('app_id', 'token'):
-                if voice_overrides.get(key):
-                    voice_config[key] = voice_overrides[key]
+            for key, value in voice_overrides.items():
+                if value is not None:
+                    voice_config[key] = value
 
         nodes = [
             {
@@ -1751,7 +1876,7 @@ class TaskAssistantService:
                 'description': '识别用户卡在哪个页面或步骤',
                 'position': {'x': 850, 'y': 430},
                 'config': {
-                    'model_uuid': TASK_ASSISTANT_MODEL_UUID,
+                    'model_uuid': model_uuid,
                     'target_steps': [step['id'] for step in ANT_AF_STEPS],
                 },
             },
@@ -1803,10 +1928,10 @@ class TaskAssistantService:
                 'id': 'reply',
                 'type': 'llm',
                 'title': '真人客服式回复',
-                'description': '用百炼生成自然、短句、可执行的下一步指引',
+                'description': '生成自然、短句、可执行的下一步指引',
                 'position': {'x': 3030, 'y': 260},
                 'config': {
-                    'model_uuid': TASK_ASSISTANT_MODEL_UUID,
+                    'model_uuid': model_uuid,
                     'tone': '真人客服、短句、具体',
                     'prompt': self.compose_system_prompt(),
                 },
@@ -1820,6 +1945,7 @@ class TaskAssistantService:
                 'config': {
                     'provider': 'volcengine',
                     'enabled': True,
+                    'model_uuid': '',
                     'voice_type': TASK_ASSISTANT_TTS_VOICE_TYPE,
                     'encoding': 'ogg_opus',
                 },
@@ -1925,7 +2051,6 @@ class TaskAssistantService:
             'metadata': {
                 'scenario': TASK_ASSISTANT_SCENARIO,
                 'source': '蚂蚁阿福.docx',
-                'model_provider': 'bailian',
                 'tts_provider': 'volcengine',
             },
             'nodes': nodes,
@@ -1936,7 +2061,7 @@ class TaskAssistantService:
     def build_course_sales_pipeline_config(
         self,
         *,
-        bailian_model_uuid: str = TASK_ASSISTANT_MODEL_UUID,
+        model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
         existing_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         import json
@@ -1947,7 +2072,7 @@ class TaskAssistantService:
 
         config['ai']['runner']['runner'] = 'local-agent'
         config['ai']['runner']['expire-time'] = 0
-        config['ai']['local-agent']['model'] = {'primary': bailian_model_uuid, 'fallbacks': []}
+        config['ai']['local-agent']['model'] = {'primary': model_uuid, 'fallbacks': []}
         config['ai']['local-agent']['max-round'] = 8
         config['ai']['local-agent']['prompt'] = [
             {'role': 'system', 'content': self.compose_course_sales_prompt()},
@@ -1957,18 +2082,20 @@ class TaskAssistantService:
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else {}
         existing_voice = existing_workflow.get('voice') if isinstance(existing_workflow, dict) else {}
         config['workflow'] = self.build_course_sales_workflow_config(
+            model_uuid=model_uuid,
             voice_overrides=existing_voice if isinstance(existing_voice, dict) else None,
         )
+        self._preserve_existing_basic_config(config, existing_config)
         return config
 
     def build_course_sales_template_pipeline_config(
         self,
         *,
-        bailian_model_uuid: str = TASK_ASSISTANT_MODEL_UUID,
+        model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
         existing_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         config = self.build_course_sales_pipeline_config(
-            bailian_model_uuid=bailian_model_uuid,
+            model_uuid=model_uuid,
             existing_config=existing_config,
         )
         existing_template = existing_config.get('template_config') if isinstance(existing_config, dict) else {}
@@ -2089,7 +2216,8 @@ class TaskAssistantService:
     def build_course_sales_template_config(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         voice = {
             'provider': 'volcengine',
-            'enabled': False,
+            'enabled': True,
+            'model_uuid': '',
             'voice_type': COURSE_SALES_TTS_VOICE_TYPE,
             'encoding': 'ogg_opus',
         }
@@ -2120,7 +2248,7 @@ class TaskAssistantService:
                 '我想报名，怎么操作？',
                 '我点了链接但卡住了怎么办？',
             ],
-            'model_uuid': TASK_ASSISTANT_MODEL_UUID,
+            'model_uuid': DEFAULT_ASSISTANT_MODEL_UUID,
             'max_reasoning_steps': 3,
             'reference_rounds': 4,
             'knowledge_base_uuids': [],
@@ -2130,7 +2258,7 @@ class TaskAssistantService:
                 'knowledge_base': True,
                 'product_database': True,
                 'image_recognition': True,
-                'voice_reply': False,
+                'voice_reply': True,
                 'radar': True,
                 'scheduled_push': True,
                 'handoff': True,
@@ -2171,10 +2299,9 @@ class TaskAssistantService:
             for key, value in overrides.items():
                 if key == 'voice' and isinstance(value, dict):
                     template_config['voice'] = {**voice, **value}
-                    template_config['voice']['enabled'] = False
                 elif key == 'tools' and isinstance(value, dict):
                     current_tools = template_config.get('tools') if isinstance(template_config.get('tools'), dict) else {}
-                    template_config['tools'] = {**current_tools, **value, 'voice_reply': False}
+                    template_config['tools'] = {**current_tools, **value}
                 elif key == 'scheduled_push' and isinstance(value, dict):
                     template_config['scheduled_push'] = {**scheduled_push, **value}
                 elif key == 'radar' and isinstance(value, dict):
@@ -2211,8 +2338,6 @@ class TaskAssistantService:
                 else:
                     template_config[key] = value
         self._normalize_course_template_media_keys(template_config)
-        template_config.setdefault('voice', {})['enabled'] = False
-        template_config.setdefault('tools', {})['voice_reply'] = False
         for sequence in template_config.get('followup_sequences', []):
             if not isinstance(sequence, dict):
                 continue
@@ -2236,6 +2361,7 @@ class TaskAssistantService:
 
     def build_course_sales_workflow_config(
         self,
+        model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
         voice_overrides: dict[str, Any] | None = None,
         template_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -2310,10 +2436,11 @@ class TaskAssistantService:
                 if isinstance(message, dict) and 'image_key' in message:
                     message['image_key'] = self._normalize_course_media_key(message.get('image_key'))
         opening_message = str(template_config.get('opening_message') or COURSE_OPENING_MESSAGE)
-        model_uuid = str(template_config.get('model_uuid') or TASK_ASSISTANT_MODEL_UUID)
+        model_uuid = str(template_config.get('model_uuid') or model_uuid)
         voice_config = {
             'provider': 'volcengine',
-            'enabled': False,
+            'enabled': True,
+            'model_uuid': '',
             'app_id': os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_APP_ID', ''),
             'token': os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_TOKEN', ''),
             'cluster': 'volcano_tts',
@@ -2324,7 +2451,6 @@ class TaskAssistantService:
             for key, value in voice_overrides.items():
                 if value is not None:
                     voice_config[key] = value
-        voice_config['enabled'] = False
 
         nodes = [
             {
@@ -2384,7 +2510,7 @@ class TaskAssistantService:
                 'id': 'voice_asr',
                 'type': 'asr',
                 'title': '语音输入处理',
-                'description': '用户发语音时只转成课程咨询上下文，课程销售不发送语音回复',
+                'description': '用户发语音时先理解课程咨询内容，语音回复开关开启时可用语音回复',
                 'position': {'x': 1160, 'y': 320},
                 'config': {'provider': 'bailian', 'fallback_text': '用户发来课程咨询语音，请用文字短句回复。'},
             },
@@ -2520,7 +2646,7 @@ class TaskAssistantService:
                 'id': 'end',
                 'type': 'end',
                 'title': '发送给用户',
-                'description': '发送文字、链接卡片和Excel素材图；课程销售不发送语音回复',
+                'description': '发送文字、链接卡片、Excel素材图；用户语音咨询时可按配置追加语音回复',
                 'position': {'x': 3540, 'y': 420},
                 'config': {},
             },
@@ -2604,7 +2730,6 @@ class TaskAssistantService:
                 'scenario': COURSE_SALES_SCENARIO,
                 'runtime_engine': 'langgraph',
                 'source': 'SOP.doc（群发截图转文字）+ 猿辅导自然拼读常见问题(1).xlsx',
-                'model_provider': 'bailian',
                 'tts_provider': 'volcengine',
                 'langgraph_state': {
                     'messages': 'list',
@@ -2661,45 +2786,6 @@ class TaskAssistantService:
                 continue
             await self.ap.storage_mgr.storage_provider.save(file_key, source_path.read_bytes())
 
-    async def _ensure_bailian_model(self) -> None:
-        api_key = os.getenv('LANGBOT_TASK_ASSISTANT_BAILIAN_API_KEY') or os.getenv('DASHSCOPE_API_KEY') or ''
-        provider_result = await self.ap.persistence_mgr.execute_async(
-            sqlalchemy.select(persistence_model.ModelProvider).where(
-                persistence_model.ModelProvider.uuid == TASK_ASSISTANT_PROVIDER_UUID
-            )
-        )
-        provider = provider_result.first()
-        provider_values = {
-            'uuid': TASK_ASSISTANT_PROVIDER_UUID,
-            'name': '任务助手-阿里云百炼',
-            'requester': 'bailian-chat-completions',
-            'base_url': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-            'api_keys': [api_key] if api_key else [],
-        }
-        if provider is None:
-            await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_model.ModelProvider).values(provider_values))
-        elif api_key:
-            await self.ap.persistence_mgr.execute_async(
-                sqlalchemy.update(persistence_model.ModelProvider)
-                .where(persistence_model.ModelProvider.uuid == TASK_ASSISTANT_PROVIDER_UUID)
-                .values(api_keys=[api_key])
-            )
-
-        model_result = await self.ap.persistence_mgr.execute_async(
-            sqlalchemy.select(persistence_model.LLMModel).where(persistence_model.LLMModel.uuid == TASK_ASSISTANT_MODEL_UUID)
-        )
-        if model_result.first() is None:
-            await self.ap.persistence_mgr.execute_async(
-                sqlalchemy.insert(persistence_model.LLMModel).values(
-                    uuid=TASK_ASSISTANT_MODEL_UUID,
-                    name=TASK_ASSISTANT_MODEL_NAME,
-                    provider_uuid=TASK_ASSISTANT_PROVIDER_UUID,
-                    abilities=['vision'],
-                    extra_args={},
-                    prefered_ranking=0,
-                )
-            )
-
     async def _ensure_pipeline(self) -> None:
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
@@ -2755,20 +2841,19 @@ class TaskAssistantService:
         existing_pipeline = result.first()
         if existing_pipeline is not None:
             existing_config = existing_pipeline.config if isinstance(existing_pipeline.config, dict) else {}
+            display_values = self._existing_pipeline_display_values(
+                existing_pipeline,
+                default_name='任务助手模板配置版',
+                default_description='用表单模板配置蚂蚁阿福实名认证引导，自动同步为可运行工作流。',
+                default_emoji='✅',
+            )
             await self.ap.persistence_mgr.execute_async(
                 sqlalchemy.update(persistence_pipeline.LegacyPipeline)
                 .where(persistence_pipeline.LegacyPipeline.uuid == TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID)
                 .values(
-                    name='任务助手模板配置版',
-                    description='用表单模板配置蚂蚁阿福实名认证引导，自动同步为可运行工作流。',
-                    emoji='✅',
+                    **display_values,
                     config=self.build_template_pipeline_config(existing_config=existing_config),
-                    extensions_preferences={
-                        'enable_all_plugins': True,
-                        'enable_all_mcp_servers': True,
-                        'plugins': [],
-                        'mcp_servers': [],
-                    },
+                    extensions_preferences=self._existing_pipeline_extensions_preferences(existing_pipeline),
                 )
             )
             return
@@ -2819,14 +2904,14 @@ class TaskAssistantService:
                 persistence_sales.SalesProduct.uuid == COURSE_SALES_PRODUCT_UUID
             )
         )
-        if result.first() is None:
-            await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_sales.SalesProduct).values(product))
+        if result.first() is not None:
             return
-        await self.ap.persistence_mgr.execute_async(
-            sqlalchemy.update(persistence_sales.SalesProduct)
-            .where(persistence_sales.SalesProduct.uuid == COURSE_SALES_PRODUCT_UUID)
-            .values(**product)
+        existing_product_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesProduct).limit(1)
         )
+        if existing_product_result.first() is not None:
+            return
+        await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_sales.SalesProduct).values(product))
 
     async def _ensure_course_sales_workflow_pipeline(self) -> None:
         result = await self.ap.persistence_mgr.execute_async(
@@ -2883,20 +2968,19 @@ class TaskAssistantService:
         existing_pipeline = result.first()
         if existing_pipeline is not None:
             existing_config = existing_pipeline.config if isinstance(existing_pipeline.config, dict) else {}
+            display_values = self._existing_pipeline_display_values(
+                existing_pipeline,
+                default_name='课程销售模板',
+                default_description='用傻瓜式模板配置课程客服与销售，能力与工作流版一致。',
+                default_emoji='📘',
+            )
             await self.ap.persistence_mgr.execute_async(
                 sqlalchemy.update(persistence_pipeline.LegacyPipeline)
                 .where(persistence_pipeline.LegacyPipeline.uuid == COURSE_SALES_TEMPLATE_PIPELINE_UUID)
                 .values(
-                    name='课程销售模板',
-                    description='用傻瓜式模板配置课程客服与销售，能力与工作流版一致。',
-                    emoji='📘',
+                    **display_values,
                     config=self.build_course_sales_template_pipeline_config(existing_config=existing_config),
-                    extensions_preferences={
-                        'enable_all_plugins': True,
-                        'enable_all_mcp_servers': True,
-                        'plugins': [],
-                        'mcp_servers': [],
-                    },
+                    extensions_preferences=self._existing_pipeline_extensions_preferences(existing_pipeline),
                 )
             )
             return
@@ -2981,6 +3065,72 @@ class TaskAssistantService:
                 data.get('message'),
             )
         return None
+
+    async def _request_dashscope_tts(
+        self,
+        *,
+        text: str,
+        token: str,
+        model: str,
+        voice: str,
+        language_type: str,
+        base_url: str,
+        instructions: str | None = None,
+        optimize_instructions: bool | None = None,
+    ) -> str | None:
+        input_payload: dict[str, Any] = {
+            'text': text,
+            'voice': voice,
+            'language_type': language_type,
+        }
+        if instructions:
+            input_payload['instructions'] = instructions
+        if optimize_instructions is not None:
+            input_payload['optimize_instructions'] = bool(optimize_instructions)
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                base_url,
+                json={'model': model, 'input': input_payload},
+                headers={
+                    'Authorization': f'Bearer {token}',
+                    'Content-Type': 'application/json',
+                },
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as response:
+                data = await response.json(content_type=None)
+
+            if response.status != 200 or data.get('status_code') not in (None, 200):
+                self.ap.logger.warning(
+                    'DashScope TTS request failed: status=%s code=%s message=%s',
+                    response.status,
+                    data.get('code'),
+                    data.get('message'),
+                )
+                return None
+
+            audio = data.get('output', {}).get('audio', {})
+            audio_base64 = audio.get('data')
+            if audio_base64:
+                return audio_base64
+
+            audio_url = audio.get('url')
+            if not audio_url:
+                self.ap.logger.warning('DashScope TTS response did not include audio data or url')
+                return None
+
+            async with session.get(
+                audio_url,
+                timeout=aiohttp.ClientTimeout(total=60),
+            ) as audio_response:
+                if audio_response.status != 200:
+                    self.ap.logger.warning(
+                        'DashScope TTS audio download failed: status=%s',
+                        audio_response.status,
+                    )
+                    return None
+                audio_bytes = await audio_response.read()
+        return base64.b64encode(audio_bytes).decode('utf-8')
 
     async def _request_volcengine_tts_ws(
         self,

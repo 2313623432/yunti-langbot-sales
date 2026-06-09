@@ -6,6 +6,7 @@ import {
   ArrowUpDown,
   Eye,
   Wrench,
+  Volume2,
   Check,
   RefreshCw,
 } from 'lucide-react';
@@ -325,7 +326,7 @@ export default function AddModelPopover({
                   {tab === 'llm' && (
                     <div className="space-y-2">
                       <Label>{t('models.abilities')}</Label>
-                      <div className="flex gap-4">
+                      <div className="flex flex-wrap gap-4">
                         <div className="flex items-center gap-2">
                           <Checkbox
                             id="add-vision"
@@ -350,6 +351,19 @@ export default function AddModelPopover({
                           <Label htmlFor="add-func-call" className="text-sm">
                             <Wrench className="h-3 w-3 inline mr-1" />
                             {t('models.functionCallAbility')}
+                          </Label>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="add-tts"
+                            checked={abilities.includes('tts')}
+                            onCheckedChange={(checked) =>
+                              toggleAbility('tts', checked as boolean)
+                            }
+                          />
+                          <Label htmlFor="add-tts" className="text-sm">
+                            <Volume2 className="h-3 w-3 inline mr-1" />
+                            {t('models.ttsAbility')}
                           </Label>
                         </div>
                       </div>
@@ -483,7 +497,7 @@ export default function AddModelPopover({
                                 {model.type === 'llm' &&
                                   isSelected &&
                                   !model.already_added && (
-                                    <div className="flex gap-4 pl-7">
+                                    <div className="flex flex-wrap gap-4 pl-7">
                                       <div className="flex items-center gap-2">
                                         <Checkbox
                                           id={`scan-vision-${model.id}`}
@@ -526,6 +540,28 @@ export default function AddModelPopover({
                                         >
                                           <Wrench className="h-3 w-3 inline mr-1" />
                                           {t('models.functionCallAbility')}
+                                        </Label>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Checkbox
+                                          id={`scan-tts-${model.id}`}
+                                          checked={selectedAbilities.includes(
+                                            'tts',
+                                          )}
+                                          onCheckedChange={(checked) =>
+                                            toggleScannedModelAbility(
+                                              model.id,
+                                              'tts',
+                                              checked as boolean,
+                                            )
+                                          }
+                                        />
+                                        <Label
+                                          htmlFor={`scan-tts-${model.id}`}
+                                          className="text-sm"
+                                        >
+                                          <Volume2 className="h-3 w-3 inline mr-1" />
+                                          {t('models.ttsAbility')}
                                         </Label>
                                       </div>
                                     </div>

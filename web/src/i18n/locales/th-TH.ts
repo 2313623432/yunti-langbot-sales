@@ -192,6 +192,7 @@ const thTH = {
     selectModelAbilities: 'เลือกความสามารถของโมเดล',
     visionAbility: 'ความสามารถด้านภาพ',
     functionCallAbility: 'การเรียกฟังก์ชัน',
+    ttsAbility: 'แปลงข้อความเป็นเสียง',
     extraParameters: 'พารามิเตอร์เพิ่มเติม',
     addParameter: 'เพิ่มพารามิเตอร์',
     keyName: 'ชื่อคีย์',
