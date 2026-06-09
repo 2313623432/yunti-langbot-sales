@@ -351,6 +351,13 @@ export default function PipelineWorkflowEditor({
     offsetX: number;
     offsetY: number;
   } | null>(null);
+  const canvasPanRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  } | null>(null);
   const canvasScrollRef = useRef<HTMLDivElement>(null);
   const addNodeMenuRef = useRef<HTMLDivElement>(null);
 
@@ -579,6 +586,7 @@ export default function PipelineWorkflowEditor({
     node: PipelineWorkflowNode,
   ) {
     if ((event.target as HTMLElement).closest('[data-node-action]')) return;
+    event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
       id: node.id,
@@ -604,6 +612,47 @@ export default function PipelineWorkflowEditor({
       event.currentTarget.releasePointerCapture(event.pointerId);
       dragRef.current = null;
     }
+  }
+
+  function handleCanvasPointerDown(
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (
+      target.closest('[data-workflow-node-id]') ||
+      target.closest('[data-node-action]') ||
+      target.closest('[data-node-add-menu]')
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    canvasPanRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: event.currentTarget.scrollLeft,
+      scrollTop: event.currentTarget.scrollTop,
+    };
+  }
+
+  function handleCanvasPointerMove(
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) {
+    const pan = canvasPanRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+    event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
+    event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+  }
+
+  function handleCanvasPointerUp(
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) {
+    const pan = canvasPanRef.current;
+    if (!pan || pan.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    canvasPanRef.current = null;
   }
 
   function clientPointToCanvasPoint(
@@ -668,7 +717,8 @@ export default function PipelineWorkflowEditor({
   function imageAssetUrl(fileKey: string) {
     const baseUrl = httpClient.getBaseUrl();
     const prefix = baseUrl === '/' ? '' : baseUrl.replace(/\/$/, '');
-    return `${prefix}/api/v1/files/image/${encodeURIComponent(fileKey)}`;
+    const encodedKey = fileKey.split('/').map(encodeURIComponent).join('/');
+    return `${prefix}/api/v1/files/image/${encodedKey}`;
   }
 
   function nodeOutputPoint(nodeId: string) {
@@ -830,7 +880,12 @@ export default function PipelineWorkflowEditor({
 
         <div
           ref={canvasScrollRef}
-          className="relative min-h-0 flex-1 overflow-auto bg-[#f8faf7]"
+          data-workflow-canvas
+          onPointerDown={handleCanvasPointerDown}
+          onPointerMove={handleCanvasPointerMove}
+          onPointerUp={handleCanvasPointerUp}
+          onPointerCancel={handleCanvasPointerUp}
+          className="relative min-h-0 flex-1 cursor-grab overflow-auto bg-[#f8faf7] active:cursor-grabbing"
         >
           <div
             className="relative min-h-[760px] min-w-[2360px]"

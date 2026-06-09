@@ -4,10 +4,34 @@ import quart
 import mimetypes
 import uuid
 import asyncio
+from pathlib import Path
 
 import quart.datastructures
 
+from .....utils import paths as path_utils
 from .. import group
+
+
+BUILTIN_IMAGE_ROOTS = {
+    'course-sales/phonics/': 'templates/course-sales/phonics/images',
+    'task-assistant/ant-af/': 'templates/task-assistant/ant-af/images',
+}
+
+
+def _builtin_image_path(image_key: str) -> Path | None:
+    if '..' in image_key or '\\' in image_key or image_key.startswith('/'):
+        return None
+
+    for key_prefix, resource_dir in BUILTIN_IMAGE_ROOTS.items():
+        if not image_key.startswith(key_prefix):
+            continue
+        file_name = Path(image_key).name
+        if not file_name:
+            return None
+        source_path = Path(path_utils.get_resource_path(resource_dir)) / file_name
+        if source_path.is_file():
+            return source_path
+    return None
 
 
 @group.group_class('files', '/api/v1/files')
@@ -18,10 +42,18 @@ class FilesRouterGroup(group.RouterGroup):
             if '..' in image_key or '\\' in image_key:
                 return quart.Response(status=404)
 
-            if not await self.ap.storage_mgr.storage_provider.exists(image_key):
+            image_bytes: bytes
+            if await self.ap.storage_mgr.storage_provider.exists(image_key):
+                image_bytes = await self.ap.storage_mgr.storage_provider.load(image_key)
+            else:
+                source_path = _builtin_image_path(image_key)
+                if source_path is None:
+                    return quart.Response(status=404)
+                image_bytes = await asyncio.to_thread(source_path.read_bytes)
+
+            if not image_bytes:
                 return quart.Response(status=404)
 
-            image_bytes = await self.ap.storage_mgr.storage_provider.load(image_key)
             mime_type = mimetypes.guess_type(image_key)[0]
             if mime_type is None:
                 mime_type = 'image/jpeg'

@@ -129,6 +129,7 @@ export interface PipelineTemplateConfig {
   model_uuid: string;
   max_reasoning_steps: number;
   reference_rounds: number;
+  response_diversity: number;
   knowledge_base_uuids: string[];
   product_uuids: string[];
   tools: Record<string, boolean>;

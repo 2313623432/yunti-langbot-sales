@@ -6,7 +6,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Input } from '@/components/ui/input';
-import EmojiPicker from '@/components/ui/emoji-picker';
 import {
   Form,
   FormControl,
@@ -34,8 +33,6 @@ import {
 } from '@/components/ui/card';
 import {
   Info,
-  Trash2,
-  Copy,
   Workflow,
   PanelLeftClose,
   PanelLeftOpen,
@@ -50,6 +47,8 @@ import {
   PipelineTemplateConfig,
   PipelineWorkflow,
 } from '@/app/home/pipelines/components/workflow-editor/types';
+import AgentAvatarPicker from '@/app/home/pipelines/components/agent-avatar/AgentAvatarPicker';
+import { DEFAULT_AGENT_AVATAR } from '@/app/home/pipelines/components/agent-avatar/agentAvatar';
 
 function selectedWorkflowModelUuid(workflow?: PipelineWorkflow): string {
   const llmNode = workflow?.nodes?.find(
@@ -185,6 +184,7 @@ export default function PipelineFormComponent({
           name: z.string().min(1, { message: t('pipelines.nameRequired') }),
           description: z.string().optional(),
           emoji: z.string().optional(),
+          avatar: z.string().optional(),
         }),
         ai: z.record(z.string(), z.any()),
         trigger: z.record(z.string(), z.any()),
@@ -199,6 +199,7 @@ export default function PipelineFormComponent({
           name: z.string().min(1, { message: t('pipelines.nameRequired') }),
           description: z.string().optional(),
           emoji: z.string().optional(),
+          avatar: z.string().optional(),
         }),
         ai: z.record(z.string(), z.any()).optional(),
         trigger: z.record(z.string(), z.any()).optional(),
@@ -219,12 +220,7 @@ export default function PipelineFormComponent({
   const formLabelList: SectionItem[] = isEditMode
     ? [
         {
-          label: t('pipelines.basicInfo'),
-          name: 'basic',
-          icon: SECTION_ICONS.basic,
-        },
-        {
-          label: '数字员工配置',
+          label: 'Agent配置',
           name: 'workflow',
           icon: SECTION_ICONS.workflow,
         },
@@ -245,13 +241,16 @@ export default function PipelineFormComponent({
     resolver: zodResolver(formSchema),
     defaultValues: {
       basic: {
+        name: '',
+        description: '',
         emoji: '⚙️',
+        avatar: DEFAULT_AGENT_AVATAR,
       },
       ai: {},
       trigger: {},
       safety: {},
       output: {},
-      config_mode: 'workflow',
+      config_mode: 'template',
       template_config: createTaskAssistantTemplateConfig(),
       workflow: createDefaultWorkflow(),
     },
@@ -271,42 +270,54 @@ export default function PipelineFormComponent({
   }, [hasUnsavedChanges, onDirtyChange]);
 
   useEffect(() => {
-    if (isEditMode) {
-      httpClient
-        .getPipeline(pipelineId || '')
-        .then((resp: GetPipelineResponseData) => {
-          setIsDefaultPipeline(resp.pipeline.is_default ?? false);
-          const pipelineConfig = resp.pipeline.config as Record<string, any>;
-          const aiConfig = pipelineConfig.ai || {};
-          const configMode: 'template' | 'workflow' =
-            pipelineConfig.config_mode === 'template' ? 'template' : 'workflow';
-          const templateConfig =
-            (pipelineConfig.template_config as PipelineTemplateConfig | undefined) ||
-            createTaskAssistantTemplateConfig();
-          const workflowConfig = syncAIModelIntoWorkflow(
-            (pipelineConfig.workflow as PipelineWorkflow | undefined) ||
-              createDefaultWorkflow(),
-            aiConfig,
-          );
-          const loadedValues = {
-            basic: {
-              name: resp.pipeline.name,
-              description: resp.pipeline.description,
-              emoji: resp.pipeline.emoji || '⚙️',
-            },
-            ai: aiConfig,
-            trigger: pipelineConfig.trigger || {},
-            safety: pipelineConfig.safety || {},
-            output: pipelineConfig.output || {},
-            config_mode: configMode,
-            template_config: templateConfig,
-            workflow: workflowConfig,
-          };
-          form.reset(loadedValues);
-          savedSnapshotRef.current = JSON.stringify(loadedValues);
-        });
+    if (!isEditMode || !pipelineId) {
+      return;
     }
-  }, []);
+
+    let cancelled = false;
+    httpClient
+      .getPipeline(pipelineId || '')
+      .then((resp: GetPipelineResponseData) => {
+        if (cancelled) {
+          return;
+        }
+
+        setIsDefaultPipeline(resp.pipeline.is_default ?? false);
+        const pipelineConfig = resp.pipeline.config as Record<string, any>;
+        const basicConfig = pipelineConfig.basic || {};
+        const aiConfig = pipelineConfig.ai || {};
+        const configMode: 'template' | 'workflow' = 'template';
+        const templateConfig =
+          (pipelineConfig.template_config as PipelineTemplateConfig | undefined) ||
+          createTaskAssistantTemplateConfig();
+        const workflowConfig = syncAIModelIntoWorkflow(
+          (pipelineConfig.workflow as PipelineWorkflow | undefined) ||
+            createDefaultWorkflow(),
+          aiConfig,
+        );
+        const loadedValues = {
+          basic: {
+            name: resp.pipeline.name,
+            description: resp.pipeline.description,
+            emoji: resp.pipeline.emoji || '⚙️',
+            avatar: basicConfig.avatar || DEFAULT_AGENT_AVATAR,
+          },
+          ai: aiConfig,
+          trigger: pipelineConfig.trigger || {},
+          safety: pipelineConfig.safety || {},
+          output: pipelineConfig.output || {},
+          config_mode: configMode,
+          template_config: templateConfig,
+          workflow: workflowConfig,
+        };
+        form.reset(loadedValues);
+        savedSnapshotRef.current = JSON.stringify(loadedValues);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form, isEditMode, pipelineId]);
 
   useEffect(() => {
     if (!isEditMode) {
@@ -315,8 +326,9 @@ export default function PipelineFormComponent({
           name: '',
           description: '',
           emoji: '⚙️',
+          avatar: DEFAULT_AGENT_AVATAR,
         },
-        config_mode: 'workflow',
+        config_mode: 'template',
         template_config: createTaskAssistantTemplateConfig(),
         workflow: createDefaultWorkflow(),
       });
@@ -333,7 +345,11 @@ export default function PipelineFormComponent({
 
   function handleCreate(values: FormValues) {
     const pipeline: Pipeline = {
-      config: {},
+      config: {
+        basic: {
+          avatar: values.basic.avatar || DEFAULT_AGENT_AVATAR,
+        },
+      },
       description: values.basic.description ?? '',
       name: values.basic.name,
       emoji: values.basic.emoji,
@@ -358,6 +374,9 @@ export default function PipelineFormComponent({
     const baseWorkflow = (values.workflow as PipelineWorkflow | undefined) || createDefaultWorkflow();
     const workflow = baseWorkflow;
     const realConfig = {
+      basic: {
+        avatar: values.basic.avatar || DEFAULT_AGENT_AVATAR,
+      },
       ai:
         configMode === 'template'
           ? syncTemplateModelIntoAIConfig(templateConfig, values.ai)
@@ -590,45 +609,44 @@ export default function PipelineFormComponent({
                       <CardHeader>
                         <CardTitle>{t('pipelines.basicInfo')}</CardTitle>
                         <CardDescription>
-                          {t('pipelines.basicInfoDescription')}
+                          设置数字员工名称、头像和描述
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        {/* Name and Emoji in same row */}
-                        <div className="flex gap-4 items-start">
-                          <FormField
-                            control={form.control}
-                            name="basic.name"
-                            render={({ field }) => (
-                              <FormItem className="flex-1">
-                                <FormLabel>
-                                  {t('common.name')}
-                                  <span className="text-destructive">*</span>
-                                </FormLabel>
-                                <FormControl>
-                                  <Input {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name="basic.emoji"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>{t('common.icon')}</FormLabel>
-                                <FormControl>
-                                  <EmojiPicker
-                                    value={field.value}
-                                    onChange={field.onChange}
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
+                        <FormField
+                          control={form.control}
+                          name="basic.avatar"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Agent头像</FormLabel>
+                              <FormControl>
+                                <AgentAvatarPicker
+                                  value={field.value}
+                                  onChange={field.onChange}
+                                  uploadInputId="create-agent-avatar-upload"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="basic.name"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {t('common.name')}
+                                <span className="text-destructive">*</span>
+                              </FormLabel>
+                              <FormControl>
+                                <Input {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
 
                         <FormField
                           control={form.control}
@@ -644,68 +662,8 @@ export default function PipelineFormComponent({
                           )}
                         />
 
-                        {/* Copy pipeline (edit mode only) */}
-                        {isEditMode && (
-                          <div className="flex items-center justify-between rounded-lg border p-4">
-                            <div className="space-y-0.5">
-                              <p className="text-sm font-medium">
-                                {t('pipelines.copyPipelineAction')}
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                {t('pipelines.copyPipelineHint')}
-                              </p>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={handleCopy}
-                            >
-                              <Copy className="size-4 mr-1.5" />
-                              {t('common.copy')}
-                            </Button>
-                          </div>
-                        )}
                       </CardContent>
                     </Card>
-
-                    {/* Danger Zone (edit mode only) */}
-                    {isEditMode && (
-                      <Card className="border-destructive/50">
-                        <CardHeader>
-                          <CardTitle className="text-destructive">
-                            {t('pipelines.dangerZone')}
-                          </CardTitle>
-                          <CardDescription>
-                            {t('pipelines.dangerZoneDescription')}
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="flex items-center justify-between">
-                            <div className="space-y-1">
-                              <p className="text-sm font-medium">
-                                {t('pipelines.deletePipelineAction')}
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                {isDefaultPipeline
-                                  ? t('pipelines.defaultPipelineCannotDelete')
-                                  : t('pipelines.deletePipelineHint')}
-                              </p>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              disabled={isDefaultPipeline}
-                              onClick={handleDelete}
-                            >
-                              <Trash2 className="size-4 mr-1.5" />
-                              {t('common.delete')}
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
                   </div>
                 )}
 
@@ -714,7 +672,7 @@ export default function PipelineFormComponent({
                     <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-1 pb-4">
                       <div className="flex items-center gap-2">
                         <h2 className="text-base font-semibold text-slate-950">
-                          数字员工配置方式
+                          Agent配置方式
                         </h2>
                         <Info className="size-4 text-slate-400" />
                       </div>
@@ -748,6 +706,24 @@ export default function PipelineFormComponent({
                     {selectedConfigMode === 'template' ? (
                       <PipelineTemplateConfigEditor
                         value={form.watch('template_config') as PipelineTemplateConfig}
+                        pipelineName={form.watch('basic.name')}
+                        pipelineDescription={form.watch('basic.description')}
+                        pipelineAvatar={form.watch('basic.avatar')}
+                        onPipelineNameChange={(name) =>
+                          form.setValue('basic.name', name, {
+                            shouldDirty: true,
+                          })
+                        }
+                        onPipelineDescriptionChange={(description) =>
+                          form.setValue('basic.description', description, {
+                            shouldDirty: true,
+                          })
+                        }
+                        onPipelineAvatarChange={(avatar) =>
+                          form.setValue('basic.avatar', avatar, {
+                            shouldDirty: true,
+                          })
+                        }
                         onChange={handleTemplateConfigChange}
                       />
                     ) : (
@@ -771,31 +747,10 @@ export default function PipelineFormComponent({
                 </div>
               )}
 
-              {isEditMode && !isDefaultPipeline && (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  onClick={handleDelete}
-                >
-                  {t('common.delete')}
-                </Button>
-              )}
-
               {isEditMode && isDefaultPipeline && (
                 <div className="text-muted-foreground text-sm h-full flex items-center mr-2">
                   {t('pipelines.defaultPipelineCannotDelete')}
                 </div>
-              )}
-
-              {isEditMode && (
-                <Button
-                  type="button"
-                  variant="default"
-                  onClick={handleCopy}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  {t('common.copy')}
-                </Button>
               )}
 
               <Button type="submit" form="pipeline-form">

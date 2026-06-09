@@ -9,6 +9,16 @@ from ....entity.persistence import pipeline as persistence_pipeline
 from .pipeline_defaults import default_stage_order
 
 
+def _merge_dict(base: dict, override: dict) -> dict:
+    merged = base.copy()
+    for key, value in override.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 class PipelineService:
     ap: app.Application
 
@@ -74,9 +84,15 @@ class PipelineService:
         pipeline_data['stages'] = default_stage_order.copy()
         pipeline_data['is_default'] = default
 
+        requested_config = pipeline_data.get('config')
         template_path = path_utils.get_resource_path('templates/default-pipeline-config.json')
         with open(template_path, 'r', encoding='utf-8') as f:
-            pipeline_data['config'] = json.load(f)
+            default_config = json.load(f)
+        pipeline_data['config'] = (
+            _merge_dict(default_config, requested_config)
+            if isinstance(requested_config, dict)
+            else default_config
+        )
 
         # Ensure extensions_preferences is set with enable_all_plugins and enable_all_mcp_servers=True by default
         if 'extensions_preferences' not in pipeline_data:

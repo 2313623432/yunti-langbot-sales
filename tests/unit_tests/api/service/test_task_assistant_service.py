@@ -1,7 +1,11 @@
+import sys
+import types
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
+sys.modules.setdefault('dashscope', types.ModuleType('dashscope'))
 
 from langbot.pkg.api.http.service.task_assistant import (
     COURSE_RESOURCE_CARD_LINK,
@@ -12,6 +16,7 @@ from langbot.pkg.api.http.service.task_assistant import (
     COURSE_SALES_TTS_VOICE_TYPE,
     COURSE_SALES_WORKFLOW_PIPELINE_UUID,
     TASK_ASSISTANT_MODEL_UUID,
+    TASK_ASSISTANT_PIPELINE_UUID,
     TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
     TASK_ASSISTANT_TTS_VOICE_TYPE,
     TaskAssistantService,
@@ -141,6 +146,49 @@ def test_classify_next_step_uses_previous_assistant_step_as_progress_context():
     assert intent['reply_mode'] == 'single_step'
     assert intent['step_ids'] == ['app_store_download']
     assert intent['max_steps_to_describe'] == 1
+
+
+@pytest.mark.asyncio
+async def test_ensure_default_resources_removes_seeded_workflow_mode_pipelines():
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock()),
+        pipeline_mgr=SimpleNamespace(remove_pipeline=AsyncMock()),
+        sales_service=None,
+    )
+    service = TaskAssistantService(ap)
+    service._ensure_task_images = AsyncMock()
+    service._ensure_course_sales_images = AsyncMock()
+    service._ensure_bailian_model = AsyncMock()
+    service._ensure_pipeline = AsyncMock()
+    service._ensure_template_pipeline = AsyncMock()
+    service._ensure_course_sales_product = AsyncMock()
+    service._ensure_course_sales_workflow_pipeline = AsyncMock()
+    service._ensure_course_sales_template_pipeline = AsyncMock()
+    service._ensure_course_sales_outreach_for_chatted_users = AsyncMock()
+
+    await service.ensure_default_resources()
+
+    service._ensure_pipeline.assert_not_called()
+    service._ensure_course_sales_workflow_pipeline.assert_not_called()
+    service._ensure_template_pipeline.assert_awaited_once()
+    service._ensure_course_sales_template_pipeline.assert_awaited_once()
+    removed_pipeline_uuids = [call.args[0] for call in ap.pipeline_mgr.remove_pipeline.await_args_list]
+    assert removed_pipeline_uuids == [TASK_ASSISTANT_PIPELINE_UUID, COURSE_SALES_WORKFLOW_PIPELINE_UUID]
+    delete_statement = ap.persistence_mgr.execute_async.await_args_list[0].args[0]
+    assert TASK_ASSISTANT_PIPELINE_UUID in str(delete_statement.compile(compile_kwargs={'literal_binds': True}))
+    assert COURSE_SALES_WORKFLOW_PIPELINE_UUID in str(delete_statement.compile(compile_kwargs={'literal_binds': True}))
+
+
+@pytest.mark.asyncio
+async def test_course_sales_outreach_backfill_queries_template_pipeline_only():
+    sales_service = SimpleNamespace(get_chatted_outreach_targets=AsyncMock(return_value=[]))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+
+    await service._ensure_course_sales_outreach_for_chatted_users()
+
+    sales_service.get_chatted_outreach_targets.assert_awaited_once_with(
+        pipeline_uuids=[COURSE_SALES_TEMPLATE_PIPELINE_UUID]
+    )
 
 
 def test_task_assistant_pipeline_config_uses_bailian_local_agent_model():
@@ -324,7 +372,7 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert 'https://d.codeup.cn/d/UVruQn' in template['opening_message']
     assert len(template['image_text_bindings']) >= 2
     image_file_keys = {binding['file_key'] for binding in template['image_text_bindings']}
-    assert 'course-sales/phonics/phonics_poster.jpeg' in image_file_keys
+    assert 'course-sales/phonics/gift_poster.jpeg' in image_file_keys
     assert 'course-sales/phonics/gift_qr.jpeg' in image_file_keys
     assert all('day1_' not in file_key and 'day2_' not in file_key and 'day3_' not in file_key for file_key in image_file_keys)
     broadcast_messages = '\n'.join(broadcast['message'] for broadcast in template['long_term_broadcasts'])
@@ -355,7 +403,7 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
         for message in followups_by_stage['purchase']['messages']
     )
     assert any(
-        message.get('image_key') == 'course-sales/phonics/phonics_poster.jpeg'
+        message.get('image_key') == 'course-sales/phonics/gift_poster.jpeg'
         for message in followups_by_stage['not_buy']['messages']
     )
     assert any(
@@ -432,7 +480,7 @@ def test_course_sales_template_config_migrates_legacy_default_assets_and_links()
     assert links_by_id['phonics_resource_card']['url'] == COURSE_RESOURCE_CARD_LINK
     assert links_by_id['phonics_radar_apply']['url'] == COURSE_SALES_RADAR_LINK
     assert {binding['file_key'] for binding in template['image_text_bindings']} == {
-        'course-sales/phonics/phonics_poster.jpeg',
+        'course-sales/phonics/gift_poster.jpeg',
         'course-sales/phonics/gift_qr.jpeg',
     }
     assert '9元共10节名师直播课' in template['long_term_broadcasts'][0]['message']
@@ -453,7 +501,7 @@ def test_course_sales_template_config_migrates_legacy_default_assets_and_links()
         for message in migrated_followups['purchase']['messages']
     )
     assert any(
-        message.get('image_key') == 'course-sales/phonics/phonics_poster.jpeg'
+        message.get('image_key') == 'course-sales/phonics/gift_poster.jpeg'
         for message in migrated_followups['not_buy']['messages']
     )
 

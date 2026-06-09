@@ -272,6 +272,44 @@ class TestPipelineServiceCreatePipeline:
         assert bot_uuid is not None
         assert len(bot_uuid) == 36  # UUID format
 
+    async def test_create_pipeline_merges_requested_config_with_default_config(self):
+        """Preserves default pipeline config while applying requested config fields."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        ap.instance_config = SimpleNamespace()
+        ap.instance_config.data = {'system': {'limitation': {'max_pipelines': -1}}}
+        ap.pipeline_mgr = SimpleNamespace()
+        ap.pipeline_mgr.load_pipeline = AsyncMock()
+        ap.ver_mgr = SimpleNamespace()
+        ap.ver_mgr.get_current_version = Mock(return_value='1.0.0')
+
+        service = PipelineService(ap)
+        service.get_pipelines = AsyncMock(return_value=[])
+        service.get_pipeline = AsyncMock(return_value={'uuid': 'new-uuid', 'name': 'New Pipeline'})
+
+        insert_params = []
+
+        async def mock_execute(query):
+            params = query.compile().params
+            if 'config' in params:
+                insert_params.append(params)
+            return Mock()
+
+        ap.persistence_mgr.execute_async = AsyncMock(side_effect=mock_execute)
+        ap.persistence_mgr.serialize_model = Mock(return_value={'uuid': 'new-uuid', 'name': 'New Pipeline'})
+
+        default_config = {'trigger': {'mode': 'always'}, 'basic': {'avatar': 'default-avatar'}}
+        requested_config = {'basic': {'avatar': '/agent-avatars/sales-agent-blue.png'}}
+        with patch('builtins.open', mock_open(read_data=json.dumps(default_config))):
+            with patch('langbot.pkg.utils.paths.get_resource_path', return_value='templates/default-pipeline-config.json'):
+                await service.create_pipeline({'name': 'New Pipeline', 'config': requested_config})
+
+        assert len(insert_params) == 1
+        assert insert_params[0]['config'] == {
+            'trigger': {'mode': 'always'},
+            'basic': {'avatar': '/agent-avatars/sales-agent-blue.png'},
+        }
+
     async def test_create_pipeline_as_default(self):
         """Creates pipeline with is_default=True."""
         # Setup

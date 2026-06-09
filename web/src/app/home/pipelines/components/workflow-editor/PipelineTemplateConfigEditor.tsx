@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   Bot,
   Brain,
@@ -12,11 +12,11 @@ import {
   Mic2,
   MousePointerClick,
   Plus,
-  Radio,
   RadioTower,
   SendHorizontal,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Upload,
   UserRound,
   Wrench,
@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { httpClient } from '@/app/infra/http/HttpClient';
 import { useSidebarData } from '@/app/home/components/home-sidebar/SidebarDataContext';
-import { SalesProduct } from '@/app/infra/entities/api';
+import { LLMModel, SalesProduct } from '@/app/infra/entities/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +39,8 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import AgentAvatarPicker from '@/app/home/pipelines/components/agent-avatar/AgentAvatarPicker';
+import { agentAvatarUrl } from '@/app/home/pipelines/components/agent-avatar/agentAvatar';
 import {
   PipelineTemplateConfig,
   PipelineTemplateImageTextBinding,
@@ -48,6 +50,12 @@ import { createTaskAssistantTemplateConfig } from './workflowTemplates';
 interface PipelineTemplateConfigEditorProps {
   value?: PipelineTemplateConfig;
   onChange: (value: PipelineTemplateConfig) => void;
+  pipelineName?: string;
+  pipelineDescription?: string;
+  pipelineAvatar?: string;
+  onPipelineNameChange?: (value: string) => void;
+  onPipelineDescriptionChange?: (value: string) => void;
+  onPipelineAvatarChange?: (value: string) => void;
 }
 
 type TemplateConfigTab =
@@ -131,10 +139,6 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
 }
 
 function Section({
-  title,
-  description,
-  icon: Icon,
-  right,
   children,
 }: {
   title: string;
@@ -145,20 +149,6 @@ function Section({
 }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-indigo-50 text-indigo-600">
-            <Icon className="size-4" />
-          </span>
-          <div className="min-w-0">
-            <h3 className="text-base font-semibold leading-5 text-slate-950">{title}</h3>
-            {description && (
-              <p className="mt-1 text-sm leading-5 text-muted-foreground">{description}</p>
-            )}
-          </div>
-        </div>
-        {right}
-      </div>
       <div className="space-y-4 px-5 py-4">{children}</div>
     </section>
   );
@@ -167,7 +157,6 @@ function Section({
 function FieldLabel({
   children,
   required,
-  hint,
 }: {
   children: ReactNode;
   required?: boolean;
@@ -179,7 +168,6 @@ function FieldLabel({
         {children}
         {required && <span className="ml-1 text-red-500">*</span>}
       </span>
-      {hint && <span className="text-xs font-normal text-muted-foreground">{hint}</span>}
     </div>
   );
 }
@@ -188,7 +176,6 @@ function ToggleRow({
   label,
   checked,
   onCheckedChange,
-  description,
 }: {
   label: string;
   checked: boolean;
@@ -199,9 +186,6 @@ function ToggleRow({
     <div className="flex items-center justify-between gap-4 rounded-md border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-indigo-200 hover:bg-indigo-50/30">
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-900">{label}</p>
-        {description && (
-          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
-        )}
       </div>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
@@ -232,7 +216,8 @@ function SummaryPill({
 function imageAssetUrl(fileKey: string) {
   const baseUrl = httpClient.getBaseUrl();
   const prefix = baseUrl === '/' ? '' : baseUrl.replace(/\/$/, '');
-  return `${prefix}/api/v1/files/image/${encodeURIComponent(fileKey)}`;
+  const encodedKey = fileKey.split('/').map(encodeURIComponent).join('/');
+  return `${prefix}/api/v1/files/image/${encodedKey}`;
 }
 
 function makeCustomImageBinding(): PipelineTemplateImageTextBinding {
@@ -258,25 +243,39 @@ function textToList(value: string): string[] {
 export default function PipelineTemplateConfigEditor({
   value,
   onChange,
+  pipelineName,
+  pipelineDescription,
+  pipelineAvatar,
+  onPipelineNameChange,
+  onPipelineDescriptionChange,
+  onPipelineAvatarChange,
 }: PipelineTemplateConfigEditorProps) {
   const config = normalizeTemplateConfig(value);
   const { knowledgeBases } = useSidebarData();
   const [activeTab, setActiveTab] = useState<TemplateConfigTab>('basic');
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
+  const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
   const [uploadingBindingId, setUploadingBindingId] = useState('');
   const [previewQuestion, setPreviewQuestion] = useState('');
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const sectionRefs = useRef<Partial<Record<TemplateConfigTab, HTMLDivElement | null>>>({});
 
   useEffect(() => {
     httpClient
       .getSalesProducts()
       .then((resp) => setSalesProducts(resp.products || []))
       .catch((error) => console.warn('Failed to load sales products', error));
+    httpClient
+      .getProviderLLMModels()
+      .then((resp) => setLlmModels(resp.models || []))
+      .catch((error) => console.warn('Failed to load LLM models', error));
   }, []);
 
   function patch(next: Partial<PipelineTemplateConfig>) {
     onChange({ ...config, ...next });
+  }
+
+  function handleNameChange(name: string) {
+    onPipelineNameChange?.(name);
+    patch({ name });
   }
 
   function patchVoice(next: Partial<PipelineTemplateConfig['voice']>) {
@@ -320,6 +319,14 @@ export default function PipelineTemplateConfigEditor({
     patch({
       image_text_bindings: config.image_text_bindings.map((binding, bindingIndex) =>
         bindingIndex === index ? { ...binding, ...next } : binding,
+      ),
+    });
+  }
+
+  function removeImageTextBinding(index: number) {
+    patch({
+      image_text_bindings: config.image_text_bindings.filter(
+        (_, bindingIndex) => bindingIndex !== index,
       ),
     });
   }
@@ -377,6 +384,14 @@ export default function PipelineTemplateConfigEditor({
     });
   }
 
+  function removeSalesLink(index: number) {
+    patch({
+      sales_links: (config.sales_links || []).filter(
+        (_, linkIndex) => linkIndex !== index,
+      ),
+    });
+  }
+
   function addRadarRule() {
     patchRadar({
       rules: [
@@ -394,6 +409,14 @@ export default function PipelineTemplateConfigEditor({
     patchRadar({
       rules: (config.radar?.rules || []).map((rule, ruleIndex) =>
         ruleIndex === index ? { ...rule, ...next } : rule,
+      ),
+    });
+  }
+
+  function removeRadarRule(index: number) {
+    patchRadar({
+      rules: (config.radar?.rules || []).filter(
+        (_, ruleIndex) => ruleIndex !== index,
       ),
     });
   }
@@ -419,6 +442,14 @@ export default function PipelineTemplateConfigEditor({
     });
   }
 
+  function removeFollowupSequence(index: number) {
+    patch({
+      followup_sequences: (config.followup_sequences || []).filter(
+        (_, sequenceIndex) => sequenceIndex !== index,
+      ),
+    });
+  }
+
   function addLongTermBroadcast() {
     patch({
       long_term_broadcasts: [
@@ -438,6 +469,14 @@ export default function PipelineTemplateConfigEditor({
     patch({
       long_term_broadcasts: (config.long_term_broadcasts || []).map((broadcast, broadcastIndex) =>
         broadcastIndex === index ? { ...broadcast, ...next } : broadcast,
+      ),
+    });
+  }
+
+  function removeLongTermBroadcast(index: number) {
+    patch({
+      long_term_broadcasts: (config.long_term_broadcasts || []).filter(
+        (_, broadcastIndex) => broadcastIndex !== index,
       ),
     });
   }
@@ -472,45 +511,6 @@ export default function PipelineTemplateConfigEditor({
     (binding) => binding.enabled !== false,
   );
 
-  function setSectionRef(tabId: TemplateConfigTab, node: HTMLDivElement | null) {
-    sectionRefs.current[tabId] = node;
-  }
-
-  function scrollToSection(tabId: TemplateConfigTab) {
-    const container = scrollContainerRef.current;
-    const section = sectionRefs.current[tabId];
-    setActiveTab(tabId);
-
-    if (!container || !section) return;
-
-    container.scrollTo({
-      top: section.offsetTop - container.offsetTop,
-      behavior: 'smooth',
-    });
-  }
-
-  function syncActiveTabFromScroll() {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const containerTop = container.getBoundingClientRect().top;
-    let current = CONFIG_TABS[0].id;
-
-    for (const tab of CONFIG_TABS) {
-      const section = sectionRefs.current[tab.id];
-      if (!section) continue;
-
-      const top = section.getBoundingClientRect().top - containerTop;
-      if (top <= 120) {
-        current = tab.id;
-      } else {
-        break;
-      }
-    }
-
-    setActiveTab((previous) => (previous === current ? previous : current));
-  }
-
   function renderBasicInfo() {
     return (
       <Section
@@ -518,27 +518,35 @@ export default function PipelineTemplateConfigEditor({
         title="基本信息"
         description="设置业务团队看到的数字员工名称、开场话术和常用引导问题。"
       >
-        <div className="grid gap-4 md:grid-cols-2">
-          <label>
-            <FieldLabel required>数字员工名称</FieldLabel>
-            <Input
-              value={config.name}
-              onChange={(event) => patch({ name: event.target.value })}
-              className="h-11"
-              maxLength={30}
-              placeholder="例如：课程顾问"
-            />
-          </label>
-          <label>
-            <FieldLabel>默认模型</FieldLabel>
-            <Input
-              value={config.model_uuid}
-              onChange={(event) => patch({ model_uuid: event.target.value })}
-              className="h-11"
-              placeholder="模型 UUID"
-            />
-          </label>
+        <div>
+          <FieldLabel>Agent头像</FieldLabel>
+          <AgentAvatarPicker
+            value={pipelineAvatar}
+            onChange={(avatar) => onPipelineAvatarChange?.(avatar)}
+            uploadInputId="agent-avatar-upload"
+          />
         </div>
+        <label className="block">
+          <FieldLabel required>数字员工名称</FieldLabel>
+          <Input
+            value={pipelineName ?? config.name}
+            onChange={(event) => handleNameChange(event.target.value)}
+            className="h-11"
+            maxLength={30}
+            placeholder="例如：课程顾问"
+          />
+        </label>
+        <label className="block">
+          <FieldLabel>描述</FieldLabel>
+          <Input
+            value={pipelineDescription ?? ''}
+            onChange={(event) =>
+              onPipelineDescriptionChange?.(event.target.value)
+            }
+            className="h-11"
+            placeholder="请输入数字员工描述"
+          />
+        </label>
         <label className="block">
           <FieldLabel hint="用户加好友/首次进线先发这段文字；资源卡片单独通过报名链接里的图书配套学习资源卡片发送。">首次开场白</FieldLabel>
           <Textarea
@@ -589,35 +597,49 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderModelSettings() {
+    const selectedModel = llmModels.find(
+      (model) => model.uuid === config.model_uuid,
+    );
+    const responseDiversity = Number.isFinite(config.response_diversity)
+      ? config.response_diversity
+      : 0.3;
+
     return (
       <Section
         icon={Brain}
         title="模型能力"
-        description="控制模型、思考次数和上下文参考范围。"
+        description="控制模型、上下文语义识别和回复表达变化。"
       >
         <label className="block">
-          <FieldLabel required>模型</FieldLabel>
-          <Input
-            value={config.model_uuid}
-            onChange={(event) => patch({ model_uuid: event.target.value })}
-            className="h-11"
-            placeholder="模型 UUID"
-          />
+          <FieldLabel required>选择模型</FieldLabel>
+          <Select
+            value={selectedModel?.uuid}
+            onValueChange={(modelUuid) => patch({ model_uuid: modelUuid })}
+            disabled={!llmModels.length}
+          >
+            <SelectTrigger className="h-11 w-full bg-white">
+              <SelectValue
+                placeholder={
+                  llmModels.length ? '请选择模型' : '请先在模型配置中添加模型'
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {llmModels.map((model) => (
+                <SelectItem
+                  key={model.uuid}
+                  value={model.uuid}
+                  description={model.provider?.name}
+                >
+                  {model.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <div className="grid gap-4 md:grid-cols-2">
           <label>
-            <FieldLabel>最大思考次数</FieldLabel>
-            <Input
-              type="number"
-              min={1}
-              max={12}
-              value={config.max_reasoning_steps}
-              onChange={(event) => patch({ max_reasoning_steps: Number(event.target.value || 1) })}
-              className="h-11"
-            />
-          </label>
-          <label>
-            <FieldLabel>参考对话轮数</FieldLabel>
+            <FieldLabel>识别上下文语义</FieldLabel>
             <Input
               type="number"
               min={1}
@@ -626,6 +648,30 @@ export default function PipelineTemplateConfigEditor({
               onChange={(event) => patch({ reference_rounds: Number(event.target.value || 1) })}
               className="h-11"
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              识别最近 {config.reference_rounds || 1} 条对话
+            </p>
+          </label>
+          <label>
+            <FieldLabel>回复多样性</FieldLabel>
+            <Input
+              type="range"
+              min={0}
+              max={1}
+              step={0.1}
+              value={responseDiversity}
+              onChange={(event) =>
+                patch({ response_diversity: Number(event.target.value) })
+              }
+              className="h-11 accent-indigo-600"
+            />
+            <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+              <span>每次回复都一样</span>
+              <span className="font-medium text-slate-700">
+                {responseDiversity.toFixed(1)}
+              </span>
+              <span>每次回复不一样</span>
+            </div>
           </label>
         </div>
       </Section>
@@ -874,6 +920,16 @@ export default function PipelineTemplateConfigEditor({
                     checked={link.radar_enabled !== false}
                     onCheckedChange={(checked) => patchSalesLink(index, { radar_enabled: checked })}
                   />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="删除报名链接"
+                    onClick={() => removeSalesLink(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                 </div>
                 <Input
                   value={link.url}
@@ -944,7 +1000,7 @@ export default function PipelineTemplateConfigEditor({
           <div className="grid gap-3">
             {(config.radar?.rules || []).map((rule, index) => (
               <div key={`${rule.event}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
                   <Input
                     value={rule.event}
                     onChange={(event) => patchRadarRule(index, { event: event.target.value })}
@@ -971,6 +1027,16 @@ export default function PipelineTemplateConfigEditor({
                     className="h-10 bg-white"
                     placeholder="最少浏览秒数"
                   />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="删除雷达规则"
+                    onClick={() => removeRadarRule(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                 </div>
                 <Textarea
                   value={rule.message}
@@ -1063,7 +1129,7 @@ export default function PipelineTemplateConfigEditor({
           <div className="grid gap-3">
             {(config.followup_sequences || []).map((sequence, index) => (
               <div key={`${sequence.stage}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                   <Input
                     value={sequence.label}
                     onChange={(event) => patchFollowupSequence(index, { label: event.target.value })}
@@ -1076,6 +1142,16 @@ export default function PipelineTemplateConfigEditor({
                     className="h-10 bg-white"
                     placeholder="阶段标识"
                   />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="删除跟进场景"
+                    onClick={() => removeFollowupSequence(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                 </div>
                 <Textarea
                   value={JSON.stringify(sequence.messages, null, 2)}
@@ -1102,7 +1178,7 @@ export default function PipelineTemplateConfigEditor({
           <div className="grid gap-3">
             {(config.long_term_broadcasts || []).map((broadcast, index) => (
               <div key={`${broadcast.day}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
-                <div className="grid gap-3 md:grid-cols-[100px_minmax(0,1fr)_120px]">
+                <div className="grid gap-3 md:grid-cols-[100px_minmax(0,1fr)_120px_auto]">
                   <Input
                     type="number"
                     min={1}
@@ -1122,6 +1198,16 @@ export default function PipelineTemplateConfigEditor({
                     onChange={(event) => patchLongTermBroadcast(index, { time: event.target.value })}
                     className="h-10 bg-white"
                   />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="删除长期群发"
+                    onClick={() => removeLongTermBroadcast(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                 </div>
                 <Textarea
                   value={broadcast.message}
@@ -1214,6 +1300,16 @@ export default function PipelineTemplateConfigEditor({
                     checked={binding.enabled !== false}
                     onCheckedChange={(checked) => patchBinding(index, { enabled: checked })}
                   />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="删除图文绑定"
+                    onClick={() => removeImageTextBinding(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                 </div>
                 <Textarea
                   value={binding.text}
@@ -1351,20 +1447,14 @@ export default function PipelineTemplateConfigEditor({
     }
   }
 
+  const currentAvatarUrl = agentAvatarUrl(pipelineAvatar);
+
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:h-[calc(100vh-220px)]">
       <div className="grid min-h-[720px] grid-cols-1 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div className="flex min-w-0 flex-col border-r border-slate-200 bg-white lg:min-h-0 lg:overflow-hidden">
           <div className="shrink-0 border-b border-slate-200 px-5 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-semibold tracking-normal text-slate-950">Agent配置</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  用表单方式配置数字员工，适合业务团队快速上手。
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-1">
+            <div className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-1">
               <div className="flex min-w-max gap-1">
                 {CONFIG_TABS.map((tab) => {
                   const Icon = tab.icon;
@@ -1373,7 +1463,7 @@ export default function PipelineTemplateConfigEditor({
                     <button
                       key={tab.id}
                       type="button"
-                      onClick={() => scrollToSection(tab.id)}
+                      onClick={() => setActiveTab(tab.id)}
                       className={cn(
                         'inline-flex h-9 items-center gap-1.5 rounded px-3 text-sm font-medium transition-colors',
                         active
@@ -1390,20 +1480,8 @@ export default function PipelineTemplateConfigEditor({
             </div>
           </div>
 
-          <div
-            ref={scrollContainerRef}
-            className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-slate-50/60 p-5 scroll-smooth"
-            onScroll={syncActiveTabFromScroll}
-          >
-            {CONFIG_TABS.map((tab) => (
-              <div
-                key={tab.id}
-                ref={(node) => setSectionRef(tab.id, node)}
-                className="scroll-mt-5"
-              >
-                {renderPanelByTab(tab.id)}
-              </div>
-            ))}
+          <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 p-5">
+            {renderPanelByTab(activeTab)}
           </div>
         </div>
 
@@ -1423,9 +1501,11 @@ export default function PipelineTemplateConfigEditor({
           <div className="flex min-h-0 flex-1 flex-col bg-slate-50/70 p-5">
             <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-center gap-3">
-                <span className="grid size-11 shrink-0 place-items-center rounded-md bg-gradient-to-br from-indigo-500 to-sky-400 text-white shadow-sm">
-                  <Bot className="size-5" />
-                </span>
+                <img
+                  src={currentAvatarUrl}
+                  alt="Agent头像"
+                  className="size-11 shrink-0 rounded-full border border-white bg-white object-cover shadow-sm"
+                />
                 <div className="min-w-0">
                   <h3 className="truncate text-sm font-semibold text-slate-950">
                     {config.name || '未命名数字员工'}
@@ -1438,9 +1518,11 @@ export default function PipelineTemplateConfigEditor({
             <div className="min-h-[460px] flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <div className="space-y-4">
                 <div className="flex gap-3">
-                  <span className="grid size-8 shrink-0 place-items-center rounded-md bg-indigo-50 text-indigo-600">
-                    <Bot className="size-4" />
-                  </span>
+                  <img
+                    src={currentAvatarUrl}
+                    alt="Agent头像"
+                    className="size-8 shrink-0 rounded-full border border-white bg-white object-cover shadow-sm"
+                  />
                   <div className="max-w-[82%] rounded-lg rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800">
                     {config.opening_message || '您好，我是您的数字员工，可以帮您介绍课程、解答问题。'}
                   </div>
@@ -1477,9 +1559,11 @@ export default function PipelineTemplateConfigEditor({
                       </div>
                     </div>
                     <div className="flex gap-3">
-                      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-indigo-50 text-indigo-600">
-                        <Radio className="size-4" />
-                      </span>
+                      <img
+                        src={currentAvatarUrl}
+                        alt="Agent头像"
+                        className="size-8 shrink-0 rounded-full border border-white bg-white object-cover shadow-sm"
+                      />
                       <div className="max-w-[82%] rounded-lg rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800">
                         {config.interaction_radar.click_reply}
                       </div>

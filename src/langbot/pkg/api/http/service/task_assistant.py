@@ -219,7 +219,7 @@ COURSE_FOLLOWUP_SEQUENCES = [
             {
                 'delay_minutes': 0,
                 'message': '不好意思 报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。\n\n主要是赠送实物的名额，就这一周有。',
-                'image_key': 'course-sales/phonics/phonics_poster.jpeg',
+                'image_key': 'course-sales/phonics/gift_poster.jpeg',
             },
             {
                 'delay_minutes': 0,
@@ -240,7 +240,7 @@ COURSE_FOLLOWUP_SEQUENCES = [
             {
                 'delay_minutes': 0,
                 'message': '不好意思 报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。\n\n主要是赠送实物的名额，就这一周有。',
-                'image_key': 'course-sales/phonics/phonics_poster.jpeg',
+                'image_key': 'course-sales/phonics/gift_poster.jpeg',
             },
             {
                 'delay_minutes': 0,
@@ -357,7 +357,7 @@ COURSE_IMAGE_BINDINGS = [
         'step_id': 'gift_poster',
         'title': '完课好礼海报',
         'text': '表格内置素材：用户不买、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
-        'file_key': 'course-sales/phonics/phonics_poster.jpeg',
+        'file_key': 'course-sales/phonics/gift_poster.jpeg',
         'trigger_intents': ['gift', 'objection', 'course_intro'],
         'enabled': True,
     },
@@ -1151,7 +1151,7 @@ class TaskAssistantService:
             return
         try:
             targets = await sales_service.get_chatted_outreach_targets(
-                pipeline_uuids=[COURSE_SALES_WORKFLOW_PIPELINE_UUID, COURSE_SALES_TEMPLATE_PIPELINE_UUID]
+                pipeline_uuids=[COURSE_SALES_TEMPLATE_PIPELINE_UUID]
             )
             workflow = self.build_course_sales_workflow_config(template_config=self.build_course_sales_template_config())
             for target in targets:
@@ -1468,12 +1468,25 @@ class TaskAssistantService:
         await self._ensure_task_images()
         await self._ensure_course_sales_images()
         await self._ensure_bailian_model()
-        await self._ensure_pipeline()
+        await self._remove_seeded_workflow_mode_pipelines()
         await self._ensure_template_pipeline()
         await self._ensure_course_sales_product()
-        await self._ensure_course_sales_workflow_pipeline()
         await self._ensure_course_sales_template_pipeline()
         await self._ensure_course_sales_outreach_for_chatted_users()
+
+    async def _remove_seeded_workflow_mode_pipelines(self) -> None:
+        workflow_pipeline_uuids = [TASK_ASSISTANT_PIPELINE_UUID, COURSE_SALES_WORKFLOW_PIPELINE_UUID]
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid.in_(workflow_pipeline_uuids)
+            )
+        )
+        pipeline_mgr = getattr(self.ap, 'pipeline_mgr', None)
+        remove_pipeline = getattr(pipeline_mgr, 'remove_pipeline', None)
+        if not callable(remove_pipeline):
+            return
+        for pipeline_uuid in workflow_pipeline_uuids:
+            await remove_pipeline(pipeline_uuid)
 
     def build_pipeline_config(
         self,
@@ -2016,7 +2029,11 @@ class TaskAssistantService:
         ]
         stages = {str(sequence.get('stage') or '') for sequence in value if isinstance(sequence, dict)}
         has_signup_link = any(message.get('link_id') == 'phonics_radar_apply' for message in messages)
-        has_poster = any(message.get('image_key') == 'course-sales/phonics/phonics_poster.jpeg' for message in messages)
+        has_poster = any(
+            message.get('image_key')
+            in {'course-sales/phonics/gift_poster.jpeg', 'course-sales/phonics/phonics_poster.jpeg'}
+            for message in messages
+        )
         has_gift_qr = any(message.get('image_key') == 'course-sales/phonics/gift_qr.jpeg' for message in messages)
         return bool({'objection'} & stages or not (has_signup_link and has_poster and has_gift_qr))
 
@@ -2045,6 +2062,29 @@ class TaskAssistantService:
         if not normalized.get('link_title'):
             normalized['link_title'] = COURSE_RADAR_CONFIG['link_title']
         return normalized
+
+    def _normalize_course_media_key(self, value: Any) -> Any:
+        if value == 'course-sales/phonics/phonics_poster.jpeg':
+            return 'course-sales/phonics/gift_poster.jpeg'
+        return value
+
+    def _normalize_course_template_media_keys(self, template_config: dict[str, Any]) -> None:
+        bindings = template_config.get('image_text_bindings')
+        if isinstance(bindings, list):
+            for binding in bindings:
+                if isinstance(binding, dict) and 'file_key' in binding:
+                    binding['file_key'] = self._normalize_course_media_key(binding.get('file_key'))
+        sequences = template_config.get('followup_sequences')
+        if isinstance(sequences, list):
+            for sequence in sequences:
+                if not isinstance(sequence, dict):
+                    continue
+                messages = sequence.get('messages')
+                if not isinstance(messages, list):
+                    continue
+                for message in messages:
+                    if isinstance(message, dict) and 'image_key' in message:
+                        message['image_key'] = self._normalize_course_media_key(message.get('image_key'))
 
     def build_course_sales_template_config(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         voice = {
@@ -2170,6 +2210,7 @@ class TaskAssistantService:
                     template_config[key] = value
                 else:
                     template_config[key] = value
+        self._normalize_course_template_media_keys(template_config)
         template_config.setdefault('voice', {})['enabled'] = False
         template_config.setdefault('tools', {})['voice_reply'] = False
         for sequence in template_config.get('followup_sequences', []):
@@ -2259,6 +2300,15 @@ class TaskAssistantService:
             if isinstance(template_config.get('image_text_bindings'), list)
             else copy.deepcopy(COURSE_IMAGE_BINDINGS)
         )
+        for binding in image_bindings:
+            if isinstance(binding, dict) and 'file_key' in binding:
+                binding['file_key'] = self._normalize_course_media_key(binding.get('file_key'))
+        for sequence in followups:
+            if not isinstance(sequence, dict):
+                continue
+            for message in sequence.get('messages', []):
+                if isinstance(message, dict) and 'image_key' in message:
+                    message['image_key'] = self._normalize_course_media_key(message.get('image_key'))
         opening_message = str(template_config.get('opening_message') or COURSE_OPENING_MESSAGE)
         model_uuid = str(template_config.get('model_uuid') or TASK_ASSISTANT_MODEL_UUID)
         voice_config = {

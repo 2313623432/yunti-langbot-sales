@@ -30,6 +30,12 @@ export function BotLogCard({
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(defaultExpanded);
 
+  function imageUrl(fileKey: string) {
+    const prefix = baseURL === '/' ? '' : baseURL.replace(/\/$/, '');
+    const encodedKey = fileKey.split('/').map(encodeURIComponent).join('/');
+    return `${prefix}/api/v1/files/image/${encodedKey}`;
+  }
+
   function copySessionId() {
     const text = botLog.message_session_id;
     copyToClipboard(text)
@@ -152,7 +158,7 @@ export function BotLogCard({
             {botLog.images.map((item) => (
               <img
                 key={item}
-                src={`${baseURL}/api/v1/files/image/${item}`}
+                src={imageUrl(item)}
                 alt=""
                 className="max-w-xs rounded-md cursor-pointer hover:opacity-90 transition-opacity"
               />

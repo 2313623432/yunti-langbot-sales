@@ -158,7 +158,7 @@ async def test_build_outreach_message_chain_supports_plain_link_and_image_withou
                 'description': '9元体验课报名通道',
                 'url': 'https://example.com/apply',
             },
-            {'type': 'image', 'file_key': 'course-sales/phonics/phonics_poster.jpeg'},
+            {'type': 'image', 'file_key': 'course-sales/phonics/gift_poster.jpeg'},
         ],
     )
 

@@ -16,6 +16,7 @@ import SpaceCallbackPage from '@/app/auth/space/callback/page';
 import MonitoringPage from '@/app/home/monitoring/page';
 import BotsPage from '@/app/home/bots/page';
 import PipelinesPage from '@/app/home/pipelines/page';
+import WorkflowsPage from '@/app/home/workflows/page';
 import PluginsPage from '@/app/home/plugins/page';
 import MarketPage from '@/app/home/market/page';
 import MCPPage from '@/app/home/mcp/page';
@@ -109,7 +110,7 @@ export const router = createBrowserRouter([
     element: (
       <Suspense fallback={<Loading />}>
         <HomeLayout>
-          <PipelinesPage />
+          <WorkflowsPage />
         </HomeLayout>
       </Suspense>
     ),

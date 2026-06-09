@@ -1,6 +1,6 @@
 import { SidebarChildVO } from '@/app/home/components/home-sidebar/HomeSidebarChild';
 import i18n from '@/i18n';
-import { BadgeDollarSign, MessagesSquare, Workflow } from 'lucide-react';
+import { BadgeDollarSign, GitBranch, MessagesSquare, Workflow } from 'lucide-react';
 
 const t = (key: string) => {
   return i18n.t(key);
@@ -61,6 +61,18 @@ export const sidebarConfigList = [
     icon: <Workflow className="text-sky-600" />,
     route: '/home/pipelines',
     description: '配置数字员工的回复能力和执行流程',
+    helpLink: {
+      en_US: '',
+      zh_Hans: '',
+    },
+    section: 'home',
+  }),
+  new SidebarChildVO({
+    id: 'workflows',
+    name: '工作流',
+    icon: <GitBranch className="text-indigo-600" />,
+    route: '/home/workflows',
+    description: '设计和管理可复用的自动化工作流',
     helpLink: {
       en_US: '',
       zh_Hans: '',

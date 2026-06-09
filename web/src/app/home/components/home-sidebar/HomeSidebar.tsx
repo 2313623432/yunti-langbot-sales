@@ -13,7 +13,6 @@ import {
   Moon,
   Sun,
   Monitor,
-  ChevronsUpDown,
   CircleHelp,
   Lightbulb,
   LogOut,
@@ -100,7 +99,6 @@ import { useSidebarData, SidebarEntityItem } from './SidebarDataContext';
 // IDs of sidebar entries that have collapsible entity sub-items
 const ENTITY_CATEGORY_IDS = [
   'bots',
-  'pipelines',
   'knowledge',
   'plugins',
   'mcp',
@@ -110,7 +108,6 @@ type EntityCategoryId = (typeof ENTITY_CATEGORY_IDS)[number];
 // Categories that support detail pages via ?id= query param
 const DETAIL_PAGE_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'pipelines',
   'knowledge',
   'plugins',
   'mcp',
@@ -119,7 +116,6 @@ const DETAIL_PAGE_CATEGORIES: EntityCategoryId[] = [
 // Categories that support creating new entities from the sidebar
 const CREATABLE_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'pipelines',
   'knowledge',
   'mcp',
   'plugins',
@@ -128,7 +124,6 @@ const CREATABLE_CATEGORIES: EntityCategoryId[] = [
 // Categories where clicking the parent only toggles collapse (no list page)
 const COLLAPSIBLE_ONLY_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'pipelines',
   'knowledge',
   'mcp',
 ];
@@ -143,7 +138,6 @@ const ENTITY_KEY_MAP: Record<
   'bots' | 'pipelines' | 'knowledgeBases' | 'plugins' | 'mcpServers'
 > = {
   bots: 'bots',
-  pipelines: 'pipelines',
   knowledge: 'knowledgeBases',
   plugins: 'plugins',
   mcp: 'mcpServers',
@@ -152,7 +146,6 @@ const ENTITY_KEY_MAP: Record<
 // Route prefix map for entity detail pages
 const ENTITY_ROUTE_MAP: Record<EntityCategoryId, string> = {
   bots: '/home/bots',
-  pipelines: '/home/pipelines',
   knowledge: '/home/knowledge',
   plugins: '/home/plugins',
   mcp: '/home/mcp',
@@ -341,6 +334,7 @@ function NavItems({
         const canCreate = CREATABLE_CATEGORIES.includes(config.id);
         const isCollapseOnly = COLLAPSIBLE_ONLY_CATEGORIES.includes(config.id);
         const isPlugin = config.id === 'plugins';
+        const isPipeline = entityKey === 'pipelines';
         const isBot = config.id === 'bots';
         const isMCP = config.id === 'mcp';
         const isActive =
@@ -410,14 +404,15 @@ function NavItems({
                         }));
                       }}
                     >
-                      {item.emoji ? (
-                        <span className="text-sm shrink-0">{item.emoji}</span>
-                      ) : item.iconURL ? (
+                      {item.iconURL ? (
                         <span className="relative shrink-0">
                           <img
                             src={item.iconURL}
                             alt=""
-                            className="size-4 rounded"
+                            className={cn(
+                              'size-4 object-cover',
+                              isPipeline ? 'rounded-full' : 'rounded',
+                            )}
                           />
                           {(isBot || isMCP) && (
                             <span
@@ -432,6 +427,8 @@ function NavItems({
                             />
                           )}
                         </span>
+                      ) : item.emoji ? (
+                        <span className="text-sm shrink-0">{item.emoji}</span>
                       ) : isMCP ? (
                         <span
                           className={cn(
@@ -464,16 +461,15 @@ function NavItems({
                               navigate(itemRoute);
                             }}
                           >
-                            {item.emoji ? (
-                              <span className="text-sm shrink-0">
-                                {item.emoji}
-                              </span>
-                            ) : item.iconURL ? (
+                            {item.iconURL ? (
                               <span className="relative shrink-0">
                                 <img
                                   src={item.iconURL}
                                   alt=""
-                                  className="size-4 rounded"
+                                  className={cn(
+                                    'size-4 object-cover',
+                                    isPipeline ? 'rounded-full' : 'rounded',
+                                  )}
                                 />
                                 {(isBot || isMCP) && (
                                   <span
@@ -487,6 +483,10 @@ function NavItems({
                                     )}
                                   />
                                 )}
+                              </span>
+                            ) : item.emoji ? (
+                              <span className="text-sm shrink-0">
+                                {item.emoji}
                               </span>
                             ) : isMCP ? (
                               <span
@@ -1357,7 +1357,7 @@ export default function HomeSidebar({
 
   return (
     <>
-      <Sidebar variant="inset" collapsible="icon">
+      <Sidebar variant="inset" collapsible="icon" className="home-sidebar">
         {/* Header: compact brand name and sidebar toggle */}
         <SidebarHeader className="relative group-data-[collapsible=icon]:items-center">
           <div className="flex h-12 items-center px-2 pr-9 group-data-[collapsible=icon]:hidden">
@@ -1448,20 +1448,15 @@ export default function HomeSidebar({
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton
                     size="lg"
-                    className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                    className="home-sidebar-account-trigger data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                     tooltip={t('common.accountOptions')}
+                    aria-label={t('common.accountOptions')}
                   >
-                    <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarFallback className="rounded-lg bg-primary text-primary-foreground text-xs">
+                    <Avatar className="h-10 w-10 rounded-full">
+                      <AvatarFallback className="rounded-full bg-gradient-to-br from-sky-300 to-blue-500 text-sm font-semibold text-white">
                         {userInitial}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-medium">
-                        {userEmail || t('common.accountOptions')}
-                      </span>
-                    </div>
-                    <ChevronsUpDown className="ml-auto size-4" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent

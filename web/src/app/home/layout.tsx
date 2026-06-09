@@ -77,7 +77,9 @@ function HomeLayoutInner({ children }: { children: React.ReactNode }) {
       : 'flex-1 min-h-0 min-w-0 overflow-hidden p-4';
 
   return (
-    <SidebarProvider>
+    <SidebarProvider
+      style={{ '--sidebar-width': '15rem' } as React.CSSProperties}
+    >
       <Suspense fallback={<div />}>
         <HomeSidebar onSelectedChangeAction={onSelectedChangeAction} />
       </Suspense>
