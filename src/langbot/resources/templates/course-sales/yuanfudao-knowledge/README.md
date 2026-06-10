@@ -2,15 +2,18 @@
 
 这个目录由 `scripts/build_yuanfudao_knowledge.py` 从飞书导出的资料包生成。
 
-## 前端知识库导入
+## 自动导入到知识库文档
 
-优先上传 `rag/` 目录下 3 个 Markdown 文件：
+- `documents/` 目录包含 70 个可导入文件（Markdown / Excel / PDF / PPT，不含视频）。
+- 后端启动时会自动把这些文件导入「猿辅导销售知识库」。
 
-- `yuanfudao_knowledge_index.md`
-- `yuanfudao_markdown_corpus.md`
-- `yuanfudao_spreadsheet_catalog.md`
+## 聚合检索语料
 
-原始视频和超大表格/PDF 不进入默认 RAG 语料；如需要逐个查看，回到下载目录的原始资料。
+- `rag/yuanfudao_knowledge_index.md`
+- `rag/yuanfudao_markdown_corpus.md`
+- `rag/yuanfudao_spreadsheet_catalog.md`
+
+原始视频和超过 500MB 的文件不会进入知识库文档；如需要逐个查看，回到下载目录的原始资料。
 
 ## 时效规则
 

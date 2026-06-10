@@ -65,7 +65,9 @@ function HomeLayoutInner({ children }: { children: React.ReactNode }) {
     pathname === '/home/sales' ||
     pathname.startsWith('/home/sales/') ||
     pathname === '/home/sales-chat' ||
-    pathname.startsWith('/home/sales-chat/');
+    pathname.startsWith('/home/sales-chat/') ||
+    pathname === '/home/products' ||
+    pathname.startsWith('/home/products/');
   const isSalesBuilderRoute =
     pathname === '/home/ai-agents' ||
     pathname.startsWith('/home/ai-agents/') ||

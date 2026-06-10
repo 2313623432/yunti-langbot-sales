@@ -50,6 +50,10 @@ export interface ModelProvider {
   llm_count?: number;
   embedding_count?: number;
   rerank_count?: number;
+  is_builtin?: boolean;
+  protocol?: 'openai' | 'claude' | 'gemini';
+  api_key_required?: boolean;
+  sort_order?: number;
   created_at?: string;
   updated_at?: string;
 }

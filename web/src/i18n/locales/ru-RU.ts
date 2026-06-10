@@ -289,6 +289,8 @@ const ruRU = {
     providerSaveError: 'Ошибка сохранения провайдера: ',
     providerDeleted: 'Провайдер удалён',
     providerDeleteError: 'Ошибка удаления провайдера: ',
+    providerDeleteBlocked:
+      'Сначала удалите все модели этого провайдера, затем удалите провайдера',
     deleteProviderConfirmation:
       'Вы уверены, что хотите удалить этого провайдера?',
     loadError: 'Не удалось загрузить данные',

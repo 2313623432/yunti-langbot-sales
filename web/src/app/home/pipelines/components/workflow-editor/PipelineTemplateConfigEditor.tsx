@@ -341,6 +341,7 @@ export default function PipelineTemplateConfigEditor({
   const [previewQuestion, setPreviewQuestion] = useState('');
   const [showAdvancedRadar, setShowAdvancedRadar] = useState(false);
   const [showAdvancedStopRules, setShowAdvancedStopRules] = useState(false);
+  const [showAdvancedSourceMaterials, setShowAdvancedSourceMaterials] = useState(false);
 
   useEffect(() => {
     httpClient
@@ -351,6 +352,7 @@ export default function PipelineTemplateConfigEditor({
       .getProviderLLMModels(undefined, {
         include_space_models: false,
         include_system_models: false,
+        only_configured_providers: true,
         model_category: 'text',
       })
       .then((resp) => setLlmModels(resp.models || []))
@@ -359,6 +361,7 @@ export default function PipelineTemplateConfigEditor({
       .getProviderLLMModels(undefined, {
         include_space_models: false,
         include_system_models: false,
+        only_configured_providers: true,
         model_category: 'voice',
       })
       .then((resp) => setVoiceModels(resp.models || []))
@@ -906,6 +909,15 @@ export default function PipelineTemplateConfigEditor({
   function renderKnowledgeSettings() {
     const courseProfiles = config.course_profiles || [];
     const sourceMaterials = config.source_materials || [];
+    const knowledgePack = config.metadata?.knowledge_pack;
+    const hasKnowledgePack = Boolean(knowledgePack?.path);
+    const mountedKbIds = config.knowledge_base_uuids || [];
+    const mountedKbs = knowledgeBases.filter((kb) => mountedKbIds.includes(kb.id));
+    const fallbackKbNames = mountedKbIds.filter(
+      (id) => !knowledgeBases.some((kb) => kb.id === id),
+    );
+    const knowledgePackFreshness = knowledgePack?.freshness_range || '';
+
     return (
       <Section
         icon={Database}
@@ -926,10 +938,107 @@ export default function PipelineTemplateConfigEditor({
             onCheckedChange={(checked) => patchTool('product_database', checked)}
           />
         </div>
+
+        {(hasKnowledgePack || mountedKbIds.length > 0) && (
+          <div className="rounded-md border border-indigo-200 bg-indigo-50/60 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <FieldLabel>已挂载知识库</FieldLabel>
+                <p className="mt-1 text-sm font-medium text-indigo-950">
+                  {mountedKbs.map((kb) => kb.name).join('、') ||
+                    fallbackKbNames.join('、') ||
+                    '猿辅导销售知识库'}
+                </p>
+                {knowledgePack?.answering_rule && (
+                  <p className="mt-2 text-xs leading-5 text-indigo-900/80">
+                    {knowledgePack.answering_rule}
+                  </p>
+                )}
+                {knowledgePackFreshness && (
+                  <p className="mt-1 text-xs text-indigo-800/70">
+                    资料时效：{knowledgePackFreshness}
+                  </p>
+                )}
+              </div>
+              <Badge className="shrink-0 rounded bg-indigo-600 text-white hover:bg-indigo-600">
+                已挂载
+              </Badge>
+            </div>
+          </div>
+        )}
+
+        {courseProfiles.length > 0 && (
+          <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <FieldLabel>已接入业务产品线</FieldLabel>
+              <Badge variant="outline" className="rounded bg-white">
+                {courseProfiles.length} 条
+              </Badge>
+            </div>
+            <p className="mb-3 text-xs text-muted-foreground">
+              展示模板已配置的课程产品线。开启「产品数据库」后，可勾选对应产品以参与报价与推荐。
+            </p>
+            <div className="grid gap-3">
+              {courseProfiles.map((profile) => {
+                const facts = profile.facts || {};
+                const productUuid = profile.product_uuid || '';
+                const linkedProduct = salesProducts.find((product) => product.uuid === productUuid);
+                const productSelected = productUuid
+                  ? config.product_uuids.includes(productUuid)
+                  : false;
+                return (
+                  <div key={profile.key} className="rounded-md border border-indigo-100 bg-white p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-900">
+                          {profile.name || facts.course_name || profile.key}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                          {[facts.price, facts.duration || facts.lesson_count, facts.target_grade]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
+                      </div>
+                      <Badge className="shrink-0 rounded" variant="secondary">
+                        业务线
+                      </Badge>
+                    </div>
+                    {facts.selling_point && (
+                      <p className="mt-2 text-xs leading-5 text-slate-600">{facts.selling_point}</p>
+                    )}
+                    {productUuid && (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
+                        <div className="min-w-0 text-xs text-slate-600">
+                          <span className="font-medium text-slate-800">关联产品：</span>
+                          {linkedProduct?.name || productUuid}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!config.tools.product_database}
+                          onClick={() => toggleTemplateListValue('product_uuids', productUuid)}
+                          className={cn(
+                            'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                            productSelected
+                              ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
+                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                            !config.tools.product_database && 'cursor-not-allowed opacity-50',
+                          )}
+                        >
+                          {productSelected ? '已启用产品库' : '启用产品库'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="grid gap-4 xl:grid-cols-2">
           <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
             <div className="mb-3 flex items-center justify-between">
-              <FieldLabel>关联知识库</FieldLabel>
+              <FieldLabel>{hasKnowledgePack ? '调整关联知识库' : '关联知识库'}</FieldLabel>
               <Badge variant="outline" className="rounded bg-white">
                 {config.knowledge_base_uuids.length} 个已选
               </Badge>
@@ -964,7 +1073,7 @@ export default function PipelineTemplateConfigEditor({
               ))}
               {!knowledgeBases.length && (
                 <div className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-muted-foreground">
-                  暂无知识库，请先在左侧知识库中创建
+                  暂无知识库。重启后端后会自动创建「猿辅导销售知识库」，或可在左侧知识库中手动创建。
                 </div>
               )}
             </div>
@@ -1010,55 +1119,32 @@ export default function PipelineTemplateConfigEditor({
             </div>
           </div>
         </div>
-        {(courseProfiles.length > 0 || sourceMaterials.length > 0) && (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-            {courseProfiles.length > 0 && (
-              <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <FieldLabel>已接入业务产品线</FieldLabel>
-                  <Badge variant="outline" className="rounded bg-white">
-                    {courseProfiles.length} 条
-                  </Badge>
-                </div>
-                <div className="grid gap-3">
-                  {courseProfiles.map((profile) => {
-                    const facts = profile.facts || {};
-                    return (
-                      <div key={profile.key} className="rounded-md border border-indigo-100 bg-white p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-slate-900">
-                              {profile.name || facts.course_name || profile.key}
-                            </p>
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                              {[facts.price, facts.duration || facts.lesson_count, facts.target_grade]
-                                .filter(Boolean)
-                                .join(' · ')}
-                            </p>
-                          </div>
-                          <Badge className="shrink-0 rounded" variant="secondary">
-                            业务线
-                          </Badge>
-                        </div>
-                        {facts.selling_point && (
-                          <p className="mt-2 text-xs leading-5 text-slate-600">{facts.selling_point}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {sourceMaterials.length > 0 && (
-              <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
-                <FieldLabel>业务资料来源</FieldLabel>
-                <div className="mt-3 grid gap-2">
-                  {sourceMaterials.map((source, index) => (
-                    <div key={`${source}-${index}`} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                      {source}
-                    </div>
-                  ))}
-                </div>
+
+        {sourceMaterials.length > 0 && (
+          <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
+            <button
+              type="button"
+              onClick={() => setShowAdvancedSourceMaterials((value) => !value)}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <FieldLabel>技术详情：业务资料来源</FieldLabel>
+              <span className="text-xs text-muted-foreground">
+                {showAdvancedSourceMaterials ? '收起' : '展开'}
+              </span>
+            </button>
+            {showAdvancedSourceMaterials && (
+              <div className="mt-3 grid gap-2">
+                <p className="text-xs text-muted-foreground">
+                  以下为模板内置资料清单，日常配置以「已挂载知识库」为准。
+                </p>
+                {sourceMaterials.map((source, index) => (
+                  <div
+                    key={`${source}-${index}`}
+                    className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                  >
+                    {source}
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -82,7 +82,9 @@ def test_build_knowledge_pack_creates_manifest_and_rag_corpus(tmp_path):
     result = build_knowledge_pack(source, output)
 
     assert result['total_files'] == 2
+    assert result['document_files'] == 2
     manifest = json.loads((output / 'manifest.json').read_text(encoding='utf-8'))
+    assert len(manifest['document_files']) == 2
     assert manifest['knowledge_base']['name'] == '猿辅导销售知识库'
     assert manifest['knowledge_base']['freshness_policy']['range'] == '2024-2026'
     assert any(item['indexed'] for item in manifest['files'] if item['extension'] == '.md')
@@ -96,3 +98,6 @@ def test_build_knowledge_pack_creates_manifest_and_rag_corpus(tmp_path):
     assert '猿辅导课程货盘.xlsx' in spreadsheet_catalog
     assert '课程名称' in spreadsheet_catalog
     assert '自然拼读体验课' in spreadsheet_catalog
+
+    assert (output / 'documents' / '自然拼读卖点话术更新.md').exists()
+    assert (output / 'documents' / '猿辅导课程货盘.xlsx').exists()

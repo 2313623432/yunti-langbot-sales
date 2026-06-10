@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { httpClient } from '@/app/infra/http/HttpClient';
 
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -16,32 +16,23 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { extractI18nObject } from '@/i18n/I18nProvider';
 import { CustomApiError } from '@/app/infra/entities/common';
-
-const DEFAULT_REQUESTER = 'openai-chat-completions';
-const RECOMMENDED_REQUESTERS = [
-  DEFAULT_REQUESTER,
-  'anthropic-messages',
-  'ollama-chat',
-  'lmstudio-chat-completions',
-];
+import {
+  getDefaultBaseUrlForProtocol,
+  getRequesterForProtocol,
+  PROVIDER_PROTOCOLS,
+  ProviderProtocol,
+  resolveProviderProtocol,
+} from '../../protocolUtils';
 
 const getFormSchema = (t: (key: string) => string) =>
   z.object({
     name: z.string().min(1, { message: t('models.providerNameRequired') }),
-    requester: z.string().min(1, { message: t('models.requesterRequired') }),
+    protocol: z.enum(['openai', 'claude', 'gemini'], {
+      message: t('models.requesterRequired'),
+    }),
     base_url: z.string(),
     api_key: z.string().optional(),
   });
@@ -64,39 +55,14 @@ export default function ProviderForm({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
-      requester: '',
-      base_url: '',
+      protocol: 'openai',
+      base_url: getDefaultBaseUrlForProtocol('openai'),
       api_key: '',
     },
   });
 
-  const [requesterList, setRequesterList] = useState<
-    {
-      label: string;
-      value: string;
-      category: string;
-      defaultUrl: string;
-      description: string;
-    }[]
-  >([]);
-
-  function getRequesterLabel(requester: { label: string; value: string }) {
-    if (requester.value === 'openai-chat-completions') {
-      return t('models.openaiCompatible');
-    }
-    if (requester.value === 'anthropic-messages') {
-      return t('models.anthropicCompatible');
-    }
-    return requester.label;
-  }
-
-  function isRecommendedRequester(requester: { value: string }) {
-    return RECOMMENDED_REQUESTERS.includes(requester.value);
-  }
-
   useEffect(() => {
     async function init() {
-      await loadRequesters();
       if (providerId) {
         await loadProvider(providerId);
       }
@@ -104,70 +70,29 @@ export default function ProviderForm({
     init();
   }, [providerId]);
 
-  async function loadRequesters() {
-    const resp = await httpClient.getProviderRequesters();
-    const requesters = resp.requesters
-      .filter((item) => item.name !== 'space-chat-completions')
-      .map((item) => ({
-        label: extractI18nObject(item.label),
-        value: item.name,
-        category: item.spec.provider_category || 'manufacturer',
-        defaultUrl:
-          item.spec.config
-            .find((c) => c.name === 'base_url')
-            ?.default?.toString() || '',
-        description: extractI18nObject(item.description),
-      }));
-
-    setRequesterList(requesters);
-
-    if (!providerId && !form.getValues('requester')) {
-      const defaultRequester =
-        requesters.find((item) => item.value === DEFAULT_REQUESTER) ||
-        requesters.find(isRecommendedRequester);
-      if (defaultRequester) {
-        form.setValue('requester', defaultRequester.value);
-        form.setValue('base_url', defaultRequester.defaultUrl);
-      }
-    }
-  }
-
-  function renderRequesterOption(requester: { label: string; value: string }) {
-    const label = getRequesterLabel(requester);
-
-    return (
-      <SelectItem key={requester.value} value={requester.value}>
-        <div className="flex items-center gap-2">
-          <img
-            src={httpClient.getProviderRequesterIconURL(requester.value)}
-            alt={label}
-            className="h-5 w-5 rounded"
-          />
-          <span>{label}</span>
-        </div>
-      </SelectItem>
-    );
-  }
-
   async function loadProvider(id: string) {
     const resp = await httpClient.getModelProvider(id);
     const provider = resp.provider;
+    const protocol = resolveProviderProtocol(provider);
 
     form.setValue('name', provider.name);
-    form.setValue('requester', provider.requester);
+    form.setValue('protocol', protocol);
     form.setValue('base_url', provider.base_url);
     form.setValue('api_key', provider.api_keys?.[0] || '');
   }
 
   async function handleFormSubmit(values: z.infer<typeof formSchema>) {
+    const protocol = values.protocol;
     const data = {
       name: values.name,
-      requester: values.requester,
+      protocol,
+      requester: getRequesterForProtocol(protocol),
       base_url: values.base_url,
       api_keys: values.api_key ? [values.api_key] : [],
     };
 
     try {
+      form.clearErrors();
       if (providerId) {
         await httpClient.updateModelProvider(providerId, data);
         toast.success(t('models.providerSaved'));
@@ -181,10 +106,24 @@ export default function ProviderForm({
     }
   }
 
+  function handleProtocolChange(protocol: ProviderProtocol) {
+    form.setValue('protocol', protocol);
+    if (!providerId || !form.getValues('base_url')) {
+      form.setValue('base_url', getDefaultBaseUrlForProtocol(protocol));
+    }
+  }
+
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit(handleFormSubmit)}
+        onSubmit={form.handleSubmit(handleFormSubmit, (errors) => {
+          const firstError = Object.values(errors)[0];
+          if (firstError?.message) {
+            toast.error(String(firstError.message));
+          } else {
+            toast.error(t('models.providerSaveError'));
+          }
+        })}
         className="space-y-4"
       >
         <FormField
@@ -209,89 +148,38 @@ export default function ProviderForm({
 
         <FormField
           control={form.control}
-          name="requester"
-          render={({ field }) => {
-            const selectedRequester = requesterList.find(
-              (r) => r.value === field.value,
-            );
-            const recommendedRequesters = requesterList.filter(
-              isRecommendedRequester,
-            );
-            const builtinRequesters = requesterList.filter(
-              (r) => r.category === 'builtin',
-            );
-            const otherRequesters = requesterList.filter(
-              (r) => !isRecommendedRequester(r) && r.category !== 'builtin',
-            );
-            return (
-              <FormItem>
-                <FormLabel>
-                  {t('models.requester')}
-                  <span className="text-red-500">*</span>
-                </FormLabel>
-                <Select
-                  onValueChange={(v) => {
-                    field.onChange(v);
-                    const req = requesterList.find((r) => r.value === v);
-                    if (req && (!providerId || !form.getValues('base_url'))) {
-                      form.setValue('base_url', req.defaultUrl);
-                    }
-                  }}
-                  value={field.value}
-                >
-                  <SelectTrigger className="bg-background">
-                    {selectedRequester ? (
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={httpClient.getProviderRequesterIconURL(
-                            selectedRequester.value,
-                          )}
-                          alt={getRequesterLabel(selectedRequester)}
-                          className="h-5 w-5 rounded"
-                        />
-                        <span>{getRequesterLabel(selectedRequester)}</span>
-                      </div>
-                    ) : (
-                      <SelectValue placeholder={t('models.selectRequester')} />
-                    )}
-                  </SelectTrigger>
-                  <SelectContent>
-                    {recommendedRequesters.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>
-                          {t('models.recommendedProtocols')}
-                        </SelectLabel>
-                        {recommendedRequesters.map(renderRequesterOption)}
-                      </SelectGroup>
-                    )}
-                    {otherRequesters.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>
-                          {t('models.otherProtocolAdapters')}
-                        </SelectLabel>
-                        {otherRequesters.map(renderRequesterOption)}
-                      </SelectGroup>
-                    )}
-                    {builtinRequesters.length > 0 && (
-                      <SelectGroup>
-                        <SelectLabel>{t('models.builtin')}</SelectLabel>
-                        {builtinRequesters.map(renderRequesterOption)}
-                      </SelectGroup>
-                    )}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-                <p className="text-sm text-muted-foreground">
-                  {t('models.requesterHint')}
-                </p>
-                {selectedRequester?.description && (
-                  <p className="text-xs text-muted-foreground">
-                    {selectedRequester.description}
-                  </p>
-                )}
-              </FormItem>
-            );
-          }}
+          name="protocol"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                {t('models.apiMode')}
+                <span className="text-red-500">*</span>
+              </FormLabel>
+              <div className="flex flex-wrap gap-2">
+                {PROVIDER_PROTOCOLS.map((protocol) => {
+                  const active = field.value === protocol;
+                  return (
+                    <button
+                      key={protocol}
+                      type="button"
+                      className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
+                        active
+                          ? 'border-violet-500 bg-violet-50 text-violet-700'
+                          : 'border-slate-200 bg-background text-slate-700 hover:bg-slate-50'
+                      }`}
+                      onClick={() => handleProtocolChange(protocol)}
+                    >
+                      {t(`models.protocol.${protocol}`)}
+                    </button>
+                  );
+                })}
+              </div>
+              <FormMessage />
+              <p className="text-sm text-muted-foreground">
+                {t('models.requesterHint')}
+              </p>
+            </FormItem>
+          )}
         />
 
         <FormField
@@ -323,7 +211,9 @@ export default function ProviderForm({
         />
 
         <DialogFooter>
-          <Button type="submit">{t('common.save')}</Button>
+          <Button type="submit" disabled={form.formState.isSubmitting}>
+            {t('common.save')}
+          </Button>
           <Button type="button" variant="outline" onClick={onFormCancel}>
             {t('common.cancel')}
           </Button>

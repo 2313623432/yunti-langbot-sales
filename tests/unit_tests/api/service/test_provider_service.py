@@ -413,6 +413,14 @@ class TestModelProviderServiceDeleteProvider:
         with pytest.raises(ValueError, match='Cannot delete provider: Rerank models'):
             await service.delete_provider('provider-with-rerank')
 
+    async def test_delete_provider_builtin_raises_error(self):
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        service = ModelProviderService(ap)
+
+        with pytest.raises(ValueError, match='built-in provider'):
+            await service.delete_provider('lnp-openai')
+
     async def test_delete_provider_no_models_success(self):
         """Deletes provider when no models reference it."""
         # Setup

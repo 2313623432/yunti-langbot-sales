@@ -20,6 +20,7 @@ from langbot.pkg.api.http.service.task_assistant import (
     TASK_ASSISTANT_TTS_VOICE_TYPE,
     TaskAssistantService,
     YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
+    YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID,
 )
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
 from tests.factories.message import image_chain, text_chain, voice_query
@@ -931,6 +932,68 @@ def test_enhanced_yuanfudao_template_loads_spreadsheet_business_content():
     assert template['stop_policy']['explicit_rejection_threshold'] == 2
 
 
+def test_yuanfudao_enhanced_template_links_knowledge_base():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    template = config['template_config']
+
+    assert YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID in template['knowledge_base_uuids']
+    assert template['tools']['knowledge_base'] is True
+    assert config['ai']['local-agent']['knowledge-bases'] == [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
+
+
+def test_yuanfudao_template_refresh_ignores_legacy_source_materials():
+    service = TaskAssistantService(SimpleNamespace())
+    stale_overrides = {
+        'source_materials': [
+            '猿辅导1天2次群发SOP.xlsx',
+            '猿辅导课程问答整理.xlsx',
+            '猿辅导自然拼读常见问题(1).xlsx',
+        ],
+    }
+
+    config = service.build_course_sales_template_config(
+        overrides=stale_overrides,
+        template_slug='yuanfudao-enhanced',
+    )
+    source_names = '\n'.join(config['source_materials'])
+
+    assert 'yuanfudao_knowledge_index.md' in source_names
+    assert '猿辅导销售知识库索引' in source_names
+
+
+@pytest.mark.asyncio
+async def test_ensure_yuanfudao_sales_knowledge_base_inserts_record():
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(
+            execute_async=AsyncMock(side_effect=[_FirstResult(None), _FirstResult(None), _FirstResult(None), None])
+        ),
+        rag_mgr=SimpleNamespace(
+            load_knowledge_base=AsyncMock(return_value=SimpleNamespace(_on_kb_create=AsyncMock())),
+            get_knowledge_base_by_uuid=AsyncMock(return_value=None),
+            remove_knowledge_base_from_runtime=AsyncMock(),
+        ),
+        plugin_connector=SimpleNamespace(is_enable_plugin=False),
+        knowledge_service=SimpleNamespace(
+            get_files_by_knowledge_base=AsyncMock(return_value=[]),
+            _check_doc_capability=AsyncMock(),
+            store_file=AsyncMock(),
+        ),
+        storage_mgr=SimpleNamespace(storage_provider=SimpleNamespace(save=AsyncMock())),
+        logger=SimpleNamespace(warning=lambda *_: None),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_yuanfudao_sales_knowledge_base()
+
+    insert_statement = ap.persistence_mgr.execute_async.await_args_list[3].args[0]
+    params = insert_statement.compile().params
+    assert params['uuid'] == YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
+    assert params['name'] == '猿辅导销售知识库'
+    assert params['knowledge_engine_plugin_id'] == 'langbot/BuiltinRAG'
+
+
 @pytest.mark.asyncio
 async def test_enhanced_runtime_selects_reading_thinking_product_from_config():
     sales_service = _CourseOutreachSalesService(user_message_count=2)
@@ -1107,10 +1170,14 @@ def test_template_mode_active_workflow_uses_template_config_without_mutating_sav
 
 
 @pytest.mark.asyncio
-async def test_synthesize_reply_voice_uses_lark_friendly_ogg_opus_by_default():
+async def test_synthesize_reply_voice_uses_lark_friendly_ogg_opus_by_default(monkeypatch):
     logger = SimpleNamespace(warning=Mock())
     service = TaskAssistantService(SimpleNamespace(logger=logger))
-    service._request_volcengine_tts = AsyncMock(return_value='ZmFrZS1hdWRpbw==')
+    invoke_mock = AsyncMock(return_value='ZmFrZS1hdWRpbw==')
+    monkeypatch.setattr(
+        'langbot.pkg.api.http.service.task_assistant.tts_invoke.invoke_tts',
+        invoke_mock,
+    )
     query = SimpleNamespace(
         variables={'task_assistant_voice_reply': True},
         pipeline_config={
@@ -1124,15 +1191,20 @@ async def test_synthesize_reply_voice_uses_lark_friendly_ogg_opus_by_default():
     result = await service.synthesize_reply_voice(query, '下一步我带你点实名认证。')
 
     assert result == 'data:audio/ogg;base64,ZmFrZS1hdWRpbw=='
-    service._request_volcengine_tts.assert_awaited_once()
-    assert service._request_volcengine_tts.await_args.kwargs['encoding'] == 'ogg_opus'
+    invoke_mock.assert_awaited_once()
+    config = invoke_mock.await_args.args[0]
+    assert config.encoding == 'ogg_opus'
 
 
 @pytest.mark.asyncio
-async def test_synthesize_reply_voice_uses_template_voice_config_in_template_mode():
+async def test_synthesize_reply_voice_uses_template_voice_config_in_template_mode(monkeypatch):
     logger = SimpleNamespace(warning=Mock())
     service = TaskAssistantService(SimpleNamespace(logger=logger))
-    service._request_volcengine_tts = AsyncMock(return_value='ZmFrZS10ZW1wbGF0ZQ==')
+    invoke_mock = AsyncMock(return_value='ZmFrZS10ZW1wbGF0ZQ==')
+    monkeypatch.setattr(
+        'langbot.pkg.api.http.service.task_assistant.tts_invoke.invoke_tts',
+        invoke_mock,
+    )
     query = SimpleNamespace(
         variables={'task_assistant_voice_reply': True},
         pipeline_config={
@@ -1153,15 +1225,15 @@ async def test_synthesize_reply_voice_uses_template_voice_config_in_template_mod
     result = await service.synthesize_reply_voice(query, '下一步我带你点实名认证。')
 
     assert result == 'data:audio/ogg;base64,ZmFrZS10ZW1wbGF0ZQ=='
-    service._request_volcengine_tts.assert_awaited_once()
-    kwargs = service._request_volcengine_tts.await_args.kwargs
-    assert kwargs['app_id'] == 'template-app'
-    assert kwargs['token'] == 'template-token'
-    assert kwargs['voice_type'] == 'template-voice'
+    invoke_mock.assert_awaited_once()
+    config = invoke_mock.await_args.args[0]
+    assert config.app_id == 'template-app'
+    assert config.token == 'template-token'
+    assert config.voice_type == 'template-voice'
 
 
 @pytest.mark.asyncio
-async def test_synthesize_reply_voice_uses_selected_voice_model_config():
+async def test_synthesize_reply_voice_uses_selected_voice_model_config(monkeypatch):
     logger = SimpleNamespace(warning=Mock())
     voice_model = SimpleNamespace(
         uuid='voice-model-1',
@@ -1175,15 +1247,20 @@ async def test_synthesize_reply_voice_uses_selected_voice_model_config():
     )
     provider = SimpleNamespace(
         uuid='provider-1',
-        requester='volcengine',
+        requester='volcengine-tts',
         name='Volcengine',
-        api_keys=['provider-token'],
+        base_url='https://openspeech.bytedance.com',
+        api_keys=['provider-app', 'provider-token'],
     )
     persistence_mgr = SimpleNamespace(
         execute_async=AsyncMock(side_effect=[_FirstResult(voice_model), _FirstResult(provider)])
     )
     service = TaskAssistantService(SimpleNamespace(logger=logger, persistence_mgr=persistence_mgr))
-    service._request_volcengine_tts = AsyncMock(return_value='ZmFrZS12b2ljZQ==')
+    invoke_mock = AsyncMock(return_value='ZmFrZS12b2ljZQ==')
+    monkeypatch.setattr(
+        'langbot.pkg.api.http.service.task_assistant.tts_invoke.invoke_tts',
+        invoke_mock,
+    )
     query = SimpleNamespace(
         variables={'task_assistant_voice_reply': True},
         pipeline_config={
@@ -1197,17 +1274,18 @@ async def test_synthesize_reply_voice_uses_selected_voice_model_config():
     result = await service.synthesize_reply_voice(query, '下一步我带你点实名认证。')
 
     assert result == 'data:audio/wav;base64,ZmFrZS12b2ljZQ=='
-    service._request_volcengine_tts.assert_awaited_once()
-    kwargs = service._request_volcengine_tts.await_args.kwargs
-    assert kwargs['app_id'] == 'extra-app'
-    assert kwargs['token'] == 'provider-token'
-    assert kwargs['cluster'] == 'extra-cluster'
-    assert kwargs['voice_type'] == 'extra-voice'
-    assert kwargs['encoding'] == 'wav'
+    invoke_mock.assert_awaited_once()
+    config = invoke_mock.await_args.args[0]
+    assert config.app_id == 'extra-app'
+    assert config.token == 'provider-token'
+    assert config.cluster == 'extra-cluster'
+    assert config.voice_type == 'extra-voice'
+    assert config.encoding == 'wav'
+    assert config.requester == 'volcengine-tts'
 
 
 @pytest.mark.asyncio
-async def test_synthesize_reply_voice_uses_dashscope_qwen_tts_model_config():
+async def test_synthesize_reply_voice_uses_dashscope_qwen_tts_model_config(monkeypatch):
     logger = SimpleNamespace(warning=Mock())
     voice_model = SimpleNamespace(
         uuid='qwen-tts-model',
@@ -1232,7 +1310,11 @@ async def test_synthesize_reply_voice_uses_dashscope_qwen_tts_model_config():
         execute_async=AsyncMock(side_effect=[_FirstResult(voice_model), _FirstResult(provider)])
     )
     service = TaskAssistantService(SimpleNamespace(logger=logger, persistence_mgr=persistence_mgr))
-    service._request_dashscope_tts = AsyncMock(return_value='ZmFrZS1xd2VuLXR0cw==')
+    invoke_mock = AsyncMock(return_value='ZmFrZS1xd2VuLXR0cw==')
+    monkeypatch.setattr(
+        'langbot.pkg.api.http.service.task_assistant.tts_invoke.invoke_tts',
+        invoke_mock,
+    )
     query = SimpleNamespace(
         variables={'task_assistant_voice_reply': True},
         pipeline_config={
@@ -1246,13 +1328,13 @@ async def test_synthesize_reply_voice_uses_dashscope_qwen_tts_model_config():
     result = await service.synthesize_reply_voice(query, '下一步我带你点实名认证。')
 
     assert result == 'data:audio/wav;base64,ZmFrZS1xd2VuLXR0cw=='
-    service._request_dashscope_tts.assert_awaited_once()
-    kwargs = service._request_dashscope_tts.await_args.kwargs
-    assert kwargs['token'] == 'dashscope-token'
-    assert kwargs['model'] == 'qwen3-tts-flash'
-    assert kwargs['voice'] == 'Cherry'
-    assert kwargs['language_type'] == 'Chinese'
-    assert kwargs['base_url'] == provider.base_url
+    invoke_mock.assert_awaited_once()
+    config = invoke_mock.await_args.args[0]
+    assert config.token == 'dashscope-token'
+    assert config.model == 'qwen3-tts-flash'
+    assert config.voice == 'Cherry'
+    assert config.language_type == 'Chinese'
+    assert config.base_url == provider.base_url
 
 
 def test_parse_volcengine_tts_ws_audio_message_returns_audio_and_final_state():

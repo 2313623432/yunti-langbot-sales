@@ -165,6 +165,12 @@ class TestModelCategoryMatching:
         assert _matches_model_category({'abilities': ['vision', 'tts']}, 'voice') is True
         assert _matches_model_category({'abilities': ['vision']}, 'voice') is False
 
+    def test_pdf_category_requires_pdf_parse_ability(self):
+        assert _matches_model_category({'abilities': ['pdf_parse']}, 'pdf') is True
+        assert _matches_model_category({'abilities': ['pdf_parse', 'tts']}, 'pdf') is True
+        assert _matches_model_category({'abilities': ['pdf_parse']}, 'text') is False
+        assert _matches_model_category({'abilities': ['vision']}, 'pdf') is False
+
 
 class TestLLMModelsServiceGetLLMModels:
     """Tests for LLMModelsService.get_llm_models method."""
@@ -235,6 +241,55 @@ class TestLLMModelsServiceGetLLMModels:
         # Verify
         assert len(result) == 1
         assert result[0]['name'] == 'Test LLM'
+
+    async def test_get_llm_models_can_exclude_unconfigured_builtin_providers(self):
+        """Hides built-in provider models until credentials are configured."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+
+        configured_model = _create_mock_llm_model(model_uuid='configured-model', provider_uuid='user-provider')
+        builtin_model = _create_mock_llm_model(model_uuid='lnp-openai-gpt-4o', provider_uuid='lnp-openai')
+        configured_provider = _create_mock_provider(
+            provider_uuid='user-provider',
+            requester='openai-chat-completions',
+            api_keys=['user-key'],
+        )
+        builtin_provider = _create_mock_provider(
+            provider_uuid='lnp-openai',
+            name='OpenAI',
+            requester='openai-chat-completions',
+        )
+        builtin_provider.api_keys = []
+
+        mock_model_result = _create_mock_result([configured_model, builtin_model])
+        mock_provider_result = _create_mock_result([configured_provider, builtin_provider])
+
+        execute_calls = 0
+
+        async def mock_execute(_query):
+            nonlocal execute_calls
+            execute_calls += 1
+            return mock_model_result if execute_calls % 2 == 1 else mock_provider_result
+
+        ap.persistence_mgr.execute_async = AsyncMock(side_effect=mock_execute)
+        ap.persistence_mgr.serialize_model = Mock(
+            side_effect=lambda model_cls, entity: {
+                'uuid': entity.uuid,
+                'name': entity.name,
+                'provider_uuid': entity.provider_uuid if hasattr(entity, 'provider_uuid') else None,
+                'requester': entity.requester if hasattr(entity, 'requester') else None,
+                'base_url': entity.base_url if hasattr(entity, 'base_url') else None,
+                'api_keys': entity.api_keys if hasattr(entity, 'api_keys') else None,
+            }
+        )
+
+        service = LLMModelsService(ap)
+
+        all_models = await service.get_llm_models(only_configured_providers=False)
+        configured_only = await service.get_llm_models(only_configured_providers=True)
+
+        assert [model['uuid'] for model in all_models] == ['configured-model', 'lnp-openai-gpt-4o']
+        assert [model['uuid'] for model in configured_only] == ['configured-model']
 
     async def test_get_llm_models_can_exclude_space_and_system_models(self):
         """Returns only user-configured models when cloud and system models are excluded."""

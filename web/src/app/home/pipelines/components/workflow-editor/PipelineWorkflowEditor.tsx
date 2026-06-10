@@ -391,6 +391,7 @@ export default function PipelineWorkflowEditor({
       .getProviderLLMModels(undefined, {
         include_space_models: false,
         include_system_models: false,
+        only_configured_providers: true,
         model_category: 'text',
       })
       .then((resp) => setLlmModels(resp.models || []))

@@ -15,7 +15,8 @@ from xml.etree import ElementTree
 DEFAULT_SOURCE = Path(r'C:\Users\C2023\Downloads\猿辅导知识库')
 DEFAULT_OUTPUT = Path('src/langbot/resources/templates/course-sales/yuanfudao-knowledge')
 FRESHNESS_RANGE = '2024-2026'
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+IMPORTABLE_KINDS = {'markdown', 'spreadsheet', 'pdf'}
 
 
 @dataclass
@@ -27,6 +28,12 @@ class SourceFile:
     indexed: bool
     upload_ready: bool
     note: str
+
+
+def _document_storage_name(source_dir: Path, path: Path) -> str:
+    rel = path.relative_to(source_dir)
+    flattened = '__'.join(rel.parts) if len(rel.parts) > 1 else rel.name
+    return _safe_name(flattened)
 
 
 def _safe_name(name: str) -> str:
@@ -74,12 +81,12 @@ def _scan_source(source_dir: Path) -> list[SourceFile]:
             continue
         extension = path.suffix.lower()
         kind = _kind_for_extension(extension)
-        indexed = kind in {'markdown', 'spreadsheet'}
-        upload_ready = path.stat().st_size <= MAX_UPLOAD_BYTES and kind in {'markdown', 'spreadsheet', 'pdf', 'presentation'}
+        indexed = kind in IMPORTABLE_KINDS
+        upload_ready = path.stat().st_size <= MAX_UPLOAD_BYTES and kind in IMPORTABLE_KINDS
         if kind == 'video':
             note = '视频素材保留在来源清单中，不进入默认RAG文本语料。'
-        elif not upload_ready and kind in {'pdf', 'presentation', 'spreadsheet'}:
-            note = '超过前端10MB上传限制；默认用清单或表格摘录进入知识库。'
+        elif not upload_ready and kind in {'pdf', 'spreadsheet'}:
+            note = '超过前端500MB上传限制；默认用清单或表格摘录进入知识库。'
         elif indexed:
             note = '已纳入可检索文本语料。'
         else:
@@ -230,8 +237,10 @@ def build_knowledge_pack(source_dir: Path, output_dir: Path) -> dict[str, Any]:
         shutil.rmtree(output_dir)
     rag_dir = output_dir / 'rag'
     raw_md_dir = output_dir / 'raw-markdown'
+    documents_dir = output_dir / 'documents'
     rag_dir.mkdir(parents=True, exist_ok=True)
     raw_md_dir.mkdir(parents=True, exist_ok=True)
+    documents_dir.mkdir(parents=True, exist_ok=True)
 
     source_files = _scan_source(source_dir)
     markdown_sections: list[str] = [
@@ -248,8 +257,23 @@ def build_knowledge_pack(source_dir: Path, output_dir: Path) -> dict[str, Any]:
     ]
 
     copied_markdown: list[str] = []
+    document_files: list[dict[str, Any]] = []
     spreadsheet_previews: dict[str, Any] = {}
     for item in source_files:
+        if item.upload_ready and item.kind in IMPORTABLE_KINDS:
+            storage_name = _document_storage_name(source_dir, item.path)
+            target = documents_dir / storage_name
+            shutil.copy2(item.path, target)
+            document_files.append(
+                {
+                    'path': f'documents/{storage_name}',
+                    'source_name': item.path.name,
+                    'storage_name': storage_name,
+                    'kind': item.kind,
+                    'category': item.category,
+                    'size_bytes': item.path.stat().st_size,
+                }
+            )
         if item.kind == 'markdown':
             safe_name = _safe_name(item.path.name)
             target = raw_md_dir / safe_name
@@ -330,6 +354,7 @@ def build_knowledge_pack(source_dir: Path, output_dir: Path) -> dict[str, Any]:
         'total_files': len(source_files),
         'files': files_payload,
         'copied_markdown': copied_markdown,
+        'document_files': document_files,
         'spreadsheet_previews': spreadsheet_previews,
     }
 
@@ -341,7 +366,7 @@ def build_knowledge_pack(source_dir: Path, output_dir: Path) -> dict[str, Any]:
         f'- 文件总数：{len(source_files)}',
         f'- Markdown：{sum(1 for item in source_files if item.kind == "markdown")}',
         f'- Excel：{sum(1 for item in source_files if item.kind == "spreadsheet")}',
-        f'- PDF/PPT：{sum(1 for item in source_files if item.kind in {"pdf", "presentation"})}',
+        f'- PDF：{sum(1 for item in source_files if item.kind == "pdf")}',
         f'- 视频：{sum(1 for item in source_files if item.kind == "video")}（默认不入RAG文本语料）',
         '',
         '## 推荐上传到前端知识库的文件',
@@ -365,15 +390,18 @@ def build_knowledge_pack(source_dir: Path, output_dir: Path) -> dict[str, Any]:
         '',
         '这个目录由 `scripts/build_yuanfudao_knowledge.py` 从飞书导出的资料包生成。',
         '',
-        '## 前端知识库导入',
+        '## 自动导入到知识库文档',
         '',
-        '优先上传 `rag/` 目录下 3 个 Markdown 文件：',
+        f'- `documents/` 目录包含 {len(document_files)} 个可导入文件（Markdown / Excel / PDF，不含视频与 PPT）。',
+        '- 后端启动时会自动把这些文件导入「猿辅导销售知识库」。',
         '',
-        '- `yuanfudao_knowledge_index.md`',
-        '- `yuanfudao_markdown_corpus.md`',
-        '- `yuanfudao_spreadsheet_catalog.md`',
+        '## 聚合检索语料',
         '',
-        '原始视频和超大表格/PDF 不进入默认 RAG 语料；如需要逐个查看，回到下载目录的原始资料。',
+        '- `rag/yuanfudao_knowledge_index.md`',
+        '- `rag/yuanfudao_markdown_corpus.md`',
+        '- `rag/yuanfudao_spreadsheet_catalog.md`',
+        '',
+        '原始视频和超过 500MB 的文件不会进入知识库文档；如需要逐个查看，回到下载目录的原始资料。',
         '',
         '## 时效规则',
         '',
@@ -385,6 +413,7 @@ def build_knowledge_pack(source_dir: Path, output_dir: Path) -> dict[str, Any]:
 
     return {
         'total_files': len(source_files),
+        'document_files': len(document_files),
         'output_dir': str(output_dir),
         'rag_files': manifest['knowledge_base']['rag_files'],
     }

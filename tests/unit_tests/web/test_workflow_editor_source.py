@@ -21,6 +21,7 @@ SIDEBAR_CONFIG_PATH = Path('web/src/app/home/components/home-sidebar/sidbarConfi
 ROUTER_PATH = Path('web/src/router.tsx')
 ADD_MODEL_POPOVER_PATH = Path('web/src/app/home/components/models-dialog/components/AddModelPopover.tsx')
 MODEL_ITEM_PATH = Path('web/src/app/home/components/models-dialog/components/ModelItem.tsx')
+MODELS_DIALOG_PATH = Path('web/src/app/home/components/models-dialog/ModelsDialog.tsx')
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -170,6 +171,16 @@ def test_template_model_capability_uses_configured_llm_model_select():
     assert '最大思考次数' not in template_source
     assert 'max_reasoning_steps' not in template_source
     assert 'value={config.model_uuid}' not in template_source
+
+
+def test_models_dialog_includes_pdf_parsing_category():
+    source = MODELS_DIALOG_PATH.read_text(encoding='utf-8')
+
+    assert "models.pdfCategory" in source
+    assert "models.pdfParseAbility" in source
+    assert "'pdf'" in source
+    assert 'pdf_parse' in source
+    assert 'FileText' in source
 
 
 def test_model_configuration_can_mark_llm_models_as_tts_capable():
@@ -534,3 +545,16 @@ def test_workflow_answer_pipeline_form_uses_library_workflow_selection():
     assert '角色设定</CardTitle>' not in source
     assert '选择工作流</CardTitle>' not in source
     assert '请选择工作流' not in source
+
+
+def test_models_dialog_exposes_embedding_category():
+    source = MODELS_DIALOG_PATH.read_text(encoding='utf-8')
+    popover_source = ADD_MODEL_POPOVER_PATH.read_text(encoding='utf-8')
+
+    assert "'embedding'" in source or '"embedding"' in source
+    assert 'models.embeddingCategory' in source
+    assert 'renderEmbeddingModelItem' in source
+    assert 'providerBelongsToCategory' in source
+    assert 'handleDeleteProvider' in source
+    assert 'lockedModelType' in popover_source
+    assert 'defaultModelType' in popover_source

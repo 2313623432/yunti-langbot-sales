@@ -135,8 +135,18 @@ export interface PipelineTemplateStopPolicy {
   immediate_stop_keywords: string[];
 }
 
+export interface PipelineTemplateKnowledgePack {
+  path?: string;
+  freshness_range?: string;
+  answering_rule?: string;
+}
+
 export interface PipelineTemplateConfig {
   name: string;
+  metadata?: {
+    knowledge_pack?: PipelineTemplateKnowledgePack;
+    [key: string]: unknown;
+  };
   role_prompt: string;
   opening_message: string;
   recommended_questions: string[];

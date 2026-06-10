@@ -4,6 +4,7 @@ import sqlalchemy
 
 from ....core import app
 from ....entity.persistence import rag as persistence_rag
+from ....rag.knowledge import builtin_engine
 
 
 class KnowledgeService:
@@ -71,7 +72,10 @@ class KnowledgeService:
         """
         # Validate creation_schema
         try:
-            creation_schema = await self.ap.plugin_connector.get_rag_creation_schema(plugin_id)
+            if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+                creation_schema = builtin_engine.get_builtin_creation_schema()
+            else:
+                creation_schema = await self.ap.plugin_connector.get_rag_creation_schema(plugin_id)
             self._check_required_fields(creation_schema, creation_settings, 'creation_settings')
         except ValueError:
             raise
@@ -80,7 +84,10 @@ class KnowledgeService:
 
         # Validate retrieval_schema
         try:
-            retrieval_schema = await self.ap.plugin_connector.get_rag_retrieval_schema(plugin_id)
+            if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+                retrieval_schema = builtin_engine.get_builtin_retrieval_schema()
+            else:
+                retrieval_schema = await self.ap.plugin_connector.get_rag_retrieval_schema(plugin_id)
             self._check_required_fields(retrieval_schema, retrieval_settings, 'retrieval_settings')
         except ValueError:
             raise
@@ -276,7 +283,7 @@ class KnowledgeService:
 
     async def list_knowledge_engines(self) -> list[dict]:
         """List all available Knowledge Engines from plugins."""
-        engines = []
+        engines = [builtin_engine.get_builtin_engine_info()]
 
         if not self.ap.plugin_connector.is_enable_plugin:
             return engines
@@ -305,6 +312,8 @@ class KnowledgeService:
 
     async def get_engine_creation_schema(self, plugin_id: str) -> dict:
         """Get creation settings schema for a specific Knowledge Engine."""
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            return {'schema': builtin_engine.get_builtin_creation_schema()}
         try:
             return await self.ap.plugin_connector.get_rag_creation_schema(plugin_id)
         except Exception as e:
@@ -313,6 +322,8 @@ class KnowledgeService:
 
     async def get_engine_retrieval_schema(self, plugin_id: str) -> dict:
         """Get retrieval settings schema for a specific Knowledge Engine."""
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            return {'schema': builtin_engine.get_builtin_retrieval_schema()}
         try:
             return await self.ap.plugin_connector.get_rag_retrieval_schema(plugin_id)
         except Exception as e:

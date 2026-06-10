@@ -67,7 +67,7 @@ class FilesRouterGroup(group.RouterGroup):
             # Check file size limit before reading the file
             content_length = request.content_length
             if content_length and content_length > group.MAX_FILE_SIZE:
-                return self.fail(400, 'Image size exceeds 10MB limit.')
+                return self.fail(400, 'Image size exceeds 500MB limit.')
 
             # get file bytes from 'file'
             files = await request.files
@@ -81,7 +81,7 @@ class FilesRouterGroup(group.RouterGroup):
 
             # Double-check actual file size after reading
             if len(file_bytes) > group.MAX_FILE_SIZE:
-                return self.fail(400, 'Image size exceeds 10MB limit.')
+                return self.fail(400, 'Image size exceeds 500MB limit.')
 
             # Validate image file extension
             allowed_extensions = {'jpg', 'jpeg', 'png', 'gif', 'webp'}
@@ -115,7 +115,7 @@ class FilesRouterGroup(group.RouterGroup):
             # Check file size limit before reading the file
             content_length = request.content_length
             if content_length and content_length > group.MAX_FILE_SIZE:
-                return self.fail(400, 'File size exceeds 10MB limit. Please split large files into smaller parts.')
+                return self.fail(400, 'File size exceeds 500MB limit. Please split large files into smaller parts.')
 
             # get file bytes from 'file'
             files = await request.files
@@ -129,7 +129,7 @@ class FilesRouterGroup(group.RouterGroup):
 
             # Double-check actual file size after reading
             if len(file_bytes) > group.MAX_FILE_SIZE:
-                return self.fail(400, 'File size exceeds 10MB limit. Please split large files into smaller parts.')
+                return self.fail(400, 'File size exceeds 500MB limit. Please split large files into smaller parts.')
 
             # Split filename and extension properly
             if '.' in file.filename:

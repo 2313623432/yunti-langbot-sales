@@ -8,6 +8,7 @@ from langbot_plugin.api.entities.builtin.provider import message as provider_mes
 from ....core import app
 from ....entity.persistence import model as persistence_model
 from ....entity.persistence import pipeline as persistence_pipeline
+from ....provider.modelmgr import builtin_registry
 from ....provider.modelmgr import requester as model_requester
 
 
@@ -22,6 +23,13 @@ def _is_voice_only_model(model_data: dict) -> bool:
     return 'tts' in abilities and all(ability == 'tts' for ability in abilities)
 
 
+def _is_pdf_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'pdf_parse' in abilities and all(ability == 'pdf_parse' for ability in abilities)
+
+
 def _matches_model_category(model_data: dict, model_category: str | None) -> bool:
     if model_category in (None, '', 'all'):
         return True
@@ -30,8 +38,10 @@ def _matches_model_category(model_data: dict, model_category: str | None) -> boo
         abilities = []
     if model_category == 'voice':
         return 'tts' in abilities
+    if model_category == 'pdf':
+        return 'pdf_parse' in abilities
     if model_category == 'text':
-        return not _is_voice_only_model(model_data)
+        return not _is_voice_only_model(model_data) and not _is_pdf_only_model(model_data)
     return True
 
 
@@ -45,6 +55,11 @@ def _parse_provider_api_keys(provider_dict: dict) -> dict:
         except Exception:
             provider_dict['api_keys'] = []
     return provider_dict
+
+
+def _provider_is_configured_for_selection(provider_dict: dict) -> bool:
+    enriched_provider = builtin_registry.enrich_provider_dict(dict(provider_dict))
+    return builtin_registry.is_provider_configured(enriched_provider)
 
 
 def _runtime_model_data(model_uuid: str, model_data: dict) -> dict:
@@ -69,6 +84,7 @@ class LLMModelsService:
         include_secret: bool = True,
         include_space_models: bool = True,
         include_system_models: bool = True,
+        only_configured_providers: bool = False,
         model_category: str | None = None,
     ) -> list[dict]:
         """Get all LLM models with provider info"""
@@ -91,11 +107,16 @@ class LLMModelsService:
             if not _matches_model_category(model_dict, model_category):
                 continue
             provider = providers.get(model.provider_uuid)
-            if provider:
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
                 if not include_space_models and provider.requester == 'space-chat-completions':
                     continue
                 provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
                 provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
                 if not include_secret:
                     provider_dict['api_keys'] = ['***'] * len(provider_dict.get('api_keys', []))
                 model_dict['provider'] = provider_dict
@@ -151,7 +172,7 @@ class LLMModelsService:
         )
         self.ap.model_mgr.llm_models.append(runtime_llm_model)
 
-        if auto_set_to_default_pipeline and not _is_voice_only_model(model_data):
+        if auto_set_to_default_pipeline and not _is_voice_only_model(model_data) and not _is_pdf_only_model(model_data):
             # set the default pipeline model to this model
             result = await self.ap.persistence_mgr.execute_async(
                 sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
@@ -269,7 +290,7 @@ class EmbeddingModelsService:
     def __init__(self, ap: app.Application) -> None:
         self.ap = ap
 
-    async def get_embedding_models(self) -> list[dict]:
+    async def get_embedding_models(self, only_configured_providers: bool = False) -> list[dict]:
         """Get all embedding models with provider info"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.EmbeddingModel))
         models = result.all()
@@ -283,9 +304,15 @@ class EmbeddingModelsService:
         for model in models:
             model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, model)
             provider = providers.get(model.provider_uuid)
-            if provider:
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
                 provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
-                model_dict['provider'] = _parse_provider_api_keys(provider_dict)
+                provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
+                model_dict['provider'] = provider_dict
             models_list.append(model_dict)
 
         return models_list
@@ -429,7 +456,7 @@ class RerankModelsService:
     def __init__(self, ap: app.Application) -> None:
         self.ap = ap
 
-    async def get_rerank_models(self) -> list[dict]:
+    async def get_rerank_models(self, only_configured_providers: bool = False) -> list[dict]:
         """Get all rerank models with provider info"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.RerankModel))
         models = result.all()
@@ -443,9 +470,15 @@ class RerankModelsService:
         for model in models:
             model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.RerankModel, model)
             provider = providers.get(model.provider_uuid)
-            if provider:
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
                 provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
-                model_dict['provider'] = _parse_provider_api_keys(provider_dict)
+                provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
+                model_dict['provider'] = provider_dict
             models_list.append(model_dict)
 
         return models_list

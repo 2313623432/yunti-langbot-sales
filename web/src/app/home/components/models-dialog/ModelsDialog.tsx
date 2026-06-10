@@ -3,12 +3,15 @@ import {
   Plus,
   MessageSquareText,
   Volume2,
+  Cpu,
+  FileText,
   Settings,
   KeyRound,
   Link2,
+  Trash2,
 } from 'lucide-react';
 import { httpClient, systemInfo } from '@/app/infra/http/HttpClient';
-import { LLMModel, ModelProvider } from '@/app/infra/entities/api';
+import { EmbeddingModel, LLMModel, ModelProvider } from '@/app/infra/entities/api';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +21,11 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import ProviderForm from './component/provider-form/ProviderForm';
@@ -32,6 +40,11 @@ import {
   LANGBOT_MODELS_PROVIDER_REQUESTER,
 } from './types';
 import { CustomApiError } from '@/app/infra/entities/common';
+import { providerRequestUrl } from './providerRequestUrl';
+import {
+  getProtocolLabelKey,
+  resolveProviderProtocol,
+} from './protocolUtils';
 
 interface ModelsDialogProps {
   open: boolean;
@@ -108,11 +121,18 @@ export default function ModelsDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
-  const [modelCategory, setModelCategory] = useState<'text' | 'voice'>('text');
+  const [modelCategory, setModelCategory] = useState<'text' | 'voice' | 'embedding' | 'pdf'>(
+    'text',
+  );
   const [selectedProviderUuid, setSelectedProviderUuid] = useState<string | null>(
     null,
   );
   const [addModelMode, setAddModelMode] = useState<'manual' | 'scan'>('manual');
+  const [requesterSupportTypes, setRequesterSupportTypes] = useState<
+    Record<string, string[]>
+  >({});
+  const [deleteProviderConfirmOpen, setDeleteProviderConfirmOpen] =
+    useState(false);
 
   // Separate LangBot Models provider (hide when models service is disabled)
   const langbotProvider = systemInfo.disable_models_service
@@ -120,9 +140,14 @@ export default function ModelsDialog({
     : providers.find((p) => p.requester === LANGBOT_MODELS_PROVIDER_REQUESTER);
   const otherProviders = useMemo(
     () =>
-      providers.filter(
-        (p) => p.requester !== LANGBOT_MODELS_PROVIDER_REQUESTER,
-      ),
+      providers
+        .filter((p) => p.requester !== LANGBOT_MODELS_PROVIDER_REQUESTER)
+        .sort((a, b) => {
+          const aOrder = a.is_builtin ? (a.sort_order ?? 999) : 10_000;
+          const bOrder = b.is_builtin ? (b.sort_order ?? 999) : 10_000;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return a.name.localeCompare(b.name);
+        }),
     [providers],
   );
   const displayProviders = useMemo(
@@ -130,19 +155,11 @@ export default function ModelsDialog({
       langbotProvider ? [langbotProvider, ...otherProviders] : otherProviders,
     [langbotProvider, otherProviders],
   );
-  const hasLoadedProviderModels = displayProviders.some(
-    (provider) => providerModels[provider.uuid],
-  );
   const categoryProviders = useMemo(() => {
-    if (!hasLoadedProviderModels) {
-      return displayProviders;
-    }
-    return displayProviders.filter((provider) => {
-      const models = providerModels[provider.uuid];
-      if (!models) return true;
-      return getModelsForCategory(provider).length > 0;
-    });
-  }, [displayProviders, hasLoadedProviderModels, providerModels, modelCategory]);
+    return displayProviders.filter((provider) =>
+      providerBelongsToCategory(provider, modelCategory),
+    );
+  }, [displayProviders, providerModels, modelCategory, requesterSupportTypes]);
   const selectedProvider =
     categoryProviders.find((provider) => provider.uuid === selectedProviderUuid) ||
     categoryProviders[0];
@@ -153,12 +170,20 @@ export default function ModelsDialog({
     selectedModels?.llm.filter((model) => !isVoiceOnlyModel(model)) || [];
   const selectedVoiceModels =
     selectedModels?.llm.filter((model) => model.abilities?.includes('tts')) || [];
-  const visibleModels =
-    modelCategory === 'voice' ? selectedVoiceModels : selectedTextModels;
+  const selectedEmbeddingModels = selectedModels?.embedding || [];
+  const selectedPdfModels =
+    selectedModels?.llm.filter((model) => model.abilities?.includes('pdf_parse')) || [];
+  const visibleLlmModels =
+    modelCategory === 'voice'
+      ? selectedVoiceModels
+      : modelCategory === 'pdf'
+        ? selectedPdfModels
+        : selectedTextModels;
 
   useEffect(() => {
     if (open) {
       loadProviders();
+      loadRequesterSupportTypes();
     }
   }, [open]);
 
@@ -193,6 +218,22 @@ export default function ModelsDialog({
     } catch (err) {
       console.error('Failed to load providers', err);
       toast.error(t('models.loadError'));
+    }
+  }
+
+  async function loadRequesterSupportTypes() {
+    try {
+      const resp = await httpClient.getProviderRequesters();
+      const supportMap: Record<string, string[]> = {};
+      resp.requesters.forEach((requester) => {
+        const supportType = (
+          requester.spec as { support_type?: string[] }
+        ).support_type;
+        supportMap[requester.name] = supportType || [];
+      });
+      setRequesterSupportTypes(supportMap);
+    } catch (err) {
+      console.error('Failed to load requester support types', err);
     }
   }
 
@@ -233,6 +274,109 @@ export default function ModelsDialog({
   function handleEditProvider(providerId: string) {
     setEditingProviderId(providerId);
     setProviderFormOpen(true);
+  }
+
+  function requesterSupportsCategory(
+    requester: string,
+    category: 'text' | 'voice' | 'embedding' | 'pdf',
+  ) {
+    const supportTypes = requesterSupportTypes[requester] || [];
+    if (category === 'embedding') {
+      return supportTypes.includes('text-embedding');
+    }
+    if (category === 'pdf') {
+      return supportTypes.includes('pdf-parse');
+    }
+    return supportTypes.includes('llm');
+  }
+
+  function isPdfOnlyModel(model: LLMModel) {
+    const abilities = model.abilities || [];
+    return (
+      abilities.includes('pdf_parse') &&
+      abilities.every((ability) => ability === 'pdf_parse')
+    );
+  }
+
+  function providerHasAnyModels(provider: ModelProvider) {
+    const models = providerModels[provider.uuid];
+    if (models) {
+      return (
+        models.llm.length > 0 ||
+        models.embedding.length > 0 ||
+        models.rerank.length > 0
+      );
+    }
+    return (
+      (provider.llm_count || 0) > 0 ||
+      (provider.embedding_count || 0) > 0 ||
+      (provider.rerank_count || 0) > 0
+    );
+  }
+
+  function canDeleteProvider(provider: ModelProvider) {
+    if (provider.is_builtin) {
+      return false;
+    }
+    if (provider.requester === LANGBOT_MODELS_PROVIDER_REQUESTER) {
+      return false;
+    }
+    return !providerHasAnyModels(provider);
+  }
+
+  function providerBelongsToCategory(
+    provider: ModelProvider,
+    category: 'text' | 'voice' | 'embedding' | 'pdf',
+  ) {
+    const models = providerModels[provider.uuid];
+    if (models) {
+      if (getModelsForCategory(provider, category).length > 0) {
+        return true;
+      }
+      const totalModels =
+        models.llm.length + models.embedding.length + models.rerank.length;
+      if (totalModels === 0) {
+        return requesterSupportsCategory(provider.requester, category);
+      }
+      return false;
+    }
+
+    if (category === 'embedding') {
+      return (
+        (provider.embedding_count || 0) > 0 ||
+        (!providerHasAnyModels(provider) &&
+          requesterSupportsCategory(provider.requester, category))
+      );
+    }
+    if (category === 'voice' || category === 'pdf') {
+      return (provider.llm_count || 0) > 0;
+    }
+    return (
+      (provider.llm_count || 0) > 0 ||
+      (!providerHasAnyModels(provider) &&
+        requesterSupportsCategory(provider.requester, category))
+    );
+  }
+
+  async function handleDeleteProvider(providerUuid: string) {
+    try {
+      await httpClient.deleteModelProvider(providerUuid);
+      toast.success(t('models.providerDeleted'));
+      setDeleteProviderConfirmOpen(false);
+      setProviderModels((prev) => {
+        const next = { ...prev };
+        delete next[providerUuid];
+        return next;
+      });
+      if (selectedProviderUuid === providerUuid) {
+        setSelectedProviderUuid(null);
+      }
+      await loadProviders();
+    } catch (err) {
+      toast.error(
+        t('models.providerDeleteError') + (err as CustomApiError).msg,
+      );
+    }
   }
 
   async function handleAddModel(
@@ -483,35 +627,119 @@ export default function ModelsDialog({
   }
 
   function maskApiKey(key?: string) {
-    if (!key) return '未配置';
+    if (!key) return t('models.apiKeyNotConfigured');
     if (key.length <= 8) return '****';
     return `${key.slice(0, 4)}...${key.slice(-4)}`;
   }
 
-  function providerRequestUrl(provider: ModelProvider) {
-    const baseUrl = provider.base_url || '';
-    if (!baseUrl) return '-';
-    if (modelCategory === 'voice') {
-      return baseUrl;
-    }
-    return baseUrl.replace(/\/$/, '').endsWith('/v1')
-      ? `${baseUrl.replace(/\/$/, '')}/chat/completions`
-      : baseUrl;
+  function getProviderRequestUrl(provider: ModelProvider) {
+    return providerRequestUrl(
+      modelCategory,
+      provider.requester || '',
+      provider.base_url || '',
+    );
+  }
+
+  function categoryConfigTitle() {
+    if (modelCategory === 'voice') return t('models.voiceConfigTitle');
+    if (modelCategory === 'embedding') return t('models.embeddingConfigTitle');
+    if (modelCategory === 'pdf') return t('models.pdfConfigTitle');
+    return t('models.textConfigTitle');
+  }
+
+  function categoryListTitle() {
+    if (modelCategory === 'voice') return t('models.voiceListTitle');
+    if (modelCategory === 'embedding') return t('models.embeddingListTitle');
+    if (modelCategory === 'pdf') return t('models.pdfListTitle');
+    return t('models.textListTitle');
+  }
+
+  function categoryListHint() {
+    if (modelCategory === 'voice') return t('models.voiceListHint');
+    if (modelCategory === 'embedding') return t('models.embeddingListHint');
+    if (modelCategory === 'pdf') return t('models.pdfListHint');
+    return t('models.textListHint');
+  }
+
+  function categoryEmptyHint() {
+    if (modelCategory === 'voice') return t('models.noVoiceModels');
+    if (modelCategory === 'embedding') return t('models.noEmbeddingModels');
+    if (modelCategory === 'pdf') return t('models.noPdfModels');
+    return t('models.noModels');
   }
 
   function relevantModelCount(provider: ModelProvider) {
     const models = providerModels[provider.uuid];
-    if (!models) return provider.llm_count || 0;
-    return getModelsForCategory(provider).length;
+    if (!models) {
+      if (modelCategory === 'embedding') return provider.embedding_count || 0;
+      if (modelCategory === 'voice' || modelCategory === 'pdf') return provider.llm_count || 0;
+      return provider.llm_count || 0;
+    }
+    return getModelsForCategory(provider, modelCategory).length;
   }
 
-  function getModelsForCategory(provider: ModelProvider) {
+  function getModelsForCategory(
+    provider: ModelProvider,
+    category: 'text' | 'voice' | 'embedding' | 'pdf' = modelCategory,
+  ) {
     const models = providerModels[provider.uuid];
     if (!models) return [];
-    if (modelCategory === 'voice') {
+    if (category === 'embedding') {
+      return models.embedding;
+    }
+    if (category === 'voice') {
       return models.llm.filter((model) => model.abilities?.includes('tts'));
     }
-    return models.llm.filter((model) => !isVoiceOnlyModel(model));
+    if (category === 'pdf') {
+      return models.llm.filter((model) => model.abilities?.includes('pdf_parse'));
+    }
+    return models.llm.filter((model) => !isVoiceOnlyModel(model) && !isPdfOnlyModel(model));
+  }
+
+  function renderEmbeddingModelItem(model: EmbeddingModel) {
+    if (!selectedProvider) return null;
+    return (
+      <ModelItem
+        key={model.uuid}
+        model={model}
+        modelType="embedding"
+        isLangBotModels={
+          selectedProvider.requester === LANGBOT_MODELS_PROVIDER_REQUESTER
+        }
+        editModelPopoverOpen={editModelPopoverOpen}
+        deleteConfirmOpen={deleteConfirmOpen}
+        onOpenEditModel={(modelId) => setEditModelPopoverOpen(modelId)}
+        onCloseEditModel={() => setEditModelPopoverOpen(null)}
+        onOpenDeleteConfirm={(modelId) => setDeleteConfirmOpen(modelId)}
+        onCloseDeleteConfirm={() => setDeleteConfirmOpen(null)}
+        onDeleteModel={() =>
+          handleDeleteModel(selectedProvider.uuid, model.uuid, 'embedding')
+        }
+        onUpdateModel={(name, _abilities, extraArgs) =>
+          handleUpdateModel(
+            selectedProvider.uuid,
+            model.uuid,
+            'embedding',
+            name,
+            [],
+            extraArgs,
+          )
+        }
+        onTestModel={(name, _abilities, extraArgs) =>
+          handleTestModel(
+            selectedProvider.uuid,
+            name,
+            'embedding',
+            [],
+            extraArgs,
+          )
+        }
+        isSubmitting={isSubmitting}
+        isTesting={isTesting}
+        testResult={testResult}
+        onResetTestResult={() => setTestResult(null)}
+      />
+    );
   }
 
   function renderModelItem(model: LLMModel) {
@@ -574,8 +802,10 @@ export default function ModelsDialog({
           <div className="grid min-h-0 flex-1 grid-cols-[12rem_15rem_minmax(0,1fr)]">
             <aside className="border-r bg-slate-50/60 p-3">
               {[
-                { key: 'text' as const, label: '文本模型', icon: MessageSquareText },
-                { key: 'voice' as const, label: '语音合成', icon: Volume2 },
+                { key: 'text' as const, label: t('models.textCategory'), icon: MessageSquareText },
+                { key: 'embedding' as const, label: t('models.embeddingCategory'), icon: Cpu },
+                { key: 'voice' as const, label: t('models.voiceCategory'), icon: Volume2 },
+                { key: 'pdf' as const, label: t('models.pdfCategory'), icon: FileText },
               ].map((item) => {
                 const Icon = item.icon;
                 const active = modelCategory === item.key;
@@ -627,7 +857,9 @@ export default function ModelsDialog({
                           {provider.name}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {relevantModelCount(provider)} 个模型
+                          {t('models.modelsCount', {
+                            count: relevantModelCount(provider),
+                          })}
                         </div>
                       </div>
                     </button>
@@ -660,18 +892,86 @@ export default function ModelsDialog({
                         <div className="truncate text-xl font-semibold text-slate-950">
                           {selectedProvider.name}
                         </div>
-                        <div className="text-sm text-muted-foreground">
-                          {modelCategory === 'voice' ? '语音合成配置' : '文本模型配置'}
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                          <span>{categoryConfigTitle()}</span>
+                          <Badge variant="outline" className="font-normal">
+                            {t(
+                              getProtocolLabelKey(
+                                resolveProviderProtocol(selectedProvider),
+                              ),
+                            )}
+                          </Badge>
                         </div>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleEditProvider(selectedProvider.uuid)}
-                    >
-                      <Settings className="size-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {selectedProvider.is_builtin && (
+                        <Badge variant="secondary" className="mr-1">
+                          {t('models.builtinProvider')}
+                        </Badge>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleEditProvider(selectedProvider.uuid)}
+                      >
+                        <Settings className="size-4" />
+                      </Button>
+                      {selectedProvider.requester !==
+                        LANGBOT_MODELS_PROVIDER_REQUESTER &&
+                        !selectedProvider.is_builtin && (
+                        canDeleteProvider(selectedProvider) ? (
+                          <Popover
+                            open={deleteProviderConfirmOpen}
+                            onOpenChange={setDeleteProviderConfirmOpen}
+                          >
+                            <PopoverTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <Trash2 className="size-4 text-destructive" />
+                              </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-64" align="end">
+                              <div className="space-y-3">
+                                <p className="text-sm">
+                                  {t('models.deleteProviderConfirmation')}
+                                </p>
+                                <div className="flex justify-end gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      setDeleteProviderConfirmOpen(false)
+                                    }
+                                  >
+                                    {t('common.cancel')}
+                                  </Button>
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleDeleteProvider(selectedProvider.uuid)
+                                    }
+                                  >
+                                    {t('common.delete')}
+                                  </Button>
+                                </div>
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            title={t('models.providerDeleteBlocked')}
+                            onClick={() =>
+                              toast.error(t('models.providerDeleteBlocked'))
+                            }
+                          >
+                            <Trash2 className="size-4 text-muted-foreground" />
+                          </Button>
+                        )
+                      )}
+                    </div>
                   </div>
 
                   <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
@@ -679,7 +979,10 @@ export default function ModelsDialog({
                       <div>
                         <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                           <KeyRound className="size-4 text-muted-foreground" />
-                          API 密钥
+                          {t('models.apiKey')}
+                          {selectedProvider.api_key_required !== false && (
+                            <span className="text-red-500">*</span>
+                          )}
                         </div>
                         <div className="flex h-10 items-center rounded-md border bg-slate-50 px-3 text-sm text-muted-foreground">
                           {maskApiKey(selectedProvider.api_keys?.[0])}
@@ -688,7 +991,7 @@ export default function ModelsDialog({
                       <div>
                         <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                           <Link2 className="size-4 text-muted-foreground" />
-                          接口地址
+                          {t('models.modelBaseURL')}
                         </div>
                         <div className="flex min-h-10 items-center rounded-md border bg-slate-50 px-3 py-2 text-sm text-muted-foreground">
                           <span className="break-all">{selectedProvider.base_url || '-'}</span>
@@ -698,10 +1001,10 @@ export default function ModelsDialog({
 
                     <div className="mt-3 text-xs leading-5 text-muted-foreground">
                       <span className="rounded bg-violet-100 px-1 font-medium text-violet-700">
-                        请求地址
+                        {t('models.requestURL')}
                       </span>
                       <span className="ml-1 break-all">
-                        {providerRequestUrl(selectedProvider)}
+                        {getProviderRequestUrl(selectedProvider)}
                       </span>
                     </div>
 
@@ -709,12 +1012,10 @@ export default function ModelsDialog({
                       <div className="mb-3 flex items-center justify-between">
                         <div>
                           <h3 className="text-base font-semibold text-slate-950">
-                            {modelCategory === 'voice' ? '语音模型' : '文本模型'}
+                            {categoryListTitle()}
                           </h3>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {modelCategory === 'voice'
-                              ? '只展示已勾选语音合成能力的模型。'
-                              : '只展示可用于对话和视觉理解的文本模型。'}
+                            {categoryListHint()}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -724,6 +1025,12 @@ export default function ModelsDialog({
                               addModelMode === 'manual'
                             }
                             initialMode="manual"
+                            defaultModelType={
+                              modelCategory === 'embedding' ? 'embedding' : 'llm'
+                            }
+                            lockedModelType={
+                              modelCategory === 'embedding' ? 'embedding' : undefined
+                            }
                             trigger={
                               <Button
                                 variant="outline"
@@ -731,7 +1038,7 @@ export default function ModelsDialog({
                                 onClick={() => setAddModelMode('manual')}
                               >
                                 <Plus className="mr-1 size-4" />
-                                新建模型
+                                {t('models.addModel')}
                               </Button>
                             }
                             onOpen={() => {
@@ -746,7 +1053,9 @@ export default function ModelsDialog({
                                 name,
                                 modelCategory === 'voice'
                                   ? Array.from(new Set([...abilities, 'tts']))
-                                  : abilities,
+                                  : modelCategory === 'pdf'
+                                    ? Array.from(new Set([...abilities, 'pdf_parse']))
+                                    : abilities,
                                 extraArgs,
                               )
                             }
@@ -777,20 +1086,37 @@ export default function ModelsDialog({
                         <p className="rounded-md border py-8 text-center text-sm text-muted-foreground">
                           {t('common.loading')}...
                         </p>
-                      ) : visibleModels.length > 0 ? (
+                      ) : modelCategory === 'embedding' ? (
+                        selectedEmbeddingModels.length > 0 ? (
+                          <div className="space-y-2">
+                            {selectedEmbeddingModels.map((model) =>
+                              renderEmbeddingModelItem(model),
+                            )}
+                          </div>
+                        ) : (
+                          <div className="rounded-md border border-dashed py-10 text-center">
+                            <p className="text-sm text-muted-foreground">
+                              {categoryEmptyHint()}
+                            </p>
+                          </div>
+                        )
+                      ) : visibleLlmModels.length > 0 ? (
                         <div className="space-y-2">
-                          {visibleModels.map((model) => renderModelItem(model))}
+                          {visibleLlmModels.map((model) => renderModelItem(model))}
                         </div>
                       ) : (
                         <div className="rounded-md border border-dashed py-10 text-center">
                           <p className="text-sm text-muted-foreground">
-                            {modelCategory === 'voice'
-                              ? '暂无语音模型，请新增模型并勾选语音合成。'
-                              : t('models.noModels')}
+                            {categoryEmptyHint()}
                           </p>
                           {modelCategory === 'voice' && (
                             <Badge variant="outline" className="mt-3">
                               {t('models.ttsAbility')}
+                            </Badge>
+                          )}
+                          {modelCategory === 'pdf' && (
+                            <Badge variant="outline" className="mt-3">
+                              {t('models.pdfParseAbility')}
                             </Badge>
                           )}
                         </div>
@@ -808,8 +1134,8 @@ export default function ModelsDialog({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={providerFormOpen} onOpenChange={setProviderFormOpen}>
-        <DialogContent className="w-[600px] p-6">
+      <Dialog open={providerFormOpen} onOpenChange={setProviderFormOpen} modal={false}>
+        <DialogContent className="z-[1200] w-[600px] p-6">
           <DialogHeader>
             <DialogTitle>
               {editingProviderId

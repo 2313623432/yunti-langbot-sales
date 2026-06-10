@@ -268,12 +268,13 @@ class TestListKnowledgeEngines:
         service = knowledge_module.KnowledgeService(mock_app)
         result = await service.list_knowledge_engines()
 
-        assert len(result) == 1
-        assert result[0]['id'] == 'engine1'
+        assert len(result) == 2
+        assert result[0]['plugin_id'] == 'langbot/BuiltinRAG'
+        assert result[1]['id'] == 'engine1'
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_plugin_disabled(self):
-        """Test that it returns empty list when plugin disabled."""
+        """Test that builtin engine is still available when plugins are disabled."""
         knowledge_module = get_knowledge_service_module()
         mock_app = create_mock_app()
         mock_app.plugin_connector.is_enable_plugin = False
@@ -281,7 +282,8 @@ class TestListKnowledgeEngines:
         service = knowledge_module.KnowledgeService(mock_app)
         result = await service.list_knowledge_engines()
 
-        assert result == []
+        assert len(result) == 1
+        assert result[0]['plugin_id'] == 'langbot/BuiltinRAG'
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_exception(self):
@@ -295,7 +297,8 @@ class TestListKnowledgeEngines:
         service = knowledge_module.KnowledgeService(mock_app)
         result = await service.list_knowledge_engines()
 
-        assert result == []
+        assert len(result) == 1
+        assert result[0]['plugin_id'] == 'langbot/BuiltinRAG'
         mock_app.logger.warning.assert_called_once()
 
 

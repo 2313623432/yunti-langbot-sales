@@ -13,6 +13,8 @@ from ...provider.modelmgr import modelmgr as llm_model_mgr
 from ...provider.tools import toolmgr as llm_tool_mgr
 from ...rag.knowledge import kbmgr as rag_mgr
 from ...rag.service import RAGRuntimeService
+from ...rag import embedding_bootstrap
+from ...provider.modelmgr import llm_bootstrap
 from ...platform import botmgr as im_mgr
 from ...platform.webhook_pusher import WebhookPusher
 from ...persistence import mgr as persistencemgr
@@ -137,6 +139,12 @@ class BuildAppStage(stage.BootingStage):
         llm_model_mgr_inst = llm_model_mgr.ModelManager(ap)
         ap.model_mgr = llm_model_mgr_inst
         await llm_model_mgr_inst.initialize()
+        await llm_bootstrap.ensure_builtin_text_providers(ap)
+        from langbot.pkg.provider.modelmgr import builtin_bootstrap
+
+        await builtin_bootstrap.ensure_builtin_tts_providers(ap)
+        await builtin_bootstrap.ensure_builtin_pdf_providers(ap)
+        await embedding_bootstrap.ensure_default_embedding_model(ap)
 
         llm_session_mgr_inst = llm_session_mgr.SessionManager(ap)
         await llm_session_mgr_inst.initialize()
@@ -191,6 +199,8 @@ class BuildAppStage(stage.BootingStage):
         plugin_connector_inst = plugin_connector.PluginRuntimeConnector(ap, runtime_disconnect_callback)
         await plugin_connector_inst.initialize()
         ap.plugin_connector = plugin_connector_inst
+
+        await task_assistant_service_inst.ensure_knowledge_resources()
 
         ctrl = controller.Controller(ap)
         ap.ctrl = ctrl

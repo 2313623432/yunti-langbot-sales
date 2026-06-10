@@ -30,10 +30,18 @@ import {
   TestResult,
 } from '../types';
 import ExtraArgsEditor from './ExtraArgsEditor';
+import LLMModelFormFields from './LLMModelFormFields';
+import {
+  llmFormValuesFromModel,
+  llmFormValuesToPayload,
+  LLMModelFormValues,
+} from '../modelFormUtils';
 
 interface AddModelPopoverProps {
   isOpen: boolean;
   initialMode?: 'manual' | 'scan';
+  defaultModelType?: ModelType;
+  lockedModelType?: ModelType;
   trigger?: React.ReactNode;
   onOpen: () => void;
   onClose: () => void;
@@ -63,6 +71,8 @@ interface AddModelPopoverProps {
 export default function AddModelPopover({
   isOpen,
   initialMode = 'manual',
+  defaultModelType = 'llm',
+  lockedModelType,
   trigger,
   onOpen,
   onClose,
@@ -83,6 +93,9 @@ export default function AddModelPopover({
   const [name, setName] = useState('');
   const [abilities, setAbilities] = useState<string[]>([]);
   const [extraArgs, setExtraArgs] = useState<ExtraArg[]>([]);
+  const [llmFormValues, setLlmFormValues] = useState<LLMModelFormValues>(() =>
+    llmFormValuesFromModel('', []),
+  );
   const [scanLoading, setScanLoading] = useState(false);
   const [scannedModels, setScannedModels] = useState<ScannedProviderModel[]>(
     [],
@@ -95,11 +108,12 @@ export default function AddModelPopover({
   useEffect(() => {
     const wasOpen = prevIsOpenRef.current;
     if (isOpen && !wasOpen) {
-      setTab('llm');
+      setTab(lockedModelType || defaultModelType);
       setMode(initialMode);
       setName('');
       setAbilities([]);
       setExtraArgs([]);
+      setLlmFormValues(llmFormValuesFromModel('', []));
       setScanLoading(false);
       setScannedModels([]);
       setSelectedScannedModels({});
@@ -120,11 +134,26 @@ export default function AddModelPopover({
   }, [tab, mode]);
 
   const handleAdd = async () => {
+    if (tab === 'llm') {
+      const payload = llmFormValuesToPayload(llmFormValues);
+      await onAddModel(tab, payload.name, payload.abilities, payload.extraArgs);
+      return;
+    }
     await onAddModel(tab, name, abilities, extraArgs);
   };
 
   const handleTest = async () => {
-    await onTestModel(name, tab, tab === 'llm' ? abilities : [], extraArgs);
+    if (tab === 'llm') {
+      const payload = llmFormValuesToPayload(llmFormValues);
+      await onTestModel(
+        payload.name,
+        tab,
+        payload.abilities,
+        payload.extraArgs,
+      );
+      return;
+    }
+    await onTestModel(name, tab, [], extraArgs);
   };
 
   const handleScan = async () => {
@@ -168,14 +197,6 @@ export default function AddModelPopover({
     const selectedModels = Object.values(selectedScannedModels);
     if (selectedModels.length === 0) return;
     await onAddScannedModels(tab, selectedModels);
-  };
-
-  const toggleAbility = (ability: string, checked: boolean) => {
-    if (checked) {
-      setAbilities([...abilities, ability]);
-    } else {
-      setAbilities(abilities.filter((a) => a !== ability));
-    }
   };
 
   const toggleScannedModel = (
@@ -280,7 +301,7 @@ export default function AddModelPopover({
           className="flex flex-col min-h-0 flex-1"
         >
           <div className="flex-shrink-0">
-            {!(trigger && initialMode === 'scan') && (
+            {!(trigger && initialMode === 'scan') && !lockedModelType && (
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="llm">
                   <MessageSquareText className="h-4 w-4 mr-1" />
@@ -314,67 +335,29 @@ export default function AddModelPopover({
 
               <TabsContent value="manual" className="mt-3">
                 <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label>{t('models.modelName')}</Label>
-                    <Input
-                      placeholder={t('models.modelName')}
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
+                  {tab === 'llm' ? (
+                    <LLMModelFormFields
+                      values={llmFormValues}
+                      onChange={setLlmFormValues}
                     />
-                  </div>
-
-                  {tab === 'llm' && (
-                    <div className="space-y-2">
-                      <Label>{t('models.abilities')}</Label>
-                      <div className="flex flex-wrap gap-4">
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="add-vision"
-                            checked={abilities.includes('vision')}
-                            onCheckedChange={(checked) =>
-                              toggleAbility('vision', checked as boolean)
-                            }
-                          />
-                          <Label htmlFor="add-vision" className="text-sm">
-                            <Eye className="h-3 w-3 inline mr-1" />
-                            {t('models.visionAbility')}
-                          </Label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="add-func-call"
-                            checked={abilities.includes('func_call')}
-                            onCheckedChange={(checked) =>
-                              toggleAbility('func_call', checked as boolean)
-                            }
-                          />
-                          <Label htmlFor="add-func-call" className="text-sm">
-                            <Wrench className="h-3 w-3 inline mr-1" />
-                            {t('models.functionCallAbility')}
-                          </Label>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="add-tts"
-                            checked={abilities.includes('tts')}
-                            onCheckedChange={(checked) =>
-                              toggleAbility('tts', checked as boolean)
-                            }
-                          />
-                          <Label htmlFor="add-tts" className="text-sm">
-                            <Volume2 className="h-3 w-3 inline mr-1" />
-                            {t('models.ttsAbility')}
-                          </Label>
-                        </div>
+                  ) : (
+                    <>
+                      <div className="space-y-2">
+                        <Label>{t('models.modelName')}</Label>
+                        <Input
+                          placeholder={t('models.modelName')}
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                        />
                       </div>
-                    </div>
-                  )}
 
-                  <ExtraArgsEditor
-                    args={extraArgs}
-                    onChange={setExtraArgs}
-                    modelType={tab}
-                  />
+                      <ExtraArgsEditor
+                        args={extraArgs}
+                        onChange={setExtraArgs}
+                        modelType={tab}
+                      />
+                    </>
+                  )}
                   <div className="flex gap-2">
                     <Button
                       className="flex-1"

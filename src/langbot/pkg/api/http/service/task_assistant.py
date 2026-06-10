@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import copy
 import datetime
-import gzip
 import json
 import os
 import re
@@ -11,9 +10,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import aiohttp
 import sqlalchemy
-import websockets
 
 import langbot_plugin.api.entities.builtin.pipeline.query as pipeline_query
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
@@ -22,7 +19,11 @@ from langbot_plugin.api.entities.builtin.provider import message as provider_mes
 from ....core import app
 from ....entity.persistence import model as persistence_model
 from ....entity.persistence import pipeline as persistence_pipeline
+from ....entity.persistence import rag as persistence_rag
 from ....entity.persistence import sales as persistence_sales
+from ....provider.modelmgr import tts_invoke
+from ....rag import embedding_bootstrap
+from ....rag.knowledge import builtin_engine
 from ....utils import paths as path_utils
 from .pipeline_defaults import default_stage_order
 
@@ -36,6 +37,9 @@ COURSE_SALES_SCENARIO = 'course_sales_yuanfudao_phonics'
 COURSE_SALES_WORKFLOW_PIPELINE_UUID = 'course-sales-workflow-pipeline'
 COURSE_SALES_TEMPLATE_PIPELINE_UUID = 'course-sales-template-pipeline'
 YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID = 'yuanfudao-enhanced-sales-template-pipeline'
+YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID = 'yuanfudao-sales-knowledge-base'
+BUILTIN_KNOWLEDGE_ENGINE_ID = builtin_engine.BUILTIN_KNOWLEDGE_ENGINE_ID
+YUANFUDAO_KNOWLEDGE_PACK_DIR = 'templates/course-sales/yuanfudao-knowledge'
 COURSE_SALES_PRODUCT_UUID = 'yuanfudao-phonics-course'
 COURSE_SALES_TTS_VOICE_TYPE = TASK_ASSISTANT_TTS_VOICE_TYPE
 ASSISTED_SCENARIOS = {TASK_ASSISTANT_SCENARIO, COURSE_SALES_SCENARIO}
@@ -1677,52 +1681,17 @@ class TaskAssistantService:
         if not plain_text:
             return None
 
-        encoding = voice_config.get('encoding') or ('wav' if self._is_dashscope_tts_config(voice_config) else 'ogg_opus')
-        if self._is_dashscope_tts_config(voice_config):
-            token = voice_config.get('token') or os.getenv('DASHSCOPE_API_KEY')
-            if not token:
-                self.ap.logger.warning('Task assistant TTS skipped: DashScope api key is not configured')
-                return None
-            audio_base64 = await self._request_dashscope_tts(
-                text=plain_text,
-                token=token,
-                model=voice_config.get('model') or 'qwen3-tts-flash',
-                voice=voice_config.get('voice') or voice_config.get('voice_type') or 'Cherry',
-                language_type=voice_config.get('language_type') or 'Chinese',
-                base_url=voice_config.get('base_url')
-                or 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
-                instructions=voice_config.get('instructions'),
-                optimize_instructions=voice_config.get('optimize_instructions'),
+        if not voice_config.get('encoding'):
+            voice_config['encoding'] = tts_invoke.default_encoding_for_backend(
+                tts_invoke.build_tts_invoke_config(voice_config, plain_text)
             )
-            if not audio_base64:
-                return None
-            return f'data:{self._tts_mime_type(encoding)};base64,{audio_base64}'
 
-        app_id = (
-            voice_config.get('app_id')
-            or os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_APP_ID')
-            or os.getenv('VOLCENGINE_TTS_APP_ID')
-        )
-        token = (
-            voice_config.get('token')
-            or os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_TOKEN')
-            or os.getenv('VOLCENGINE_TTS_TOKEN')
-        )
-        if not app_id or not token:
-            self.ap.logger.warning('Task assistant TTS skipped: Volcengine app_id/token is not configured')
-            return None
-
-        audio_base64 = await self._request_volcengine_tts(
-            text=plain_text,
-            app_id=app_id,
-            token=token,
-            cluster=voice_config.get('cluster') or 'volcano_tts',
-            voice_type=voice_config.get('voice_type') or TASK_ASSISTANT_TTS_VOICE_TYPE,
-            encoding=encoding,
-        )
+        tts_config = tts_invoke.build_tts_invoke_config(voice_config, plain_text)
+        audio_base64 = await tts_invoke.invoke_tts(tts_config, logger=self.ap.logger)
         if not audio_base64:
             return None
-        return f'data:{self._tts_mime_type(encoding)};base64,{audio_base64}'
+        encoding = tts_config.encoding or voice_config.get('encoding') or 'mp3'
+        return f'data:{tts_invoke.tts_mime_type(encoding)};base64,{audio_base64}'
 
     async def _resolve_voice_model_config(self, voice_config: dict[str, Any]) -> dict[str, Any]:
         model_uuid = str(voice_config.get('model_uuid') or '')
@@ -1764,25 +1733,22 @@ class TaskAssistantService:
         )
         provider = provider_result.first()
         if provider is not None:
+            resolved['requester'] = provider.requester or resolved.get('requester') or ''
             if not resolved.get('provider'):
                 resolved['provider'] = provider.requester or provider.name
             base_url = getattr(provider, 'base_url', None)
             if not resolved.get('base_url') and base_url:
                 resolved['base_url'] = base_url
-            if not resolved.get('token') and provider.api_keys:
-                resolved['token'] = provider.api_keys[0]
+            resolved = tts_invoke.apply_provider_api_keys(
+                resolved,
+                requester=provider.requester or '',
+                api_keys=provider.api_keys if isinstance(provider.api_keys, list) else [],
+            )
 
         return resolved
 
     def _is_dashscope_tts_config(self, voice_config: dict[str, Any]) -> bool:
-        provider = str(voice_config.get('provider') or '').lower()
-        base_url = str(voice_config.get('base_url') or '').lower()
-        model = str(voice_config.get('model') or '').lower()
-        return (
-            provider in {'dashscope', 'dashscope-tts', 'bailian-tts', 'qwen-tts'}
-            or 'multimodal-generation/generation' in base_url
-            or model.startswith('qwen3-tts')
-        )
+        return tts_invoke.detect_tts_backend(tts_invoke.build_tts_invoke_config(voice_config, '')) == 'dashscope'
 
     async def ensure_default_resources(self) -> None:
         await self._ensure_task_images()
@@ -1793,6 +1759,9 @@ class TaskAssistantService:
         await self._ensure_yuanfudao_enhanced_template_pipeline()
         await self._ensure_course_sales_product()
         await self._ensure_course_sales_outreach_for_chatted_users()
+
+    async def ensure_knowledge_resources(self) -> None:
+        await self._ensure_yuanfudao_sales_knowledge_base()
 
     async def _remove_seeded_workflow_mode_pipelines(self) -> None:
         pipeline_uuids = [
@@ -2369,6 +2338,12 @@ class TaskAssistantService:
             voice_overrides=existing_voice if isinstance(existing_voice, dict) else None,
             template_config=active_template,
         )
+        tools = active_template.get('tools') if isinstance(active_template.get('tools'), dict) else {}
+        kb_uuids = active_template.get('knowledge_base_uuids') if isinstance(active_template.get('knowledge_base_uuids'), list) else []
+        if tools.get('knowledge_base'):
+            config['ai']['local-agent']['knowledge-bases'] = [str(kb_uuid) for kb_uuid in kb_uuids if str(kb_uuid)]
+        else:
+            config['ai']['local-agent']['knowledge-bases'] = []
         self._preserve_existing_basic_config(config, existing_config)
         return config
 
@@ -2486,6 +2461,284 @@ class TaskAssistantService:
         if value == 'course-sales/phonics/phonics_poster.jpeg':
             return 'course-sales/phonics/gift_poster.jpeg'
         return value
+
+    def _is_legacy_yuanfudao_source_materials(self, value: list[Any]) -> bool:
+        if not value:
+            return False
+        joined = '\n'.join(str(item) for item in value)
+        if 'yuanfudao_knowledge_index' in joined or '猿辅导销售知识库索引' in joined:
+            return False
+        return True
+
+    def _refresh_yuanfudao_enhanced_template_fields(
+        self,
+        template_config: dict[str, Any],
+        loaded_template: dict[str, Any],
+    ) -> None:
+        for key in ('source_materials', 'knowledge_base_uuids', 'course_profiles', 'course_faqs', 'product_uuids'):
+            loaded_value = loaded_template.get(key)
+            if isinstance(loaded_value, list) and loaded_value:
+                template_config[key] = copy.deepcopy(loaded_value)
+        loaded_metadata = loaded_template.get('metadata')
+        if isinstance(loaded_metadata, dict):
+            current_metadata = template_config.get('metadata') if isinstance(template_config.get('metadata'), dict) else {}
+            template_config['metadata'] = {**current_metadata, **copy.deepcopy(loaded_metadata)}
+        loaded_tools = loaded_template.get('tools')
+        if isinstance(loaded_tools, dict) and loaded_tools.get('knowledge_base'):
+            current_tools = template_config.get('tools') if isinstance(template_config.get('tools'), dict) else {}
+            template_config['tools'] = {**current_tools, 'knowledge_base': True}
+
+    _INVALID_PROVIDER_UUIDS = frozenset({'', '00000000-0000-0000-0000-000000000000'})
+
+    async def _is_usable_embedding_model_uuid(self, model_uuid: str) -> bool:
+        normalized = str(model_uuid or '').strip()
+        if not normalized:
+            return False
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.EmbeddingModel).where(
+                persistence_model.EmbeddingModel.uuid == normalized
+            )
+        )
+        row = result.first()
+        if row is None:
+            return False
+        model_data = self.ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, row)
+        provider_uuid = str(model_data.get('provider_uuid') or '').strip()
+        if provider_uuid in self._INVALID_PROVIDER_UUIDS:
+            return False
+        provider_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == provider_uuid
+            )
+        )
+        provider_row = provider_result.first()
+        if provider_row is None:
+            return False
+        provider_data = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider_row)
+        api_keys = provider_data.get('api_keys') or []
+        return bool(api_keys) and bool(str(provider_data.get('base_url') or '').strip())
+
+    async def _get_preferred_embedding_model_uuid(self) -> str:
+        for candidate in embedding_bootstrap.PREFERRED_EMBEDDING_MODEL_UUIDS:
+            if await self._is_usable_embedding_model_uuid(candidate):
+                return candidate
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.EmbeddingModel).order_by(
+                persistence_model.EmbeddingModel.prefered_ranking
+            )
+        )
+        for row in result.all():
+            model_data = self.ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, row)
+            model_uuid = str(model_data.get('uuid') or '').strip()
+            if await self._is_usable_embedding_model_uuid(model_uuid):
+                return model_uuid
+        return ''
+
+    async def _ensure_yuanfudao_sales_knowledge_base(self) -> None:
+        embedding_model_uuid = await self._get_preferred_embedding_model_uuid()
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_rag.KnowledgeBase).where(
+                persistence_rag.KnowledgeBase.uuid == YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
+            )
+        )
+        existing = result.first()
+        rag_mgr = getattr(self.ap, 'rag_mgr', None)
+
+        if existing is None:
+            creation_settings = {'embedding_model_uuid': embedding_model_uuid} if embedding_model_uuid else {}
+            kb_data: dict[str, Any] = {
+                'uuid': YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID,
+                'name': '猿辅导销售知识库',
+                'description': '猿辅导课程销售话术、FAQ、产品资料与私域 SOP（2024-2026）',
+                'emoji': '📚',
+                'knowledge_engine_plugin_id': BUILTIN_KNOWLEDGE_ENGINE_ID,
+                'collection_id': YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID,
+                'creation_settings': creation_settings,
+                'retrieval_settings': {'top_k': 5},
+            }
+            await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_rag.KnowledgeBase).values(kb_data))
+            if rag_mgr is not None:
+                try:
+                    runtime_kb = await rag_mgr.load_knowledge_base(kb_data)
+                    await runtime_kb._on_kb_create()
+                except Exception as exc:
+                    logger = getattr(self.ap, 'logger', None)
+                    if logger is not None:
+                        logger.warning('Failed to load Yuanfudao knowledge base into runtime: %s', exc)
+        else:
+            existing_data = self.ap.persistence_mgr.serialize_model(persistence_rag.KnowledgeBase, existing)
+            updates: dict[str, Any] = {}
+            if not existing_data.get('knowledge_engine_plugin_id'):
+                updates['knowledge_engine_plugin_id'] = BUILTIN_KNOWLEDGE_ENGINE_ID
+            creation_settings = existing_data.get('creation_settings') or {}
+            current_embedding_uuid = str(creation_settings.get('embedding_model_uuid') or '').strip()
+            if embedding_model_uuid and (
+                not current_embedding_uuid
+                or not await self._is_usable_embedding_model_uuid(current_embedding_uuid)
+                or current_embedding_uuid in embedding_bootstrap.DEPRECATED_EMBEDDING_MODEL_UUIDS
+            ):
+                updates['creation_settings'] = {
+                    **creation_settings,
+                    'embedding_model_uuid': embedding_model_uuid,
+                }
+            if updates:
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.update(persistence_rag.KnowledgeBase)
+                    .values(updates)
+                    .where(persistence_rag.KnowledgeBase.uuid == YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
+                )
+                if rag_mgr is not None:
+                    merged = {**existing_data, **updates}
+                    try:
+                        await rag_mgr.remove_knowledge_base_from_runtime(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
+                        runtime_kb = await rag_mgr.load_knowledge_base(merged)
+                        if not existing_data.get('knowledge_engine_plugin_id'):
+                            await runtime_kb._on_kb_create()
+                    except Exception as exc:
+                        logger = getattr(self.ap, 'logger', None)
+                        if logger is not None:
+                            logger.warning('Failed to upgrade Yuanfudao knowledge base runtime: %s', exc)
+
+        await self._import_yuanfudao_knowledge_documents_if_needed()
+
+    async def _import_yuanfudao_knowledge_documents_if_needed(self) -> None:
+        knowledge_service = getattr(self.ap, 'knowledge_service', None)
+        rag_mgr = getattr(self.ap, 'rag_mgr', None)
+        storage_mgr = getattr(self.ap, 'storage_mgr', None)
+        logger = getattr(self.ap, 'logger', None)
+        if knowledge_service is None or rag_mgr is None or storage_mgr is None:
+            if logger is not None:
+                logger.warning('Yuanfudao KB document import skipped: knowledge services not ready')
+            return
+
+        runtime_kb = await rag_mgr.get_knowledge_base_by_uuid(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
+        if runtime_kb is None:
+            result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_rag.KnowledgeBase).where(
+                    persistence_rag.KnowledgeBase.uuid == YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
+                )
+            )
+            row = result.first()
+            if row is None:
+                if logger is not None:
+                    logger.warning('Yuanfudao KB document import skipped: knowledge base record not found')
+                return
+            runtime_kb = await rag_mgr.load_knowledge_base(row)
+
+        kb_info = await knowledge_service.get_knowledge_base(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
+        if kb_info is None:
+            if logger is not None:
+                logger.warning('Yuanfudao KB document import skipped: knowledge base record not found')
+            return
+        plugin_id = str(kb_info.get('knowledge_engine_plugin_id') or '')
+        if not builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            if logger is not None:
+                logger.warning(
+                    'Yuanfudao KB document import skipped: knowledge base must use builtin engine (%s)',
+                    plugin_id or 'unset',
+                )
+            return
+
+        await self._retry_failed_yuanfudao_seed_documents(knowledge_service, logger)
+
+        existing_files = await knowledge_service.get_files_by_knowledge_base(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
+        existing_names: set[str] = set()
+        for file in existing_files:
+            raw_name = str(file.get('file_name') or '')
+            if raw_name:
+                existing_names.add(raw_name)
+                existing_names.add(Path(raw_name).name)
+
+        import_targets = self._iter_yuanfudao_document_import_targets()
+        queued_count = 0
+        for full_path, file_name in import_targets:
+            if file_name in existing_names:
+                continue
+            try:
+                await storage_mgr.storage_provider.save(file_name, full_path.read_bytes())
+                await knowledge_service.store_file(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID, file_name)
+                queued_count += 1
+                if logger is not None:
+                    logger.info('Queued Yuanfudao knowledge document import: %s', file_name)
+            except Exception as exc:
+                if logger is not None:
+                    logger.warning(
+                        'Failed to import Yuanfudao knowledge document %s: %s',
+                        full_path,
+                        exc,
+                    )
+        if logger is not None:
+            logger.info(
+                'Yuanfudao KB document import finished: queued %s new files (%s available, %s already present)',
+                queued_count,
+                len(import_targets),
+                len(existing_names),
+            )
+
+    async def _retry_failed_yuanfudao_seed_documents(
+        self,
+        knowledge_service: Any,
+        logger: Any,
+    ) -> None:
+        seed_names = {file_name for _, file_name in self._iter_yuanfudao_document_import_targets()}
+        if not seed_names:
+            return
+        existing_files = await knowledge_service.get_files_by_knowledge_base(
+            YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
+        )
+        retry_count = 0
+        for file in existing_files:
+            if str(file.get('status') or '') != 'failed':
+                continue
+            raw_name = str(file.get('file_name') or '')
+            if raw_name not in seed_names and Path(raw_name).name not in seed_names:
+                continue
+            file_uuid = str(file.get('uuid') or '').strip()
+            if not file_uuid:
+                continue
+            try:
+                await knowledge_service.delete_file(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID, file_uuid)
+                retry_count += 1
+            except Exception as exc:
+                if logger is not None:
+                    logger.warning('Failed to reset Yuanfudao seed document %s: %s', raw_name, exc)
+        if logger is not None and retry_count > 0:
+            logger.info('Reset %s failed Yuanfudao seed documents for retry', retry_count)
+
+    def _iter_yuanfudao_document_import_targets(self) -> list[tuple[Path, str]]:
+        pack_dir = Path(path_utils.get_resource_path(YUANFUDAO_KNOWLEDGE_PACK_DIR))
+        manifest_path = pack_dir / 'manifest.json'
+        targets: list[tuple[Path, str]] = []
+
+        if manifest_path.exists():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            except (OSError, json.JSONDecodeError):
+                manifest = {}
+            for item in manifest.get('document_files') or []:
+                if not isinstance(item, dict):
+                    continue
+                rel_path = str(item.get('path') or '').strip()
+                if not rel_path:
+                    continue
+                full_path = pack_dir / rel_path
+                if not full_path.is_file():
+                    continue
+                file_name = str(item.get('storage_name') or full_path.name)
+                if Path(file_name).suffix.lower() in {'.ppt', '.pptx'}:
+                    continue
+                targets.append((full_path, file_name))
+
+        if targets:
+            return targets
+
+        documents_dir = pack_dir / 'documents'
+        if not documents_dir.exists():
+            return []
+        for full_path in sorted(documents_dir.rglob('*')):
+            if full_path.is_file() and full_path.suffix.lower() not in {'.ppt', '.pptx'}:
+                targets.append((full_path, full_path.name))
+        return targets
 
     def _normalize_course_template_media_keys(self, template_config: dict[str, Any]) -> None:
         bindings = template_config.get('image_text_bindings')
@@ -2629,11 +2882,15 @@ class TaskAssistantService:
                 elif key == 'followup_sequences' and isinstance(value, list) and value:
                     if not self._is_legacy_course_followups(value):
                         template_config[key] = value
+                elif key == 'source_materials' and isinstance(value, list) and value:
+                    if template_slug == 'yuanfudao-enhanced' and self._is_legacy_yuanfudao_source_materials(value):
+                        pass
+                    else:
+                        template_config[key] = value
                 elif key in {
                     'resource_faqs',
                     'course_faqs',
                     'course_profiles',
-                    'source_materials',
                 } and isinstance(value, list) and value:
                     template_config[key] = value
                 elif key == 'stop_policy' and isinstance(value, dict):
@@ -2641,6 +2898,8 @@ class TaskAssistantService:
                     template_config[key] = {**current, **value}
                 else:
                     template_config[key] = value
+        if template_slug == 'yuanfudao-enhanced' and loaded_template:
+            self._refresh_yuanfudao_enhanced_template_fields(template_config, loaded_template)
         self._normalize_course_template_media_keys(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
         for sequence in template_config.get('followup_sequences', []):
@@ -2770,6 +3029,9 @@ class TaskAssistantService:
             if isinstance(profile, dict) and str(profile.get('product_uuid') or '')
         ] or [COURSE_SALES_PRODUCT_UUID]
         template_name = str(template_config.get('name') or '课程销售模板')
+        template_kb_uuids = [
+            str(kb_uuid) for kb_uuid in (template_config.get('knowledge_base_uuids') or []) if str(kb_uuid)
+        ]
         source_materials = (
             copy.deepcopy(template_config.get('source_materials'))
             if isinstance(template_config.get('source_materials'), list)
@@ -2902,7 +3164,11 @@ class TaskAssistantService:
                 'title': '图书资源FAQ',
                 'description': '听力、答案、验证码、暂无资源、资源不对、下载等问题',
                 'position': {'x': 2040, 'y': 80},
-                'config': {'resource_faqs': resource_faqs, 'knowledge_base_uuids': [], 'top_k': 5},
+                'config': {
+                    'resource_faqs': resource_faqs,
+                    'knowledge_base_uuids': template_kb_uuids,
+                    'top_k': 5,
+                },
             },
             {
                 'id': 'course_faq',
@@ -2910,7 +3176,11 @@ class TaskAssistantService:
                 'title': '课程FAQ',
                 'description': '自然拼读课程介绍、上课时间、回放、赠品、冲突和年级适配',
                 'position': {'x': 2040, 'y': 260},
-                'config': {'course_faqs': course_faqs, 'knowledge_base_uuids': [], 'top_k': 5},
+                'config': {
+                    'course_faqs': course_faqs,
+                    'knowledge_base_uuids': template_kb_uuids,
+                    'top_k': 5,
+                },
             },
             {
                 'id': 'course_product',
@@ -3400,233 +3670,13 @@ class TaskAssistantService:
             )
         )
 
-    async def _request_volcengine_tts(
-        self,
-        *,
-        text: str,
-        app_id: str,
-        token: str,
-        cluster: str,
-        voice_type: str,
-        encoding: str,
-    ) -> str | None:
-        if voice_type.endswith('_bigtts') or encoding == 'ogg_opus':
-            audio_base64 = await self._request_volcengine_tts_ws(
-                text=text,
-                app_id=app_id,
-                token=token,
-                cluster=cluster,
-                voice_type=voice_type,
-                encoding=encoding,
-            )
-            if audio_base64:
-                return audio_base64
-
-        payload = {
-            'app': {
-                'appid': app_id,
-                'token': token,
-                'cluster': cluster,
-            },
-            'user': {'uid': 'langbot-task-assistant'},
-            'audio': {
-                'voice_type': voice_type,
-                'encoding': encoding,
-                'speed_ratio': 1.0,
-                'volume_ratio': 1.0,
-                'pitch_ratio': 1.0,
-            },
-            'request': {
-                'reqid': str(uuid.uuid4()),
-                'text': text,
-                'text_type': 'plain',
-                'operation': 'query',
-            },
-        }
-        for authorization in (f'Bearer;{token}', f'Bearer {token}'):
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    'https://openspeech.bytedance.com/api/v1/tts',
-                    json=payload,
-                    headers={'Authorization': authorization},
-                    timeout=aiohttp.ClientTimeout(total=30),
-                ) as response:
-                    data = await response.json(content_type=None)
-            if response.status == 200 and data.get('code') == 3000 and data.get('data'):
-                return data['data']
-            self.ap.logger.warning(
-                'Volcengine TTS request failed: status=%s code=%s message=%s',
-                response.status,
-                data.get('code'),
-                data.get('message'),
-            )
-        return None
-
-    async def _request_dashscope_tts(
-        self,
-        *,
-        text: str,
-        token: str,
-        model: str,
-        voice: str,
-        language_type: str,
-        base_url: str,
-        instructions: str | None = None,
-        optimize_instructions: bool | None = None,
-    ) -> str | None:
-        input_payload: dict[str, Any] = {
-            'text': text,
-            'voice': voice,
-            'language_type': language_type,
-        }
-        if instructions:
-            input_payload['instructions'] = instructions
-        if optimize_instructions is not None:
-            input_payload['optimize_instructions'] = bool(optimize_instructions)
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                base_url,
-                json={'model': model, 'input': input_payload},
-                headers={
-                    'Authorization': f'Bearer {token}',
-                    'Content-Type': 'application/json',
-                },
-                timeout=aiohttp.ClientTimeout(total=60),
-            ) as response:
-                data = await response.json(content_type=None)
-
-            if response.status != 200 or data.get('status_code') not in (None, 200):
-                self.ap.logger.warning(
-                    'DashScope TTS request failed: status=%s code=%s message=%s',
-                    response.status,
-                    data.get('code'),
-                    data.get('message'),
-                )
-                return None
-
-            audio = data.get('output', {}).get('audio', {})
-            audio_base64 = audio.get('data')
-            if audio_base64:
-                return audio_base64
-
-            audio_url = audio.get('url')
-            if not audio_url:
-                self.ap.logger.warning('DashScope TTS response did not include audio data or url')
-                return None
-
-            async with session.get(
-                audio_url,
-                timeout=aiohttp.ClientTimeout(total=60),
-            ) as audio_response:
-                if audio_response.status != 200:
-                    self.ap.logger.warning(
-                        'DashScope TTS audio download failed: status=%s',
-                        audio_response.status,
-                    )
-                    return None
-                audio_bytes = await audio_response.read()
-        return base64.b64encode(audio_bytes).decode('utf-8')
-
-    async def _request_volcengine_tts_ws(
-        self,
-        *,
-        text: str,
-        app_id: str,
-        token: str,
-        cluster: str,
-        voice_type: str,
-        encoding: str,
-    ) -> str | None:
-        payload = {
-            'app': {
-                'appid': app_id,
-                'token': token,
-                'cluster': cluster,
-            },
-            'user': {'uid': 'langbot-task-assistant'},
-            'audio': {
-                'voice_type': voice_type,
-                'encoding': encoding,
-                'speed_ratio': 1.0,
-                'volume_ratio': 1.0,
-                'pitch_ratio': 1.0,
-            },
-            'request': {
-                'reqid': str(uuid.uuid4()),
-                'text': text,
-                'text_type': 'plain',
-                'operation': 'submit',
-            },
-        }
-        body = gzip.compress(json.dumps(payload, ensure_ascii=False).encode('utf-8'))
-        request_bytes = bytes([0x11, 0x10, 0x11, 0x00]) + len(body).to_bytes(4, 'big') + body
-
-        for authorization in (f'Bearer;{token}', f'Bearer; {token}'):
-            audio_chunks: list[bytes] = []
-            try:
-                async with websockets.connect(
-                    'wss://openspeech.bytedance.com/api/v1/tts/ws_binary',
-                    additional_headers={'Authorization': authorization},
-                    open_timeout=10,
-                    close_timeout=5,
-                    max_size=None,
-                ) as websocket:
-                    await websocket.send(request_bytes)
-                    async for message in websocket:
-                        if isinstance(message, str):
-                            continue
-                        audio_chunk, is_final = self._parse_volcengine_tts_ws_audio_message(message)
-                        if audio_chunk:
-                            audio_chunks.append(audio_chunk)
-                        if is_final:
-                            break
-                if audio_chunks:
-                    return base64.b64encode(b''.join(audio_chunks)).decode('utf-8')
-            except Exception as exc:
-                self.ap.logger.warning('Volcengine TTS websocket request failed: %s', exc)
-        return None
-
     @staticmethod
     def _parse_volcengine_tts_ws_audio_message(message: bytes) -> tuple[bytes, bool]:
-        if len(message) < 4:
-            raise ValueError('Volcengine TTS websocket response is too short')
-
-        header_size = (message[0] & 0x0F) * 4
-        message_type = (message[1] & 0xF0) >> 4
-        message_flags = message[1] & 0x0F
-        compression = message[2] & 0x0F
-        payload = message[header_size:]
-
-        if message_type == 0xB:
-            if message_flags == 0:
-                return b'', False
-            if len(payload) < 8:
-                raise ValueError('Volcengine TTS websocket audio payload is too short')
-            sequence_number = int.from_bytes(payload[:4], 'big', signed=True)
-            payload_size = int.from_bytes(payload[4:8], 'big', signed=False)
-            return payload[8 : 8 + payload_size], sequence_number < 0
-
-        if message_type == 0xF:
-            if len(payload) < 8:
-                raise ValueError('Volcengine TTS websocket error payload is too short')
-            error_code = int.from_bytes(payload[:4], 'big', signed=False)
-            error_size = int.from_bytes(payload[4:8], 'big', signed=False)
-            error_payload = payload[8 : 8 + error_size]
-            if compression == 1:
-                error_payload = gzip.decompress(error_payload)
-            error_message = error_payload.decode('utf-8', errors='replace')
-            raise ValueError(f'Volcengine TTS websocket error {error_code}: {error_message}')
-
-        return b'', False
+        return tts_invoke.parse_volcengine_tts_ws_audio_message(message)
 
     @staticmethod
     def _tts_mime_type(encoding: str) -> str:
-        if encoding == 'ogg_opus':
-            return 'audio/ogg'
-        if encoding == 'wav':
-            return 'audio/wav'
-        return 'audio/mpeg'
+        return tts_invoke.tts_mime_type(encoding)
 
     def _compact_tts_text(self, text: str) -> str:
         normalized = ' '.join((text or '').split())

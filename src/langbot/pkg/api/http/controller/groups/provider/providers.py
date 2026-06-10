@@ -1,6 +1,12 @@
 import quart
 
 from ... import group
+from langbot.pkg.provider.modelmgr import (
+    builtin_embedding_providers,
+    builtin_pdf_providers,
+    builtin_text_providers,
+    builtin_tts_providers,
+)
 
 
 @group.group_class('models/providers', '/api/v1/provider/providers')
@@ -21,6 +27,22 @@ class ModelProvidersRouterGroup(group.RouterGroup):
                 json_data = await quart.request.json
                 provider_uuid = await self.ap.provider_service.create_provider(json_data)
                 return self.success(data={'uuid': provider_uuid})
+
+        @self.route('/builtin-text-catalog', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _builtin_text_catalog() -> str:
+            return self.success(data={'providers': builtin_text_providers.get_builtin_text_catalog()})
+
+        @self.route('/builtin-tts-catalog', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _builtin_tts_catalog() -> str:
+            return self.success(data={'providers': builtin_tts_providers.get_builtin_tts_catalog()})
+
+        @self.route('/builtin-embedding-catalog', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _builtin_embedding_catalog() -> str:
+            return self.success(data={'providers': builtin_embedding_providers.get_builtin_embedding_catalog()})
+
+        @self.route('/builtin-pdf-catalog', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _builtin_pdf_catalog() -> str:
+            return self.success(data={'providers': builtin_pdf_providers.get_builtin_pdf_catalog()})
 
         @self.route(
             '/<provider_uuid>', methods=['GET', 'PUT', 'DELETE'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY

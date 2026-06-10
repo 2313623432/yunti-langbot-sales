@@ -281,6 +281,20 @@ class RuntimeProvider:
             except Exception as monitor_err:
                 self.requester.ap.logger.error(f'[Monitoring] Failed to record rerank call: {monitor_err}')
 
+    async def invoke_pdf_parse(
+        self,
+        model: RuntimeLLMModel,
+        filename: str,
+        content: bytes,
+        extra_args: dict[str, typing.Any] = {},
+    ) -> str:
+        return await self.requester.invoke_pdf_parse(
+            model=model,
+            filename=filename,
+            content=content,
+            extra_args=extra_args,
+        )
+
 
 class RuntimeLLMModel:
     """运行时模型"""
@@ -449,3 +463,13 @@ class ProviderAPIRequester(metaclass=abc.ABCMeta):
             typing.List[dict]: [{"index": int, "relevance_score": float}, ...]
         """
         raise NotImplementedError('This requester does not support rerank')
+
+    async def invoke_pdf_parse(
+        self,
+        model: RuntimeLLMModel,
+        filename: str,
+        content: bytes,
+        extra_args: dict[str, typing.Any] = {},
+    ) -> str:
+        """Parse a document and return extracted text/markdown."""
+        raise NotImplementedError('This requester does not support PDF parsing')

@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -316,19 +315,16 @@ export default function KBForm({
     );
   }
 
-  // Show message if no engines available
+  // Show message if no engines available (should not happen with builtin engine)
   if (ragEngines.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4">
         <p className="text-muted-foreground">
           {t('knowledge.noEnginesAvailable')}
         </p>
-        <Link
-          to="/home/market?category=KnowledgeEngine"
-          className="text-sm text-primary hover:underline"
-        >
-          {t('knowledge.installEngineHint')}
-        </Link>
+        <p className="text-sm text-muted-foreground">
+          {t('knowledge.configureEmbeddingHint')}
+        </p>
       </div>
     );
   }

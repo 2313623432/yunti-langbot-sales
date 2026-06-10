@@ -1,6 +1,12 @@
 import { SidebarChildVO } from '@/app/home/components/home-sidebar/HomeSidebarChild';
 import i18n from '@/i18n';
-import { BadgeDollarSign, GitBranch, MessagesSquare, Workflow } from 'lucide-react';
+import {
+  BadgeDollarSign,
+  GitBranch,
+  MessagesSquare,
+  Package,
+  Workflow,
+} from 'lucide-react';
 
 const t = (key: string) => {
   return i18n.t(key);
@@ -144,6 +150,18 @@ export const sidebarConfigList = [
     },
     section: 'home',
   }),
+  new SidebarChildVO({
+    id: 'products',
+    name: t('sidebar.productLibrary'),
+    icon: <Package className="text-sky-600" />,
+    route: '/home/products',
+    description: t('productLibrary.description'),
+    helpLink: {
+      en_US: '',
+      zh_Hans: '',
+    },
+    section: 'home',
+  }),
 
   // ── Extensions section ──
   new SidebarChildVO({
@@ -160,28 +178,6 @@ export const sidebarConfigList = [
       </svg>
     ),
     route: '/home/plugins',
-    description: t('plugins.description'),
-    helpLink: {
-      en_US: 'https://link.langbot.app/en/docs/plugins',
-      zh_Hans: 'https://link.langbot.app/zh/docs/plugins',
-      ja_JP: 'https://link.langbot.app/ja/docs/plugins',
-    },
-    section: 'extensions',
-  }),
-  new SidebarChildVO({
-    id: 'market',
-    name: t('sidebar.pluginMarket'),
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        className="text-blue-500"
-      >
-        <path d="M21 13.242V20H22V22H2V20H3V13.242C1.79401 12.435 1 11.0602 1 9.5C1 8.67286 1.25027 7.90335 1.67755 7.2612L4.5547 2.36088C4.80513 1.93859 5.26028 1.67578 5.76 1.67578H18.24C18.7397 1.67578 19.1949 1.93859 19.4453 2.36088L22.3225 7.2612C22.7497 7.90335 23 8.67286 23 9.5C23 11.0602 22.206 12.435 21 13.242ZM19 13.972C18.4511 14.0706 17.8794 14.0706 17.3305 13.972C16.1644 13.7566 15.1377 13.0712 14.5 12.1C13.8623 13.0712 12.8356 13.7566 11.6695 13.972C11.1206 14.0706 10.5489 14.0706 10 13.972C9.45108 14.0706 8.87938 14.0706 8.33053 13.972C7.16437 13.7566 6.13771 13.0712 5.5 12.1C4.86229 13.0712 3.83563 13.7566 2.66947 13.972C2.44883 14.0124 2.22434 14.0352 2 14.0404V20H5V15H10V20H19V13.972Z"></path>
-      </svg>
-    ),
-    route: '/home/market',
     description: t('plugins.description'),
     helpLink: {
       en_US: 'https://link.langbot.app/en/docs/plugins',

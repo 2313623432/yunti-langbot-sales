@@ -12,6 +12,23 @@
       "answering_rule": "价格、排期、权益、赠品、活动有效期以最新活动页、班主任通知、系统后台为准；历史资料用于话术学习和异议处理。"
     }
   },
+  "knowledge_base_uuids": [
+    "yuanfudao-sales-knowledge-base"
+  ],
+  "product_uuids": [
+    "yuanfudao-phonics-course",
+    "yuanfudao-reading-thinking-course"
+  ],
+  "tools": {
+    "intent_recognition": true,
+    "knowledge_base": true,
+    "product_database": true,
+    "image_recognition": true,
+    "voice_reply": true,
+    "radar": true,
+    "scheduled_push": true,
+    "handoff": true
+  },
   "source_materials": [
     "猿辅导销售知识库索引：templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_knowledge_index.md",
     "猿辅导销售知识库正文语料：templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_markdown_corpus.md",

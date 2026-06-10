@@ -7,6 +7,11 @@ import sqlalchemy
 
 from ....core import app
 from ....entity.persistence import model as persistence_model
+from ....provider.modelmgr import builtin_registry
+from ....provider.modelmgr.builtin_protocol import (
+    default_requester_for_protocol,
+    validate_protocol,
+)
 
 
 class ModelProviderService:
@@ -35,6 +40,26 @@ class ModelProviderService:
 
         return normalized_keys
 
+    @staticmethod
+    def _parse_provider_api_keys(provider_dict: dict) -> dict:
+        if isinstance(provider_dict.get('api_keys'), str):
+            import json
+
+            try:
+                provider_dict['api_keys'] = json.loads(provider_dict['api_keys'])
+            except Exception:
+                provider_dict['api_keys'] = []
+        return provider_dict
+
+    @staticmethod
+    def _normalize_provider_payload(provider_data: dict) -> dict:
+        payload = dict(provider_data)
+        protocol = payload.pop('protocol', None)
+        validated_protocol = validate_protocol(protocol)
+        if validated_protocol is not None:
+            payload['requester'] = default_requester_for_protocol(validated_protocol)
+        return payload
+
     async def get_providers(self) -> list[dict]:
         """Get all providers"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.ModelProvider))
@@ -42,15 +67,8 @@ class ModelProviderService:
         providers_list = []
         for p in providers:
             provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, p)
-            # Parse api_keys if it's a JSON string
-            if isinstance(provider_dict.get('api_keys'), str):
-                import json
-
-                try:
-                    provider_dict['api_keys'] = json.loads(provider_dict['api_keys'])
-                except Exception:
-                    provider_dict['api_keys'] = []
-            providers_list.append(provider_dict)
+            provider_dict = self._parse_provider_api_keys(provider_dict)
+            providers_list.append(builtin_registry.enrich_provider_dict(provider_dict))
         return providers_list
 
     async def get_provider(self, provider_uuid: str) -> dict | None:
@@ -64,18 +82,12 @@ class ModelProviderService:
         if provider is None:
             return None
         provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
-        # Parse api_keys if it's a JSON string
-        if isinstance(provider_dict.get('api_keys'), str):
-            import json
-
-            try:
-                provider_dict['api_keys'] = json.loads(provider_dict['api_keys'])
-            except Exception:
-                provider_dict['api_keys'] = []
-        return provider_dict
+        provider_dict = self._parse_provider_api_keys(provider_dict)
+        return builtin_registry.enrich_provider_dict(provider_dict)
 
     async def create_provider(self, provider_data: dict) -> str:
         """Create a new provider"""
+        provider_data = self._normalize_provider_payload(provider_data)
         provider_data['uuid'] = str(uuid.uuid4())
         provider_data['api_keys'] = self._normalize_api_keys(provider_data.get('api_keys'))
         await self.ap.persistence_mgr.execute_async(
@@ -89,6 +101,7 @@ class ModelProviderService:
 
     async def update_provider(self, provider_uuid: str, provider_data: dict) -> None:
         """Update an existing provider"""
+        provider_data = self._normalize_provider_payload(provider_data)
         if 'uuid' in provider_data:
             del provider_data['uuid']
         if 'api_keys' in provider_data:
@@ -102,6 +115,9 @@ class ModelProviderService:
 
     async def delete_provider(self, provider_uuid: str) -> None:
         """Delete a provider (only if no models reference it)"""
+        if builtin_registry.is_builtin_provider(provider_uuid):
+            raise ValueError('Cannot delete built-in provider')
+
         # Check if any models use this provider
         llm_result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_model.LLMModel).where(

@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Popover,
   PopoverContent,
@@ -14,6 +13,13 @@ import { useTranslation } from 'react-i18next';
 import { LLMModel, EmbeddingModel } from '@/app/infra/entities/api';
 import { ExtraArg, ModelType, TestResult } from '../types';
 import ExtraArgsEditor from './ExtraArgsEditor';
+import LLMModelFormFields from './LLMModelFormFields';
+import {
+  getModelDisplayName,
+  llmFormValuesFromModel,
+  llmFormValuesToPayload,
+  LLMModelFormValues,
+} from '../modelFormUtils';
 import { userInfo } from '@/app/infra/http';
 
 interface ModelItemProps {
@@ -95,6 +101,13 @@ export default function ModelItem({
   const [editExtraArgs, setEditExtraArgs] = useState<ExtraArg[]>(
     convertExtraArgsToArray(model.extra_args),
   );
+  const [llmFormValues, setLlmFormValues] = useState<LLMModelFormValues>(() =>
+    llmFormValuesFromModel(
+      model.name,
+      modelType === 'llm' ? (model as LLMModel).abilities || [] : [],
+      model.extra_args,
+    ),
+  );
 
   const isEditOpen = editModelPopoverOpen === model.uuid;
   const isDeleteOpen = deleteConfirmOpen === model.uuid;
@@ -107,27 +120,35 @@ export default function ModelItem({
         modelType === 'llm' ? (model as LLMModel).abilities || [] : [],
       );
       setEditExtraArgs(convertExtraArgsToArray(model.extra_args));
+      setLlmFormValues(
+        llmFormValuesFromModel(
+          model.name,
+          modelType === 'llm' ? (model as LLMModel).abilities || [] : [],
+          model.extra_args,
+        ),
+      );
       onResetTestResult();
     }
   }, [isEditOpen]);
 
   const handleSave = async () => {
+    if (modelType === 'llm') {
+      const payload = llmFormValuesToPayload(llmFormValues);
+      await onUpdateModel(payload.name, payload.abilities, payload.extraArgs);
+      return;
+    }
     await onUpdateModel(editName, editAbilities, editExtraArgs);
   };
 
   const handleTest = async () => {
+    if (modelType === 'llm') {
+      const payload = llmFormValuesToPayload(llmFormValues);
+      await onTestModel(payload.name, payload.abilities, payload.extraArgs);
+      return;
+    }
     await onTestModel(editName, editAbilities, editExtraArgs);
   };
 
-  const toggleAbility = (ability: string, checked: boolean) => {
-    if (checked) {
-      setEditAbilities([...editAbilities, ability]);
-    } else {
-      setEditAbilities(editAbilities.filter((a) => a !== ability));
-    }
-  };
-
-  // Check if popover should be disabled (space models when not logged in)
   const isPopoverDisabled =
     isLangBotModels && userInfo?.account_type !== 'space';
   const isVoiceOnlyModel =
@@ -156,7 +177,15 @@ export default function ModelItem({
           }`}
         >
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium">{model.name}</span>
+            <span className="text-sm font-medium">
+              {modelType === 'llm'
+                ? getModelDisplayName(model.name, model.extra_args)
+                : model.name}
+            </span>
+            {modelType === 'llm' &&
+              getModelDisplayName(model.name, model.extra_args) !== model.name && (
+                <span className="text-xs text-muted-foreground">{model.name}</span>
+              )}
             <Badge variant="secondary" className="text-xs">
               {modelType === 'llm'
                 ? isVoiceOnlyModel
@@ -247,81 +276,32 @@ export default function ModelItem({
         onTouchMove={(e) => e.stopPropagation()}
       >
         <div className="space-y-3">
-          <div className="space-y-2">
-            <Label>{t('models.modelName')}</Label>
-            <Input
-              placeholder={t('models.modelName')}
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
+          {modelType === 'llm' ? (
+            <LLMModelFormFields
+              values={llmFormValues}
+              onChange={setLlmFormValues}
               disabled={isLangBotModels}
             />
-          </div>
-
-          {modelType === 'llm' && (
-            <div className="space-y-2">
-              <Label>{t('models.abilities')}</Label>
-              <div className="flex flex-wrap gap-4">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id={`edit-vision-${model.uuid}`}
-                    checked={editAbilities.includes('vision')}
-                    disabled={isLangBotModels}
-                    onCheckedChange={(checked) =>
-                      toggleAbility('vision', checked as boolean)
-                    }
-                  />
-                  <Label
-                    htmlFor={`edit-vision-${model.uuid}`}
-                    className="text-sm"
-                  >
-                    <Eye className="h-3 w-3 inline mr-1" />
-                    {t('models.visionAbility')}
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id={`edit-func-call-${model.uuid}`}
-                    checked={editAbilities.includes('func_call')}
-                    disabled={isLangBotModels}
-                    onCheckedChange={(checked) =>
-                      toggleAbility('func_call', checked as boolean)
-                    }
-                  />
-                  <Label
-                    htmlFor={`edit-func-call-${model.uuid}`}
-                    className="text-sm"
-                  >
-                    <Wrench className="h-3 w-3 inline mr-1" />
-                    {t('models.functionCallAbility')}
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id={`edit-tts-${model.uuid}`}
-                    checked={editAbilities.includes('tts')}
-                    disabled={isLangBotModels}
-                    onCheckedChange={(checked) =>
-                      toggleAbility('tts', checked as boolean)
-                    }
-                  />
-                  <Label
-                    htmlFor={`edit-tts-${model.uuid}`}
-                    className="text-sm"
-                  >
-                    <Volume2 className="h-3 w-3 inline mr-1" />
-                    {t('models.ttsAbility')}
-                  </Label>
-                </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label>{t('models.modelName')}</Label>
+                <Input
+                  placeholder={t('models.modelName')}
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  disabled={isLangBotModels}
+                />
               </div>
-            </div>
-          )}
 
-          <ExtraArgsEditor
-            args={editExtraArgs}
-            onChange={setEditExtraArgs}
-            disabled={isLangBotModels}
-            modelType={modelType}
-          />
+              <ExtraArgsEditor
+                args={editExtraArgs}
+                onChange={setEditExtraArgs}
+                disabled={isLangBotModels}
+                modelType={modelType}
+              />
+            </>
+          )}
 
           <div className="flex gap-2">
             {!isLangBotModels && (

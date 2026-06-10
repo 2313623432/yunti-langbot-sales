@@ -18,12 +18,12 @@ import BotsPage from '@/app/home/bots/page';
 import PipelinesPage from '@/app/home/pipelines/page';
 import WorkflowsPage from '@/app/home/workflows/page';
 import PluginsPage from '@/app/home/plugins/page';
-import MarketPage from '@/app/home/market/page';
 import MCPPage from '@/app/home/mcp/page';
 import KnowledgePage from '@/app/home/knowledge/page';
 import PluginPagesPage from '@/app/home/plugin-pages/page';
 import SalesPage from '@/app/home/sales/page';
 import SalesChatPage from '@/app/home/sales-chat/page';
+import ProductsPage from '@/app/home/products/page';
 import AiAgentsPage from '@/app/home/ai-agents/page';
 
 const Loading = () => <div>加载中...</div>;
@@ -157,13 +157,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/home/market',
-    element: (
-      <Suspense fallback={<Loading />}>
-        <HomeLayout>
-          <MarketPage />
-        </HomeLayout>
-      </Suspense>
-    ),
+    element: <Navigate to="/home/plugins" replace />,
   },
   {
     path: '/home/mcp',
@@ -181,6 +175,16 @@ export const router = createBrowserRouter([
       <Suspense fallback={<Loading />}>
         <HomeLayout>
           <KnowledgePage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/products',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <ProductsPage />
         </HomeLayout>
       </Suspense>
     ),

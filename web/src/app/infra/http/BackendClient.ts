@@ -133,6 +133,7 @@ export class BackendClient extends BaseHttpClient {
     options?: {
       include_space_models?: boolean;
       include_system_models?: boolean;
+      only_configured_providers?: boolean;
       model_category?: 'text' | 'voice' | 'all';
     },
   ): Promise<ApiRespProviderLLMModels> {
@@ -169,8 +170,14 @@ export class BackendClient extends BaseHttpClient {
   // ============ Provider Model Embedding ============
   public getProviderEmbeddingModels(
     providerUuid?: string,
+    options?: {
+      only_configured_providers?: boolean;
+    },
   ): Promise<ApiRespProviderEmbeddingModels> {
-    const params = providerUuid ? { provider_uuid: providerUuid } : {};
+    const params = {
+      ...(providerUuid ? { provider_uuid: providerUuid } : {}),
+      ...(options || {}),
+    };
     return this.get('/api/v1/provider/models/embedding', params);
   }
 
@@ -205,8 +212,14 @@ export class BackendClient extends BaseHttpClient {
   // ============ Provider Model Rerank ============
   public getProviderRerankModels(
     providerUuid?: string,
+    options?: {
+      only_configured_providers?: boolean;
+    },
   ): Promise<ApiRespProviderRerankModels> {
-    const params = providerUuid ? { provider_uuid: providerUuid } : {};
+    const params = {
+      ...(providerUuid ? { provider_uuid: providerUuid } : {}),
+      ...(options || {}),
+    };
     return this.get('/api/v1/provider/models/rerank', params);
   }
 

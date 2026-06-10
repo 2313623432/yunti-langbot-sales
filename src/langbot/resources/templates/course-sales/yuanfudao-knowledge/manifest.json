@@ -12,9 +12,9 @@
       "rag/yuanfudao_spreadsheet_catalog.md"
     ]
   },
-  "generated_at": "2026-06-10T10:50:23",
+  "generated_at": "2026-06-10T12:09:43",
   "source_label": "猿辅导知识库",
-  "total_files": 83,
+  "total_files": 79,
   "files": [
     {
       "name": "16.8元品-直播脚本示例.md",
@@ -292,9 +292,9 @@
       "kind": "pdf",
       "category": "综合资料",
       "size_bytes": 3259642,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "人文博雅品牌视频-小版本.mp4",
@@ -337,16 +337,6 @@
       "note": "已纳入可检索文本语料。"
     },
     {
-      "name": "刘若安 自我介绍页.pptx",
-      "extension": ".pptx",
-      "kind": "presentation",
-      "category": "品牌介绍与宣传素材",
-      "size_bytes": 3006887,
-      "indexed": false,
-      "upload_ready": true,
-      "note": "作为原始附件来源记录。"
-    },
-    {
       "name": "剑桥英语卖点&话术.md",
       "extension": ".md",
       "kind": "markdown",
@@ -367,16 +357,6 @@
       "note": "视频素材保留在来源清单中，不进入默认RAG文本语料。"
     },
     {
-      "name": "商务特训班课表.pptx",
-      "extension": ".pptx",
-      "kind": "presentation",
-      "category": "产品货盘与课程资料",
-      "size_bytes": 14551236,
-      "indexed": false,
-      "upload_ready": false,
-      "note": "超过前端10MB上传限制；默认用清单或表格摘录进入知识库。"
-    },
-    {
       "name": "奥数思维社群话术.md",
       "extension": ".md",
       "kind": "markdown",
@@ -392,9 +372,9 @@
       "kind": "pdf",
       "category": "英语与自然拼读",
       "size_bytes": 3228657,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "学科TMK参考话术.md",
@@ -455,16 +435,6 @@
       "indexed": true,
       "upload_ready": true,
       "note": "已纳入可检索文本语料。"
-    },
-    {
-      "name": "徐紫娟 自我介绍页.pptx",
-      "extension": ".pptx",
-      "kind": "presentation",
-      "category": "品牌介绍与宣传素材",
-      "size_bytes": 3421715,
-      "indexed": false,
-      "upload_ready": true,
-      "note": "作为原始附件来源记录。"
     },
     {
       "name": "思维-中价线产品培训文档-11.10.md",
@@ -562,9 +532,9 @@
       "kind": "pdf",
       "category": "品牌介绍与宣传素材",
       "size_bytes": 15329306,
-      "indexed": false,
-      "upload_ready": false,
-      "note": "超过前端10MB上传限制；默认用清单或表格摘录进入知识库。"
+      "indexed": true,
+      "upload_ready": true,
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "猿辅导品牌宣传素材0224.md",
@@ -593,8 +563,8 @@
       "category": "产品货盘与课程资料",
       "size_bytes": 50137362,
       "indexed": true,
-      "upload_ready": false,
-      "note": "超过前端10MB上传限制；默认用清单或表格摘录进入知识库。"
+      "upload_ready": true,
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "猿辅导课程问答整理.xlsx",
@@ -622,9 +592,9 @@
       "kind": "pdf",
       "category": "综合资料",
       "size_bytes": 4003469,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "社群话术2.md",
@@ -743,18 +713,8 @@
       "category": "综合资料",
       "size_bytes": 12757442,
       "indexed": true,
-      "upload_ready": false,
-      "note": "超过前端10MB上传限制；默认用清单或表格摘录进入知识库。"
-    },
-    {
-      "name": "马冬自我介绍.pptx",
-      "extension": ".pptx",
-      "kind": "presentation",
-      "category": "品牌介绍与宣传素材",
-      "size_bytes": 496989,
-      "indexed": false,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "（数学）-单元训练秘籍-分数乘除法.pdf",
@@ -762,9 +722,9 @@
       "kind": "pdf",
       "category": "数学与思维",
       "size_bytes": 287316,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "（数学）单元训练秘籍-圆.pdf",
@@ -772,9 +732,9 @@
       "kind": "pdf",
       "category": "数学与思维",
       "size_bytes": 242017,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "（素养）猿辅导注意力训练秘籍.pdf",
@@ -782,9 +742,9 @@
       "kind": "pdf",
       "category": "综合资料",
       "size_bytes": 664635,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "（英语）小学常考五类核心词 三大语法口袋书.pdf",
@@ -792,9 +752,9 @@
       "kind": "pdf",
       "category": "英语与自然拼读",
       "size_bytes": 1407771,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "（英语）小学阶段英语语法汇总海报_1张.pdf",
@@ -802,9 +762,9 @@
       "kind": "pdf",
       "category": "英语与自然拼读",
       "size_bytes": 1584248,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "（语文）100题闯关大挑战.pdf",
@@ -812,9 +772,9 @@
       "kind": "pdf",
       "category": "语文与人文素养",
       "size_bytes": 4566304,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "（语文）小学生必背古诗词（1-6年级）.pdf",
@@ -822,9 +782,9 @@
       "kind": "pdf",
       "category": "语文与人文素养",
       "size_bytes": 10702141,
-      "indexed": false,
-      "upload_ready": false,
-      "note": "超过前端10MB上传限制；默认用清单或表格摘录进入知识库。"
+      "indexed": true,
+      "upload_ready": true,
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "（语文）语文基础知识手册.pdf",
@@ -832,9 +792,9 @@
       "kind": "pdf",
       "category": "语文与人文素养",
       "size_bytes": 6445927,
-      "indexed": false,
+      "indexed": true,
       "upload_ready": true,
-      "note": "作为原始附件来源记录。"
+      "note": "已纳入可检索文本语料。"
     },
     {
       "name": "🚀25新思维长期班案例库.md",
@@ -894,6 +854,536 @@
     "英语私域运营sop.md",
     "语数双科纯课特训营介绍.md",
     "🚀25新思维长期班案例库.md"
+  ],
+  "document_files": [
+    {
+      "path": "documents/16.8元品-直播脚本示例.md",
+      "source_name": "16.8元品-直播脚本示例.md",
+      "storage_name": "16.8元品-直播脚本示例.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 9543
+    },
+    {
+      "path": "documents/269思维盒子.md",
+      "source_name": "269思维盒子.md",
+      "storage_name": "269思维盒子.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 7000
+    },
+    {
+      "path": "documents/29元《秒懂新奥第一课》直播脚本.md",
+      "source_name": "29元《秒懂新奥第一课》直播脚本.md",
+      "storage_name": "29元《秒懂新奥第一课》直播脚本.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 14667
+    },
+    {
+      "path": "documents/29元新奥数产品介绍.md",
+      "source_name": "29元新奥数产品介绍.md",
+      "storage_name": "29元新奥数产品介绍.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 13190
+    },
+    {
+      "path": "documents/35元品：直播脚本示例.md",
+      "source_name": "35元品：直播脚本示例.md",
+      "storage_name": "35元品：直播脚本示例.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 4530
+    },
+    {
+      "path": "documents/35元：数学满分冲刺·从基础到培优.md",
+      "source_name": "35元：数学满分冲刺·从基础到培优.md",
+      "storage_name": "35元：数学满分冲刺·从基础到培优.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 40359
+    },
+    {
+      "path": "documents/49元奥数盒子.md",
+      "source_name": "49元奥数盒子.md",
+      "storage_name": "49元奥数盒子.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 6018
+    },
+    {
+      "path": "documents/5 元达播纯课.md",
+      "source_name": "5 元达播纯课.md",
+      "storage_name": "5 元达播纯课.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 21579
+    },
+    {
+      "path": "documents/59元品-直播脚本示例 副本.md",
+      "source_name": "59元品-直播脚本示例 副本.md",
+      "storage_name": "59元品-直播脚本示例 副本.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 11354
+    },
+    {
+      "path": "documents/9元思维纯课.md",
+      "source_name": "9元思维纯课.md",
+      "storage_name": "9元思维纯课.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 8697
+    },
+    {
+      "path": "documents/AI客服需求与SOP梳理.md",
+      "source_name": "AI客服需求与SOP梳理.md",
+      "storage_name": "AI客服需求与SOP梳理.md",
+      "kind": "markdown",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 22082
+    },
+    {
+      "path": "documents/AI销售聊天记录_SOP整理模板_B015资料版.xlsx",
+      "source_name": "AI销售聊天记录_SOP整理模板_B015资料版.xlsx",
+      "storage_name": "AI销售聊天记录_SOP整理模板_B015资料版.xlsx",
+      "kind": "spreadsheet",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 88751
+    },
+    {
+      "path": "documents/SOP.md",
+      "source_name": "SOP.md",
+      "storage_name": "SOP.md",
+      "kind": "markdown",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 1192
+    },
+    {
+      "path": "documents/robin后台使用攻略.md",
+      "source_name": "robin后台使用攻略.md",
+      "storage_name": "robin后台使用攻略.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 2829
+    },
+    {
+      "path": "documents/【在售】16.8原型题-满分冲刺.md",
+      "source_name": "【在售】16.8原型题-满分冲刺.md",
+      "storage_name": "【在售】16.8原型题-满分冲刺.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 44211
+    },
+    {
+      "path": "documents/【在售】29元《秒懂新奥数》介绍.md",
+      "source_name": "【在售】29元《秒懂新奥数》介绍.md",
+      "storage_name": "【在售】29元《秒懂新奥数》介绍.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 49069
+    },
+    {
+      "path": "documents/【在售】59元品《全科满分营-原型题秒解重难考点》.md",
+      "source_name": "【在售】59元品《全科满分营-原型题秒解重难考点》 .md",
+      "storage_name": "【在售】59元品《全科满分营-原型题秒解重难考点》.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 73819
+    },
+    {
+      "path": "documents/【直播】英语初级话术.xlsx",
+      "source_name": "【直播】英语初级话术.xlsx",
+      "storage_name": "【直播】英语初级话术.xlsx",
+      "kind": "spreadsheet",
+      "category": "英语与自然拼读",
+      "size_bytes": 44412
+    },
+    {
+      "path": "documents/一年级寒春学情文档.pdf",
+      "source_name": "一年级寒春学情文档.pdf",
+      "storage_name": "一年级寒春学情文档.pdf",
+      "kind": "pdf",
+      "category": "综合资料",
+      "size_bytes": 3259642
+    },
+    {
+      "path": "documents/人文素养&新思维礼盒微信话术 (1).md",
+      "source_name": "人文素养&新思维礼盒微信话术 (1).md",
+      "storage_name": "人文素养&新思维礼盒微信话术 (1).md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 16555
+    },
+    {
+      "path": "documents/人文素养&新思维礼盒微信话术.md",
+      "source_name": "人文素养&新思维礼盒微信话术.md",
+      "storage_name": "人文素养&新思维礼盒微信话术.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 5917
+    },
+    {
+      "path": "documents/人文素养&新思维礼盒社群话术.md",
+      "source_name": "人文素养&新思维礼盒社群话术.md",
+      "storage_name": "人文素养&新思维礼盒社群话术.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 8717
+    },
+    {
+      "path": "documents/剑桥英语卖点&话术.md",
+      "source_name": "剑桥英语卖点&话术.md",
+      "storage_name": "剑桥英语卖点&话术.md",
+      "kind": "markdown",
+      "category": "英语与自然拼读",
+      "size_bytes": 7833
+    },
+    {
+      "path": "documents/奥数思维社群话术.md",
+      "source_name": "奥数思维社群话术.md",
+      "storage_name": "奥数思维社群话术.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 4085
+    },
+    {
+      "path": "documents/学生1-6年级英语能力要求.pdf",
+      "source_name": "学生1-6年级英语能力要求.pdf",
+      "storage_name": "学生1-6年级英语能力要求.pdf",
+      "kind": "pdf",
+      "category": "英语与自然拼读",
+      "size_bytes": 3228657
+    },
+    {
+      "path": "documents/学科TMK参考话术.md",
+      "source_name": "学科TMK参考话术.md",
+      "storage_name": "学科TMK参考话术.md",
+      "kind": "markdown",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 5779
+    },
+    {
+      "path": "documents/学科产品培训赋能.md",
+      "source_name": "学科产品培训赋能.md",
+      "storage_name": "学科产品培训赋能.md",
+      "kind": "markdown",
+      "category": "产品货盘与课程资料",
+      "size_bytes": 31270
+    },
+    {
+      "path": "documents/学科私域运营sop.md",
+      "source_name": "学科私域运营sop.md",
+      "storage_name": "学科私域运营sop.md",
+      "kind": "markdown",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 67892
+    },
+    {
+      "path": "documents/学科私转推课话术 sop.xlsx",
+      "source_name": "学科私转推课话术 sop.xlsx",
+      "storage_name": "学科私转推课话术 sop.xlsx",
+      "kind": "spreadsheet",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 19809
+    },
+    {
+      "path": "documents/学科系统班素材.md",
+      "source_name": "学科系统班素材.md",
+      "storage_name": "学科系统班素材.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 25643
+    },
+    {
+      "path": "documents/学科语数英课程话术_卖点.md",
+      "source_name": "学科语数英课程话术_卖点.md",
+      "storage_name": "学科语数英课程话术_卖点.md",
+      "kind": "markdown",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 29099
+    },
+    {
+      "path": "documents/思维-中价线产品培训文档-11.10.md",
+      "source_name": "思维-中价线产品培训文档-11.10.md",
+      "storage_name": "思维-中价线产品培训文档-11.10.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 17386
+    },
+    {
+      "path": "documents/思维特训班物料.md",
+      "source_name": "思维特训班物料.md",
+      "storage_name": "思维特训班物料.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 6154
+    },
+    {
+      "path": "documents/数据库整理.md",
+      "source_name": "数据库整理.md",
+      "storage_name": "数据库整理.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 1387
+    },
+    {
+      "path": "documents/杨玉彪老师产品卖点.md",
+      "source_name": "杨玉彪老师产品卖点.md",
+      "storage_name": "杨玉彪老师产品卖点.md",
+      "kind": "markdown",
+      "category": "产品货盘与课程资料",
+      "size_bytes": 5319
+    },
+    {
+      "path": "documents/流量池0低课转-29元特训分年级私聊话术 -2024春4期.md",
+      "source_name": "流量池0低课转-29元特训分年级私聊话术 -2024春4期.md",
+      "storage_name": "流量池0低课转-29元特训分年级私聊话术 -2024春4期.md",
+      "kind": "markdown",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 31064
+    },
+    {
+      "path": "documents/特训班素材.md",
+      "source_name": "特训班素材.md",
+      "storage_name": "特训班素材.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 20317
+    },
+    {
+      "path": "documents/猿辅导1天2次群发SOP.xlsx",
+      "source_name": "猿辅导1天2次群发SOP.xlsx",
+      "storage_name": "猿辅导1天2次群发SOP.xlsx",
+      "kind": "spreadsheet",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 2903850
+    },
+    {
+      "path": "documents/猿辅导介绍0317.pdf",
+      "source_name": "猿辅导介绍0317.pdf",
+      "storage_name": "猿辅导介绍0317.pdf",
+      "kind": "pdf",
+      "category": "品牌介绍与宣传素材",
+      "size_bytes": 15329306
+    },
+    {
+      "path": "documents/猿辅导品牌宣传素材0224.md",
+      "source_name": "猿辅导品牌宣传素材0224.md",
+      "storage_name": "猿辅导品牌宣传素材0224.md",
+      "kind": "markdown",
+      "category": "品牌介绍与宣传素材",
+      "size_bytes": 7769
+    },
+    {
+      "path": "documents/猿辅导自然拼读常见问题(1).xlsx",
+      "source_name": "猿辅导自然拼读常见问题(1).xlsx",
+      "storage_name": "猿辅导自然拼读常见问题(1).xlsx",
+      "kind": "spreadsheet",
+      "category": "英语与自然拼读",
+      "size_bytes": 185239
+    },
+    {
+      "path": "documents/猿辅导课程货盘.xlsx",
+      "source_name": "猿辅导课程货盘.xlsx",
+      "storage_name": "猿辅导课程货盘.xlsx",
+      "kind": "spreadsheet",
+      "category": "产品货盘与课程资料",
+      "size_bytes": 50137362
+    },
+    {
+      "path": "documents/猿辅导课程问答整理.xlsx",
+      "source_name": "猿辅导课程问答整理.xlsx",
+      "storage_name": "猿辅导课程问答整理.xlsx",
+      "kind": "spreadsheet",
+      "category": "产品货盘与课程资料",
+      "size_bytes": 15132
+    },
+    {
+      "path": "documents/用户报名之后app里没有课程这么办？.md",
+      "source_name": "用户报名之后app里没有课程这么办？.md",
+      "storage_name": "用户报名之后app里没有课程这么办？.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 1548
+    },
+    {
+      "path": "documents/盒子培训ppt.pdf",
+      "source_name": "盒子培训ppt.pdf",
+      "storage_name": "盒子培训ppt.pdf",
+      "kind": "pdf",
+      "category": "综合资料",
+      "size_bytes": 4003469
+    },
+    {
+      "path": "documents/社群话术2.md",
+      "source_name": "社群话术2.md",
+      "storage_name": "社群话术2.md",
+      "kind": "markdown",
+      "category": "销售话术与私域SOP",
+      "size_bytes": 3145
+    },
+    {
+      "path": "documents/系统班素材.md",
+      "source_name": "系统班素材.md",
+      "storage_name": "系统班素材.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 51022
+    },
+    {
+      "path": "documents/素养特训的盒子实物是如何与特训课结合？.md",
+      "source_name": "素养特训的盒子实物是如何与特训课结合？.md",
+      "storage_name": "素养特训的盒子实物是如何与特训课结合？.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 24823
+    },
+    {
+      "path": "documents/素养礼盒朋友圈.md",
+      "source_name": "素养礼盒朋友圈.md",
+      "storage_name": "素养礼盒朋友圈.md",
+      "kind": "markdown",
+      "category": "综合资料",
+      "size_bytes": 18484
+    },
+    {
+      "path": "documents/自拼TMK 话术.md",
+      "source_name": "自拼TMK 话术.md",
+      "storage_name": "自拼TMK 话术.md",
+      "kind": "markdown",
+      "category": "英语与自然拼读",
+      "size_bytes": 3501
+    },
+    {
+      "path": "documents/自拼特训班素材（好评截图&学习效果反馈视频）.md",
+      "source_name": "自拼特训班素材（好评截图&学习效果反馈视频）.md",
+      "storage_name": "自拼特训班素材（好评截图&学习效果反馈视频）.md",
+      "kind": "markdown",
+      "category": "英语与自然拼读",
+      "size_bytes": 12254
+    },
+    {
+      "path": "documents/自然拼读-产品培训文档-26.3.11.md",
+      "source_name": "自然拼读-产品培训文档-26.3.11.md",
+      "storage_name": "自然拼读-产品培训文档-26.3.11.md",
+      "kind": "markdown",
+      "category": "英语与自然拼读",
+      "size_bytes": 14127
+    },
+    {
+      "path": "documents/自然拼读卖点话术更新.md",
+      "source_name": "自然拼读卖点话术更新.md",
+      "storage_name": "自然拼读卖点话术更新.md",
+      "kind": "markdown",
+      "category": "英语与自然拼读",
+      "size_bytes": 29907
+    },
+    {
+      "path": "documents/自然拼读纯课介绍文档.md",
+      "source_name": "自然拼读纯课介绍文档.md",
+      "storage_name": "自然拼读纯课介绍文档.md",
+      "kind": "markdown",
+      "category": "英语与自然拼读",
+      "size_bytes": 4558
+    },
+    {
+      "path": "documents/英语私域运营sop.md",
+      "source_name": "英语私域运营sop.md",
+      "storage_name": "英语私域运营sop.md",
+      "kind": "markdown",
+      "category": "英语与自然拼读",
+      "size_bytes": 86011
+    },
+    {
+      "path": "documents/语数双科纯课特训营介绍.md",
+      "source_name": "语数双科纯课特训营介绍.md",
+      "storage_name": "语数双科纯课特训营介绍.md",
+      "kind": "markdown",
+      "category": "品牌介绍与宣传素材",
+      "size_bytes": 21068
+    },
+    {
+      "path": "documents/语数英各年级-试听老师推荐10.15.xlsx",
+      "source_name": "语数英各年级-试听老师推荐10.15.xlsx",
+      "storage_name": "语数英各年级-试听老师推荐10.15.xlsx",
+      "kind": "spreadsheet",
+      "category": "综合资料",
+      "size_bytes": 12757442
+    },
+    {
+      "path": "documents/（数学）-单元训练秘籍-分数乘除法.pdf",
+      "source_name": "（数学）-单元训练秘籍-分数乘除法.pdf",
+      "storage_name": "（数学）-单元训练秘籍-分数乘除法.pdf",
+      "kind": "pdf",
+      "category": "数学与思维",
+      "size_bytes": 287316
+    },
+    {
+      "path": "documents/（数学）单元训练秘籍-圆.pdf",
+      "source_name": "（数学）单元训练秘籍-圆.pdf",
+      "storage_name": "（数学）单元训练秘籍-圆.pdf",
+      "kind": "pdf",
+      "category": "数学与思维",
+      "size_bytes": 242017
+    },
+    {
+      "path": "documents/（素养）猿辅导注意力训练秘籍.pdf",
+      "source_name": "（素养）猿辅导注意力训练秘籍.pdf",
+      "storage_name": "（素养）猿辅导注意力训练秘籍.pdf",
+      "kind": "pdf",
+      "category": "综合资料",
+      "size_bytes": 664635
+    },
+    {
+      "path": "documents/（英语）小学常考五类核心词 三大语法口袋书.pdf",
+      "source_name": "（英语）小学常考五类核心词 三大语法口袋书.pdf",
+      "storage_name": "（英语）小学常考五类核心词 三大语法口袋书.pdf",
+      "kind": "pdf",
+      "category": "英语与自然拼读",
+      "size_bytes": 1407771
+    },
+    {
+      "path": "documents/（英语）小学阶段英语语法汇总海报_1张.pdf",
+      "source_name": "（英语）小学阶段英语语法汇总海报_1张.pdf",
+      "storage_name": "（英语）小学阶段英语语法汇总海报_1张.pdf",
+      "kind": "pdf",
+      "category": "英语与自然拼读",
+      "size_bytes": 1584248
+    },
+    {
+      "path": "documents/（语文）100题闯关大挑战.pdf",
+      "source_name": "（语文）100题闯关大挑战.pdf",
+      "storage_name": "（语文）100题闯关大挑战.pdf",
+      "kind": "pdf",
+      "category": "语文与人文素养",
+      "size_bytes": 4566304
+    },
+    {
+      "path": "documents/（语文）小学生必背古诗词（1-6年级）.pdf",
+      "source_name": "（语文）小学生必背古诗词（1-6年级）.pdf",
+      "storage_name": "（语文）小学生必背古诗词（1-6年级）.pdf",
+      "kind": "pdf",
+      "category": "语文与人文素养",
+      "size_bytes": 10702141
+    },
+    {
+      "path": "documents/（语文）语文基础知识手册.pdf",
+      "source_name": "（语文）语文基础知识手册.pdf",
+      "storage_name": "（语文）语文基础知识手册.pdf",
+      "kind": "pdf",
+      "category": "语文与人文素养",
+      "size_bytes": 6445927
+    },
+    {
+      "path": "documents/🚀25新思维长期班案例库.md",
+      "source_name": "🚀25新思维长期班案例库.md",
+      "storage_name": "🚀25新思维长期班案例库.md",
+      "kind": "markdown",
+      "category": "数学与思维",
+      "size_bytes": 63353
+    }
   ],
   "spreadsheet_previews": {
     "AI销售聊天记录_SOP整理模板_B015资料版.xlsx": {

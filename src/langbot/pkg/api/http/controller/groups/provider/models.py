@@ -22,11 +22,15 @@ class LLMModelsRouterGroup(group.RouterGroup):
                     )
                 include_space_models = quart.request.args.get('include_space_models', 'true').lower() != 'false'
                 include_system_models = quart.request.args.get('include_system_models', 'true').lower() != 'false'
+                only_configured_providers = (
+                    quart.request.args.get('only_configured_providers', 'false').lower() == 'true'
+                )
                 return self.success(
                     data={
                         'models': await self.ap.llm_model_service.get_llm_models(
                             include_space_models=include_space_models,
                             include_system_models=include_system_models,
+                            only_configured_providers=only_configured_providers,
                             model_category=model_category,
                         )
                     }
@@ -80,7 +84,16 @@ class EmbeddingModelsRouterGroup(group.RouterGroup):
                             )
                         }
                     )
-                return self.success(data={'models': await self.ap.embedding_models_service.get_embedding_models()})
+                only_configured_providers = (
+                    quart.request.args.get('only_configured_providers', 'false').lower() == 'true'
+                )
+                return self.success(
+                    data={
+                        'models': await self.ap.embedding_models_service.get_embedding_models(
+                            only_configured_providers=only_configured_providers
+                        )
+                    }
+                )
             elif quart.request.method == 'POST':
                 json_data = await quart.request.json
                 model_uuid = await self.ap.embedding_models_service.create_embedding_model(json_data)
@@ -128,7 +141,16 @@ class RerankModelsRouterGroup(group.RouterGroup):
                             'models': await self.ap.rerank_models_service.get_rerank_models_by_provider(provider_uuid)
                         }
                     )
-                return self.success(data={'models': await self.ap.rerank_models_service.get_rerank_models()})
+                only_configured_providers = (
+                    quart.request.args.get('only_configured_providers', 'false').lower() == 'true'
+                )
+                return self.success(
+                    data={
+                        'models': await self.ap.rerank_models_service.get_rerank_models(
+                            only_configured_providers=only_configured_providers
+                        )
+                    }
+                )
             elif quart.request.method == 'POST':
                 json_data = await quart.request.json
                 model_uuid = await self.ap.rerank_models_service.create_rerank_model(json_data)

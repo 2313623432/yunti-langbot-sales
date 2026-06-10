@@ -14,6 +14,7 @@ from langbot.pkg.entity.persistence import rag as persistence_rag
 from langbot.pkg.core import taskmgr
 from langbot_plugin.api.entities.builtin.rag import context as rag_context
 from .base import KnowledgeBaseInterface
+from . import builtin_engine
 
 
 class RuntimeKnowledgeBase(KnowledgeBaseInterface):
@@ -145,7 +146,7 @@ class RuntimeKnowledgeBase(KnowledgeBaseInterface):
 
         zip_bytes = await self.ap.storage_mgr.storage_provider.load(zip_file_id)
 
-        supported_extensions = {'txt', 'pdf', 'docx', 'md', 'html'}
+        supported_extensions = {'txt', 'pdf', 'docx', 'md', 'html', 'xlsx'}
         stored_file_tasks = []
 
         try:
@@ -253,6 +254,16 @@ class RuntimeKnowledgeBase(KnowledgeBaseInterface):
         if not plugin_id:
             return
 
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            engine = builtin_engine.BuiltinKnowledgeEngine(self.ap)
+            config = self.knowledge_base_entity.creation_settings or {}
+            await engine.on_kb_create(
+                self.knowledge_base_entity.uuid,
+                self.knowledge_base_entity.collection_id or self.knowledge_base_entity.uuid,
+                config,
+            )
+            return
+
         try:
             config = self.knowledge_base_entity.creation_settings or {}
             self.ap.logger.info(
@@ -267,6 +278,14 @@ class RuntimeKnowledgeBase(KnowledgeBaseInterface):
         """Notify plugin about KB deletion."""
         plugin_id = self.knowledge_base_entity.knowledge_engine_plugin_id
         if not plugin_id:
+            return
+
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            engine = builtin_engine.BuiltinKnowledgeEngine(self.ap)
+            await engine.on_kb_delete(
+                self.knowledge_base_entity.uuid,
+                self.knowledge_base_entity.collection_id or self.knowledge_base_entity.uuid,
+            )
             return
 
         try:
@@ -289,6 +308,17 @@ class RuntimeKnowledgeBase(KnowledgeBaseInterface):
         if not plugin_id:
             self.ap.logger.error(f'No RAG plugin ID configured for KB {kb.uuid}. Ingestion failed.')
             raise ValueError('RAG Plugin ID required')
+
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            engine = builtin_engine.BuiltinKnowledgeEngine(self.ap)
+            return await engine.ingest(
+                kb_id=kb.uuid,
+                collection_id=kb.collection_id or kb.uuid,
+                creation_settings=kb.creation_settings or {},
+                file_metadata=file_metadata,
+                storage_path=storage_path,
+                parsed_content=parsed_content,
+            )
 
         self.ap.logger.info(f'Calling RAG plugin {plugin_id}: ingest(doc={file_metadata.get("filename")})')
 
@@ -329,6 +359,18 @@ class RuntimeKnowledgeBase(KnowledgeBaseInterface):
         if not plugin_id:
             raise ValueError(f'No RAG plugin ID configured for KB {kb.uuid}. Retrieval failed.')
 
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            engine = builtin_engine.BuiltinKnowledgeEngine(self.ap)
+            filters = settings.pop('filters', {})
+            return await engine.retrieve(
+                query=query,
+                kb_id=kb.uuid,
+                collection_id=kb.collection_id or kb.uuid,
+                creation_settings=kb.creation_settings or {},
+                retrieval_settings=settings,
+                filters=filters,
+            )
+
         # Session context (e.g. session_name) stays in retrieval_settings
         # for plugins that need it. Do NOT move them into filters, as filters
         # are passed directly to vector_search by some plugins (e.g. LangRAG)
@@ -357,6 +399,13 @@ class RuntimeKnowledgeBase(KnowledgeBaseInterface):
         if not plugin_id:
             return False
 
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            engine = builtin_engine.BuiltinKnowledgeEngine(self.ap)
+            return await engine.delete_document(
+                document_id,
+                kb.collection_id or kb.uuid,
+            )
+
         self.ap.logger.info(f'Calling RAG plugin {plugin_id}: delete_document(doc_id={document_id})')
 
         try:
@@ -378,6 +427,22 @@ class RAGManager:
     async def initialize(self):
         await self.load_knowledge_bases_from_db()
 
+    async def _list_plugin_knowledge_engines(self) -> list[dict]:
+        plugin_connector = getattr(self.ap, 'plugin_connector', None)
+        if plugin_connector is None or not plugin_connector.is_enable_plugin:
+            return []
+        try:
+            return await plugin_connector.list_knowledge_engines()
+        except Exception as e:
+            self.ap.logger.warning(f'Failed to list Knowledge Engines: {e}')
+            return []
+
+    def _build_engine_map(self, plugin_engines: list[dict]) -> dict:
+        engine_map = {e['plugin_id']: e for e in plugin_engines}
+        builtin_info = builtin_engine.get_builtin_engine_info()
+        engine_map[builtin_info['plugin_id']] = builtin_info
+        return engine_map
+
     async def get_all_knowledge_base_details(self) -> list[dict]:
         """Get all knowledge bases with enriched Knowledge Engine details."""
         # 1. Get raw KBs from DB
@@ -385,13 +450,8 @@ class RAGManager:
         knowledge_bases = result.all()
 
         # 2. Get all available Knowledge Engines for enrichment
-        engine_map = {}
-        if self.ap.plugin_connector.is_enable_plugin:
-            try:
-                engines = await self.ap.plugin_connector.list_knowledge_engines()
-                engine_map = {e['plugin_id']: e for e in engines}
-            except Exception as e:
-                self.ap.logger.warning(f'Failed to list Knowledge Engines: {e}')
+        plugin_engines = await self._list_plugin_knowledge_engines()
+        engine_map = self._build_engine_map(plugin_engines)
 
         # 3. Serialize and enrich
         kb_list = []
@@ -413,14 +473,8 @@ class RAGManager:
 
         kb_dict = self.ap.persistence_mgr.serialize_model(persistence_rag.KnowledgeBase, kb)
 
-        # Fetch engines
-        engine_map = {}
-        if self.ap.plugin_connector.is_enable_plugin:
-            try:
-                engines = await self.ap.plugin_connector.list_knowledge_engines()
-                engine_map = {e['plugin_id']: e for e in engines}
-            except Exception as e:
-                self.ap.logger.warning(f'Failed to list Knowledge Engines: {e}')
+        plugin_engines = await self._list_plugin_knowledge_engines()
+        engine_map = self._build_engine_map(plugin_engines)
 
         self._enrich_kb_dict(kb_dict, engine_map)
         return kb_dict
@@ -472,17 +526,11 @@ class RAGManager:
         description: str = '',
     ) -> persistence_rag.KnowledgeBase:
         """Create a new knowledge base using a RAG plugin."""
-        # Validate that the Knowledge Engine plugin exists
-        if self.ap.plugin_connector.is_enable_plugin:
-            try:
-                engines = await self.ap.plugin_connector.list_knowledge_engines()
-                engine_ids = [e.get('plugin_id') for e in engines]
-                if knowledge_engine_plugin_id not in engine_ids:
-                    raise ValueError(f'Knowledge Engine plugin {knowledge_engine_plugin_id} not found')
-            except ValueError:
-                raise
-            except Exception as e:
-                self.ap.logger.warning(f'Failed to validate Knowledge Engine plugin existence: {e}')
+        engine_ids = {builtin_engine.BUILTIN_KNOWLEDGE_ENGINE_ID}
+        plugin_engines = await self._list_plugin_knowledge_engines()
+        engine_ids.update(e.get('plugin_id') for e in plugin_engines if e.get('plugin_id'))
+        if knowledge_engine_plugin_id not in engine_ids:
+            raise ValueError(f'Knowledge Engine plugin {knowledge_engine_plugin_id} not found')
 
         kb_uuid = str(uuid.uuid4())
         # Use UUID as collection ID by default for isolation

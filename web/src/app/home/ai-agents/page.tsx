@@ -1,4 +1,5 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Bot,
   CheckCircle2,
@@ -31,6 +32,8 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { httpClient } from '@/app/infra/http/HttpClient';
+import { LLMModel } from '@/app/infra/entities/api';
 import { cn } from '@/lib/utils';
 
 type AgentTemplate = {
@@ -91,7 +94,6 @@ const sampleAgents = [
 
 const workflowsFromProject = ['销售 Workflow', '运营 Workflow'];
 const fallbackKnowledgeBases = ['产品知识库', '销售话术库', '常见问题库'];
-const models = ['qwen-plus', 'qwen-max', 'gpt-4.1-mini', 'deepseek-chat'];
 
 function StepPill({
   step,
@@ -187,6 +189,7 @@ function SettingSection({
 }
 
 export default function AiAgentsPage() {
+  const { t } = useTranslation();
   const { knowledgeBases } = useSidebarData();
   const [mode, setMode] = useState<'list' | 'create'>('list');
   const [step, setStep] = useState<AgentStep>('create');
@@ -209,7 +212,9 @@ export default function AiAgentsPage() {
   const [selectedKnowledge, setSelectedKnowledge] = useState(
     fallbackKnowledgeBases[0],
   );
-  const [model, setModel] = useState(models[0]);
+  const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
+  const [model, setModel] = useState('');
   const [thinkingSteps, setThinkingSteps] = useState(2);
   const [referenceRounds, setReferenceRounds] = useState(4);
   const [openingMessage, setOpeningMessage] = useState(
@@ -220,10 +225,54 @@ export default function AiAgentsPage() {
   );
   const [testResult, setTestResult] = useState('');
 
+  const configuredLlmModels = useMemo(
+    () =>
+      llmModels.filter(
+        (item) => item.provider?.requester !== 'space-chat-completions',
+      ),
+    [llmModels],
+  );
+
+  const selectedModel = useMemo(
+    () => configuredLlmModels.find((item) => item.uuid === model),
+    [configuredLlmModels, model],
+  );
+
   const knowledgeOptions =
     knowledgeBases.length > 0
       ? knowledgeBases.map((base) => base.name)
       : fallbackKnowledgeBases;
+
+  useEffect(() => {
+    setModelsLoading(true);
+    httpClient
+      .getProviderLLMModels(undefined, {
+        include_space_models: false,
+        include_system_models: false,
+        only_configured_providers: true,
+        model_category: 'text',
+      })
+      .then((resp) => {
+        setLlmModels(resp.models || []);
+      })
+      .catch((error) => {
+        console.warn('Failed to load LLM models', error);
+        setLlmModels([]);
+      })
+      .finally(() => {
+        setModelsLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (configuredLlmModels.length === 0) {
+      setModel('');
+      return;
+    }
+    if (!configuredLlmModels.some((item) => item.uuid === model)) {
+      setModel(configuredLlmModels[0].uuid);
+    }
+  }, [configuredLlmModels, model]);
 
   function selectTemplate(template: AgentTemplate) {
     setSelectedTemplateId(template.id);
@@ -241,8 +290,9 @@ export default function AiAgentsPage() {
   }
 
   function runPreview() {
+    const modelLabel = selectedModel?.name || t('aiAgents.noModelSelected');
     setTestResult(
-      `已使用 ${model} 模型，并接入「${selectedWorkflow}」与「${selectedKnowledge}」。${agentName} 会先识别客户意图，再根据角色指令生成回复；如果命中高意向或复杂问题，会交给 Workflow 继续处理。`,
+      `已使用 ${modelLabel} 模型，并接入「${selectedWorkflow}」与「${selectedKnowledge}」。${agentName} 会先识别客户意图，再根据角色指令生成回复；如果命中高意向或复杂问题，会交给 Workflow 继续处理。`,
     );
   }
 
@@ -474,18 +524,34 @@ export default function AiAgentsPage() {
                     <span className="text-xs font-medium text-slate-500">
                       选择模型
                     </span>
-                    <Select value={model} onValueChange={setModel}>
+                    <Select
+                      value={model || undefined}
+                      onValueChange={setModel}
+                      disabled={modelsLoading || configuredLlmModels.length === 0}
+                    >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue
+                          placeholder={
+                            modelsLoading
+                              ? t('common.loading')
+                              : t('models.selectModel')
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent>
-                        {models.map((item) => (
-                          <SelectItem key={item} value={item}>
-                            {item}
+                        {configuredLlmModels.map((item) => (
+                          <SelectItem key={item.uuid} value={item.uuid}>
+                            {item.name}
+                            {item.provider?.name ? ` · ${item.provider.name}` : ''}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {!modelsLoading && configuredLlmModels.length === 0 && (
+                      <p className="text-xs leading-5 text-amber-600">
+                        {t('aiAgents.configureModelsHint')}
+                      </p>
+                    )}
                   </label>
                   <div className="grid grid-cols-2 gap-3">
                     <label className="space-y-1">
@@ -702,7 +768,10 @@ export default function AiAgentsPage() {
                 <h3 className="font-semibold text-slate-950">发布确认</h3>
                 <div className="mt-4 space-y-3 text-sm text-slate-600">
                   <div>Agent：{agentName}</div>
-                  <div>模型：{model}</div>
+                  <div>
+                    模型：
+                    {selectedModel?.name || t('aiAgents.noModelSelected')}
+                  </div>
                   <div>Workflow：{selectedWorkflow}</div>
                   <div>知识库：{selectedKnowledge}</div>
                 </div>

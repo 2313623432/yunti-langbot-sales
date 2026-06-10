@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
@@ -117,8 +116,8 @@ export default function FileUploadZone({
     async (file: File) => {
       if (isUploading) return;
 
-      // Check file size (10MB limit)
-      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+      // Check file size (500MB limit)
+      const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
       if (file.size > MAX_FILE_SIZE) {
         toast.error(t('knowledge.documentsTab.fileSizeExceeded'));
         return;
@@ -220,12 +219,9 @@ export default function FileUploadZone({
                 <p className="text-sm text-yellow-800 dark:text-yellow-200">
                   {t('knowledge.documentsTab.noParserAvailable')}
                 </p>
-                <Link
-                  to="/home/market?category=Parser"
-                  className="text-sm text-primary hover:underline mt-1 inline-block"
-                >
-                  {t('knowledge.documentsTab.installParserHint')}
-                </Link>
+                <p className="text-sm text-yellow-800 dark:text-yellow-200 mt-1">
+                  {t('knowledge.documentsTab.useBuiltinParserHint')}
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -290,7 +286,7 @@ export default function FileUploadZone({
               id="file-upload"
               className="hidden"
               onChange={handleFileSelect}
-              accept=".pdf,.doc,.docx,.txt,.md,.html,.zip"
+              accept=".pdf,.doc,.docx,.txt,.md,.html,.xlsx,.zip"
               disabled={isUploading || loadingParsers}
             />
 

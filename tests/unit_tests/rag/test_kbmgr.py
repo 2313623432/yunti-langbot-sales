@@ -76,6 +76,25 @@ class TestRAGManagerCreateKnowledgeBase:
         assert kb.knowledge_engine_plugin_id == 'author/engine'
 
     @pytest.mark.asyncio
+    async def test_creates_kb_with_builtin_engine_without_plugins(self):
+        """Test creates KB with builtin engine when plugins are disabled."""
+        rag_module = get_rag_module()
+        mock_app = create_mock_app()
+        mock_app.plugin_connector.is_enable_plugin = False
+        mock_app.persistence_mgr.execute_async = AsyncMock()
+        mock_app.plugin_connector.rag_on_kb_create = AsyncMock()
+
+        manager = rag_module.RAGManager(mock_app)
+
+        kb = await manager.create_knowledge_base(
+            name='Builtin KB',
+            knowledge_engine_plugin_id='langbot/BuiltinRAG',
+            creation_settings={'embedding_model_uuid': 'embed-1'},
+        )
+
+        assert kb.knowledge_engine_plugin_id == 'langbot/BuiltinRAG'
+
+    @pytest.mark.asyncio
     async def test_raises_when_engine_not_found(self):
         """Test raises ValueError when engine plugin not found."""
         rag_module = get_rag_module()
@@ -146,24 +165,23 @@ class TestRAGManagerCreateKnowledgeBase:
         assert kb.retrieval_settings == {}
 
     @pytest.mark.asyncio
-    async def test_skips_validation_when_plugin_disabled(self):
-        """Test that engine validation is skipped when plugin disabled."""
+    async def test_rejects_unknown_engine_when_plugin_disabled(self):
+        """Test that unknown engines are rejected even when plugins are disabled."""
         rag_module = get_rag_module()
         mock_app = create_mock_app()
         mock_app.plugin_connector.is_enable_plugin = False
         mock_app.persistence_mgr.execute_async = AsyncMock()
-        mock_app.plugin_connector.rag_on_kb_create = AsyncMock()
 
         manager = rag_module.RAGManager(mock_app)
 
-        # Should not raise even though engine list would be empty
-        kb = await manager.create_knowledge_base(
-            name='Test KB',
-            knowledge_engine_plugin_id='any/engine',
-            creation_settings={},
-        )
+        with pytest.raises(ValueError) as exc_info:
+            await manager.create_knowledge_base(
+                name='Test KB',
+                knowledge_engine_plugin_id='any/engine',
+                creation_settings={},
+            )
 
-        assert kb.knowledge_engine_plugin_id == 'any/engine'
+        assert 'not found' in str(exc_info.value)
 
 
 class TestRuntimeKnowledgeBaseOnKBCreate:
