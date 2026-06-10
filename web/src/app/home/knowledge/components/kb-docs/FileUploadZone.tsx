@@ -1,5 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import React, { useCallback, useEffect, useId, useState } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
@@ -14,6 +20,8 @@ import { useTranslation } from 'react-i18next';
 import { ParserInfo } from '@/app/infra/entities/api';
 import { CustomApiError, I18nObject } from '@/app/infra/entities/common';
 import { extractI18nObject } from '@/i18n/I18nProvider';
+import { Upload } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface FileUploadZoneProps {
   kbId: string;
@@ -21,6 +29,9 @@ interface FileUploadZoneProps {
   ragEngineCapabilities?: string[];
   onUploadSuccess: () => void;
   onUploadError: (error: string) => void;
+  variant?: 'inline' | 'modal';
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export default function FileUploadZone({
@@ -29,26 +40,40 @@ export default function FileUploadZone({
   ragEngineCapabilities,
   onUploadSuccess,
   onUploadError,
+  variant = 'inline',
+  open = false,
+  onOpenChange,
 }: FileUploadZoneProps) {
   const { t } = useTranslation();
+  const inputId = useId();
   const [isDragOver, setIsDragOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Parser selection state
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [availableParsers, setAvailableParsers] = useState<ParserInfo[]>([]);
   const [selectedParser, setSelectedParser] = useState<string>('builtin');
   const [loadingParsers, setLoadingParsers] = useState(false);
 
-  // Whether the Knowledge Engine natively supports document parsing.
-  // This is a coarse-grained capability check rather than per-MIME-type filtering.
-  // Fine-grained MIME type declaration (e.g. supported_parse_mime_types on the engine)
-  // would require changes across the SDK, backend, and frontend prop chain;
-  // using an engine-level capability flag keeps the change minimal.
   const ragEngineCanParse =
     ragEngineCapabilities?.includes('doc_parsing') ?? false;
+  const ragEngineCanIngest =
+    ragEngineCapabilities?.includes('doc_ingestion') ?? true;
+  const canDirectUpload = ragEngineCanParse || ragEngineCanIngest;
 
-  // When a file is selected, check for available parsers
+  const resetUploadState = useCallback(() => {
+    setPendingFile(null);
+    setAvailableParsers([]);
+    setSelectedParser('builtin');
+    setIsDragOver(false);
+    setLoadingParsers(false);
+  }, []);
+
+  useEffect(() => {
+    if (variant === 'modal' && !open) {
+      resetUploadState();
+    }
+  }, [open, variant, resetUploadState]);
+
   useEffect(() => {
     if (!pendingFile) return;
 
@@ -81,10 +106,7 @@ export default function FileUploadZone({
       const toastId = toast.loading(t('knowledge.documentsTab.uploadingFile'));
 
       try {
-        // Step 1: Upload file to server
         const uploadResult = await httpClient.uploadDocumentFile(file);
-
-        // Step 2: Associate file with knowledge base (with optional parser)
         await httpClient.uploadKnowledgeBaseFile(
           kbId,
           uploadResult.file_id,
@@ -104,51 +126,33 @@ export default function FileUploadZone({
         onUploadError(errorMessage);
       } finally {
         setIsUploading(false);
-        setPendingFile(null);
-        setAvailableParsers([]);
-        setSelectedParser('builtin');
+        resetUploadState();
       }
     },
-    [kbId, onUploadSuccess, onUploadError, t],
+    [kbId, onUploadSuccess, onUploadError, resetUploadState, t],
   );
 
   const handleFileSelected = useCallback(
     async (file: File) => {
       if (isUploading) return;
 
-      // Check file size (500MB limit)
-      const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+      const MAX_FILE_SIZE = 500 * 1024 * 1024;
       if (file.size > MAX_FILE_SIZE) {
         toast.error(t('knowledge.documentsTab.fileSizeExceeded'));
         return;
       }
 
-      // Set loadingParsers=true BEFORE pendingFile so both state updates
-      // batch together in the same render. This prevents the auto-upload
-      // effect from firing before parser fetch completes.
       setLoadingParsers(true);
       setPendingFile(file);
     },
     [isUploading, t],
   );
 
-  // Auto-upload if Knowledge Engine can parse and no external parsers available
   useEffect(() => {
-    if (
-      pendingFile &&
-      !loadingParsers &&
-      ragEngineCanParse &&
-      availableParsers.length === 0
-    ) {
+    if (pendingFile && !loadingParsers && canDirectUpload) {
       doUpload(pendingFile);
     }
-  }, [
-    pendingFile,
-    loadingParsers,
-    ragEngineCanParse,
-    availableParsers,
-    doUpload,
-  ]);
+  }, [pendingFile, loadingParsers, canDirectUpload, doUpload]);
 
   const handleConfirmUpload = useCallback(() => {
     if (!pendingFile) return;
@@ -158,10 +162,8 @@ export default function FileUploadZone({
   }, [pendingFile, selectedParser, doUpload]);
 
   const handleCancelUpload = useCallback(() => {
-    setPendingFile(null);
-    setAvailableParsers([]);
-    setSelectedParser('builtin');
-  }, []);
+    resetUploadState();
+  }, [resetUploadState]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -192,137 +194,138 @@ export default function FileUploadZone({
       if (files && files.length > 0) {
         handleFileSelected(files[0]);
       }
-      // Reset the input so the same file can be selected again
       e.target.value = '';
     },
     [handleFileSelected],
   );
 
-  // Show parser selection UI when there are choices to make, or when no parser is available
   const showParserSelector =
     pendingFile &&
     !loadingParsers &&
-    (availableParsers.length > 0 || !ragEngineCanParse);
+    !canDirectUpload &&
+    availableParsers.length > 0;
 
   const noParserAvailable = !ragEngineCanParse && availableParsers.length === 0;
 
-  return (
-    <Card className="mb-4">
-      <CardContent className="p-4">
-        {showParserSelector ? (
-          <div className="space-y-3">
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-              {pendingFile.name}
-            </p>
-            {noParserAvailable ? (
-              <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
-                <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                  {t('knowledge.documentsTab.noParserAvailable')}
-                </p>
-                <p className="text-sm text-yellow-800 dark:text-yellow-200 mt-1">
-                  {t('knowledge.documentsTab.useBuiltinParserHint')}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <label className="text-sm text-gray-600 dark:text-gray-400">
-                  {t('knowledge.documentsTab.selectParser')}
-                </label>
-                <Select
-                  value={selectedParser}
-                  onValueChange={setSelectedParser}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ragEngineCanParse && (
-                      <SelectItem value="builtin">
-                        {ragEngineName
-                          ? extractI18nObject(ragEngineName)
-                          : t('knowledge.documentsTab.builtInParser')}
-                      </SelectItem>
-                    )}
-                    {availableParsers.map((parser) => (
-                      <SelectItem
-                        key={parser.plugin_id}
-                        value={parser.plugin_id}
-                      >
-                        {extractI18nObject(parser.name)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={handleCancelUpload}>
-                {t('knowledge.documentsTab.cancelUpload')}
-              </Button>
-              {!noParserAvailable && (
-                <Button size="sm" onClick={handleConfirmUpload}>
-                  {t('knowledge.documentsTab.confirmUpload')}
-                </Button>
-              )}
+  const uploadBody = (
+    <div className="space-y-4">
+      {showParserSelector ? (
+        <div className="space-y-3">
+          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+            {pendingFile.name}
+          </p>
+          {noParserAvailable ? (
+            <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3 dark:border-yellow-800 dark:bg-yellow-900/20">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                {t('knowledge.documentsTab.noParserAvailable')}
+              </p>
+              <p className="mt-1 text-sm text-yellow-800 dark:text-yellow-200">
+                {t('knowledge.documentsTab.useBuiltinParserHint')}
+              </p>
             </div>
+          ) : (
+            <div className="space-y-2">
+              <label className="text-sm text-slate-600 dark:text-slate-400">
+                {t('knowledge.documentsTab.selectParser')}
+              </label>
+              <Select value={selectedParser} onValueChange={setSelectedParser}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ragEngineCanParse && (
+                    <SelectItem value="builtin">
+                      {ragEngineName
+                        ? extractI18nObject(ragEngineName)
+                        : t('knowledge.documentsTab.builtInParser')}
+                    </SelectItem>
+                  )}
+                  {availableParsers.map((parser) => (
+                    <SelectItem
+                      key={parser.plugin_id}
+                      value={parser.plugin_id}
+                    >
+                      {extractI18nObject(parser.name)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={handleCancelUpload}>
+              {t('knowledge.documentsTab.cancelUpload')}
+            </Button>
+            {!noParserAvailable && (
+              <Button size="sm" onClick={handleConfirmUpload}>
+                {t('knowledge.documentsTab.confirmUpload')}
+              </Button>
+            )}
           </div>
-        ) : (
-          <div
-            className={`
-              relative border-2 border-dashed rounded-lg p-4 text-center transition-colors
-              ${
-                isDragOver
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-300 hover:border-gray-400'
-              }
-              ${isUploading || loadingParsers ? 'opacity-50 pointer-events-none' : ''}
-            `}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-          >
-            <input
-              type="file"
-              id="file-upload"
-              className="hidden"
-              onChange={handleFileSelect}
-              accept=".pdf,.doc,.docx,.txt,.md,.html,.xlsx,.zip"
-              disabled={isUploading || loadingParsers}
-            />
+        </div>
+      ) : (
+        <div
+          className={cn(
+            'relative rounded-lg border-2 border-dashed p-8 text-center transition-colors',
+            isDragOver
+              ? 'border-blue-500 bg-blue-50'
+              : 'border-slate-200 hover:border-slate-300',
+            (isUploading || loadingParsers) && 'pointer-events-none opacity-50',
+          )}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <input
+            type="file"
+            id={inputId}
+            className="hidden"
+            onChange={handleFileSelect}
+            accept=".pdf,.doc,.docx,.txt,.md,.html,.xlsx,.zip"
+            disabled={isUploading || loadingParsers}
+          />
 
-            <label htmlFor="file-upload" className="cursor-pointer block">
-              <div className="space-y-2">
-                <div className="mx-auto w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                  <svg
-                    className="w-5 h-5 text-gray-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                    />
-                  </svg>
-                </div>
-
-                <div>
-                  <p className="text-base font-medium text-gray-900 dark:text-gray-100">
-                    {isUploading
-                      ? t('knowledge.documentsTab.uploading')
-                      : t('knowledge.documentsTab.dragAndDrop')}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1 dark:text-gray-400">
-                    {t('knowledge.documentsTab.supportedFormats')}
-                  </p>
-                </div>
+          <label htmlFor={inputId} className="block cursor-pointer">
+            <div className="space-y-3">
+              <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                <Upload className="size-5" />
               </div>
-            </label>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              <div>
+                <p className="text-base font-medium text-slate-900 dark:text-slate-100">
+                  {isUploading
+                    ? t('knowledge.documentsTab.uploading')
+                    : t('knowledge.documentsTab.dragAndDrop')}
+                </p>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {t('knowledge.documentsTab.supportedFormats')}
+                </p>
+              </div>
+            </div>
+          </label>
+        </div>
+      )}
+    </div>
+  );
+
+  if (variant === 'modal') {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('knowledge.documentsTab.uploadDialogTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('knowledge.documentsTab.uploadDialogDescription')}
+            </DialogDescription>
+          </DialogHeader>
+          {uploadBody}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4">
+      {uploadBody}
+    </div>
   );
 }

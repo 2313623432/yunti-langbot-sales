@@ -4,6 +4,7 @@ import argparse
 import json
 import re
 import shutil
+import warnings
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -227,6 +228,16 @@ def _markdown_table(rows: list[list[str]]) -> str:
     return '\n'.join(lines)
 
 
+def _pdf_has_extractable_text(path: Path) -> bool:
+    from langbot.pkg.rag.knowledge.document_text import extract_text_from_bytes
+    from langbot.pkg.rag.knowledge.text_normalize import has_extractable_document_text, is_meaningful_document
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        raw_text = extract_text_from_bytes(path.name, path.read_bytes())
+    return has_extractable_document_text(raw_text) and is_meaningful_document(raw_text)
+
+
 def build_knowledge_pack(source_dir: Path, output_dir: Path) -> dict[str, Any]:
     source_dir = source_dir.resolve()
     output_dir = output_dir.resolve()
@@ -261,6 +272,11 @@ def build_knowledge_pack(source_dir: Path, output_dir: Path) -> dict[str, Any]:
     spreadsheet_previews: dict[str, Any] = {}
     for item in source_files:
         if item.upload_ready and item.kind in IMPORTABLE_KINDS:
+            if item.kind == 'pdf' and not _pdf_has_extractable_text(item.path):
+                item.indexed = False
+                item.upload_ready = False
+                item.note = 'PDF 无法提取有效文本，已从默认可导入文档中排除。'
+                continue
             storage_name = _document_storage_name(source_dir, item.path)
             target = documents_dir / storage_name
             shutil.copy2(item.path, target)

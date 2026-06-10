@@ -5,7 +5,7 @@ metadata:
   label:
     en_US: ElevenLabs
     zh_Hans: ElevenLabs
-  icon: openai.svg
+  icon: elevenlabs.svg
 spec:
   config:
   - name: base_url

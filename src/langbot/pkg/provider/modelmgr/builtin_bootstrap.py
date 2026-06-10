@@ -21,6 +21,22 @@ async def ensure_builtin_tts_providers(ap: app.Application) -> None:
 REMOVED_PDF_PROVIDER_UUIDS = frozenset({'lno-mineru-local'})
 REMOVED_PDF_MODEL_UUIDS = frozenset({'lno-mineru-local-default'})
 
+REMOVED_OLLAMA_TEXT_PROVIDER_UUIDS = frozenset({'lnp-ollama'})
+REMOVED_OLLAMA_TEXT_MODEL_UUIDS = frozenset(
+    {
+        'lnp-ollama-llama3-2',
+        'lnp-ollama-qwen2-5',
+        'lnp-ollama-deepseek-r1',
+    }
+)
+REMOVED_OLLAMA_EMBEDDING_PROVIDER_UUIDS = frozenset({'lne-ollama'})
+REMOVED_OLLAMA_EMBEDDING_MODEL_UUIDS = frozenset(
+    {
+        'lne-ollama-nomic-embed',
+        'lne-ollama-bge-m3',
+    }
+)
+
 
 async def ensure_builtin_pdf_providers(ap: app.Application) -> None:
     await _prune_removed_pdf_providers(ap)
@@ -39,6 +55,38 @@ async def _prune_removed_pdf_providers(ap: app.Application) -> None:
         )
         await ap.model_mgr.remove_llm_model(model_uuid)
     for provider_uuid in REMOVED_PDF_PROVIDER_UUIDS:
+        await ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == provider_uuid
+            )
+        )
+        ap.model_mgr.provider_dict.pop(provider_uuid, None)
+
+
+async def prune_removed_ollama_providers(ap: app.Application) -> None:
+    for model_uuid in REMOVED_OLLAMA_TEXT_MODEL_UUIDS:
+        await ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_model.LLMModel).where(
+                persistence_model.LLMModel.uuid == model_uuid
+            )
+        )
+        await ap.model_mgr.remove_llm_model(model_uuid)
+    for provider_uuid in REMOVED_OLLAMA_TEXT_PROVIDER_UUIDS:
+        await ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == provider_uuid
+            )
+        )
+        ap.model_mgr.provider_dict.pop(provider_uuid, None)
+
+    for model_uuid in REMOVED_OLLAMA_EMBEDDING_MODEL_UUIDS:
+        await ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_model.EmbeddingModel).where(
+                persistence_model.EmbeddingModel.uuid == model_uuid
+            )
+        )
+        await ap.model_mgr.remove_embedding_model(model_uuid)
+    for provider_uuid in REMOVED_OLLAMA_EMBEDDING_PROVIDER_UUIDS:
         await ap.persistence_mgr.execute_async(
             sqlalchemy.delete(persistence_model.ModelProvider).where(
                 persistence_model.ModelProvider.uuid == provider_uuid

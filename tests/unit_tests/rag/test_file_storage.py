@@ -145,17 +145,36 @@ class TestStoreFileTask:
         kb.ap.storage_mgr.storage_provider.delete.assert_awaited_once_with('test.pdf')
 
     @pytest.mark.asyncio
-    async def test_store_file_task_marks_failed_and_cleans_storage(self):
+    async def test_store_file_task_removes_record_on_content_rejection(self):
         kb = _make_kb()
-        kb._ingest_document = AsyncMock(return_value={'status': 'failed', 'error_message': 'parser failed'})
+        kb._ingest_document = AsyncMock(
+            return_value={'status': 'failed', 'error_message': 'Insufficient extractable text in bad.pdf'}
+        )
+        kb._delete_document = AsyncMock(return_value=True)
         file_obj = SimpleNamespace(uuid='file-uuid', file_name='bad.pdf', extension='pdf')
         task_context = Mock()
 
-        with pytest.raises(Exception, match='parser failed'):
+        with pytest.raises(Exception, match='Insufficient extractable text'):
             await kb._store_file_task(file_obj, task_context)
 
+        kb._delete_document.assert_awaited_once_with('file-uuid')
         assert kb.ap.persistence_mgr.execute_async.await_count == 2
         kb.ap.storage_mgr.storage_provider.delete.assert_awaited_once_with('bad.pdf')
+
+    @pytest.mark.asyncio
+    async def test_store_file_task_keeps_failed_record_on_transient_error(self):
+        kb = _make_kb()
+        kb._ingest_document = AsyncMock(side_effect=Exception('Error code: 403 - rate limit'))
+        kb._delete_document = AsyncMock(return_value=True)
+        file_obj = SimpleNamespace(uuid='file-uuid', file_name='note.md', extension='md')
+        task_context = Mock()
+
+        with pytest.raises(Exception, match='403'):
+            await kb._store_file_task(file_obj, task_context)
+
+        kb._delete_document.assert_not_called()
+        assert kb.ap.persistence_mgr.execute_async.await_count == 2
+        kb.ap.storage_mgr.storage_provider.delete.assert_awaited_once_with('note.md')
 
 
 class TestDeleteDocument:

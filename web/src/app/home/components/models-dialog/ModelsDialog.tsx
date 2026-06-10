@@ -179,6 +179,13 @@ export default function ModelsDialog({
       : modelCategory === 'pdf'
         ? selectedPdfModels
         : selectedTextModels;
+  const showProviderLogo = true;
+  const showProviderProtocolBadge = modelCategory === 'text';
+  const showAddProviderButton = modelCategory === 'text';
+
+  function getProviderIconURL(provider: ModelProvider) {
+    return httpClient.getProviderIconURL(provider.uuid, provider.requester);
+  }
 
   useEffect(() => {
     if (open) {
@@ -847,11 +854,13 @@ export default function ModelsDialog({
                         }
                       }}
                     >
-                      <img
-                        src={httpClient.getProviderRequesterIconURL(provider.requester)}
-                        alt={provider.name}
-                        className="size-7 shrink-0 rounded-md"
-                      />
+                      {showProviderLogo && (
+                        <img
+                          src={getProviderIconURL(provider)}
+                          alt={provider.name}
+                          className="size-7 shrink-0 rounded-md"
+                        />
+                      )}
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold text-slate-900">
                           {provider.name}
@@ -866,16 +875,18 @@ export default function ModelsDialog({
                   );
                 })}
               </div>
-              <div className="border-t p-3">
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={handleCreateProvider}
-                >
-                  <Plus className="h-4 w-4 mr-1" />
-                  {t('models.addProvider')}
-                </Button>
-              </div>
+              {showAddProviderButton && (
+                <div className="border-t p-3">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleCreateProvider}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    {t('models.addProvider')}
+                  </Button>
+                </div>
+              )}
             </aside>
 
             <main className="flex min-h-0 flex-col bg-white">
@@ -883,24 +894,28 @@ export default function ModelsDialog({
                 <>
                   <div className="flex items-center justify-between border-b px-6 py-5">
                     <div className="flex min-w-0 items-center gap-3">
-                      <img
-                        src={httpClient.getProviderRequesterIconURL(selectedProvider.requester)}
-                        alt={selectedProvider.name}
-                        className="size-10 shrink-0 rounded-md"
-                      />
+                      {showProviderLogo && (
+                        <img
+                          src={getProviderIconURL(selectedProvider)}
+                          alt={selectedProvider.name}
+                          className="size-10 shrink-0 rounded-md"
+                        />
+                      )}
                       <div className="min-w-0">
                         <div className="truncate text-xl font-semibold text-slate-950">
                           {selectedProvider.name}
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                           <span>{categoryConfigTitle()}</span>
-                          <Badge variant="outline" className="font-normal">
-                            {t(
-                              getProtocolLabelKey(
-                                resolveProviderProtocol(selectedProvider),
-                              ),
-                            )}
-                          </Badge>
+                          {showProviderProtocolBadge && (
+                            <Badge variant="outline" className="font-normal">
+                              {t(
+                                getProtocolLabelKey(
+                                  resolveProviderProtocol(selectedProvider),
+                                ),
+                              )}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </div>

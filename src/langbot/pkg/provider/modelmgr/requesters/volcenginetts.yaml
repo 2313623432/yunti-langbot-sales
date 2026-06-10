@@ -5,7 +5,7 @@ metadata:
   label:
     en_US: Volcengine Speech
     zh_Hans: 火山引擎语音
-  icon: volcark.svg
+  icon: doubao.svg
 spec:
   config:
   - name: base_url

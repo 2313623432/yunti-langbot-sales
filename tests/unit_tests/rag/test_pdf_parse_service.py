@@ -178,7 +178,7 @@ async def test_extract_document_text_returns_local_text_without_provider_call():
 
 
 @pytest.mark.asyncio
-async def test_extract_document_text_prefers_api_provider_for_markdown(monkeypatch):
+async def test_extract_document_text_uses_local_parser_for_markdown(monkeypatch):
     provider = Mock(
         provider_entity=Mock(uuid='lno-paddleocr', requester='paddleocr-vl', base_url='https://x', api_keys=['token']),
         invoke_pdf_parse=AsyncMock(return_value='ocr markdown'),
@@ -195,12 +195,12 @@ async def test_extract_document_text_prefers_api_provider_for_markdown(monkeypat
     )
 
     text = await pdf_parse_service.extract_document_text(ap, 'note.md', b'# local')
-    assert text == 'ocr markdown'
-    provider.invoke_pdf_parse.assert_awaited_once()
+    assert text == 'local markdown'
+    provider.invoke_pdf_parse.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_extract_document_text_prefers_api_provider_for_xlsx(monkeypatch):
+async def test_extract_document_text_uses_local_parser_for_xlsx(monkeypatch):
     provider = Mock(
         provider_entity=Mock(uuid='lno-paddleocr', requester='paddleocr-vl', base_url='https://x', api_keys=['token']),
         invoke_pdf_parse=AsyncMock(return_value='ocr spreadsheet'),
@@ -217,12 +217,12 @@ async def test_extract_document_text_prefers_api_provider_for_xlsx(monkeypatch):
     )
 
     text = await pdf_parse_service.extract_document_text(ap, 'data.xlsx', b'PK\x03\x04')
-    assert text == 'ocr spreadsheet'
-    provider.invoke_pdf_parse.assert_awaited_once()
+    assert text == 'local xlsx'
+    provider.invoke_pdf_parse.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_extract_document_text_prefers_api_provider_for_pptx(monkeypatch):
+async def test_extract_document_text_uses_local_parser_for_pptx(monkeypatch):
     provider = Mock(
         provider_entity=Mock(uuid='lno-paddleocr', requester='paddleocr-vl', base_url='https://x', api_keys=['token']),
         invoke_pdf_parse=AsyncMock(return_value='ocr slides'),
@@ -239,5 +239,5 @@ async def test_extract_document_text_prefers_api_provider_for_pptx(monkeypatch):
     )
 
     text = await pdf_parse_service.extract_document_text(ap, 'slides.pptx', b'PK\x03\x04')
-    assert text == 'ocr slides'
-    provider.invoke_pdf_parse.assert_awaited_once()
+    assert text == 'local pptx'
+    provider.invoke_pdf_parse.assert_not_called()

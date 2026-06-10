@@ -99,7 +99,6 @@ import { useSidebarData, SidebarEntityItem } from './SidebarDataContext';
 // IDs of sidebar entries that have collapsible entity sub-items
 const ENTITY_CATEGORY_IDS = [
   'bots',
-  'knowledge',
   'plugins',
   'mcp',
 ] as const;
@@ -108,7 +107,6 @@ type EntityCategoryId = (typeof ENTITY_CATEGORY_IDS)[number];
 // Categories that support detail pages via ?id= query param
 const DETAIL_PAGE_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'knowledge',
   'plugins',
   'mcp',
 ];
@@ -116,7 +114,6 @@ const DETAIL_PAGE_CATEGORIES: EntityCategoryId[] = [
 // Categories that support creating new entities from the sidebar
 const CREATABLE_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'knowledge',
   'mcp',
   'plugins',
 ];
@@ -124,7 +121,6 @@ const CREATABLE_CATEGORIES: EntityCategoryId[] = [
 // Categories where clicking the parent only toggles collapse (no list page)
 const COLLAPSIBLE_ONLY_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'knowledge',
   'mcp',
 ];
 
@@ -138,7 +134,6 @@ const ENTITY_KEY_MAP: Record<
   'bots' | 'pipelines' | 'knowledgeBases' | 'plugins' | 'mcpServers'
 > = {
   bots: 'bots',
-  knowledge: 'knowledgeBases',
   plugins: 'plugins',
   mcp: 'mcpServers',
 };
@@ -146,7 +141,6 @@ const ENTITY_KEY_MAP: Record<
 // Route prefix map for entity detail pages
 const ENTITY_ROUTE_MAP: Record<EntityCategoryId, string> = {
   bots: '/home/bots',
-  knowledge: '/home/knowledge',
   plugins: '/home/plugins',
   mcp: '/home/mcp',
 };
@@ -301,6 +295,7 @@ function NavItems({
 
   const sectionItems = sidebarConfigList.filter(
     (c) =>
+      c.visible &&
       c.section === section &&
       (c.id !== 'market' || systemInfo.enable_marketplace),
   );
@@ -1197,6 +1192,10 @@ export default function HomeSidebar({
   const [userEmail, setUserEmail] = useState<string>('');
   const [starCount, setStarCount] = useState<number | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const hasVisibleExtensionNav = sidebarConfigList.some(
+    (c) => c.section === 'extensions' && c.visible,
+  );
+
   function handleModelsDialogChange(open: boolean) {
     setModelsDialogOpen(open);
     if (open) {
@@ -1388,20 +1387,22 @@ export default function HomeSidebar({
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-          <SidebarGroup>
-            <SidebarGroupLabel>{t('sidebar.extensions')}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <NavItems
-                  selectedChild={selectedChild}
-                  onChildClick={handleChildClick}
-                  section="extensions"
-                  sectionOpenState={sectionOpenState}
-                  onSectionToggle={handleSectionToggle}
-                />
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          {hasVisibleExtensionNav && (
+            <SidebarGroup>
+              <SidebarGroupLabel>{t('sidebar.extensions')}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <NavItems
+                    selectedChild={selectedChild}
+                    onChildClick={handleChildClick}
+                    section="extensions"
+                    sectionOpenState={sectionOpenState}
+                    onSectionToggle={handleSectionToggle}
+                  />
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
           <PluginPagesNav />
         </SidebarContent>
 

@@ -1,5 +1,5 @@
 import { ColumnDef } from '@tanstack/react-table';
-import { MoreHorizontal } from 'lucide-react';
+import { FileText, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,7 +15,44 @@ export type DocumentFile = {
   uuid: string;
   name: string;
   status: string;
+  createdAt?: string;
+  chunkCount?: number;
 };
+
+function formatFileDate(value?: string): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString();
+}
+
+function StatusBadge({ status, t }: { status: string; t: TFunction }) {
+  switch (status) {
+    case 'processing':
+    case 'pending':
+      return (
+        <Badge variant="secondary">
+          {status === 'pending'
+            ? t('knowledge.documentsTab.statusPending')
+            : t('knowledge.documentsTab.processing')}
+        </Badge>
+      );
+    case 'completed':
+      return (
+        <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">
+          {t('knowledge.documentsTab.statusCompleted')}
+        </Badge>
+      );
+    case 'failed':
+      return (
+        <Badge variant="destructive">
+          {t('knowledge.documentsTab.statusFailed')}
+        </Badge>
+      );
+    default:
+      return <Badge variant="outline">{status}</Badge>;
+  }
+}
 
 export const columns = (
   onDelete: (id: string) => void,
@@ -25,40 +62,33 @@ export const columns = (
     {
       accessorKey: 'name',
       header: t('knowledge.documentsTab.name'),
+      cell: ({ row }) => {
+        const document = row.original;
+        return (
+          <div className="flex min-w-0 items-center gap-2">
+            <FileText className="size-4 shrink-0 text-slate-400" />
+            <span className="truncate font-medium text-slate-900">
+              {document.name}
+            </span>
+          </div>
+        );
+      },
     },
     {
       accessorKey: 'status',
-      header: t('knowledge.documentsTab.status'),
-      cell: ({ row }) => {
-        const document = row.original;
-
-        switch (document.status) {
-          case 'processing':
-            return (
-              <Badge variant="secondary">
-                {t('knowledge.documentsTab.processing')}
-              </Badge>
-            );
-          case 'completed':
-            return (
-              <Badge variant="outline" className="bg-blue-500 text-white">
-                {t('knowledge.documentsTab.completed')}
-              </Badge>
-            );
-          case 'failed':
-            return (
-              <Badge variant="outline" className="bg-yellow-500 text-white">
-                {t('knowledge.documentsTab.failed')}
-              </Badge>
-            );
-          default:
-            return (
-              <Badge variant="outline" className="bg-gray-500 text-white">
-                {document.status}
-              </Badge>
-            );
-        }
-      },
+      header: t('knowledge.documentsTab.learningProgress'),
+      cell: ({ row }) => (
+        <StatusBadge status={row.original.status} t={t} />
+      ),
+    },
+    {
+      accessorKey: 'createdAt',
+      header: t('knowledge.documentsTab.uploadedAt'),
+      cell: ({ row }) => (
+        <span className="text-sm text-slate-500">
+          {formatFileDate(row.original.createdAt)}
+        </span>
+      ),
     },
     {
       id: 'actions',

@@ -251,6 +251,7 @@ export interface KnowledgeBase {
   creation_settings?: Record<string, unknown>;
   retrieval_settings?: Record<string, unknown>;
   knowledge_engine?: KnowledgeEngineInfo;
+  file_count?: number;
 }
 
 // Knowledge Engine types
@@ -294,6 +295,8 @@ export interface KnowledgeBaseFile {
   uuid: string;
   file_name: string;
   status: string;
+  created_at?: string;
+  chunk_count?: number;
 }
 
 // plugins

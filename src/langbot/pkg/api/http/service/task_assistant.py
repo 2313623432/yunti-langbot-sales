@@ -24,6 +24,8 @@ from ....entity.persistence import sales as persistence_sales
 from ....provider.modelmgr import tts_invoke
 from ....rag import embedding_bootstrap
 from ....rag.knowledge import builtin_engine
+from ....rag.knowledge.document_text import extract_text_from_bytes
+from ....rag.knowledge.text_normalize import has_extractable_document_text, is_meaningful_document
 from ....utils import paths as path_utils
 from .pipeline_defaults import default_stage_order
 
@@ -2705,6 +2707,15 @@ class TaskAssistantService:
         if logger is not None and retry_count > 0:
             logger.info('Reset %s failed Yuanfudao seed documents for retry', retry_count)
 
+    def _yuanfudao_document_is_importable(self, full_path: Path) -> bool:
+        if full_path.suffix.lower() != '.pdf':
+            return True
+        try:
+            raw_text = extract_text_from_bytes(full_path.name, full_path.read_bytes())
+        except OSError:
+            return False
+        return has_extractable_document_text(raw_text) and is_meaningful_document(raw_text)
+
     def _iter_yuanfudao_document_import_targets(self) -> list[tuple[Path, str]]:
         pack_dir = Path(path_utils.get_resource_path(YUANFUDAO_KNOWLEDGE_PACK_DIR))
         manifest_path = pack_dir / 'manifest.json'
@@ -2727,6 +2738,8 @@ class TaskAssistantService:
                 file_name = str(item.get('storage_name') or full_path.name)
                 if Path(file_name).suffix.lower() in {'.ppt', '.pptx'}:
                     continue
+                if not self._yuanfudao_document_is_importable(full_path):
+                    continue
                 targets.append((full_path, file_name))
 
         if targets:
@@ -2737,6 +2750,8 @@ class TaskAssistantService:
             return []
         for full_path in sorted(documents_dir.rglob('*')):
             if full_path.is_file() and full_path.suffix.lower() not in {'.ppt', '.pptx'}:
+                if not self._yuanfudao_document_is_importable(full_path):
+                    continue
                 targets.append((full_path, full_path.name))
         return targets
 

@@ -139,8 +139,10 @@ class BuildAppStage(stage.BootingStage):
         llm_model_mgr_inst = llm_model_mgr.ModelManager(ap)
         ap.model_mgr = llm_model_mgr_inst
         await llm_model_mgr_inst.initialize()
-        await llm_bootstrap.ensure_builtin_text_providers(ap)
         from langbot.pkg.provider.modelmgr import builtin_bootstrap
+
+        await builtin_bootstrap.prune_removed_ollama_providers(ap)
+        await llm_bootstrap.ensure_builtin_text_providers(ap)
 
         await builtin_bootstrap.ensure_builtin_tts_providers(ap)
         await builtin_bootstrap.ensure_builtin_pdf_providers(ap)

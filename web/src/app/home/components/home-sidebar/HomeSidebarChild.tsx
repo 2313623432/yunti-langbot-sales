@@ -10,6 +10,7 @@ export interface ISidebarChildVO {
   description: string;
   helpLink: I18nObject;
   section?: SidebarSection;
+  visible?: boolean;
 }
 
 export class SidebarChildVO {
@@ -20,6 +21,7 @@ export class SidebarChildVO {
   description: string;
   helpLink: I18nObject;
   section: SidebarSection;
+  visible: boolean;
 
   constructor(props: ISidebarChildVO) {
     this.id = props.id;
@@ -29,5 +31,6 @@ export class SidebarChildVO {
     this.description = props.description;
     this.helpLink = props.helpLink;
     this.section = props.section ?? 'home';
+    this.visible = props.visible ?? true;
   }
 }

@@ -4,14 +4,24 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import asyncio
+
 from langbot.pkg.core import app
 from langbot.pkg.rag.knowledge.pdf_parse_service import extract_document_text
+from langbot.pkg.rag.knowledge.text_normalize import (
+    clean_ingestion_text,
+    has_extractable_document_text,
+    is_meaningful_chunk,
+    is_meaningful_document,
+)
 
 BUILTIN_KNOWLEDGE_ENGINE_ID = 'langbot/BuiltinRAG'
 DEFAULT_CHUNK_SIZE = 250
 DEFAULT_CHUNK_OVERLAP = 50
 MAX_EMBEDDING_CHUNK_CHARS = 250
 EMBED_BATCH_SIZE = 10
+EMBED_RETRY_ATTEMPTS = 4
+EMBED_RETRY_BASE_DELAY_SECONDS = 2.0
 
 _CREATION_SCHEMA = [
     {
@@ -164,19 +174,30 @@ class BuiltinKnowledgeEngine:
     ) -> dict[str, Any]:
         document_id = str(file_metadata.get('document_id') or file_metadata.get('uuid') or uuid.uuid4())
         filename = str(file_metadata.get('filename') or storage_path)
-        text = await self.extract_text_async(parsed_content, storage_path)
-        if not text.strip():
+        raw_text = await self.extract_text_async(parsed_content, storage_path)
+        if not has_extractable_document_text(raw_text):
             return {
                 'status': 'failed',
-                'error_message': f'No text content extracted from {filename}',
+                'error_message': f'Insufficient extractable text in {filename}',
+            }
+
+        text = clean_ingestion_text(raw_text)
+        if not is_meaningful_document(text):
+            return {
+                'status': 'failed',
+                'error_message': f'Insufficient meaningful text extracted from {filename}',
             }
 
         chunk_size = int(creation_settings.get('chunk_size') or DEFAULT_CHUNK_SIZE)
         chunk_overlap = int(creation_settings.get('chunk_overlap') or DEFAULT_CHUNK_OVERLAP)
-        chunks = normalize_chunks_for_embedding(
-            split_text(text, chunk_size=chunk_size, overlap=chunk_overlap),
-            max_chars=min(chunk_size, MAX_EMBEDDING_CHUNK_CHARS),
-        )
+        chunks = [
+            chunk
+            for chunk in normalize_chunks_for_embedding(
+                split_text(text, chunk_size=chunk_size, overlap=chunk_overlap),
+                max_chars=min(chunk_size, MAX_EMBEDDING_CHUNK_CHARS),
+            )
+            if is_meaningful_chunk(chunk)
+        ]
         if not chunks:
             return {
                 'status': 'failed',
@@ -197,6 +218,7 @@ class BuiltinKnowledgeEngine:
                     'file_id': document_id,
                     'knowledge_base_id': kb_id,
                     'filename': filename,
+                    'document_name': filename,
                     'chunk_index': index,
                     'text': chunk,
                 }
@@ -205,7 +227,7 @@ class BuiltinKnowledgeEngine:
         vectors: list[list[float]] = []
         for start in range(0, len(chunks), EMBED_BATCH_SIZE):
             batch = chunks[start : start + EMBED_BATCH_SIZE]
-            batch_vectors = await embedding_model.provider.invoke_embedding(embedding_model, batch)
+            batch_vectors = await self._embed_with_retry(embedding_model, batch)
             vectors.extend(batch_vectors)
 
         await self.ap.rag_runtime_service.vector_upsert(
@@ -266,6 +288,28 @@ class BuiltinKnowledgeEngine:
         if embedding_model is None:
             raise ValueError(f'Embedding model {embedding_model_uuid} not found')
         return embedding_model
+
+    async def _embed_with_retry(self, embedding_model, batch: list[str]) -> list[list[float]]:
+        last_error: Exception | None = None
+        for attempt in range(EMBED_RETRY_ATTEMPTS):
+            try:
+                return await embedding_model.provider.invoke_embedding(embedding_model, batch)
+            except Exception as exc:
+                last_error = exc
+                if attempt >= EMBED_RETRY_ATTEMPTS - 1:
+                    break
+                delay = EMBED_RETRY_BASE_DELAY_SECONDS * (2**attempt)
+                if getattr(self.ap, 'logger', None) is not None:
+                    self.ap.logger.warning(
+                        'Embedding batch failed (attempt %s/%s), retrying in %.1fs: %s',
+                        attempt + 1,
+                        EMBED_RETRY_ATTEMPTS,
+                        delay,
+                        exc,
+                    )
+                await asyncio.sleep(delay)
+        assert last_error is not None
+        raise last_error
 
     async def extract_text_async(self, parsed_content: dict[str, Any] | None, storage_path: str) -> str:
         if parsed_content:

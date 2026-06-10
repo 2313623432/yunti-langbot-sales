@@ -14,7 +14,7 @@
   },
   "generated_at": "2026-06-10T12:09:43",
   "source_label": "猿辅导知识库",
-  "total_files": 79,
+  "total_files": 72,
   "files": [
     {
       "name": "16.8元品-直播脚本示例.md",
@@ -367,16 +367,6 @@
       "note": "已纳入可检索文本语料。"
     },
     {
-      "name": "学生1-6年级英语能力要求.pdf",
-      "extension": ".pdf",
-      "kind": "pdf",
-      "category": "英语与自然拼读",
-      "size_bytes": 3228657,
-      "indexed": true,
-      "upload_ready": true,
-      "note": "已纳入可检索文本语料。"
-    },
-    {
       "name": "学科TMK参考话术.md",
       "extension": ".md",
       "kind": "markdown",
@@ -587,16 +577,6 @@
       "note": "已纳入可检索文本语料。"
     },
     {
-      "name": "盒子培训ppt.pdf",
-      "extension": ".pdf",
-      "kind": "pdf",
-      "category": "综合资料",
-      "size_bytes": 4003469,
-      "indexed": true,
-      "upload_ready": true,
-      "note": "已纳入可检索文本语料。"
-    },
-    {
       "name": "社群话术2.md",
       "extension": ".md",
       "kind": "markdown",
@@ -742,56 +722,6 @@
       "kind": "pdf",
       "category": "综合资料",
       "size_bytes": 664635,
-      "indexed": true,
-      "upload_ready": true,
-      "note": "已纳入可检索文本语料。"
-    },
-    {
-      "name": "（英语）小学常考五类核心词 三大语法口袋书.pdf",
-      "extension": ".pdf",
-      "kind": "pdf",
-      "category": "英语与自然拼读",
-      "size_bytes": 1407771,
-      "indexed": true,
-      "upload_ready": true,
-      "note": "已纳入可检索文本语料。"
-    },
-    {
-      "name": "（英语）小学阶段英语语法汇总海报_1张.pdf",
-      "extension": ".pdf",
-      "kind": "pdf",
-      "category": "英语与自然拼读",
-      "size_bytes": 1584248,
-      "indexed": true,
-      "upload_ready": true,
-      "note": "已纳入可检索文本语料。"
-    },
-    {
-      "name": "（语文）100题闯关大挑战.pdf",
-      "extension": ".pdf",
-      "kind": "pdf",
-      "category": "语文与人文素养",
-      "size_bytes": 4566304,
-      "indexed": true,
-      "upload_ready": true,
-      "note": "已纳入可检索文本语料。"
-    },
-    {
-      "name": "（语文）小学生必背古诗词（1-6年级）.pdf",
-      "extension": ".pdf",
-      "kind": "pdf",
-      "category": "语文与人文素养",
-      "size_bytes": 10702141,
-      "indexed": true,
-      "upload_ready": true,
-      "note": "已纳入可检索文本语料。"
-    },
-    {
-      "name": "（语文）语文基础知识手册.pdf",
-      "extension": ".pdf",
-      "kind": "pdf",
-      "category": "语文与人文素养",
-      "size_bytes": 6445927,
       "indexed": true,
       "upload_ready": true,
       "note": "已纳入可检索文本语料。"
@@ -1049,14 +979,6 @@
       "size_bytes": 4085
     },
     {
-      "path": "documents/学生1-6年级英语能力要求.pdf",
-      "source_name": "学生1-6年级英语能力要求.pdf",
-      "storage_name": "学生1-6年级英语能力要求.pdf",
-      "kind": "pdf",
-      "category": "英语与自然拼读",
-      "size_bytes": 3228657
-    },
-    {
       "path": "documents/学科TMK参考话术.md",
       "source_name": "学科TMK参考话术.md",
       "storage_name": "学科TMK参考话术.md",
@@ -1209,14 +1131,6 @@
       "size_bytes": 1548
     },
     {
-      "path": "documents/盒子培训ppt.pdf",
-      "source_name": "盒子培训ppt.pdf",
-      "storage_name": "盒子培训ppt.pdf",
-      "kind": "pdf",
-      "category": "综合资料",
-      "size_bytes": 4003469
-    },
-    {
       "path": "documents/社群话术2.md",
       "source_name": "社群话术2.md",
       "storage_name": "社群话术2.md",
@@ -1335,46 +1249,6 @@
       "kind": "pdf",
       "category": "综合资料",
       "size_bytes": 664635
-    },
-    {
-      "path": "documents/（英语）小学常考五类核心词 三大语法口袋书.pdf",
-      "source_name": "（英语）小学常考五类核心词 三大语法口袋书.pdf",
-      "storage_name": "（英语）小学常考五类核心词 三大语法口袋书.pdf",
-      "kind": "pdf",
-      "category": "英语与自然拼读",
-      "size_bytes": 1407771
-    },
-    {
-      "path": "documents/（英语）小学阶段英语语法汇总海报_1张.pdf",
-      "source_name": "（英语）小学阶段英语语法汇总海报_1张.pdf",
-      "storage_name": "（英语）小学阶段英语语法汇总海报_1张.pdf",
-      "kind": "pdf",
-      "category": "英语与自然拼读",
-      "size_bytes": 1584248
-    },
-    {
-      "path": "documents/（语文）100题闯关大挑战.pdf",
-      "source_name": "（语文）100题闯关大挑战.pdf",
-      "storage_name": "（语文）100题闯关大挑战.pdf",
-      "kind": "pdf",
-      "category": "语文与人文素养",
-      "size_bytes": 4566304
-    },
-    {
-      "path": "documents/（语文）小学生必背古诗词（1-6年级）.pdf",
-      "source_name": "（语文）小学生必背古诗词（1-6年级）.pdf",
-      "storage_name": "（语文）小学生必背古诗词（1-6年级）.pdf",
-      "kind": "pdf",
-      "category": "语文与人文素养",
-      "size_bytes": 10702141
-    },
-    {
-      "path": "documents/（语文）语文基础知识手册.pdf",
-      "source_name": "（语文）语文基础知识手册.pdf",
-      "storage_name": "（语文）语文基础知识手册.pdf",
-      "kind": "pdf",
-      "category": "语文与人文素养",
-      "size_bytes": 6445927
     },
     {
       "path": "documents/🚀25新思维长期班案例库.md",

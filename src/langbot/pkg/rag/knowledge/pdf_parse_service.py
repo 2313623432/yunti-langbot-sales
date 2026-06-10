@@ -6,7 +6,11 @@ from typing import Any
 from langbot.pkg.core import app
 from langbot.pkg.provider.modelmgr import builtin_registry
 from langbot.pkg.provider.modelmgr import requester as model_requester
+from pathlib import Path
+
 from langbot.pkg.rag.knowledge.document_text import extract_text_from_bytes
+
+_OCR_EXTENSIONS = {'.pdf'}
 
 
 @dataclass(frozen=True)
@@ -145,27 +149,29 @@ async def extract_document_text(
     *,
     pdf_model_uuid: str | None = None,
 ) -> str:
-    api_providers = resolve_api_pdf_parse_models(ap, pdf_model_uuid)
-    if api_providers:
-        logger = getattr(ap, 'logger', None)
-        for resolved in api_providers:
-            try:
-                ocr_text = await invoke_pdf_parse(resolved, filename, content)
-                if ocr_text.strip():
+    extension = Path(filename).suffix.lower()
+    if extension in _OCR_EXTENSIONS:
+        api_providers = resolve_api_pdf_parse_models(ap, pdf_model_uuid)
+        if api_providers:
+            logger = getattr(ap, 'logger', None)
+            for resolved in api_providers:
+                try:
+                    ocr_text = await invoke_pdf_parse(resolved, filename, content)
+                    if ocr_text.strip():
+                        if logger is not None:
+                            logger.info(
+                                'Extracted text via OCR provider %s for %s',
+                                resolved.requester_name,
+                                filename,
+                            )
+                        return ocr_text
+                except Exception as exc:
                     if logger is not None:
-                        logger.info(
-                            'Extracted text via OCR provider %s for %s',
+                        logger.warning(
+                            'OCR provider %s extraction failed for %s: %s',
                             resolved.requester_name,
                             filename,
+                            exc,
                         )
-                    return ocr_text
-            except Exception as exc:
-                if logger is not None:
-                    logger.warning(
-                        'OCR provider %s extraction failed for %s: %s',
-                        resolved.requester_name,
-                        filename,
-                        exc,
-                    )
 
     return extract_text_from_bytes(filename, content)

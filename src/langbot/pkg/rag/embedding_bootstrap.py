@@ -31,6 +31,59 @@ async def ensure_default_embedding_model(ap: app.Application) -> str | None:
     return BAIDU_EMBEDDING_MODEL_UUID
 
 
+async def resolve_preferred_embedding_model_uuid(ap: app.Application) -> str | None:
+    """Return the best available embedding model UUID for knowledge base defaults."""
+    await ensure_default_embedding_model(ap)
+
+    for candidate in PREFERRED_EMBEDDING_MODEL_UUIDS:
+        if await _is_usable_embedding_model_uuid(ap, candidate):
+            return candidate
+
+    result = await ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_model.EmbeddingModel).order_by(
+            persistence_model.EmbeddingModel.prefered_ranking
+        )
+    )
+    for row in result.all():
+        model_data = ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, row)
+        model_uuid = str(model_data.get('uuid') or '').strip()
+        if await _is_usable_embedding_model_uuid(ap, model_uuid):
+            return model_uuid
+    return None
+
+
+async def _is_usable_embedding_model_uuid(ap: app.Application, model_uuid: str) -> bool:
+    if not model_uuid or model_uuid in DEPRECATED_EMBEDDING_MODEL_UUIDS:
+        return False
+
+    model_result = await ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_model.EmbeddingModel).where(
+            persistence_model.EmbeddingModel.uuid == model_uuid
+        )
+    )
+    model_row = model_result.first()
+    if model_row is None:
+        return False
+
+    model_data = ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, model_row)
+    provider_uuid = str(model_data.get('provider_uuid') or '').strip()
+    if not provider_uuid:
+        return False
+
+    provider_result = await ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_model.ModelProvider).where(
+            persistence_model.ModelProvider.uuid == provider_uuid
+        )
+    )
+    provider_row = provider_result.first()
+    if provider_row is None:
+        return False
+
+    provider_data = ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider_row)
+    api_keys = provider_data.get('api_keys') or []
+    return bool(api_keys) and bool(str(provider_data.get('base_url') or '').strip())
+
+
 async def _apply_baidu_env_overrides(ap: app.Application) -> None:
     api_key = (os.getenv('LNE_BAIDU_EMBEDDING_API_KEY') or '').strip()
     base_url = (os.getenv('LNE_BAIDU_EMBEDDING_BASE_URL') or '').strip()

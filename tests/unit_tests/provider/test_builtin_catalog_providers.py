@@ -41,7 +41,7 @@ def test_embedding_catalog_contains_common_providers():
     assert 'lne-qwen' in provider_uuids
     assert 'lne-deepseek' in provider_uuids
     assert 'lne-siliconflow' in provider_uuids
-    assert 'lne-ollama' in provider_uuids
+    assert 'lne-ollama' not in provider_uuids
     assert 'lne-baidu-aistudio-embedding-provider' in provider_uuids
 
 

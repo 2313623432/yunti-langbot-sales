@@ -81,6 +81,18 @@ export class BackendClient extends BaseHttpClient {
     return this.get(`/api/v1/provider/requesters/${name}`);
   }
 
+  public getProviderIconURL(providerUuid: string, requester?: string): string {
+    if (this.instance.defaults.baseURL === '/') {
+      const url = window.location.href;
+      const baseURL = url.split('/').slice(0, 3).join('/');
+      return `${baseURL}/api/v1/provider/providers/${providerUuid}/icon`;
+    }
+    return (
+      this.instance.defaults.baseURL +
+      `/api/v1/provider/providers/${providerUuid}/icon`
+    );
+  }
+
   public getProviderRequesterIconURL(name: string): string {
     if (this.instance.defaults.baseURL === '/') {
       const url = window.location.href;

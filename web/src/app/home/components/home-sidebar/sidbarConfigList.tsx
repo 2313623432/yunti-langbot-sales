@@ -185,6 +185,7 @@ export const sidebarConfigList = [
       ja_JP: 'https://link.langbot.app/ja/docs/plugins',
     },
     section: 'extensions',
+    visible: false,
   }),
   new SidebarChildVO({
     id: 'mcp',
@@ -206,5 +207,6 @@ export const sidebarConfigList = [
       zh_Hans: '',
     },
     section: 'extensions',
+    visible: false,
   }),
 ];

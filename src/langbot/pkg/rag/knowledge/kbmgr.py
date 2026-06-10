@@ -17,6 +17,17 @@ from .base import KnowledgeBaseInterface
 from . import builtin_engine
 
 
+def _is_rejected_content_error(error: Exception) -> bool:
+    message = str(error).lower()
+    markers = (
+        'insufficient extractable text',
+        'insufficient meaningful text',
+        'failed to chunk document',
+        'no text content extracted',
+    )
+    return any(marker in message for marker in markers)
+
+
 class RuntimeKnowledgeBase(KnowledgeBaseInterface):
     ap: app.Application
 
@@ -90,12 +101,24 @@ class RuntimeKnowledgeBase(KnowledgeBaseInterface):
         except Exception as e:
             self.ap.logger.error(f'Error storing file {file.uuid}: {e}')
             traceback.print_exc()
-            # set file status to failed
-            await self.ap.persistence_mgr.execute_async(
-                sqlalchemy.update(persistence_rag.File)
-                .where(persistence_rag.File.uuid == file.uuid)
-                .values(status='failed')
-            )
+            if _is_rejected_content_error(e):
+                try:
+                    await self._delete_document(file.uuid)
+                except Exception as cleanup_exc:
+                    self.ap.logger.warning(
+                        'Failed to delete vectors for rejected file %s: %s',
+                        file.uuid,
+                        cleanup_exc,
+                    )
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.delete(persistence_rag.File).where(persistence_rag.File.uuid == file.uuid)
+                )
+            else:
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.update(persistence_rag.File)
+                    .where(persistence_rag.File.uuid == file.uuid)
+                    .values(status='failed')
+                )
 
             raise
         finally:

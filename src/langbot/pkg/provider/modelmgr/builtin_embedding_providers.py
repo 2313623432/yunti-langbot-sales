@@ -113,19 +113,6 @@ BUILTIN_EMBEDDING_PROVIDER_SPECS: tuple[BuiltinEmbeddingProviderSpec, ...] = (
         ),
     ),
     BuiltinEmbeddingProviderSpec(
-        uuid='lne-ollama',
-        name='Ollama Embedding',
-        requester='ollama-chat',
-        base_url='http://127.0.0.1:11434',
-        protocol='openai',
-        api_key_required=False,
-        sort_order=60,
-        models=(
-            _model('ollama', 'nomic-embed', 'nomic-embed-text', 'nomic-embed-text'),
-            _model('ollama', 'bge-m3', 'bge-m3', 'bge-m3'),
-        ),
-    ),
-    BuiltinEmbeddingProviderSpec(
         uuid='lne-baidu-aistudio-embedding-provider',
         name='百度星河 Embedding',
         requester='openai-chat-completions',

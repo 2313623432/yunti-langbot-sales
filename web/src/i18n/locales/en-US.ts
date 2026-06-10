@@ -924,6 +924,14 @@ const enUS = {
   knowledge: {
     title: 'Knowledge',
     createKnowledgeBase: 'Create Knowledge Base',
+    createDialogDescription:
+      'Enter a name and description to create. Upload documents afterward for agents and workflows to use.',
+    searchPlaceholder: 'Search by name or description',
+    emptyListTitle: 'No knowledge bases yet',
+    emptyListDescription:
+      'Create a knowledge base to manage documents and retrieval settings here.',
+    cardHint: 'Click to open details',
+    fileCountLabel: '{{count}} documents',
     selectFromSidebar: 'Select a knowledge base from the sidebar',
     editKnowledgeBase: 'Edit Knowledge Base',
     selectKnowledgeBase: 'Select Knowledge Base',
@@ -932,7 +940,8 @@ const enUS = {
     noKnowledgeBaseSelected: 'No knowledge bases selected',
     empty: 'Empty',
     editDocument: 'Documents',
-    description: 'Configuring knowledge bases for improved LLM responses',
+    description:
+      'Upload sales scripts, FAQs, and product materials for agents and workflows',
     metadata: 'Metadata',
     documents: 'Documents',
     kbNameRequired: 'Knowledge base name cannot be empty',
@@ -960,6 +969,17 @@ const enUS = {
     documentsTab: {
       name: 'Name',
       status: 'Status',
+      chunkCount: 'Chunks',
+      learningProgress: 'Progress',
+      statusCompleted: 'Indexed',
+      statusPending: 'Pending',
+      statusFailed: 'Failed',
+      uploadedAt: 'Uploaded At',
+      uploadFile: 'Upload File',
+      uploadDialogTitle: 'Upload Document',
+      uploadDialogDescription:
+        'Drag and drop or click to select a file. It will be parsed after upload.',
+      searchPlaceholder: 'Search by file name',
       noResults: 'No documents',
       dragAndDrop: 'Drag and drop files here or click to upload',
       uploading: 'Uploading...',
@@ -1007,6 +1027,12 @@ const enUS = {
       'Knowledge engine cannot be changed after creation',
     basicInfo: 'Basic Information',
     basicInfoDescription: 'Set the knowledge base name, icon and description',
+    basicInfoEditDescription: 'Edit the knowledge base name and description',
+    editKbInfo: 'Edit Knowledge Base',
+    editKbInfoDescription: 'Update the knowledge base name and description',
+    moreActions: 'More',
+    deleteKnowledgeBaseSuccess: 'Knowledge base deleted',
+    settingsTab: 'Settings',
     engineSettings: 'Engine Settings',
     engineSettingsDescription:
       'Configuration for the selected knowledge engine',
