@@ -121,6 +121,20 @@ export interface PipelineTemplateStopRules {
   message: string;
 }
 
+export interface PipelineTemplateCourseProfile {
+  key: string;
+  product_uuid: string;
+  name: string;
+  keywords?: string[];
+  facts: Record<string, string>;
+}
+
+export interface PipelineTemplateStopPolicy {
+  explicit_rejection_threshold: number;
+  explicit_rejection_keywords: string[];
+  immediate_stop_keywords: string[];
+}
+
 export interface PipelineTemplateConfig {
   name: string;
   role_prompt: string;
@@ -160,6 +174,8 @@ export interface PipelineTemplateConfig {
   };
   image_text_bindings: PipelineTemplateImageTextBinding[];
   course_profile?: Record<string, string>;
+  course_profiles?: PipelineTemplateCourseProfile[];
+  source_materials?: string[];
   resource_faqs?: Record<string, unknown>[];
   course_faqs?: Record<string, unknown>[];
   sales_links?: PipelineTemplateSalesLink[];
@@ -167,4 +183,5 @@ export interface PipelineTemplateConfig {
   followup_sequences?: PipelineTemplateFollowupSequence[];
   long_term_broadcasts?: PipelineTemplateBroadcast[];
   stop_rules?: PipelineTemplateStopRules;
+  stop_policy?: PipelineTemplateStopPolicy;
 }

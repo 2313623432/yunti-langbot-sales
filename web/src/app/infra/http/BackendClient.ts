@@ -130,7 +130,11 @@ export class BackendClient extends BaseHttpClient {
   // ============ Provider Model LLM ============
   public getProviderLLMModels(
     providerUuid?: string,
-    options?: { include_space_models?: boolean; include_system_models?: boolean },
+    options?: {
+      include_space_models?: boolean;
+      include_system_models?: boolean;
+      model_category?: 'text' | 'voice' | 'all';
+    },
   ): Promise<ApiRespProviderLLMModels> {
     const params = {
       ...(providerUuid ? { provider_uuid: providerUuid } : {}),

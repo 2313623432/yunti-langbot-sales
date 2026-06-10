@@ -12,9 +12,11 @@ from .task_assistant import TaskAssistantService
 
 DEFAULT_WORKFLOW_FOLDER = '我的项目'
 COURSE_SALES_WORKFLOW_TEMPLATE_UUID = 'workflow-template-course-sales'
+YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID = 'workflow-template-yuanfudao-enhanced-sales'
 TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID = 'workflow-template-task-assistant'
 BUILTIN_WORKFLOW_TEMPLATE_UUIDS = {
     COURSE_SALES_WORKFLOW_TEMPLATE_UUID,
+    YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID,
     TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID,
 }
 
@@ -112,6 +114,10 @@ class WorkflowService:
         template_builder = TaskAssistantService(self.ap)
         course_workflow = template_builder.build_course_sales_workflow_config()
         course_workflow['name'] = '课程销售模板'
+        yuanfudao_enhanced_workflow = template_builder.build_course_sales_workflow_config(
+            template_config=template_builder.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+        )
+        yuanfudao_enhanced_workflow['name'] = '猿辅导销售助手加强版'
         task_workflow = template_builder.build_workflow_config()
         task_workflow['name'] = '任务助手模板配置版'
 
@@ -123,6 +129,13 @@ class WorkflowService:
                 'name': '课程销售模板',
                 'description': '承接图书资源咨询、自然拼读课程答疑、报名转化、雷达跟进和人工接管。',
                 'workflow': course_workflow,
+            },
+            {
+                'uuid': YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID,
+                'folder': DEFAULT_WORKFLOW_FOLDER,
+                'name': '猿辅导销售助手加强版',
+                'description': '基于本地模板数据承接自然拼读、阅读+思维、雷达跟进、图片识别和语音回复。',
+                'workflow': yuanfudao_enhanced_workflow,
             },
             {
                 'uuid': TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID,

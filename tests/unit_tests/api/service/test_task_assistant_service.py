@@ -19,6 +19,7 @@ from langbot.pkg.api.http.service.task_assistant import (
     TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
     TASK_ASSISTANT_TTS_VOICE_TYPE,
     TaskAssistantService,
+    YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
 )
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
 from tests.factories.message import image_chain, text_chain, voice_query
@@ -170,6 +171,7 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_course_sales_product = AsyncMock()
     service._ensure_course_sales_workflow_pipeline = AsyncMock()
     service._ensure_course_sales_template_pipeline = AsyncMock()
+    service._ensure_yuanfudao_enhanced_template_pipeline = AsyncMock()
     service._ensure_course_sales_outreach_for_chatted_users = AsyncMock()
 
     await service.ensure_default_resources()
@@ -179,6 +181,7 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_course_sales_workflow_pipeline.assert_not_called()
     service._ensure_template_pipeline.assert_awaited_once()
     service._ensure_course_sales_template_pipeline.assert_awaited_once()
+    service._ensure_yuanfudao_enhanced_template_pipeline.assert_awaited_once()
     removed_pipeline_uuids = [call.args[0] for call in ap.pipeline_mgr.remove_pipeline.await_args_list]
     assert removed_pipeline_uuids == [
         TASK_ASSISTANT_PIPELINE_UUID,
@@ -265,6 +268,61 @@ async def test_course_sales_template_seed_preserves_existing_identity_and_avatar
     assert params['config']['basic']['avatar'] == '/agent-avatars/custom-course.png'
     assert params['extensions_preferences']['enable_all_plugins'] is False
     assert params['extensions_preferences']['plugins'] == ['plugin-course']
+
+
+@pytest.mark.asyncio
+async def test_yuanfudao_enhanced_template_seed_preserves_existing_identity_and_avatar():
+    existing_pipeline = SimpleNamespace(
+        name='用户改名的猿辅导助手',
+        description='用户改过的增强版描述',
+        emoji='🧪',
+        config={'basic': {'avatar': '/agent-avatars/custom-yuanfudao.png'}},
+        extensions_preferences={
+            'enable_all_plugins': False,
+            'enable_all_mcp_servers': False,
+            'plugins': ['plugin-yuanfudao'],
+            'mcp_servers': ['mcp-yuanfudao'],
+        },
+    )
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(side_effect=[_FirstResult(existing_pipeline), None])),
+        ver_mgr=SimpleNamespace(get_current_version=Mock(return_value='test-version')),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_yuanfudao_enhanced_template_pipeline()
+
+    update_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
+    params = update_statement.compile().params
+    assert params['name'] == '用户改名的猿辅导助手'
+    assert params['description'] == '用户改过的增强版描述'
+    assert params['emoji'] == '🧪'
+    assert params['config']['basic']['avatar'] == '/agent-avatars/custom-yuanfudao.png'
+    assert params['config']['template_config']['name'] == '猿辅导销售助手加强版'
+    assert params['config']['template_config']['stop_policy']['explicit_rejection_threshold'] == 2
+    assert params['extensions_preferences']['enable_all_plugins'] is False
+    assert params['extensions_preferences']['plugins'] == ['plugin-yuanfudao']
+
+
+@pytest.mark.asyncio
+async def test_yuanfudao_enhanced_template_seed_inserts_configurable_demo():
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(side_effect=[_FirstResult(None), None])),
+        ver_mgr=SimpleNamespace(get_current_version=Mock(return_value='test-version')),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_yuanfudao_enhanced_template_pipeline()
+
+    insert_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
+    params = insert_statement.compile().params
+    assert params['uuid'] == YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
+    assert params['name'] == '猿辅导销售助手加强版'
+    assert params['config']['template_config']['source_materials']
+    assert {profile['key'] for profile in params['config']['template_config']['course_profiles']} == {
+        'phonics',
+        'reading_thinking',
+    }
 
 
 @pytest.mark.asyncio
@@ -625,7 +683,7 @@ def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
     workflow = service.build_course_sales_workflow_config()
 
     assert COURSE_SALES_WORKFLOW_PIPELINE_UUID == 'course-sales-workflow-pipeline'
-    assert workflow['name'] == '课程 销售模板'
+    assert workflow['name'] == '课程销售模板'
     assert workflow['metadata']['scenario'] == COURSE_SALES_SCENARIO
     node_ids = {node['id'] for node in workflow['nodes']}
     required_nodes = {
@@ -843,6 +901,114 @@ async def test_course_sales_purchased_stops_promotional_outreach_and_schedules_e
         for plan in sales_service.plans
         for component in plan['message_components']
     )
+
+
+def test_enhanced_yuanfudao_template_loads_spreadsheet_business_content():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    template = config['template_config']
+    workflow = service.active_workflow_from_config(config)
+
+    assert template['name'] == '猿辅导销售助手加强版'
+    assert workflow['name'] == '猿辅导销售助手加强版'
+    assert workflow['metadata']['scenario'] == COURSE_SALES_SCENARIO
+    assert {profile['key'] for profile in template['course_profiles']} == {'phonics', 'reading_thinking'}
+    assert template['course_profiles'][0]['facts']['price'] == '9元体验'
+    assert any(faq['intent'] == 'reading_thinking_intro' for faq in template['course_faqs'])
+    assert any(sequence['stage'] == 'reading_thinking_purchase' for sequence in template['followup_sequences'])
+    source_names = '\n'.join(template['source_materials'])
+    assert '猿辅导1天2次群发SOP.xlsx' in source_names
+    assert '猿辅导课程问答整理.xlsx' in source_names
+    assert '猿辅导自然拼读常见问题(1).xlsx' in source_names
+    assert template['stop_policy']['explicit_rejection_threshold'] == 2
+
+
+@pytest.mark.asyncio
+async def test_enhanced_runtime_selects_reading_thinking_product_from_config():
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query = _query(text_chain('孩子阅读作文没头绪，数学思维也不会变通'), '孩子阅读作文没头绪，数学思维也不会变通', session_id='customer-reading')
+    query.pipeline_config = config
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'yuanfudao-enhanced-template-pipeline'
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    intent = query.variables['workflow_intent']
+    assert intent['product_key'] == 'reading_thinking'
+    assert intent['selected_product_uuid'] == 'yuanfudao-reading-thinking-course'
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '阅读+思维' in context_text
+    assert any(plan['segment'] == 'course-sales:followup:reading_thinking_purchase' for plan in sales_service.plans)
+
+
+@pytest.mark.asyncio
+async def test_enhanced_runtime_stops_after_second_explicit_rejection():
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    first_query = _query(text_chain('不需要'), '不需要', session_id='customer-reject')
+    first_query.pipeline_config = config
+    first_query.bot_uuid = 'bot-uuid'
+    first_query.pipeline_uuid = 'yuanfudao-enhanced-template-pipeline'
+    first_query.prompt = SimpleNamespace(messages=[])
+    await service.prepare_query(first_query)
+
+    assert sales_service.disabled == []
+    assert first_query.variables['workflow_intent']['intent'] == 'objection'
+    assert first_query.variables['workflow_intent']['explicit_rejection_count'] == 1
+
+    second_query = _query(text_chain('不要再发了'), '不要再发了', session_id='customer-reject')
+    second_query.pipeline_config = config
+    second_query.bot_uuid = 'bot-uuid'
+    second_query.pipeline_uuid = 'yuanfudao-enhanced-template-pipeline'
+    second_query.prompt = SimpleNamespace(messages=[])
+    await service.prepare_query(second_query)
+
+    assert sales_service.disabled
+    assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:']
+    assert second_query.variables['workflow_intent']['intent'] == 'stop'
+    assert second_query.variables['workflow_intent']['explicit_rejection_count'] == 2
+
+
+@pytest.mark.asyncio
+async def test_enhanced_runtime_keeps_text_image_and_voice_reply_modes_distinct():
+    service = TaskAssistantService(SimpleNamespace(sales_service=_CourseOutreachSalesService(user_message_count=2), logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    text_query_obj = _query(text_chain('什么时候上课'), '什么时候上课', session_id='customer-text')
+    text_query_obj.pipeline_config = config
+    text_query_obj.prompt = SimpleNamespace(messages=[])
+    await service.prepare_query(text_query_obj)
+    assert text_query_obj.variables['task_assistant_voice_reply'] is False
+
+    voice_query_obj = voice_query('https://example.com/audio.mp3')
+    voice_query_obj.pipeline_config = config
+    voice_query_obj.variables = {'user_message_text': '什么时候上课'}
+    voice_query_obj.prompt = SimpleNamespace(messages=[])
+    voice_query_obj.user_message = provider_message.Message(
+        role='user',
+        content=[provider_message.ContentElement.from_file_url('https://example.com/audio.mp3', 'voice')],
+    )
+    await service.prepare_query(voice_query_obj)
+    assert voice_query_obj.variables['task_assistant_voice_reply'] is True
+
+    image_query_obj = _query(
+        image_chain(text='帮我看下这个报名截图', url='https://example.com/signup.png'),
+        '帮我看下这个报名截图',
+        session_id='customer-image',
+    )
+    image_query_obj.pipeline_config = config
+    image_query_obj.prompt = SimpleNamespace(messages=[])
+    await service.prepare_query(image_query_obj)
+
+    assert image_query_obj.variables['workflow_intent']['intent'] == 'screenshot_help'
+    assert any(item.type.startswith('image') for item in image_query_obj.user_message.content)
 
 
 def test_task_assistant_template_pipeline_preserves_existing_workflow():

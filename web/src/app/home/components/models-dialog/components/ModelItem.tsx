@@ -130,6 +130,10 @@ export default function ModelItem({
   // Check if popover should be disabled (space models when not logged in)
   const isPopoverDisabled =
     isLangBotModels && userInfo?.account_type !== 'space';
+  const isVoiceOnlyModel =
+    modelType === 'llm' &&
+    (model as LLMModel).abilities?.includes('tts') &&
+    ((model as LLMModel).abilities || []).every((ability) => ability === 'tts');
 
   return (
     <Popover
@@ -155,7 +159,9 @@ export default function ModelItem({
             <span className="text-sm font-medium">{model.name}</span>
             <Badge variant="secondary" className="text-xs">
               {modelType === 'llm'
-                ? t('models.chat')
+                ? isVoiceOnlyModel
+                  ? t('models.ttsAbility')
+                  : t('models.chat')
                 : modelType === 'embedding'
                   ? t('models.embedding')
                   : t('models.rerank')}

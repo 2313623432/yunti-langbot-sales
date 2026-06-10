@@ -10,9 +10,15 @@ class LLMModelsRouterGroup(group.RouterGroup):
         async def _() -> str:
             if quart.request.method == 'GET':
                 provider_uuid = quart.request.args.get('provider_uuid')
+                model_category = quart.request.args.get('model_category')
                 if provider_uuid:
                     return self.success(
-                        data={'models': await self.ap.llm_model_service.get_llm_models_by_provider(provider_uuid)}
+                        data={
+                            'models': await self.ap.llm_model_service.get_llm_models_by_provider(
+                                provider_uuid,
+                                model_category=model_category,
+                            )
+                        }
                     )
                 include_space_models = quart.request.args.get('include_space_models', 'true').lower() != 'false'
                 include_system_models = quart.request.args.get('include_system_models', 'true').lower() != 'false'
@@ -21,6 +27,7 @@ class LLMModelsRouterGroup(group.RouterGroup):
                         'models': await self.ap.llm_model_service.get_llm_models(
                             include_space_models=include_space_models,
                             include_system_models=include_system_models,
+                            model_category=model_category,
                         )
                     }
                 )

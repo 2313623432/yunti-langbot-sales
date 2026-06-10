@@ -22,6 +22,19 @@ def _is_voice_only_model(model_data: dict) -> bool:
     return 'tts' in abilities and all(ability == 'tts' for ability in abilities)
 
 
+def _matches_model_category(model_data: dict, model_category: str | None) -> bool:
+    if model_category in (None, '', 'all'):
+        return True
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        abilities = []
+    if model_category == 'voice':
+        return 'tts' in abilities
+    if model_category == 'text':
+        return not _is_voice_only_model(model_data)
+    return True
+
+
 def _parse_provider_api_keys(provider_dict: dict) -> dict:
     """Parse api_keys if it's a JSON string"""
     if isinstance(provider_dict.get('api_keys'), str):
@@ -56,6 +69,7 @@ class LLMModelsService:
         include_secret: bool = True,
         include_space_models: bool = True,
         include_system_models: bool = True,
+        model_category: str | None = None,
     ) -> list[dict]:
         """Get all LLM models with provider info"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.LLMModel))
@@ -74,6 +88,8 @@ class LLMModelsService:
             ):
                 continue
             model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, model)
+            if not _matches_model_category(model_dict, model_category):
+                continue
             provider = providers.get(model.provider_uuid)
             if provider:
                 if not include_space_models and provider.requester == 'space-chat-completions':
@@ -87,7 +103,7 @@ class LLMModelsService:
 
         return models_list
 
-    async def get_llm_models_by_provider(self, provider_uuid: str) -> list[dict]:
+    async def get_llm_models_by_provider(self, provider_uuid: str, model_category: str | None = None) -> list[dict]:
         """Get LLM models by provider UUID"""
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_model.LLMModel).where(
@@ -95,7 +111,12 @@ class LLMModelsService:
             )
         )
         models = result.all()
-        return [self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, m) for m in models]
+        models_list = []
+        for model in models:
+            model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, model)
+            if _matches_model_category(model_dict, model_category):
+                models_list.append(model_dict)
+        return models_list
 
     async def create_llm_model(
         self, model_data: dict, preserve_uuid: bool = False, auto_set_to_default_pipeline: bool = True

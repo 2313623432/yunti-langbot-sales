@@ -13,6 +13,7 @@ from langbot.pkg.api.http.service.workflow import (
     COURSE_SALES_WORKFLOW_TEMPLATE_UUID,
     TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID,
     WorkflowService,
+    YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID,
 )
 from langbot.pkg.entity.persistence.workflow import WorkflowFolder, WorkflowProject
 
@@ -55,6 +56,7 @@ async def test_get_workflow_library_returns_folders_and_workflows():
                     _result(
                         items=[
                             _workflow(uuid=COURSE_SALES_WORKFLOW_TEMPLATE_UUID),
+                            _workflow(uuid=YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID),
                             _workflow(uuid=TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID),
                         ]
                     ),
@@ -85,12 +87,18 @@ async def test_get_workflow_library_seeds_builtin_templates_once():
                     None,
                     None,
                     None,
+                    None,
                     _result(items=[_folder('我的项目')]),
                     _result(
                         items=[
                             _workflow(
                                 uuid='workflow-template-course-sales',
                                 name='课程销售模板',
+                                workflow=course_workflow,
+                            ),
+                            _workflow(
+                                uuid=YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID,
+                                name='猿辅导销售助手加强版',
                                 workflow=course_workflow,
                             ),
                             _workflow(
@@ -113,12 +121,13 @@ async def test_get_workflow_library_seeds_builtin_templates_once():
         for call in ap.persistence_mgr.execute_async.await_args_list
         if 'INSERT INTO workflow_projects' in str(call.args[0])
     ]
-    assert [item['name'] for item in seed_inserts] == ['课程销售模板', '任务助手模板配置版']
+    assert [item['name'] for item in seed_inserts] == ['课程销售模板', '猿辅导销售助手加强版', '任务助手模板配置版']
     assert len(seed_inserts[0]['workflow']['nodes']) == 21
     assert len(seed_inserts[0]['workflow']['edges']) == 28
-    assert len(seed_inserts[1]['workflow']['nodes']) == 28
-    assert len(seed_inserts[1]['workflow']['edges']) == 38
-    assert [item['name'] for item in data['workflows']] == ['课程销售模板', '任务助手模板配置版']
+    assert seed_inserts[1]['workflow']['name'] == '猿辅导销售助手加强版'
+    assert len(seed_inserts[2]['workflow']['nodes']) == 28
+    assert len(seed_inserts[2]['workflow']['edges']) == 38
+    assert [item['name'] for item in data['workflows']] == ['课程销售模板', '猿辅导销售助手加强版', '任务助手模板配置版']
 
 
 async def test_get_workflow_library_does_not_reseed_when_builtin_templates_exist():
@@ -129,6 +138,7 @@ async def test_get_workflow_library_does_not_reseed_when_builtin_templates_exist
                     _result(
                         items=[
                             _workflow(uuid=COURSE_SALES_WORKFLOW_TEMPLATE_UUID),
+                            _workflow(uuid=YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID),
                             _workflow(uuid=TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID),
                         ]
                     ),
@@ -152,6 +162,7 @@ async def test_get_workflow_library_restores_missing_builtin_templates_without_o
         name='用户改过的课程销售模板',
         workflow={'version': 1, 'nodes': [{'id': 'custom'}], 'edges': []},
     )
+    course_workflow = {'version': 1, 'nodes': [{'id': str(i)} for i in range(21)], 'edges': [{'id': str(i)} for i in range(28)]}
     task_workflow = {'version': 1, 'nodes': [{'id': str(i)} for i in range(28)], 'edges': [{'id': str(i)} for i in range(38)]}
     ap = SimpleNamespace(
         persistence_mgr=SimpleNamespace(
@@ -160,8 +171,15 @@ async def test_get_workflow_library_restores_missing_builtin_templates_without_o
                     _result(items=[existing_course]),
                     None,
                     None,
+                    None,
                     _result(items=[_folder('我的项目')]),
-                    _result(items=[existing_course, _workflow(uuid=TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID, workflow=task_workflow)]),
+                    _result(
+                        items=[
+                            existing_course,
+                            _workflow(uuid=YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID, workflow=course_workflow),
+                            _workflow(uuid=TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID, workflow=task_workflow),
+                        ]
+                    ),
                 ]
             )
         )
@@ -175,8 +193,10 @@ async def test_get_workflow_library_restores_missing_builtin_templates_without_o
         for call in ap.persistence_mgr.execute_async.await_args_list
         if 'INSERT INTO workflow_projects' in str(call.args[0])
     ]
-    assert len(seed_inserts) == 1
-    assert seed_inserts[0]['uuid'] == TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID
+    assert {item['uuid'] for item in seed_inserts} == {
+        YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID,
+        TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID,
+    }
     assert data['workflows'][0]['name'] == '用户改过的课程销售模板'
     assert data['workflows'][0]['is_builtin'] is True
 
@@ -238,7 +258,12 @@ async def test_delete_workflow_rejects_builtin_templates():
     ap = SimpleNamespace(persistence_mgr=SimpleNamespace(execute_async=AsyncMock()))
     service = WorkflowService(ap)
 
-    with pytest.raises(ValueError, match='Built-in workflow cannot be deleted'):
-        await service.delete_workflow(COURSE_SALES_WORKFLOW_TEMPLATE_UUID)
+    for workflow_uuid in (
+        COURSE_SALES_WORKFLOW_TEMPLATE_UUID,
+        YUANFUDAO_ENHANCED_WORKFLOW_TEMPLATE_UUID,
+        TASK_ASSISTANT_WORKFLOW_TEMPLATE_UUID,
+    ):
+        with pytest.raises(ValueError, match='Built-in workflow cannot be deleted'):
+            await service.delete_workflow(workflow_uuid)
 
     ap.persistence_mgr.execute_async.assert_not_called()

@@ -35,6 +35,7 @@ TASK_ASSISTANT_TTS_VOICE_TYPE = 'zh_female_yuanqinvyou_moon_bigtts'
 COURSE_SALES_SCENARIO = 'course_sales_yuanfudao_phonics'
 COURSE_SALES_WORKFLOW_PIPELINE_UUID = 'course-sales-workflow-pipeline'
 COURSE_SALES_TEMPLATE_PIPELINE_UUID = 'course-sales-template-pipeline'
+YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID = 'yuanfudao-enhanced-sales-template-pipeline'
 COURSE_SALES_PRODUCT_UUID = 'yuanfudao-phonics-course'
 COURSE_SALES_TTS_VOICE_TYPE = TASK_ASSISTANT_TTS_VOICE_TYPE
 ASSISTED_SCENARIOS = {TASK_ASSISTANT_SCENARIO, COURSE_SALES_SCENARIO}
@@ -758,6 +759,14 @@ class TaskAssistantService:
             )
 
         user_message.content.append(provider_message.ContentElement.from_text(control_text))
+        selected_profile = intent.get('course_profile') if isinstance(intent.get('course_profile'), dict) else {}
+        product_name = selected_profile.get('course_name')
+        if product_name:
+            user_message.content.append(
+                provider_message.ContentElement.from_text(
+                    f'\n\n[当前选中课程]\n{product_name}\n请围绕这条课程线回答，除非用户明确切换需求。'
+                )
+            )
 
     def _step_from_intent(self, intent: dict[str, Any]) -> dict[str, Any] | None:
         step_ids = intent.get('step_ids') if isinstance(intent.get('step_ids'), list) else []
@@ -911,7 +920,9 @@ class TaskAssistantService:
             query.variables = {}
 
         text = query.variables.get('user_message_text', '')
-        intent = self.classify_course_sales_intent(text, query.message_chain)
+        session_key = self._query_session_key(query)
+        intent = self.classify_course_sales_intent(text, query.message_chain, workflow)
+        intent = self._apply_course_sales_rejection_policy(intent, text, workflow, session_key)
         voice_config = workflow.get('voice') if isinstance(workflow.get('voice'), dict) else {}
         course_voice_enabled = voice_config.get('enabled') is True
         query.variables['workflow_intent'] = intent
@@ -935,19 +946,37 @@ class TaskAssistantService:
         self,
         text: str,
         message_chain: platform_message.MessageChain | list[platform_message.MessageComponent],
+        workflow: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         normalized = (text or '').strip().lower()
+        workflow = workflow if isinstance(workflow, dict) else {}
+        selected_profile = self._select_course_sales_profile(workflow, normalized)
+        course_faqs = workflow.get('course_faqs') if isinstance(workflow.get('course_faqs'), list) else COURSE_FAQS
+        stop_rules = workflow.get('stop_rules') if isinstance(workflow.get('stop_rules'), dict) else COURSE_STOP_RULES
+        stop_policy = workflow.get('stop_policy') if isinstance(workflow.get('stop_policy'), dict) else {}
+        immediate_stop_keywords = self._lower_keywords(stop_policy.get('immediate_stop_keywords'))
+        explicit_rejection_keywords = self._lower_keywords(stop_policy.get('explicit_rejection_keywords'))
         if self._has_image(message_chain):
             return self._course_intent(
                 'screenshot_help',
                 0.9,
                 '用户发送了截图，需要识别支付、报名、链接异常或资源页面卡点',
                 step_ids=['gift_qr'],
+                selected_profile=selected_profile,
             )
-        if any(keyword in normalized for keyword in COURSE_STOP_RULES['stop_keywords']):
-            return self._course_intent('stop', 0.94, '用户命中停发或拒绝规则', step_ids=[])
         if any(keyword in normalized for keyword in ['买了', '已报名', '支付了', '付了', '付过', '截图', '报名成功']):
-            return self._course_intent('purchased', 0.88, '用户疑似已购买或已报名', step_ids=['gift_qr'])
+            return self._course_intent('purchased', 0.88, '用户疑似已购买或已报名', step_ids=['gift_qr'], selected_profile=selected_profile)
+        if any(keyword in normalized for keyword in immediate_stop_keywords):
+            return self._course_intent('stop', 0.96, '用户命中立即停发规则', step_ids=[], selected_profile=selected_profile)
+        rejection_keywords = explicit_rejection_keywords or self._lower_keywords(stop_rules.get('stop_keywords'))
+        if any(keyword in normalized for keyword in rejection_keywords):
+            return self._course_intent(
+                'explicit_rejection',
+                0.9,
+                '用户明确拒绝，按配置累计拒绝次数',
+                step_ids=[],
+                selected_profile=selected_profile,
+            )
         if any(keyword in normalized for keyword in ['雷达', '点了', '点击', '打开链接', '看了报名', '进入报名']):
             return self._course_intent(
                 'radar_clicked',
@@ -955,11 +984,12 @@ class TaskAssistantService:
                 '用户提到点击或进入报名通道，按雷达触发后跟进',
                 step_ids=[],
                 include_link=True,
+                selected_profile=selected_profile,
             )
         resource_keywords = {keyword for faq in COURSE_RESOURCE_FAQS for keyword in faq.get('keywords', [])}
         if any(keyword.lower() in normalized for keyword in resource_keywords):
-            return self._course_intent('resource_help', 0.82, '命中图书资源问题', step_ids=['gift_qr'])
-        for faq in COURSE_FAQS:
+            return self._course_intent('resource_help', 0.82, '命中图书资源问题', step_ids=['gift_qr'], selected_profile=selected_profile)
+        for faq in course_faqs:
             if any(str(keyword).lower() in normalized for keyword in faq.get('keywords', [])):
                 intent = str(faq.get('intent') or 'course_intro')
                 step_id = self._course_step_for_intent(intent)
@@ -968,14 +998,23 @@ class TaskAssistantService:
                     0.82,
                     f'命中课程FAQ：{faq["question"]}',
                     step_ids=[step_id] if step_id else [],
+                    selected_profile=selected_profile,
                 )
         if self._has_voice(message_chain):
-            return self._course_intent('course_intro', 0.76, '用户发送语音，按课程客服文字短句承接', step_ids=['gift_poster'])
+            return self._course_intent('course_intro', 0.76, '用户发送语音，按课程客服文字短句承接', step_ids=['gift_poster'], selected_profile=selected_profile)
         if any(keyword in normalized for keyword in ['报名', '购买', '怎么买', '要买', '链接', '领取']):
-            return self._course_intent('purchase', 0.8, '用户咨询报名或购买方式', step_ids=[], include_link=True)
+            return self._course_intent('purchase', 0.8, '用户咨询报名或购买方式', step_ids=[], include_link=True, selected_profile=selected_profile)
         if any(keyword in normalized for keyword in ['不回复', '没人', '没回']):
-            return self._course_intent('no_reply', 0.68, '用户处于沉默跟进场景', step_ids=[])
-        return self._course_intent('course_intro', 0.64, '默认按自然拼读课程介绍承接', step_ids=['gift_poster'])
+            return self._course_intent('no_reply', 0.68, '用户处于沉默跟进场景', step_ids=[], selected_profile=selected_profile)
+        if selected_profile.get('key') == 'reading_thinking':
+            return self._course_intent(
+                'reading_thinking_intro',
+                0.78,
+                '用户问题命中阅读写作或数学思维产品线',
+                step_ids=['gift_poster'],
+                selected_profile=selected_profile,
+            )
+        return self._course_intent('course_intro', 0.64, '默认按自然拼读课程介绍承接', step_ids=['gift_poster'], selected_profile=selected_profile)
 
     def _course_step_for_intent(self, intent: str) -> str:
         if intent in {'purchase', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
@@ -990,6 +1029,66 @@ class TaskAssistantService:
             return ''
         return 'gift_poster'
 
+    def _lower_keywords(self, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(keyword).strip().lower() for keyword in value if str(keyword).strip()]
+
+    def _course_sales_profiles(self, workflow: dict[str, Any]) -> list[dict[str, Any]]:
+        profiles = workflow.get('course_profiles') if isinstance(workflow.get('course_profiles'), list) else []
+        if not profiles:
+            variables = workflow.get('variables') if isinstance(workflow.get('variables'), dict) else {}
+            profiles = variables.get('course_profiles') if isinstance(variables.get('course_profiles'), list) else []
+        if profiles:
+            return [profile for profile in profiles if isinstance(profile, dict)]
+        profile = workflow.get('course_profile') if isinstance(workflow.get('course_profile'), dict) else COURSE_SALES_PROFILE
+        return [
+            {
+                'key': 'phonics',
+                'product_uuid': COURSE_SALES_PRODUCT_UUID,
+                'name': profile.get('course_name', '猿辅导英语自然拼读体验课'),
+                'keywords': ['英语', '自然拼读', '拼读', '发音', '单词'],
+                'facts': profile,
+            }
+        ]
+
+    def _select_course_sales_profile(self, workflow: dict[str, Any], normalized_text: str) -> dict[str, Any]:
+        profiles = self._course_sales_profiles(workflow)
+        if not profiles:
+            return {}
+        for profile in profiles:
+            keywords = self._lower_keywords(profile.get('keywords'))
+            if any(keyword and keyword in normalized_text for keyword in keywords):
+                return profile
+        return profiles[0]
+
+    def _apply_course_sales_rejection_policy(
+        self,
+        intent: dict[str, Any],
+        text: str,
+        workflow: dict[str, Any],
+        session_key: str,
+    ) -> dict[str, Any]:
+        if intent.get('intent') != 'explicit_rejection':
+            return intent
+        stop_policy = workflow.get('stop_policy') if isinstance(workflow.get('stop_policy'), dict) else {}
+        try:
+            threshold = int(stop_policy.get('explicit_rejection_threshold') or 1)
+        except (TypeError, ValueError):
+            threshold = 1
+        threshold = max(1, threshold)
+        progress = self._session_progress.setdefault(session_key or '_course_sales_default', {})
+        count = int(progress.get('course_sales_explicit_rejection_count') or 0) + 1
+        progress['course_sales_explicit_rejection_count'] = count
+        intent['explicit_rejection_count'] = count
+        if count >= threshold:
+            intent['intent'] = 'stop'
+            intent['reason'] = f'用户已连续明确拒绝 {count} 次，达到停发阈值'
+        else:
+            intent['intent'] = 'objection'
+            intent['reason'] = f'用户第 {count} 次明确拒绝，先轻量回应并继续保留后续触达'
+        return intent
+
     def _course_intent(
         self,
         intent: str,
@@ -998,7 +1097,10 @@ class TaskAssistantService:
         *,
         step_ids: list[str],
         include_link: bool = False,
+        selected_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        selected_profile = selected_profile if isinstance(selected_profile, dict) else {}
+        profile_facts = selected_profile.get('facts') if isinstance(selected_profile.get('facts'), dict) else COURSE_SALES_PROFILE
         data: dict[str, Any] = {
             'intent': intent,
             'confidence': confidence,
@@ -1006,7 +1108,9 @@ class TaskAssistantService:
             'step_ids': step_ids,
             'max_images': 1 if step_ids else 0,
             'reply_mode': 'course_sales',
-            'course_profile': COURSE_SALES_PROFILE,
+            'course_profile': profile_facts,
+            'product_key': str(selected_profile.get('key') or 'phonics'),
+            'selected_product_uuid': str(selected_profile.get('product_uuid') or COURSE_SALES_PRODUCT_UUID),
         }
         if include_link:
             data['link_url'] = COURSE_SALES_RADAR_LINK
@@ -1093,6 +1197,21 @@ class TaskAssistantService:
                 '不要夸大提分承诺，不要在用户拒绝后继续骚扰。'
             )
 
+        course_profile = intent.get('course_profile') if isinstance(intent.get('course_profile'), dict) else {}
+        product_key = str(intent.get('product_key') or '')
+        course_name = str(course_profile.get('course_name') or '').strip()
+        if course_name:
+            facts = [
+                str(course_profile.get('price') or '').strip(),
+                str(course_profile.get('duration') or '').strip(),
+                str(course_profile.get('target_grade') or '').strip(),
+                str(course_profile.get('replay') or '').strip(),
+            ]
+            fact_text = '；'.join(fact for fact in facts if fact)
+            control_text += f'\n[当前选中课程]\n产品线：{product_key or "course"}；课程：{course_name}'
+            if fact_text:
+                control_text += f'；关键信息：{fact_text}'
+
         user_message.content.append(provider_message.ContentElement.from_text(control_text))
 
     async def _schedule_course_sales_outreach_for_query(
@@ -1135,7 +1254,7 @@ class TaskAssistantService:
                 await self._schedule_course_sales_opening_for_target(target, workflow)
                 await self._schedule_course_sales_broadcasts_for_target(target, workflow)
 
-            followup_stage = self._course_followup_stage_for_intent(intent_name, text)
+            followup_stage = self._course_followup_stage_for_intent(intent, text)
             if followup_stage:
                 await self._schedule_course_sales_followup_sequence(target, workflow, followup_stage)
         except Exception as exc:
@@ -1179,7 +1298,16 @@ class TaskAssistantService:
         session_id = str(getattr(query, 'variables', {}).get('session_id') or self._query_session_key(query))
         return await sales_service.count_user_messages_for_session(session_id) <= 1
 
-    def _course_followup_stage_for_intent(self, intent_name: str, text: str) -> str:
+    def _course_followup_stage_for_intent(self, intent: dict[str, Any], text: str) -> str:
+        intent_name = str(intent.get('intent') or '')
+        product_key = str(intent.get('product_key') or '')
+        if product_key == 'reading_thinking' and intent_name in {
+            'reading_thinking_intro',
+            'course_intro',
+            'course_content',
+            'purchase',
+        }:
+            return 'reading_thinking_purchase'
         if intent_name in {'purchase', 'radar_clicked', 'no_reply'}:
             return intent_name
         if intent_name == 'objection':
@@ -1364,11 +1492,22 @@ class TaskAssistantService:
     def compose_course_sales_prompt(self, workflow: dict[str, Any] | None = None) -> str:
         workflow = workflow if isinstance(workflow, dict) else {}
         profile = workflow.get('course_profile') if isinstance(workflow.get('course_profile'), dict) else COURSE_SALES_PROFILE
+        profiles = workflow.get('course_profiles') if isinstance(workflow.get('course_profiles'), list) else []
         radar = workflow.get('radar') if isinstance(workflow.get('radar'), dict) else COURSE_RADAR_CONFIG
         resource_faqs = workflow.get('resource_faqs') if isinstance(workflow.get('resource_faqs'), list) else COURSE_RESOURCE_FAQS
         course_faqs = workflow.get('course_faqs') if isinstance(workflow.get('course_faqs'), list) else COURSE_FAQS
         stop_rules = workflow.get('stop_rules') if isinstance(workflow.get('stop_rules'), dict) else COURSE_STOP_RULES
-        profile_text = '\n'.join(f'- {key}: {value}' for key, value in profile.items())
+        if profiles:
+            profile_lines: list[str] = []
+            for item in profiles:
+                if not isinstance(item, dict):
+                    continue
+                facts = item.get('facts') if isinstance(item.get('facts'), dict) else {}
+                profile_lines.append(f"- {item.get('name') or facts.get('course_name') or item.get('key')}:")
+                profile_lines.extend(f"  - {key}: {value}" for key, value in facts.items())
+            profile_text = '\n'.join(profile_lines)
+        else:
+            profile_text = '\n'.join(f'- {key}: {value}' for key, value in profile.items())
         resource_text = '\n'.join(f'- {faq["question"]}: {faq["answer"]}' for faq in resource_faqs)
         course_text = '\n'.join(f'- {faq["question"]}: {faq["answer"]}' for faq in course_faqs)
         stop_text = '、'.join(stop_rules.get('stop_keywords', []))
@@ -1549,6 +1688,7 @@ class TaskAssistantService:
         await self._remove_seeded_workflow_mode_pipelines()
         await self._ensure_template_pipeline()
         await self._ensure_course_sales_template_pipeline()
+        await self._ensure_yuanfudao_enhanced_template_pipeline()
         await self._ensure_course_sales_product()
         await self._ensure_course_sales_outreach_for_chatted_users()
 
@@ -2058,24 +2198,65 @@ class TaskAssistantService:
             'voice': voice_config,
         }
 
+    def _load_course_sales_template_by_slug(self, template_slug: str | None) -> dict[str, Any]:
+        slug = str(template_slug or '').strip()
+        if not slug:
+            return {}
+        safe_slug = re.sub(r'[^a-zA-Z0-9_-]', '', slug)
+        if not safe_slug:
+            return {}
+        template_path = Path(path_utils.get_resource_path(f'templates/course-sales/{safe_slug}.json'))
+        if not template_path.exists():
+            return {}
+        with open(template_path, 'r', encoding='utf-8') as f:
+            loaded = json.load(f)
+        return loaded if isinstance(loaded, dict) else {}
+
+    def _merge_course_template_data(self, base: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
+        merged = copy.deepcopy(base)
+        for key, value in loaded.items():
+            if key == 'voice' and isinstance(value, dict):
+                current = merged.get('voice') if isinstance(merged.get('voice'), dict) else {}
+                merged['voice'] = {**current, **copy.deepcopy(value)}
+            elif key == 'tools' and isinstance(value, dict):
+                current = merged.get('tools') if isinstance(merged.get('tools'), dict) else {}
+                merged['tools'] = {**current, **copy.deepcopy(value)}
+            elif key == 'memory' and isinstance(value, dict):
+                current = merged.get('memory') if isinstance(merged.get('memory'), dict) else {}
+                merged['memory'] = {**current, **copy.deepcopy(value)}
+            elif key == 'scheduled_push' and isinstance(value, dict):
+                current = merged.get('scheduled_push') if isinstance(merged.get('scheduled_push'), dict) else {}
+                merged['scheduled_push'] = {**current, **copy.deepcopy(value)}
+            elif key == 'metadata' and isinstance(value, dict):
+                current = merged.get('metadata') if isinstance(merged.get('metadata'), dict) else {}
+                merged['metadata'] = {**current, **copy.deepcopy(value)}
+            else:
+                merged[key] = copy.deepcopy(value)
+        return merged
+
     def build_course_sales_pipeline_config(
         self,
         *,
         model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
         existing_config: dict[str, Any] | None = None,
+        template_slug: str | None = None,
+        template_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        import json
-
         template_path = path_utils.get_resource_path('templates/default-pipeline-config.json')
         with open(template_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
 
+        active_template = (
+            copy.deepcopy(template_config)
+            if isinstance(template_config, dict)
+            else self.build_course_sales_template_config(template_slug=template_slug)
+        )
         config['ai']['runner']['runner'] = 'local-agent'
         config['ai']['runner']['expire-time'] = 0
         config['ai']['local-agent']['model'] = {'primary': model_uuid, 'fallbacks': []}
         config['ai']['local-agent']['max-round'] = 8
         config['ai']['local-agent']['prompt'] = [
-            {'role': 'system', 'content': self.compose_course_sales_prompt()},
+            {'role': 'system', 'content': self.compose_course_sales_prompt(active_template)},
         ]
         config['output']['misc']['at-sender'] = False
         config['output']['misc']['quote-origin'] = True
@@ -2084,6 +2265,7 @@ class TaskAssistantService:
         config['workflow'] = self.build_course_sales_workflow_config(
             model_uuid=model_uuid,
             voice_overrides=existing_voice if isinstance(existing_voice, dict) else None,
+            template_config=active_template,
         )
         self._preserve_existing_basic_config(config, existing_config)
         return config
@@ -2093,14 +2275,18 @@ class TaskAssistantService:
         *,
         model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
         existing_config: dict[str, Any] | None = None,
+        template_slug: str | None = None,
     ) -> dict[str, Any]:
-        config = self.build_course_sales_pipeline_config(
-            model_uuid=model_uuid,
-            existing_config=existing_config,
-        )
         existing_template = existing_config.get('template_config') if isinstance(existing_config, dict) else {}
         template_config = self.build_course_sales_template_config(
             overrides=existing_template if isinstance(existing_template, dict) else None,
+            template_slug=template_slug,
+        )
+        config = self.build_course_sales_pipeline_config(
+            model_uuid=model_uuid,
+            existing_config=existing_config,
+            template_slug=template_slug,
+            template_config=template_config,
         )
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else None
         config['config_mode'] = 'template'
@@ -2138,6 +2324,8 @@ class TaskAssistantService:
             return False
         image_keys = {str(item.get('image_key') or '') for item in value if isinstance(item, dict)}
         messages = '\n'.join(str(item.get('message') or '') for item in value if isinstance(item, dict))
+        if '阅读+思维' in messages:
+            return False
         return bool(
             any(('day1_' in key or 'day2_' in key or 'day3_' in key) for key in image_keys)
             or '9元共10节名师直播课' not in messages
@@ -2155,6 +2343,8 @@ class TaskAssistantService:
             if isinstance(message, dict)
         ]
         stages = {str(sequence.get('stage') or '') for sequence in value if isinstance(sequence, dict)}
+        if 'reading_thinking_purchase' in stages:
+            return False
         has_signup_link = any(message.get('link_id') == 'phonics_radar_apply' for message in messages)
         has_poster = any(
             message.get('image_key')
@@ -2213,7 +2403,11 @@ class TaskAssistantService:
                     if isinstance(message, dict) and 'image_key' in message:
                         message['image_key'] = self._normalize_course_media_key(message.get('image_key'))
 
-    def build_course_sales_template_config(self, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    def build_course_sales_template_config(
+        self,
+        overrides: dict[str, Any] | None = None,
+        template_slug: str | None = None,
+    ) -> dict[str, Any]:
         voice = {
             'provider': 'volcengine',
             'enabled': True,
@@ -2295,6 +2489,9 @@ class TaskAssistantService:
             'stop_rules': copy.deepcopy(COURSE_STOP_RULES),
             'image_text_bindings': copy.deepcopy(COURSE_IMAGE_BINDINGS),
         }
+        loaded_template = self._load_course_sales_template_by_slug(template_slug)
+        if loaded_template:
+            template_config = self._merge_course_template_data(template_config, loaded_template)
         if overrides:
             for key, value in overrides.items():
                 if key == 'voice' and isinstance(value, dict):
@@ -2333,11 +2530,17 @@ class TaskAssistantService:
                 elif key in {
                     'resource_faqs',
                     'course_faqs',
+                    'course_profiles',
+                    'source_materials',
                 } and isinstance(value, list) and value:
                     template_config[key] = value
+                elif key == 'stop_policy' and isinstance(value, dict):
+                    current = template_config.get(key) if isinstance(template_config.get(key), dict) else {}
+                    template_config[key] = {**current, **value}
                 else:
                     template_config[key] = value
         self._normalize_course_template_media_keys(template_config)
+        template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
         for sequence in template_config.get('followup_sequences', []):
             if not isinstance(sequence, dict):
                 continue
@@ -2371,6 +2574,19 @@ class TaskAssistantService:
             if isinstance(template_config.get('course_profile'), dict)
             else copy.deepcopy(COURSE_SALES_PROFILE)
         )
+        course_profiles = (
+            copy.deepcopy(template_config.get('course_profiles'))
+            if isinstance(template_config.get('course_profiles'), list)
+            else [
+                {
+                    'key': 'phonics',
+                    'product_uuid': COURSE_SALES_PRODUCT_UUID,
+                    'name': course_profile.get('course_name', '猿辅导英语自然拼读体验课'),
+                    'keywords': ['英语', '自然拼读', '拼读', '发音', '单词'],
+                    'facts': copy.deepcopy(course_profile),
+                }
+            ]
+        )
         resource_faqs = (
             copy.deepcopy(template_config.get('resource_faqs'))
             if isinstance(template_config.get('resource_faqs'), list)
@@ -2395,6 +2611,15 @@ class TaskAssistantService:
             copy.deepcopy(template_config.get('stop_rules'))
             if isinstance(template_config.get('stop_rules'), dict)
             else copy.deepcopy(COURSE_STOP_RULES)
+        )
+        stop_policy = (
+            copy.deepcopy(template_config.get('stop_policy'))
+            if isinstance(template_config.get('stop_policy'), dict)
+            else {
+                'explicit_rejection_threshold': 1,
+                'explicit_rejection_keywords': COURSE_STOP_RULES['stop_keywords'],
+                'immediate_stop_keywords': ['投诉', '没有孩子', '没孩子', '打错', '我是老师', '已报名', '已支付'],
+            }
         )
         radar = (
             copy.deepcopy(template_config.get('radar'))
@@ -2437,6 +2662,17 @@ class TaskAssistantService:
                     message['image_key'] = self._normalize_course_media_key(message.get('image_key'))
         opening_message = str(template_config.get('opening_message') or COURSE_OPENING_MESSAGE)
         model_uuid = str(template_config.get('model_uuid') or model_uuid)
+        product_uuids = [
+            str(profile.get('product_uuid') or '')
+            for profile in course_profiles
+            if isinstance(profile, dict) and str(profile.get('product_uuid') or '')
+        ] or [COURSE_SALES_PRODUCT_UUID]
+        template_name = str(template_config.get('name') or '课程销售模板')
+        source_materials = (
+            copy.deepcopy(template_config.get('source_materials'))
+            if isinstance(template_config.get('source_materials'), list)
+            else []
+        )
         voice_config = {
             'provider': 'volcengine',
             'enabled': True,
@@ -2580,7 +2816,11 @@ class TaskAssistantService:
                 'title': '课程产品库',
                 'description': '绑定猿辅导自然拼读体验课产品，输出价格、卖点、适龄和报名方式',
                 'position': {'x': 2040, 'y': 440},
-                'config': {'product_uuids': [COURSE_SALES_PRODUCT_UUID], 'course_profile': course_profile},
+                'config': {
+                    'product_uuids': product_uuids,
+                    'course_profile': course_profile,
+                    'course_profiles': course_profiles,
+                },
             },
             {
                 'id': 'sales_link',
@@ -2612,7 +2852,7 @@ class TaskAssistantService:
                 'title': 'SOP定时群发',
                 'description': '按SOP图片识别出的文字在每日10:05群发；不发送SOP图片',
                 'position': {'x': 2640, 'y': 700},
-                'config': {'broadcasts': broadcasts, 'stop_rules': stop_rules},
+                'config': {'broadcasts': broadcasts, 'stop_rules': stop_rules, 'stop_policy': stop_policy},
             },
             {
                 'id': 'handoff',
@@ -2724,12 +2964,13 @@ class TaskAssistantService:
 
         return {
             'version': 1,
-            'name': '课程 销售模板',
+            'name': template_name,
             'description': '课程客服与销售工作流：图书资源承接、自然拼读课程答疑、报名转化、雷达跟进、停发与人工接管。',
             'metadata': {
+                **(copy.deepcopy(template_config.get('metadata')) if isinstance(template_config.get('metadata'), dict) else {}),
                 'scenario': COURSE_SALES_SCENARIO,
                 'runtime_engine': 'langgraph',
-                'source': 'SOP.doc（群发截图转文字）+ 猿辅导自然拼读常见问题(1).xlsx',
+                'source': ' + '.join(source_materials) if source_materials else 'SOP.doc（群发截图转文字）+ 猿辅导自然拼读常见问题(1).xlsx',
                 'tts_provider': 'volcengine',
                 'langgraph_state': {
                     'messages': 'list',
@@ -2743,6 +2984,7 @@ class TaskAssistantService:
             'scenario': 'sales',
             'opening_message': opening_message,
             'course_profile': course_profile,
+            'course_profiles': course_profiles,
             'resource_faqs': resource_faqs,
             'course_faqs': course_faqs,
             'sales_links': sales_links,
@@ -2750,6 +2992,8 @@ class TaskAssistantService:
             'followup_sequences': followups,
             'long_term_broadcasts': broadcasts,
             'stop_rules': stop_rules,
+            'stop_policy': stop_policy,
+            'source_materials': source_materials,
             'nodes': nodes,
             'edges': edges,
             'variables': {
@@ -2757,7 +3001,9 @@ class TaskAssistantService:
                 'intent': '',
                 'opening_message': opening_message,
                 'radar_event': {},
-                'selected_product_uuid': COURSE_SALES_PRODUCT_UUID,
+                'selected_product_uuid': product_uuids[0],
+                'course_profiles': course_profiles,
+                'source_materials': source_materials,
             },
             'voice': voice_config,
             'scheduled_push': template_config.get('scheduled_push') if isinstance(template_config.get('scheduled_push'), dict) else None,
@@ -2995,6 +3241,54 @@ class TaskAssistantService:
                 is_default=False,
                 stages=default_stage_order.copy(),
                 config=self.build_course_sales_template_pipeline_config(),
+                extensions_preferences={
+                    'enable_all_plugins': True,
+                    'enable_all_mcp_servers': True,
+                    'plugins': [],
+                    'mcp_servers': [],
+                },
+            )
+        )
+
+    async def _ensure_yuanfudao_enhanced_template_pipeline(self) -> None:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid == YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
+            )
+        )
+        existing_pipeline = result.first()
+        if existing_pipeline is not None:
+            existing_config = existing_pipeline.config if isinstance(existing_pipeline.config, dict) else {}
+            display_values = self._existing_pipeline_display_values(
+                existing_pipeline,
+                default_name='猿辅导销售助手加强版',
+                default_description='基于本地模板数据配置课程销售客服，支持多产品线、雷达跟进、图片识别和语音回复。',
+                default_emoji='🎓',
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+                .where(persistence_pipeline.LegacyPipeline.uuid == YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID)
+                .values(
+                    **display_values,
+                    config=self.build_course_sales_template_pipeline_config(
+                        existing_config=existing_config,
+                        template_slug='yuanfudao-enhanced',
+                    ),
+                    extensions_preferences=self._existing_pipeline_extensions_preferences(existing_pipeline),
+                )
+            )
+            return
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_pipeline.LegacyPipeline).values(
+                uuid=YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
+                name='猿辅导销售助手加强版',
+                description='基于本地模板数据配置课程销售客服，支持多产品线、雷达跟进、图片识别和语音回复。',
+                emoji='🎓',
+                for_version=self.ap.ver_mgr.get_current_version(),
+                is_default=False,
+                stages=default_stage_order.copy(),
+                config=self.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced'),
                 extensions_preferences={
                     'enable_all_plugins': True,
                     'enable_all_mcp_servers': True,

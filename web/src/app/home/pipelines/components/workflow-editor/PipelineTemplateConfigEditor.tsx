@@ -84,10 +84,26 @@ const CONFIG_TABS: Array<{
   { id: 'media', label: '图文素材', icon: ImageIcon },
 ];
 
+const RADAR_EVENT_OPTIONS = [
+  { value: 'link_open', label: '客户打开链接', description: '客户点开报名页后，马上轻量追问。' },
+  { value: 'browse_30s', label: '客户浏览了一会儿', description: '客户停留一段时间后，主动询问卡点。' },
+  { value: 'click_apply_button', label: '客户点击报名按钮', description: '客户进入报名动作后，提醒完成支付并发截图。' },
+  { value: 'no_payment_after_click', label: '点击后暂未支付', description: '客户点了报名但没有支付时，提醒截图或帮看页面。' },
+];
+
 type VoiceToneOption = {
   value: string;
   label: string;
 };
+
+function radarEventOption(event?: string) {
+  const value = String(event || '');
+  return RADAR_EVENT_OPTIONS.find((option) => option.value === value) || {
+    value,
+    label: value || '自定义客户动作',
+    description: '自定义工作流事件。',
+  };
+}
 
 function modelExtraArgs(model?: LLMModel): Record<string, unknown> {
   const extraArgs = model?.extra_args;
@@ -138,11 +154,6 @@ function voiceToneOptionsFromModel(model?: LLMModel): VoiceToneOption[] {
   return options;
 }
 
-function isVoiceOnlyModel(model: LLMModel): boolean {
-  const abilities = model.abilities || [];
-  return abilities.includes('tts') && abilities.every((ability) => ability === 'tts');
-}
-
 function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTemplateConfig {
   const defaults = createBlankAgentTemplateConfig();
   return {
@@ -185,6 +196,10 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
       value?.followup_sequences?.length ? value.followup_sequences : defaults.followup_sequences || [],
     long_term_broadcasts:
       value?.long_term_broadcasts?.length ? value.long_term_broadcasts : defaults.long_term_broadcasts || [],
+    course_profiles:
+      value?.course_profiles?.length ? value.course_profiles : defaults.course_profiles || [],
+    source_materials:
+      value?.source_materials?.length ? value.source_materials : defaults.source_materials || [],
     stop_rules: {
       ...(defaults.stop_rules || {
         stop_keywords: [],
@@ -192,6 +207,14 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
         message: '',
       }),
       ...(value?.stop_rules || {}),
+    },
+    stop_policy: {
+      ...(defaults.stop_policy || {
+        explicit_rejection_threshold: 1,
+        explicit_rejection_keywords: [],
+        immediate_stop_keywords: [],
+      }),
+      ...(value?.stop_policy || {}),
     },
   };
 }
@@ -313,8 +336,11 @@ export default function PipelineTemplateConfigEditor({
   const [activeTab, setActiveTab] = useState<TemplateConfigTab>('basic');
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
   const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
+  const [voiceModels, setVoiceModels] = useState<LLMModel[]>([]);
   const [uploadingBindingId, setUploadingBindingId] = useState('');
   const [previewQuestion, setPreviewQuestion] = useState('');
+  const [showAdvancedRadar, setShowAdvancedRadar] = useState(false);
+  const [showAdvancedStopRules, setShowAdvancedStopRules] = useState(false);
 
   useEffect(() => {
     httpClient
@@ -325,9 +351,18 @@ export default function PipelineTemplateConfigEditor({
       .getProviderLLMModels(undefined, {
         include_space_models: false,
         include_system_models: false,
+        model_category: 'text',
       })
       .then((resp) => setLlmModels(resp.models || []))
       .catch((error) => console.warn('Failed to load LLM models', error));
+    httpClient
+      .getProviderLLMModels(undefined, {
+        include_space_models: false,
+        include_system_models: false,
+        model_category: 'voice',
+      })
+      .then((resp) => setVoiceModels(resp.models || []))
+      .catch((error) => console.warn('Failed to load voice models', error));
   }, []);
 
   function patch(next: Partial<PipelineTemplateConfig>) {
@@ -366,6 +401,10 @@ export default function PipelineTemplateConfigEditor({
 
   function patchStopRules(next: Partial<NonNullable<PipelineTemplateConfig['stop_rules']>>) {
     patch({ stop_rules: { ...config.stop_rules!, ...next } });
+  }
+
+  function patchStopPolicy(next: Partial<NonNullable<PipelineTemplateConfig['stop_policy']>>) {
+    patch({ stop_policy: { ...config.stop_policy!, ...next } });
   }
 
   function patchMemory(next: Partial<PipelineTemplateConfig['memory']>) {
@@ -646,17 +685,16 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderModelSettings() {
-    const visibleLlmModels = llmModels.filter(
+    const chatLlmModels = llmModels.filter(
       (model) => model.provider?.requester !== 'space-chat-completions',
     );
-    const chatLlmModels = visibleLlmModels.filter((model) => !isVoiceOnlyModel(model));
-    const voiceModels = visibleLlmModels.filter((model) =>
-      model.abilities?.includes('tts'),
+    const visibleVoiceModels = voiceModels.filter(
+      (model) => model.provider?.requester !== 'space-chat-completions',
     );
     const selectedModel = chatLlmModels.find(
       (model) => model.uuid === config.model_uuid,
     );
-    const selectedVoiceModel = voiceModels.find(
+    const selectedVoiceModel = visibleVoiceModels.find(
       (model) => model.uuid === config.voice.model_uuid,
     );
     const responseDiversity = Number.isFinite(config.response_diversity)
@@ -668,7 +706,7 @@ export default function PipelineTemplateConfigEditor({
     );
 
     function handleVoiceModelChange(modelUuid: string) {
-      const model = voiceModels.find((item) => item.uuid === modelUuid);
+      const model = visibleVoiceModels.find((item) => item.uuid === modelUuid);
       if (!model) {
         return;
       }
@@ -791,19 +829,19 @@ export default function PipelineTemplateConfigEditor({
               <Select
                 value={selectedVoiceModel?.uuid}
                 onValueChange={handleVoiceModelChange}
-                disabled={!voiceModels.length}
+                disabled={!visibleVoiceModels.length}
               >
                 <SelectTrigger className="h-11 w-full bg-white">
                   <SelectValue
                     placeholder={
-                      voiceModels.length
+                      visibleVoiceModels.length
                         ? '请选择语音模型'
                         : '请先在模型配置中添加语音模型'
                     }
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {voiceModels.map((model) => (
+                  {visibleVoiceModels.map((model) => (
                     <SelectItem
                       key={model.uuid}
                       value={model.uuid}
@@ -875,6 +913,8 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderKnowledgeSettings() {
+    const courseProfiles = config.course_profiles || [];
+    const sourceMaterials = config.source_materials || [];
     return (
       <Section
         icon={Database}
@@ -979,6 +1019,59 @@ export default function PipelineTemplateConfigEditor({
             </div>
           </div>
         </div>
+        {(courseProfiles.length > 0 || sourceMaterials.length > 0) && (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+            {courseProfiles.length > 0 && (
+              <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <FieldLabel>已接入业务产品线</FieldLabel>
+                  <Badge variant="outline" className="rounded bg-white">
+                    {courseProfiles.length} 条
+                  </Badge>
+                </div>
+                <div className="grid gap-3">
+                  {courseProfiles.map((profile) => {
+                    const facts = profile.facts || {};
+                    return (
+                      <div key={profile.key} className="rounded-md border border-indigo-100 bg-white p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-slate-900">
+                              {profile.name || facts.course_name || profile.key}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {[facts.price, facts.duration || facts.lesson_count, facts.target_grade]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </p>
+                          </div>
+                          <Badge className="shrink-0 rounded" variant="secondary">
+                            业务线
+                          </Badge>
+                        </div>
+                        {facts.selling_point && (
+                          <p className="mt-2 text-xs leading-5 text-slate-600">{facts.selling_point}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {sourceMaterials.length > 0 && (
+              <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
+                <FieldLabel>业务资料来源</FieldLabel>
+                <div className="mt-3 grid gap-2">
+                  {sourceMaterials.map((source, index) => (
+                    <div key={`${source}-${index}`} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                      {source}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </Section>
     );
   }
@@ -1061,8 +1154,8 @@ export default function PipelineTemplateConfigEditor({
 
         <Section
           icon={Link2}
-          title="报名链接"
-          description="可配置普通链接或带雷达参数的假链接，发送后由雷达规则继续跟进。"
+          title="客户可点击的链接"
+          description="配置数字员工会发给客户的报名页、资料页或活动页。"
           right={
             <Badge variant="outline" className="rounded-md">
               {(config.sales_links || []).length} 个链接
@@ -1071,7 +1164,7 @@ export default function PipelineTemplateConfigEditor({
         >
           <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addSalesLink}>
             <Plus className="mr-1.5 size-4" />
-            新增报名链接
+            新增客户链接
           </Button>
           <div className="grid gap-3">
             {(config.sales_links || []).map((link, index) => (
@@ -1081,8 +1174,9 @@ export default function PipelineTemplateConfigEditor({
                     value={link.title}
                     onChange={(event) => patchSalesLink(index, { title: event.target.value })}
                     className="h-10 bg-white"
-                    placeholder="链接标题"
+                    placeholder="客户看到的链接标题"
                   />
+                  <span className="text-xs text-muted-foreground">点击后跟进</span>
                   <Switch
                     checked={link.radar_enabled !== false}
                     onCheckedChange={(checked) => patchSalesLink(index, { radar_enabled: checked })}
@@ -1102,13 +1196,13 @@ export default function PipelineTemplateConfigEditor({
                   value={link.url}
                   onChange={(event) => patchSalesLink(index, { url: event.target.value })}
                   className="h-10 bg-white"
-                  placeholder="https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen&reduceProxy=true"
+                  placeholder="粘贴客户要打开的页面地址"
                 />
                 <Textarea
                   value={link.description || ''}
                   onChange={(event) => patchSalesLink(index, { description: event.target.value })}
                   className="min-h-20 resize-none bg-white leading-6"
-                  placeholder="链接用途说明"
+                  placeholder="这条链接适合什么时候发送，比如：用户要报名、用户要看资料、用户点不开时备用。"
                 />
               </div>
             ))}
@@ -1117,8 +1211,8 @@ export default function PipelineTemplateConfigEditor({
 
         <Section
           icon={RadioTower}
-          title="模拟雷达"
-          description="模拟用户点击链接、浏览时长、点击报名按钮和点击后未支付等事件。"
+          title="自动跟进雷达"
+          description="把客户点击链接后的行为，包装成运营能理解的自动跟进场景。"
           right={
             <SummaryPill active={config.radar?.enabled !== false}>
               {config.radar?.enabled !== false ? '已启用' : '未启用'}
@@ -1133,72 +1227,72 @@ export default function PipelineTemplateConfigEditor({
           />
           <div className="grid gap-4 md:grid-cols-2">
             <label>
-              <FieldLabel>雷达链接标题</FieldLabel>
+              <FieldLabel>客户看到的链接标题</FieldLabel>
               <Input
                 value={config.radar?.link_title || ''}
                 onChange={(event) => patchRadar({ link_title: event.target.value })}
                 className="h-11"
-                placeholder="雷达链接标题"
+                placeholder="例如：9元体验课报名通道"
               />
             </label>
             <label>
-              <FieldLabel>雷达链接 URL</FieldLabel>
+              <FieldLabel>客户打开的页面地址</FieldLabel>
               <Input
                 value={config.radar?.link_url || ''}
                 onChange={(event) => patchRadar({ link_url: event.target.value })}
                 className="h-11"
-                placeholder="雷达链接 URL"
+                placeholder="粘贴报名页或活动页地址"
               />
             </label>
           </div>
-          <label className="block">
-            <FieldLabel hint="可用换行、逗号或顿号分隔">追踪字段</FieldLabel>
-            <Input
-              value={(config.radar?.tracking_fields || []).join('，')}
-              onChange={(event) => patchRadar({ tracking_fields: textToList(event.target.value) })}
-              className="h-11"
-              placeholder="追踪字段"
-            />
-          </label>
           <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addRadarRule}>
             <Plus className="mr-1.5 size-4" />
-            新增雷达规则
+            新增自动跟进场景
           </Button>
           <div className="grid gap-3">
             {(config.radar?.rules || []).map((rule, index) => (
               <div key={`${rule.event}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
-                  <Input
-                    value={rule.event}
-                    onChange={(event) => patchRadarRule(index, { event: event.target.value })}
-                    className="h-10 bg-white"
-                    placeholder="事件，如 browse_30s"
-                  />
-                  <Input
-                    type="number"
-                    min={0}
-                    value={rule.delay_minutes}
-                    onChange={(event) =>
-                      patchRadarRule(index, { delay_minutes: Number(event.target.value || 0) })
-                    }
-                    className="h-10 bg-white"
-                    placeholder="延迟分钟"
-                  />
-                  <Input
-                    type="number"
-                    min={0}
-                    value={rule.min_browse_seconds || 0}
-                    onChange={(event) =>
-                      patchRadarRule(index, { min_browse_seconds: Number(event.target.value || 0) })
-                    }
-                    className="h-10 bg-white"
-                    placeholder="最少浏览秒数"
-                  />
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_auto]">
+                  <label className="block">
+                    <FieldLabel>客户动作</FieldLabel>
+                    <Select
+                      value={rule.event || 'link_open'}
+                      onValueChange={(value) => patchRadarRule(index, { event: value })}
+                    >
+                      <SelectTrigger className="h-10 bg-white">
+                        <SelectValue placeholder="选择客户动作" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {RADAR_EVENT_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {radarEventOption(rule.event).description}
+                    </p>
+                  </label>
+                  <label className="block">
+                    <FieldLabel>多久后跟进</FieldLabel>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={rule.delay_minutes}
+                      onChange={(event) =>
+                        patchRadarRule(index, { delay_minutes: Number(event.target.value || 0) })
+                      }
+                      className="h-10 bg-white"
+                      placeholder="分钟"
+                    />
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">0 表示立即跟进</p>
+                  </label>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
                     title="删除雷达规则"
                     onClick={() => removeRadarRule(index)}
                   >
@@ -1214,6 +1308,53 @@ export default function PipelineTemplateConfigEditor({
               </div>
             ))}
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 px-2 text-sm text-muted-foreground"
+            onClick={() => setShowAdvancedRadar((visible) => !visible)}
+          >
+            {showAdvancedRadar ? '收起高级工作流参数' : '展开高级工作流参数'}
+          </Button>
+          {showAdvancedRadar && (
+            <div className="space-y-3 rounded-md border border-dashed border-slate-300 bg-slate-50/70 p-3">
+              <label className="block">
+                <FieldLabel hint="可用换行、逗号或顿号分隔">追踪字段</FieldLabel>
+                <Input
+                  value={(config.radar?.tracking_fields || []).join('，')}
+                  onChange={(event) => patchRadar({ tracking_fields: textToList(event.target.value) })}
+                  className="h-10 bg-white"
+                  placeholder="session_id，campaign，clicked_at，browse_seconds，paid"
+                />
+              </label>
+              {(config.radar?.rules || []).map((rule, index) => (
+                <div key={`advanced-${rule.event}-${index}`} className="grid gap-3 md:grid-cols-2">
+                  <label className="block">
+                    <FieldLabel>事件代号</FieldLabel>
+                    <Input
+                      value={rule.event}
+                      onChange={(event) => patchRadarRule(index, { event: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="例如 browse_30s"
+                    />
+                  </label>
+                  <label className="block">
+                    <FieldLabel>浏览时长门槛（秒）</FieldLabel>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={rule.min_browse_seconds || 0}
+                      onChange={(event) =>
+                        patchRadarRule(index, { min_browse_seconds: Number(event.target.value || 0) })
+                      }
+                      className="h-10 bg-white"
+                      placeholder="0"
+                    />
+                  </label>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
       </div>
     );
@@ -1396,28 +1537,26 @@ export default function PipelineTemplateConfigEditor({
         <Section
           icon={ShieldCheck}
           title="停发规则"
-          description="命中拒绝、投诉、已报名、人工接管等状态后停止营销触达。"
+          description="控制客户拒绝或投诉后的主动触达边界。"
         >
-          <div className="grid gap-4 md:grid-cols-2">
-            <label>
-              <FieldLabel hint="每行一个">停发关键词</FieldLabel>
-              <Textarea
-                value={(config.stop_rules?.stop_keywords || []).join('\n')}
-                onChange={(event) => patchStopRules({ stop_keywords: textToList(event.target.value) })}
-                className="min-h-28 resize-none leading-6"
-                placeholder="停发关键词"
-              />
-            </label>
-            <label>
-              <FieldLabel hint="每行一个">停发标签</FieldLabel>
-              <Textarea
-                value={(config.stop_rules?.stop_tags || []).join('\n')}
-                onChange={(event) => patchStopRules({ stop_tags: textToList(event.target.value) })}
-                className="min-h-28 resize-none leading-6"
-                placeholder="停发标签"
-              />
-            </label>
-          </div>
+          <label className="block max-w-md">
+            <FieldLabel>客户明确拒绝几次后停止主动触达</FieldLabel>
+            <Input
+              type="number"
+              min={1}
+              value={config.stop_policy?.explicit_rejection_threshold || 1}
+              onChange={(event) =>
+                patchStopPolicy({
+                  explicit_rejection_threshold: Math.max(1, Number(event.target.value || 1)),
+                })
+              }
+              className="h-11"
+              placeholder="2"
+            />
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              例如设置为 2：客户连续两次明确说不需要、不买或别推了，数字员工才停止后续主动消息。
+            </p>
+          </label>
           <label className="block">
             <FieldLabel>停发确认话术</FieldLabel>
             <Textarea
@@ -1427,6 +1566,58 @@ export default function PipelineTemplateConfigEditor({
               placeholder="停发确认话术"
             />
           </label>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 px-2 text-sm text-muted-foreground"
+            onClick={() => setShowAdvancedStopRules((visible) => !visible)}
+          >
+            {showAdvancedStopRules ? '收起关键词配置' : '展开关键词配置'}
+          </Button>
+          {showAdvancedStopRules && (
+            <div className="grid gap-4 md:grid-cols-2">
+              <label>
+                <FieldLabel hint="每行一个">明确拒绝关键词</FieldLabel>
+                <Textarea
+                  value={(config.stop_policy?.explicit_rejection_keywords || []).join('\n')}
+                  onChange={(event) =>
+                    patchStopPolicy({ explicit_rejection_keywords: textToList(event.target.value) })
+                  }
+                  className="min-h-28 resize-none leading-6"
+                  placeholder="不需要&#10;不买&#10;没兴趣"
+                />
+              </label>
+              <label>
+                <FieldLabel hint="每行一个">立即停发关键词</FieldLabel>
+                <Textarea
+                  value={(config.stop_policy?.immediate_stop_keywords || []).join('\n')}
+                  onChange={(event) =>
+                    patchStopPolicy({ immediate_stop_keywords: textToList(event.target.value) })
+                  }
+                  className="min-h-28 resize-none leading-6"
+                  placeholder="投诉&#10;没有孩子&#10;打错"
+                />
+              </label>
+              <label>
+                <FieldLabel hint="每行一个">兼容停发关键词</FieldLabel>
+                <Textarea
+                  value={(config.stop_rules?.stop_keywords || []).join('\n')}
+                  onChange={(event) => patchStopRules({ stop_keywords: textToList(event.target.value) })}
+                  className="min-h-28 resize-none leading-6"
+                  placeholder="停发关键词"
+                />
+              </label>
+              <label>
+                <FieldLabel hint="每行一个">停发标签</FieldLabel>
+                <Textarea
+                  value={(config.stop_rules?.stop_tags || []).join('\n')}
+                  onChange={(event) => patchStopRules({ stop_tags: textToList(event.target.value) })}
+                  className="min-h-28 resize-none leading-6"
+                  placeholder="停发标签"
+                />
+              </label>
+            </div>
+          )}
         </Section>
       </div>
     );

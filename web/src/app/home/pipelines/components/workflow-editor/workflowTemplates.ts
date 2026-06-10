@@ -609,6 +609,15 @@ const courseSalesProfile = {
   gifts: '报名/完课活动可赠小猿篮球、护脊书包、小猿手办、宇航员文具盒、铅笔、转笔刀等，完课后随机发货其一。',
   after_purchase: '提醒添加指导老师/班主任，留意电话短信，下载猿辅导素养课APP查看课程和开课时间。',
 };
+const courseSalesProfiles = [
+  {
+    key: 'phonics',
+    product_uuid: 'yuanfudao-phonics-course',
+    name: '猿辅导自然拼读体验课',
+    keywords: ['英语', '自然拼读', '拼读', '发音', '单词'],
+    facts: courseSalesProfile,
+  },
+];
 const courseResourceFaqs = [
   { question: '怎么听音频/怎么看答案', answer: '引导用户点击已推送的资源卡片，或重新扫码查看。', keywords: ['音频', '答案', '怎么看', '听力'] },
   { question: '验证码在哪里', answer: '提示验证码在书本封面或书上对应位置，主要用于验证正版，一码一书。', keywords: ['验证码', '正版', '码'] },
@@ -663,6 +672,11 @@ const courseStopRules = {
   stop_keywords: ['不需要', '不买', '不要再发', '再发投诉', '没有孩子', '不是目标年级', '我是老师', '已经学过'],
   stop_tags: ['已报名', '已下单', '付费', '投诉', '明确拒绝', '人工接管', '无孩子', '非目标年级', '老师', '已学过'],
   message: '好的家长，收到，不再打扰您了。后面有需要可以随时联系我。',
+};
+const courseStopPolicy = {
+  explicit_rejection_threshold: 1,
+  explicit_rejection_keywords: ['不需要', '不买', '不要', '不考虑', '没兴趣'],
+  immediate_stop_keywords: ['投诉', '没有孩子', '没孩子', '打错', '我是老师'],
 };
 const courseImageBindings = [
   {
@@ -749,10 +763,10 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       confidence_threshold: 0.55,
       image_intents: ['screenshot_help', 'purchased', 'link_error'],
     }),
-    workflowNode('stop_rules', 'condition', '停发规则', '已报名、投诉、拒绝、人工接管、无孩子等状态停止群发和促单', { x: 1740, y: 320 }, courseStopRules),
+    workflowNode('stop_rules', 'condition', '停发规则', '已报名、投诉、拒绝、人工接管、无孩子等状态停止群发和促单', { x: 1740, y: 320 }, { ...courseStopRules, stop_policy: courseStopPolicy }),
     workflowNode('resource_faq', 'knowledge', '图书资源FAQ', '听力、答案、验证码、暂无资源、资源不对、下载等问题', { x: 2040, y: 80 }, { resource_faqs: courseResourceFaqs, knowledge_base_uuids: [], top_k: 5 }),
     workflowNode('course_faq', 'knowledge', '课程FAQ', '自然拼读课程介绍、上课时间、回放、赠品、冲突和年级适配', { x: 2040, y: 260 }, { course_faqs: courseFaqs, knowledge_base_uuids: [], top_k: 5 }),
-    workflowNode('course_product', 'product', '课程产品库', '绑定猿辅导自然拼读体验课产品，输出价格、卖点、适龄和报名方式', { x: 2040, y: 440 }, { product_uuids: ['yuanfudao-phonics-course'], course_profile: courseSalesProfile }),
+    workflowNode('course_product', 'product', '课程产品库', '绑定猿辅导自然拼读体验课产品，输出价格、卖点、适龄和报名方式', { x: 2040, y: 440 }, { product_uuids: ['yuanfudao-phonics-course'], course_profile: courseSalesProfile, course_profiles: courseSalesProfiles }),
     workflowNode('sales_link', 'custom', '发送报名链接', '发送指定报名链接卡片，并保留模拟雷达事件', { x: 2340, y: 440 }, { links: courseSalesLinks, link_url: courseRadarConfig.link_url }),
     workflowNode('radar', 'radar', '模拟雷达', '记录链接打开、浏览时长、报名按钮点击和点击未支付', { x: 2640, y: 440 }, courseRadarConfig),
     workflowNode('radar_followup', 'outreach', '主动跟进话术矩阵', '按Excel跟进表在马上、5分钟、1小时、21:30主动跟进，必要时发送Excel素材图或报名链接卡片', { x: 2940, y: 440 }, { followup_sequences: courseFollowupSequences, radar_rules: courseRadarConfig.rules }),
@@ -860,6 +874,8 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       radar_event: {},
       selected_product_uuid: 'yuanfudao-phonics-course',
       course_profile: courseSalesProfile,
+      course_profiles: courseSalesProfiles,
+      source_materials: ['SOP.doc（群发截图转文字）', '猿辅导自然拼读常见问题(1).xlsx'],
       resource_faqs: courseResourceFaqs,
       course_faqs: courseFaqs,
       sales_links: courseSalesLinks,
@@ -867,6 +883,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       followup_sequences: courseFollowupSequences,
       long_term_broadcasts: courseLongTermBroadcasts,
       stop_rules: courseStopRules,
+      stop_policy: courseStopPolicy,
       image_text_bindings: courseImageBindings,
     },
   };
@@ -904,10 +921,17 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
     },
     followup_sequences: [],
     long_term_broadcasts: [],
+    course_profiles: [],
+    source_materials: [],
     stop_rules: {
       stop_keywords: [],
       stop_tags: [],
       message: '',
+    },
+    stop_policy: {
+      explicit_rejection_threshold: 1,
+      explicit_rejection_keywords: [],
+      immediate_stop_keywords: [],
     },
     tools: {
       intent_recognition: false,
@@ -1084,7 +1108,10 @@ export function applyTemplateConfigToWorkflow(
       radar: templateConfig.radar,
       followup_sequences: templateConfig.followup_sequences || [],
       long_term_broadcasts: templateConfig.long_term_broadcasts || [],
+      course_profiles: templateConfig.course_profiles || [],
+      source_materials: templateConfig.source_materials || [],
       stop_rules: templateConfig.stop_rules,
+      stop_policy: templateConfig.stop_policy,
     },
   };
 }

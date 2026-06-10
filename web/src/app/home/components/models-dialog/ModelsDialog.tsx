@@ -1,18 +1,27 @@
-import { useState, useEffect } from 'react';
-import { Plus, Boxes } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import {
+  Plus,
+  MessageSquareText,
+  Volume2,
+  Settings,
+  KeyRound,
+  Link2,
+} from 'lucide-react';
 import { httpClient, systemInfo } from '@/app/infra/http/HttpClient';
-import { ModelProvider } from '@/app/infra/entities/api';
+import { LLMModel, ModelProvider } from '@/app/infra/entities/api';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import ProviderForm from './component/provider-form/ProviderForm';
-import { ProviderCard } from './components';
+import { AddModelPopover, ModelItem } from './components';
 import {
   ExtraArg,
   ModelType,
@@ -71,13 +80,6 @@ export default function ModelsDialog({
   const { t } = useTranslation();
 
   const [providers, setProviders] = useState<ModelProvider[]>([]);
-  const [accountType, setAccountType] = useState<'local' | 'space'>('local');
-  const [spaceCredits, setSpaceCredits] = useState<number | null>(null);
-
-  // Expanded providers and their models
-  const [expandedProviders, setExpandedProviders] = useState<Set<string>>(
-    new Set(),
-  );
   const [providerModels, setProviderModels] = useState<
     Record<string, ProviderModels>
   >({});
@@ -106,55 +108,88 @@ export default function ModelsDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
-
-  // Track if providers have been loaded initially
-  const [providersLoaded, setProvidersLoaded] = useState(false);
+  const [modelCategory, setModelCategory] = useState<'text' | 'voice'>('text');
+  const [selectedProviderUuid, setSelectedProviderUuid] = useState<string | null>(
+    null,
+  );
+  const [addModelMode, setAddModelMode] = useState<'manual' | 'scan'>('manual');
 
   // Separate LangBot Models provider (hide when models service is disabled)
   const langbotProvider = systemInfo.disable_models_service
     ? undefined
     : providers.find((p) => p.requester === LANGBOT_MODELS_PROVIDER_REQUESTER);
-  const otherProviders = providers.filter(
-    (p) => p.requester !== LANGBOT_MODELS_PROVIDER_REQUESTER,
+  const otherProviders = useMemo(
+    () =>
+      providers.filter(
+        (p) => p.requester !== LANGBOT_MODELS_PROVIDER_REQUESTER,
+      ),
+    [providers],
   );
+  const displayProviders = useMemo(
+    () =>
+      langbotProvider ? [langbotProvider, ...otherProviders] : otherProviders,
+    [langbotProvider, otherProviders],
+  );
+  const hasLoadedProviderModels = displayProviders.some(
+    (provider) => providerModels[provider.uuid],
+  );
+  const categoryProviders = useMemo(() => {
+    if (!hasLoadedProviderModels) {
+      return displayProviders;
+    }
+    return displayProviders.filter((provider) => {
+      const models = providerModels[provider.uuid];
+      if (!models) return true;
+      return getModelsForCategory(provider).length > 0;
+    });
+  }, [displayProviders, hasLoadedProviderModels, providerModels, modelCategory]);
+  const selectedProvider =
+    categoryProviders.find((provider) => provider.uuid === selectedProviderUuid) ||
+    categoryProviders[0];
+  const selectedModels = selectedProvider
+    ? providerModels[selectedProvider.uuid]
+    : undefined;
+  const selectedTextModels =
+    selectedModels?.llm.filter((model) => !isVoiceOnlyModel(model)) || [];
+  const selectedVoiceModels =
+    selectedModels?.llm.filter((model) => model.abilities?.includes('tts')) || [];
+  const visibleModels =
+    modelCategory === 'voice' ? selectedVoiceModels : selectedTextModels;
 
   useEffect(() => {
     if (open) {
-      loadUserInfo();
       loadProviders();
     }
   }, [open]);
 
-  // Auto-expand LangBot Models when no external providers exist
   useEffect(() => {
-    if (providersLoaded && langbotProvider && otherProviders.length === 0) {
-      if (!expandedProviders.has(langbotProvider.uuid)) {
-        setExpandedProviders(new Set([langbotProvider.uuid]));
-        if (!providerModels[langbotProvider.uuid]) {
-          loadProviderModels(langbotProvider.uuid);
-        }
-      }
+    if (!open || categoryProviders.length === 0) return;
+    if (
+      !selectedProviderUuid ||
+      !categoryProviders.some((provider) => provider.uuid === selectedProviderUuid)
+    ) {
+      setSelectedProviderUuid(categoryProviders[0].uuid);
     }
-  }, [providersLoaded, providers]);
+  }, [open, categoryProviders, selectedProviderUuid]);
 
-  async function loadUserInfo() {
-    try {
-      const userInfo = await httpClient.getUserInfo();
-      setAccountType(userInfo.account_type);
-      if (userInfo.account_type === 'space') {
-        const creditsInfo = await httpClient.getSpaceCredits();
-        setSpaceCredits(creditsInfo.credits);
+  useEffect(() => {
+    if (!selectedProvider || providerModels[selectedProvider.uuid]) return;
+    loadProviderModels(selectedProvider.uuid);
+  }, [selectedProvider?.uuid]);
+
+  useEffect(() => {
+    if (!open || displayProviders.length === 0) return;
+    displayProviders.forEach((provider) => {
+      if (!providerModels[provider.uuid]) {
+        loadProviderModels(provider.uuid, true);
       }
-    } catch {
-      setAccountType('local');
-    }
-  }
+    });
+  }, [open, displayProviders]);
 
   async function loadProviders() {
     try {
       const resp = await httpClient.getModelProviders();
       setProviders(resp.providers);
-      setProvidersLoaded(true);
     } catch (err) {
       console.error('Failed to load providers', err);
       toast.error(t('models.loadError'));
@@ -164,9 +199,7 @@ export default function ModelsDialog({
   async function loadProviderModels(providerUuid: string, silent = false) {
     if (loadingProviders.has(providerUuid)) return;
 
-    if (!silent) {
-      setLoadingProviders((prev) => new Set(prev).add(providerUuid));
-    }
+    setLoadingProviders((prev) => new Set(prev).add(providerUuid));
     try {
       const [llmResp, embeddingResp, rerankResp] = await Promise.all([
         httpClient.getProviderLLMModels(providerUuid),
@@ -184,29 +217,12 @@ export default function ModelsDialog({
     } catch (err) {
       console.error('Failed to load models', err);
     } finally {
-      if (!silent) {
-        setLoadingProviders((prev) => {
-          const next = new Set(prev);
-          next.delete(providerUuid);
-          return next;
-        });
-      }
-    }
-  }
-
-  function toggleProvider(providerUuid: string) {
-    setExpandedProviders((prev) => {
-      const next = new Set(prev);
-      if (next.has(providerUuid)) {
+      setLoadingProviders((prev) => {
+        const next = new Set(prev);
         next.delete(providerUuid);
-      } else {
-        next.add(providerUuid);
-        if (!providerModels[providerUuid]) {
-          loadProviderModels(providerUuid);
-        }
-      }
-      return next;
-    });
+        return next;
+      });
+    }
   }
 
   function handleCreateProvider() {
@@ -217,35 +233,6 @@ export default function ModelsDialog({
   function handleEditProvider(providerId: string) {
     setEditingProviderId(providerId);
     setProviderFormOpen(true);
-  }
-
-  async function handleDeleteProvider(providerId: string) {
-    try {
-      await httpClient.deleteModelProvider(providerId);
-      toast.success(t('models.providerDeleted'));
-      loadProviders();
-    } catch (err) {
-      toast.error(t('models.providerDeleteError') + (err as Error).message);
-    }
-  }
-
-  async function handleSpaceLogin() {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error(t('common.error'));
-        return;
-      }
-      const currentOrigin = window.location.origin;
-      const redirectUri = `${currentOrigin}/auth/space/callback?mode=bind`;
-      const response = await httpClient.getSpaceAuthorizeUrl(
-        redirectUri,
-        token,
-      );
-      window.location.href = response.authorize_url;
-    } catch {
-      toast.error(t('common.spaceLoginFailed'));
-    }
   }
 
   async function handleAddModel(
@@ -482,59 +469,82 @@ export default function ModelsDialog({
   function handleFormClose() {
     setProviderFormOpen(false);
     loadProviders();
-    // Refresh expanded providers
-    expandedProviders.forEach((uuid) => loadProviderModels(uuid));
+    if (selectedProviderUuid) {
+      loadProviderModels(selectedProviderUuid, true);
+    }
   }
 
-  function renderProviderCard(
-    provider: ModelProvider,
-    isLangBotModels: boolean = false,
-  ) {
+  function isVoiceOnlyModel(model: LLMModel) {
+    const abilities = model.abilities || [];
     return (
-      <ProviderCard
-        key={provider.uuid}
-        provider={provider}
-        isLangBotModels={isLangBotModels}
-        isExpanded={expandedProviders.has(provider.uuid)}
-        isLoading={loadingProviders.has(provider.uuid)}
-        models={providerModels[provider.uuid]}
-        accountType={accountType}
-        spaceCredits={spaceCredits}
-        addModelPopoverOpen={addModelPopoverOpen}
+      abilities.includes('tts') &&
+      abilities.every((ability) => ability === 'tts')
+    );
+  }
+
+  function maskApiKey(key?: string) {
+    if (!key) return '未配置';
+    if (key.length <= 8) return '****';
+    return `${key.slice(0, 4)}...${key.slice(-4)}`;
+  }
+
+  function providerRequestUrl(provider: ModelProvider) {
+    const baseUrl = provider.base_url || '';
+    if (!baseUrl) return '-';
+    if (modelCategory === 'voice') {
+      return baseUrl;
+    }
+    return baseUrl.replace(/\/$/, '').endsWith('/v1')
+      ? `${baseUrl.replace(/\/$/, '')}/chat/completions`
+      : baseUrl;
+  }
+
+  function relevantModelCount(provider: ModelProvider) {
+    const models = providerModels[provider.uuid];
+    if (!models) return provider.llm_count || 0;
+    return getModelsForCategory(provider).length;
+  }
+
+  function getModelsForCategory(provider: ModelProvider) {
+    const models = providerModels[provider.uuid];
+    if (!models) return [];
+    if (modelCategory === 'voice') {
+      return models.llm.filter((model) => model.abilities?.includes('tts'));
+    }
+    return models.llm.filter((model) => !isVoiceOnlyModel(model));
+  }
+
+  function renderModelItem(model: LLMModel) {
+    if (!selectedProvider) return null;
+    return (
+      <ModelItem
+        key={model.uuid}
+        model={model}
+        modelType="llm"
+        isLangBotModels={
+          selectedProvider.requester === LANGBOT_MODELS_PROVIDER_REQUESTER
+        }
         editModelPopoverOpen={editModelPopoverOpen}
         deleteConfirmOpen={deleteConfirmOpen}
-        onToggle={() => toggleProvider(provider.uuid)}
-        onEditProvider={() => handleEditProvider(provider.uuid)}
-        onDeleteProvider={() => handleDeleteProvider(provider.uuid)}
-        onSpaceLogin={handleSpaceLogin}
-        onOpenAddModel={() => setAddModelPopoverOpen(provider.uuid)}
-        onCloseAddModel={() => setAddModelPopoverOpen(null)}
-        onAddModel={(modelType, name, abilities, extraArgs) =>
-          handleAddModel(provider.uuid, modelType, name, abilities, extraArgs)
-        }
-        onScanModels={(modelType) => handleScanModels(provider.uuid, modelType)}
-        onAddScannedModels={(modelType, models) =>
-          handleAddScannedModels(provider.uuid, modelType, models)
-        }
         onOpenEditModel={(modelId) => setEditModelPopoverOpen(modelId)}
         onCloseEditModel={() => setEditModelPopoverOpen(null)}
-        onUpdateModel={(modelId, modelType, name, abilities, extraArgs) =>
+        onOpenDeleteConfirm={(modelId) => setDeleteConfirmOpen(modelId)}
+        onCloseDeleteConfirm={() => setDeleteConfirmOpen(null)}
+        onDeleteModel={() =>
+          handleDeleteModel(selectedProvider.uuid, model.uuid, 'llm')
+        }
+        onUpdateModel={(name, abilities, extraArgs) =>
           handleUpdateModel(
-            provider.uuid,
-            modelId,
-            modelType,
+            selectedProvider.uuid,
+            model.uuid,
+            'llm',
             name,
             abilities,
             extraArgs,
           )
         }
-        onOpenDeleteConfirm={(modelId) => setDeleteConfirmOpen(modelId)}
-        onCloseDeleteConfirm={() => setDeleteConfirmOpen(null)}
-        onDeleteModel={(modelId, modelType) =>
-          handleDeleteModel(provider.uuid, modelId, modelType)
-        }
-        onTestModel={(name, modelType, abilities, extraArgs) =>
-          handleTestModel(provider.uuid, name, modelType, abilities, extraArgs)
+        onTestModel={(name, abilities, extraArgs) =>
+          handleTestModel(selectedProvider.uuid, name, 'llm', abilities, extraArgs)
         }
         isSubmitting={isSubmitting}
         isTesting={isTesting}
@@ -553,47 +563,247 @@ export default function ModelsDialog({
           onOpenChange(newOpen);
         }}
       >
-        <DialogContent className="overflow-hidden p-0 h-[80vh] flex flex-col !max-w-[37rem]">
-          <DialogHeader className="px-6 pt-6 pb-0 flex-shrink-0">
+        <DialogContent className="overflow-hidden p-0 h-[82vh] flex flex-col !max-w-[76rem]">
+          <DialogHeader className="sr-only">
             <DialogTitle>{t('models.title')}</DialogTitle>
+            <DialogDescription>
+              Configure text and voice model providers.
+            </DialogDescription>
           </DialogHeader>
 
-          <div className="flex-1 overflow-auto px-6 pb-6 mt-0">
-            {/* LangBot Models Card */}
-            {langbotProvider && renderProviderCard(langbotProvider, true)}
+          <div className="grid min-h-0 flex-1 grid-cols-[12rem_15rem_minmax(0,1fr)]">
+            <aside className="border-r bg-slate-50/60 p-3">
+              {[
+                { key: 'text' as const, label: '文本模型', icon: MessageSquareText },
+                { key: 'voice' as const, label: '语音合成', icon: Volume2 },
+              ].map((item) => {
+                const Icon = item.icon;
+                const active = modelCategory === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`mb-1 flex h-10 w-full items-center gap-2 rounded-md px-3 text-sm font-medium ${
+                      active
+                        ? 'bg-violet-100 text-violet-700'
+                        : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                    onClick={() => setModelCategory(item.key)}
+                  >
+                    <Icon className="size-4" />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </aside>
 
-            {/* Add Provider Button */}
-            <div className="mb-3 flex justify-between items-center sticky top-0 bg-background py-2 z-10">
-              <span className="text-sm text-muted-foreground">
-                {otherProviders.length === 0
-                  ? t(
-                      systemInfo.disable_models_service
-                        ? 'models.addProviderHintSimple'
-                        : 'models.addProviderHint',
-                    )
-                  : t('models.providerCount', { count: otherProviders.length })}
-              </span>
-              <div className="flex gap-2">
+            <aside className="flex min-h-0 flex-col border-r bg-white">
+              <div className="flex-1 overflow-y-auto p-3">
+                {categoryProviders.map((provider) => {
+                  const active = selectedProvider?.uuid === provider.uuid;
+                  return (
+                    <button
+                      key={provider.uuid}
+                      type="button"
+                      className={`mb-2 flex w-full min-w-0 items-center gap-3 rounded-md border px-3 py-3 text-left ${
+                        active
+                          ? 'border-violet-300 bg-violet-50 shadow-sm'
+                          : 'border-transparent hover:bg-slate-50'
+                      }`}
+                      onClick={() => {
+                        setSelectedProviderUuid(provider.uuid);
+                        if (!providerModels[provider.uuid]) {
+                          loadProviderModels(provider.uuid);
+                        }
+                      }}
+                    >
+                      <img
+                        src={httpClient.getProviderRequesterIconURL(provider.requester)}
+                        alt={provider.name}
+                        className="size-7 shrink-0 rounded-md"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-slate-900">
+                          {provider.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {relevantModelCount(provider)} 个模型
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="border-t p-3">
                 <Button
-                  size="sm"
                   variant="outline"
+                  className="w-full"
                   onClick={handleCreateProvider}
                 >
                   <Plus className="h-4 w-4 mr-1" />
                   {t('models.addProvider')}
                 </Button>
               </div>
-            </div>
+            </aside>
 
-            {/* Provider List */}
-            {otherProviders.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <Boxes className="h-12 w-12 mb-3 opacity-50" />
-                <p className="text-sm">{t('models.noProviders')}</p>
-              </div>
-            ) : (
-              otherProviders.map((p) => renderProviderCard(p))
-            )}
+            <main className="flex min-h-0 flex-col bg-white">
+              {selectedProvider ? (
+                <>
+                  <div className="flex items-center justify-between border-b px-6 py-5">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <img
+                        src={httpClient.getProviderRequesterIconURL(selectedProvider.requester)}
+                        alt={selectedProvider.name}
+                        className="size-10 shrink-0 rounded-md"
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-xl font-semibold text-slate-950">
+                          {selectedProvider.name}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {modelCategory === 'voice' ? '语音合成配置' : '文本模型配置'}
+                        </div>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEditProvider(selectedProvider.uuid)}
+                    >
+                      <Settings className="size-4" />
+                    </Button>
+                  </div>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                          <KeyRound className="size-4 text-muted-foreground" />
+                          API 密钥
+                        </div>
+                        <div className="flex h-10 items-center rounded-md border bg-slate-50 px-3 text-sm text-muted-foreground">
+                          {maskApiKey(selectedProvider.api_keys?.[0])}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                          <Link2 className="size-4 text-muted-foreground" />
+                          接口地址
+                        </div>
+                        <div className="flex min-h-10 items-center rounded-md border bg-slate-50 px-3 py-2 text-sm text-muted-foreground">
+                          <span className="break-all">{selectedProvider.base_url || '-'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 text-xs leading-5 text-muted-foreground">
+                      <span className="rounded bg-violet-100 px-1 font-medium text-violet-700">
+                        请求地址
+                      </span>
+                      <span className="ml-1 break-all">
+                        {providerRequestUrl(selectedProvider)}
+                      </span>
+                    </div>
+
+                    <div className="mt-8">
+                      <div className="mb-3 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-slate-950">
+                            {modelCategory === 'voice' ? '语音模型' : '文本模型'}
+                          </h3>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {modelCategory === 'voice'
+                              ? '只展示已勾选语音合成能力的模型。'
+                              : '只展示可用于对话和视觉理解的文本模型。'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <AddModelPopover
+                            isOpen={
+                              addModelPopoverOpen === selectedProvider.uuid &&
+                              addModelMode === 'manual'
+                            }
+                            initialMode="manual"
+                            trigger={
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setAddModelMode('manual')}
+                              >
+                                <Plus className="mr-1 size-4" />
+                                新建模型
+                              </Button>
+                            }
+                            onOpen={() => {
+                              setAddModelMode('manual');
+                              setAddModelPopoverOpen(selectedProvider.uuid);
+                            }}
+                            onClose={() => setAddModelPopoverOpen(null)}
+                            onAddModel={(modelType, name, abilities, extraArgs) =>
+                              handleAddModel(
+                                selectedProvider.uuid,
+                                modelType,
+                                name,
+                                modelCategory === 'voice'
+                                  ? Array.from(new Set([...abilities, 'tts']))
+                                  : abilities,
+                                extraArgs,
+                              )
+                            }
+                            onScanModels={(modelType) =>
+                              handleScanModels(selectedProvider.uuid, modelType)
+                            }
+                            onAddScannedModels={(modelType, models) =>
+                              handleAddScannedModels(selectedProvider.uuid, modelType, models)
+                            }
+                            onTestModel={(name, modelType, abilities, extraArgs) =>
+                              handleTestModel(
+                                selectedProvider.uuid,
+                                name,
+                                modelType,
+                                abilities,
+                                extraArgs,
+                              )
+                            }
+                            isSubmitting={isSubmitting}
+                            isTesting={isTesting}
+                            testResult={testResult}
+                            onResetTestResult={() => setTestResult(null)}
+                          />
+                        </div>
+                      </div>
+
+                      {loadingProviders.has(selectedProvider.uuid) ? (
+                        <p className="rounded-md border py-8 text-center text-sm text-muted-foreground">
+                          {t('common.loading')}...
+                        </p>
+                      ) : visibleModels.length > 0 ? (
+                        <div className="space-y-2">
+                          {visibleModels.map((model) => renderModelItem(model))}
+                        </div>
+                      ) : (
+                        <div className="rounded-md border border-dashed py-10 text-center">
+                          <p className="text-sm text-muted-foreground">
+                            {modelCategory === 'voice'
+                              ? '暂无语音模型，请新增模型并勾选语音合成。'
+                              : t('models.noModels')}
+                          </p>
+                          {modelCategory === 'voice' && (
+                            <Badge variant="outline" className="mt-3">
+                              {t('models.ttsAbility')}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                  {t('models.noProviders')}
+                </div>
+              )}
+            </main>
           </div>
         </DialogContent>
       </Dialog>

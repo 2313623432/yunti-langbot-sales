@@ -140,11 +140,10 @@ def test_template_model_capability_uses_configured_llm_model_select():
     assert 'getProviderLLMModels' in template_source
     assert "include_space_models: false" in template_source
     assert "include_system_models: false" in template_source
-    assert 'visibleLlmModels' in template_source
+    assert "model_category: 'text'" in template_source
+    assert "model_category: 'voice'" in template_source
     assert 'chatLlmModels' in model_settings
     assert 'voiceModels' in model_settings
-    assert "model.abilities?.includes('tts')" in model_settings
-    assert 'isVoiceOnlyModel' in template_source
     assert 'handleVoiceModelChange' in model_settings
     assert 'voiceToneOptionsFromModel' in template_source
     assert 'model_uuid' in model_settings
@@ -232,6 +231,31 @@ def test_template_config_editor_supports_course_sales_radar_and_link_fields():
     assert '主动跟进话术矩阵' in template_source
     assert '语音回复' in template_source
     assert "label: '雷达监测'" in editor_source
+
+
+def test_agent_template_editor_wraps_technical_radar_and_stop_parameters():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    types_source = Path('web/src/app/home/pipelines/components/workflow-editor/types.ts').read_text(
+        encoding='utf-8'
+    )
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+
+    assert 'PipelineTemplateCourseProfile' in types_source
+    assert 'PipelineTemplateStopPolicy' in types_source
+    assert 'course_profiles?: PipelineTemplateCourseProfile[]' in types_source
+    assert 'source_materials?: string[]' in types_source
+    assert 'stop_policy?: PipelineTemplateStopPolicy' in types_source
+    assert '已接入业务产品线' in template_source
+    assert '业务资料来源' in template_source
+    assert '客户打开链接' in template_source
+    assert '客户浏览了一会儿' in template_source
+    assert '自动跟进场景' in template_source
+    assert '展开高级工作流参数' in template_source
+    assert '客户明确拒绝几次后停止主动触达' in template_source
+    assert '展开关键词配置' in template_source
+    assert 'explicit_rejection_threshold' in template_source
+    assert 'course_profiles: templateConfig.course_profiles || []' in workflow_source
+    assert 'stop_policy: templateConfig.stop_policy' in workflow_source
 
 
 def test_template_config_editor_shows_only_selected_config_tab():

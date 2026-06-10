@@ -24,6 +24,7 @@ from langbot.pkg.api.http.service.model import (
     _parse_provider_api_keys,
     _runtime_model_data,
     _is_voice_only_model,
+    _matches_model_category,
 )
 from langbot.pkg.entity.persistence.model import LLMModel, EmbeddingModel, RerankModel, ModelProvider
 
@@ -151,6 +152,20 @@ class TestRuntimeModelData:
         assert result['extra_args'] == {'temp': 0.7}
 
 
+class TestModelCategoryMatching:
+    """Tests for model category filtering."""
+
+    def test_text_category_excludes_voice_only_models(self):
+        assert _matches_model_category({'abilities': ['tts']}, 'text') is False
+        assert _matches_model_category({'abilities': ['vision']}, 'text') is True
+        assert _matches_model_category({'abilities': ['vision', 'tts']}, 'text') is True
+
+    def test_voice_category_requires_tts_ability(self):
+        assert _matches_model_category({'abilities': ['tts']}, 'voice') is True
+        assert _matches_model_category({'abilities': ['vision', 'tts']}, 'voice') is True
+        assert _matches_model_category({'abilities': ['vision']}, 'voice') is False
+
+
 class TestLLMModelsServiceGetLLMModels:
     """Tests for LLMModelsService.get_llm_models method."""
 
@@ -270,6 +285,42 @@ class TestLLMModelsServiceGetLLMModels:
         result = await service.get_llm_models(include_space_models=False, include_system_models=False)
 
         assert [model['uuid'] for model in result] == ['user-model']
+
+    async def test_get_llm_models_can_filter_by_model_category(self):
+        """Filters text and voice model categories at service level."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+
+        chat_model = _create_mock_llm_model(model_uuid='chat-model', abilities=['vision'])
+        voice_model = _create_mock_llm_model(model_uuid='voice-model', abilities=['tts'])
+        mixed_model = _create_mock_llm_model(model_uuid='mixed-model', abilities=['vision', 'tts'])
+        provider = _create_mock_provider()
+
+        mock_model_result = _create_mock_result([chat_model, voice_model, mixed_model])
+        mock_provider_result = _create_mock_result([provider])
+
+        async def mock_execute(_query):
+            return mock_model_result if ap.persistence_mgr.execute_async.call_count % 2 == 1 else mock_provider_result
+
+        ap.persistence_mgr.execute_async = AsyncMock(side_effect=mock_execute)
+        ap.persistence_mgr.serialize_model = Mock(
+            side_effect=lambda model_cls, entity: {
+                'uuid': entity.uuid,
+                'name': entity.name,
+                'provider_uuid': entity.provider_uuid if hasattr(entity, 'provider_uuid') else None,
+                'abilities': entity.abilities if hasattr(entity, 'abilities') else [],
+                'requester': entity.requester if hasattr(entity, 'requester') else None,
+                'api_keys': entity.api_keys if hasattr(entity, 'api_keys') else None,
+            }
+        )
+
+        service = LLMModelsService(ap)
+
+        text_models = await service.get_llm_models(model_category='text')
+        voice_models = await service.get_llm_models(model_category='voice')
+
+        assert [model['uuid'] for model in text_models] == ['chat-model', 'mixed-model']
+        assert [model['uuid'] for model in voice_models] == ['voice-model', 'mixed-model']
 
     async def test_get_llm_models_hide_secret_keys(self):
         """Hides secret API keys when include_secret=False."""

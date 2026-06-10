@@ -12,6 +12,7 @@ from .pipeline_defaults import default_stage_order
 BUILTIN_DIGITAL_EMPLOYEE_PIPELINE_UUIDS = {
     'task-assistant-ant-af-template-pipeline',
     'course-sales-template-pipeline',
+    'yuanfudao-enhanced-sales-template-pipeline',
 }
 
 

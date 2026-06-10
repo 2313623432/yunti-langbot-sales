@@ -23,6 +23,7 @@ from langbot.pkg.api.http.service.pipeline import PipelineService, default_stage
 from langbot.pkg.api.http.service.task_assistant import (
     COURSE_SALES_TEMPLATE_PIPELINE_UUID,
     TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
+    YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
 )
 from langbot.pkg.entity.persistence.pipeline import LegacyPipeline
 
@@ -573,6 +574,7 @@ class TestPipelineServiceDeletePipeline:
         for pipeline_uuid in (
             TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
             COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+            YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
         ):
             with pytest.raises(ValueError, match='Built-in digital employee cannot be deleted'):
                 await service.delete_pipeline(pipeline_uuid)
