@@ -113,10 +113,10 @@ def test_template_config_editor_supports_direct_image_upload_and_expanded_contro
     assert 'getSalesProducts' in template_source
     assert 'salesProducts.map' in template_source
     assert 'toggleTemplateListValue' in template_source
-    assert '互动雷达' in template_source
+    assert '雷达跟进' in template_source
     assert 'interaction_radar' in template_source
     assert 'link_url' in template_source
-    assert 'click_reply' in template_source
+    assert '自动跟进链接' in template_source
     assert 'patchStringList' not in template_source
     assert 'selectedConfigMode' not in form_source
     assert "selectedConfigMode === 'template'" not in form_source
@@ -213,7 +213,7 @@ def test_template_config_editor_supports_course_sales_radar_and_link_fields():
 
     assert "'radar'" in types_source
     assert 'radar:' in workflow_source
-    assert '模拟雷达' in template_source
+    assert '点击后的自动跟进' in template_source
     assert 'sales_links' in template_source
     assert 'stop_rules' in template_source
     assert 'followup_sequences' in template_source
@@ -256,6 +256,33 @@ def test_agent_template_editor_wraps_technical_radar_and_stop_parameters():
     assert 'explicit_rejection_threshold' in template_source
     assert 'course_profiles: templateConfig.course_profiles || []' in workflow_source
     assert 'stop_policy: templateConfig.stop_policy' in workflow_source
+
+
+def test_agent_radar_tab_removes_duplicate_interaction_radar_controls():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    radar_settings = re.search(
+        r'function renderRadarSettings\(\) \{([\s\S]+?)\n  function renderPushSettings',
+        template_source,
+    ).group(1)
+    preview_panel = re.search(
+        r'<div className="min-h-\[460px\][\s\S]+?\n\s+\{enabledImageBindings\[0\]',
+        template_source,
+    ).group(0)
+
+    assert '启用互动雷达' not in radar_settings
+    assert '点击后 AI 行为回复' not in radar_settings
+    assert 'value={config.interaction_radar.link_url}' not in radar_settings
+    assert '互动雷达链接' not in preview_panel
+    assert '雷达总开关' in radar_settings
+    assert '客户可点击的链接' in radar_settings
+    assert '点击后的自动跟进' in radar_settings
+    assert '点击后自动追访' in radar_settings
+    assert '几分钟后发送' in radar_settings
+    assert '0 表示立即发送' in radar_settings
+    assert '多久后跟进' not in radar_settings
+    assert '0 表示立即跟进' not in radar_settings
+    assert radar_settings.index('雷达总开关') < radar_settings.index('客户可点击的链接')
+    assert radar_settings.index('客户可点击的链接') < radar_settings.index('点击后的自动跟进')
 
 
 def test_template_config_editor_shows_only_selected_config_tab():

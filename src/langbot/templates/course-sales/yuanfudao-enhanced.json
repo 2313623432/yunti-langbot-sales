@@ -5,9 +5,17 @@
     "scenario": "course_sales_yuanfudao_phonics",
     "runtime_engine": "langgraph",
     "source_mode": "template",
-    "template_name": "猿辅导销售助手加强版"
+    "template_name": "猿辅导销售助手加强版",
+    "knowledge_pack": {
+      "path": "templates/course-sales/yuanfudao-knowledge",
+      "freshness_range": "2024-2026",
+      "answering_rule": "价格、排期、权益、赠品、活动有效期以最新活动页、班主任通知、系统后台为准；历史资料用于话术学习和异议处理。"
+    }
   },
   "source_materials": [
+    "猿辅导销售知识库索引：templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_knowledge_index.md",
+    "猿辅导销售知识库正文语料：templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_markdown_corpus.md",
+    "猿辅导销售知识库表格摘录：templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_spreadsheet_catalog.md",
     "猿辅导1天2次群发SOP.xlsx",
     "猿辅导课程问答整理.xlsx",
     "猿辅导自然拼读常见问题(1).xlsx"

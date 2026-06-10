@@ -1152,6 +1152,94 @@ class TaskAssistantService:
             )
         query.user_message = provider_message.Message(role='user', content=content)
 
+    def _yuanfudao_knowledge_sections(self) -> list[dict[str, str]]:
+        cached = getattr(self, '_yuanfudao_knowledge_sections_cache', None)
+        if isinstance(cached, list):
+            return cached
+
+        sections: list[dict[str, str]] = []
+        rag_files = [
+            'templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_markdown_corpus.md',
+            'templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_spreadsheet_catalog.md',
+        ]
+        for resource_path in rag_files:
+            path = Path(path_utils.get_resource_path(resource_path))
+            if not path.exists():
+                continue
+            text = path.read_text(encoding='utf-8', errors='replace')
+            parts = re.split(r'(?m)^## 来源：', text)
+            for index, part in enumerate(parts):
+                part = part.strip()
+                if not part:
+                    continue
+                if index == 0:
+                    title = path.name
+                    body = part
+                else:
+                    first_line, _, rest = part.partition('\n')
+                    title = first_line.strip() or path.name
+                    body = rest.strip()
+                sections.append({'title': title, 'body': body})
+
+        self._yuanfudao_knowledge_sections_cache = sections
+        return sections
+
+    def _yuanfudao_knowledge_keywords(self, text: str) -> list[str]:
+        normalized = str(text or '')
+        known_terms = [
+            '自然拼读',
+            '自拼',
+            '卖点',
+            '话术',
+            'SOP',
+            '私域',
+            '课程货盘',
+            '货盘',
+            '价格',
+            '回放',
+            '赠品',
+            '礼品',
+            '阅读',
+            '思维',
+            '奥数',
+            '人文',
+            '英语',
+            '报名',
+            '支付',
+            '截图',
+            '班主任',
+        ]
+        keywords = [term for term in known_terms if term.lower() in normalized.lower()]
+        keywords.extend(token for token in re.findall(r'[\u4e00-\u9fffA-Za-z0-9]{2,}', normalized) if len(token) >= 2)
+        deduped: list[str] = []
+        for keyword in keywords:
+            if keyword not in deduped:
+                deduped.append(keyword)
+        return deduped
+
+    def _select_yuanfudao_knowledge_snippets(self, text: str, *, limit: int = 2) -> list[str]:
+        keywords = self._yuanfudao_knowledge_keywords(text)
+        if not keywords:
+            return []
+
+        scored: list[tuple[int, str, str]] = []
+        for section in self._yuanfudao_knowledge_sections():
+            haystack = f'{section["title"]}\n{section["body"]}'.lower()
+            score = sum(2 if keyword.lower() in section['title'].lower() else 1 for keyword in keywords if keyword.lower() in haystack)
+            if score > 0:
+                scored.append((score, section['title'], section['body']))
+
+        snippets: list[str] = []
+        for _score, title, body in sorted(scored, key=lambda item: item[0], reverse=True)[:limit]:
+            lower_body = body.lower()
+            match_positions = [lower_body.find(keyword.lower()) for keyword in keywords if keyword.lower() in lower_body]
+            first_match = min((position for position in match_positions if position >= 0), default=0)
+            start = max(0, first_match - 120)
+            excerpt = re.sub(r'\s+', ' ', body[start : start + 700]).strip()
+            if excerpt:
+                snippets.append(f'来源：{title}\n{excerpt}')
+        return snippets
+
     def _append_course_sales_control_context(
         self,
         query: pipeline_query.Query,
@@ -1211,6 +1299,15 @@ class TaskAssistantService:
             control_text += f'\n[当前选中课程]\n产品线：{product_key or "course"}；课程：{course_name}'
             if fact_text:
                 control_text += f'；关键信息：{fact_text}'
+
+        user_text = str(query.variables.get('user_message_text') or '')
+        snippets = self._select_yuanfudao_knowledge_snippets(user_text)
+        if snippets:
+            control_text += (
+                '\n\n[猿辅导知识库参考]\n'
+                '资料范围：2024-2026。历史资料可用于话术、异议处理和产品表达；价格、排期、权益、赠品、活动有效期以最新活动页、班主任通知、系统后台为准。\n'
+                + '\n\n'.join(snippets)
+            )
 
         user_message.content.append(provider_message.ContentElement.from_text(control_text))
 
@@ -1544,6 +1641,11 @@ class TaskAssistantService:
 - 按 SOP 图片转写后的文字群发，不发送 SOP 截图。
 - 群发命中用户拒绝、投诉、无孩子、非目标年级、老师身份、已报名/已付费后立即停止。
 - 表格跟进话术中标注“报名链接卡片/报名链接”时发送报名链接卡片；标注素材图时发送对应海报或二维码。
+
+知识库资料使用规则：
+- 已接入猿辅导销售知识库，资料范围覆盖 2024-2026 年的产品介绍、课程货盘、销售话术、私域 SOP、品牌宣传和学科资料。
+- 2024-2026 历史资料可用于学习话术、异议处理、产品表达和服务流程。
+- 涉及价格、排期、权益、赠品、名额、活动截止、产品是否仍在售等强时效信息时，必须以最新活动页、班主任通知、系统后台为准，不要把旧资料当作最新政策。
 
 雷达模拟规则：
 - 报名链接卡片：{radar.get('link_url') or COURSE_SALES_RADAR_LINK}

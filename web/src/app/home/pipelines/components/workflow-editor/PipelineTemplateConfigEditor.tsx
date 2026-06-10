@@ -79,7 +79,7 @@ const CONFIG_TABS: Array<{
   { id: 'tools', label: '工具配置', icon: Wrench },
   { id: 'knowledge', label: '知识和数据', icon: Database },
   { id: 'memory', label: '记忆', icon: Bot },
-  { id: 'radar', label: '互动雷达', icon: MousePointerClick },
+  { id: 'radar', label: '雷达跟进', icon: MousePointerClick },
   { id: 'push', label: '定时推送', icon: CalendarClock },
   { id: 'media', label: '图文素材', icon: ImageIcon },
 ];
@@ -384,15 +384,6 @@ export default function PipelineTemplateConfigEditor({
       scheduledPush.push_message = next.message;
     }
     patch({ scheduled_push: scheduledPush });
-  }
-
-  function patchInteractionRadar(next: Partial<PipelineTemplateConfig['interaction_radar']>) {
-    patch({
-      interaction_radar: {
-        ...config.interaction_radar,
-        ...next,
-      },
-    });
   }
 
   function patchRadar(next: Partial<NonNullable<PipelineTemplateConfig['radar']>>) {
@@ -1111,45 +1102,20 @@ export default function PipelineTemplateConfigEditor({
       <div className="space-y-4">
         <Section
           icon={MousePointerClick}
-          title="互动雷达"
-          description="配置数字员工主动发送的雷达链接，以及用户点击后的自动回复。"
+          title="雷达总开关"
+          description="客户点击链接后的行为，会按下方跟进场景自动触发消息。"
           right={
-            <SummaryPill active={config.interaction_radar.enabled}>
-              {config.interaction_radar.enabled ? '已启用' : '未启用'}
+            <SummaryPill active={config.radar?.enabled !== false}>
+              {config.radar?.enabled !== false ? '已启用' : '未启用'}
             </SummaryPill>
           }
         >
           <ToggleRow
-            label="启用互动雷达"
-            description="用户点击链接后，数字员工自动感知并回复。"
-            checked={config.interaction_radar.enabled}
-            onCheckedChange={(checked) =>
-              patchInteractionRadar({ enabled: checked })
-            }
+            label="启用自动跟进雷达"
+            description="开启后，客户打开链接、浏览、点击报名或未支付时可以自动追访。"
+            checked={config.radar?.enabled !== false}
+            onCheckedChange={(checked) => patchRadar({ enabled: checked })}
           />
-          <label className="block">
-            <FieldLabel required>雷达链接</FieldLabel>
-            <Input
-              type="url"
-              value={config.interaction_radar.link_url}
-              onChange={(event) =>
-                patchInteractionRadar({ link_url: event.target.value })
-              }
-              className="h-11"
-              placeholder="https://example.com/course"
-            />
-          </label>
-          <label className="block">
-            <FieldLabel required>点击后 AI 行为回复</FieldLabel>
-            <Textarea
-              value={config.interaction_radar.click_reply}
-              onChange={(event) =>
-                patchInteractionRadar({ click_reply: event.target.value })
-              }
-              className="min-h-32 resize-none leading-6"
-              placeholder="我看到您刚刚点开了链接，如果有问题可以直接问我。"
-            />
-          </label>
         </Section>
 
         <Section
@@ -1176,7 +1142,7 @@ export default function PipelineTemplateConfigEditor({
                     className="h-10 bg-white"
                     placeholder="客户看到的链接标题"
                   />
-                  <span className="text-xs text-muted-foreground">点击后跟进</span>
+                  <span className="text-xs text-muted-foreground">点击后自动追访</span>
                   <Switch
                     checked={link.radar_enabled !== false}
                     onCheckedChange={(checked) => patchSalesLink(index, { radar_enabled: checked })}
@@ -1211,40 +1177,14 @@ export default function PipelineTemplateConfigEditor({
 
         <Section
           icon={RadioTower}
-          title="自动跟进雷达"
-          description="把客户点击链接后的行为，包装成运营能理解的自动跟进场景。"
+          title="点击后的自动跟进"
+          description="配置客户点击链接后，数字员工在不同动作下怎么追问。"
           right={
-            <SummaryPill active={config.radar?.enabled !== false}>
-              {config.radar?.enabled !== false ? '已启用' : '未启用'}
-            </SummaryPill>
+            <Badge variant="outline" className="rounded-md">
+              {(config.radar?.rules || []).length} 个场景
+            </Badge>
           }
         >
-          <ToggleRow
-            label="启用模拟雷达"
-            description="根据配置的事件规则自动触发跟进消息。"
-            checked={config.radar?.enabled !== false}
-            onCheckedChange={(checked) => patchRadar({ enabled: checked })}
-          />
-          <div className="grid gap-4 md:grid-cols-2">
-            <label>
-              <FieldLabel>客户看到的链接标题</FieldLabel>
-              <Input
-                value={config.radar?.link_title || ''}
-                onChange={(event) => patchRadar({ link_title: event.target.value })}
-                className="h-11"
-                placeholder="例如：9元体验课报名通道"
-              />
-            </label>
-            <label>
-              <FieldLabel>客户打开的页面地址</FieldLabel>
-              <Input
-                value={config.radar?.link_url || ''}
-                onChange={(event) => patchRadar({ link_url: event.target.value })}
-                className="h-11"
-                placeholder="粘贴报名页或活动页地址"
-              />
-            </label>
-          </div>
           <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addRadarRule}>
             <Plus className="mr-1.5 size-4" />
             新增自动跟进场景
@@ -1275,7 +1215,7 @@ export default function PipelineTemplateConfigEditor({
                     </p>
                   </label>
                   <label className="block">
-                    <FieldLabel>多久后跟进</FieldLabel>
+                    <FieldLabel>几分钟后发送</FieldLabel>
                     <Input
                       type="number"
                       min={0}
@@ -1286,7 +1226,7 @@ export default function PipelineTemplateConfigEditor({
                       className="h-10 bg-white"
                       placeholder="分钟"
                     />
-                    <p className="mt-1 text-xs leading-5 text-muted-foreground">0 表示立即跟进</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">单位：分钟，0 表示立即发送</p>
                   </label>
                   <Button
                     type="button"
@@ -1318,6 +1258,26 @@ export default function PipelineTemplateConfigEditor({
           </Button>
           {showAdvancedRadar && (
             <div className="space-y-3 rounded-md border border-dashed border-slate-300 bg-slate-50/70 p-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label>
+                  <FieldLabel>默认雷达链接标题</FieldLabel>
+                  <Input
+                    value={config.radar?.link_title || ''}
+                    onChange={(event) => patchRadar({ link_title: event.target.value })}
+                    className="h-10 bg-white"
+                    placeholder="例如：9元体验课报名通道"
+                  />
+                </label>
+                <label>
+                  <FieldLabel>默认雷达页面地址</FieldLabel>
+                  <Input
+                    value={config.radar?.link_url || ''}
+                    onChange={(event) => patchRadar({ link_url: event.target.value })}
+                    className="h-10 bg-white"
+                    placeholder="粘贴报名页或活动页地址"
+                  />
+                </label>
+              </div>
               <label className="block">
                 <FieldLabel hint="可用换行、逗号或顿号分隔">追踪字段</FieldLabel>
                 <Input
@@ -1760,6 +1720,13 @@ export default function PipelineTemplateConfigEditor({
   }
 
   const currentAvatarUrl = agentAvatarUrl(pipelineAvatar);
+  const previewRadarLink =
+    config.radar?.link_url ||
+    (config.sales_links || []).find((link) => link.radar_enabled !== false)?.url ||
+    '';
+  const previewRadarReply =
+    config.radar?.rules?.[0]?.message ||
+    '客户点击链接后，数字员工会按自动跟进场景发送消息。';
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:h-[calc(100vh-220px)]">
@@ -1837,15 +1804,15 @@ export default function PipelineTemplateConfigEditor({
                   </div>
                 </div>
 
-                {config.interaction_radar.enabled && config.interaction_radar.link_url && (
+                {config.radar?.enabled !== false && previewRadarLink && (
                   <>
                     <div className="ml-11 rounded-lg border border-indigo-100 bg-indigo-50/80 p-3 text-left">
                       <div className="flex items-center gap-2 text-xs font-medium text-indigo-700">
                         <MousePointerClick className="size-3.5" />
-                        互动雷达链接
+                        自动跟进链接
                       </div>
                       <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {config.interaction_radar.link_url}
+                        {previewRadarLink}
                       </p>
                     </div>
                     <div className="flex justify-end">
@@ -1860,7 +1827,7 @@ export default function PipelineTemplateConfigEditor({
                         className="size-8 shrink-0 rounded-full border border-white bg-white object-cover shadow-sm"
                       />
                       <div className="max-w-[82%] rounded-lg rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800">
-                        {config.interaction_radar.click_reply}
+                        {previewRadarReply}
                       </div>
                     </div>
                   </>

@@ -918,9 +918,16 @@ def test_enhanced_yuanfudao_template_loads_spreadsheet_business_content():
     assert any(faq['intent'] == 'reading_thinking_intro' for faq in template['course_faqs'])
     assert any(sequence['stage'] == 'reading_thinking_purchase' for sequence in template['followup_sequences'])
     source_names = '\n'.join(template['source_materials'])
+    assert '猿辅导销售知识库索引' in source_names
+    assert 'yuanfudao_knowledge_index.md' in source_names
+    assert 'yuanfudao_markdown_corpus.md' in source_names
     assert '猿辅导1天2次群发SOP.xlsx' in source_names
     assert '猿辅导课程问答整理.xlsx' in source_names
     assert '猿辅导自然拼读常见问题(1).xlsx' in source_names
+    assert template['metadata']['knowledge_pack']['path'] == 'templates/course-sales/yuanfudao-knowledge'
+    assert template['metadata']['knowledge_pack']['freshness_range'] == '2024-2026'
+    assert '2024-2026' in template['role_prompt']
+    assert '最新活动页、班主任通知、系统后台为准' in template['role_prompt']
     assert template['stop_policy']['explicit_rejection_threshold'] == 2
 
 
@@ -944,6 +951,26 @@ async def test_enhanced_runtime_selects_reading_thinking_product_from_config():
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
     assert '阅读+思维' in context_text
     assert any(plan['segment'] == 'course-sales:followup:reading_thinking_purchase' for plan in sales_service.plans)
+
+
+@pytest.mark.asyncio
+async def test_enhanced_runtime_appends_yuanfudao_knowledge_pack_context():
+    service = TaskAssistantService(SimpleNamespace(sales_service=None, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query = _query(text_chain('自然拼读卖点话术怎么说'), '自然拼读卖点话术怎么说', session_id='customer-knowledge')
+    query.pipeline_config = config
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'yuanfudao-enhanced-template-pipeline'
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '[猿辅导知识库参考]' in context_text
+    assert '2024-2026' in context_text
+    assert '自然拼读' in context_text
+    assert '最新活动页、班主任通知、系统后台为准' in context_text
 
 
 @pytest.mark.asyncio
