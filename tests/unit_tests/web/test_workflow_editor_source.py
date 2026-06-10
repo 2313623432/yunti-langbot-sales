@@ -256,8 +256,17 @@ def test_agent_template_editor_wraps_technical_radar_and_stop_parameters():
     assert 'course_profiles?: PipelineTemplateCourseProfile[]' in types_source
     assert 'source_materials?: string[]' in types_source
     assert 'stop_policy?: PipelineTemplateStopPolicy' in types_source
-    assert '已接入业务产品线' in template_source
-    assert '业务资料来源' in template_source
+    assert '业务产品线' in template_source
+    assert 'toggleProductSelection' in template_source
+    assert 'toggleProductLineSelection' in template_source
+    assert 'groupProductsByLine' in template_source
+    assert '条产品线' in template_source
+    assert '启用整线' in template_source
+    assert '关联产品' not in template_source
+    assert 'addCourseProfileFromProduct' not in template_source
+    assert '已挂载知识库' not in template_source
+    assert '业务资料来源' not in template_source
+    assert '调整关联知识库' not in template_source
     assert '客户打开链接' in template_source
     assert '客户浏览了一会儿' in template_source
     assert '自动跟进场景' in template_source

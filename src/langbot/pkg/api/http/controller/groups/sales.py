@@ -17,16 +17,31 @@ class SalesRouterGroup(group.RouterGroup):
             if quart.request.method == 'GET':
                 return self.success(data={'products': await self.ap.sales_service.get_products()})
             data = await quart.request.json
-            product_uuid = await self.ap.sales_service.create_product(data)
+            try:
+                product_uuid = await self.ap.sales_service.create_product(data)
+            except ValueError as exc:
+                return self.http_status(400, -1, str(exc))
             return self.success(data={'uuid': product_uuid})
 
-        @self.route('/products/<product_uuid>', methods=['PUT', 'DELETE'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        @self.route('/products/<product_uuid>', methods=['GET', 'PUT', 'DELETE'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _(product_uuid: str) -> str:
+            if quart.request.method == 'GET':
+                try:
+                    product = await self.ap.sales_service.get_product(product_uuid)
+                except ValueError:
+                    return self.http_status(404, -1, 'Product not found')
+                return self.success(data={'product': product})
             if quart.request.method == 'PUT':
                 data = await quart.request.json
-                await self.ap.sales_service.update_product(product_uuid, data)
+                try:
+                    await self.ap.sales_service.update_product(product_uuid, data)
+                except ValueError as exc:
+                    return self.http_status(400, -1, str(exc))
                 return self.success()
-            await self.ap.sales_service.delete_product(product_uuid)
+            try:
+                await self.ap.sales_service.delete_product(product_uuid)
+            except ValueError:
+                return self.http_status(404, -1, 'Product not found')
             return self.success()
 
         @self.route('/intent', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)

@@ -10,6 +10,9 @@ class SalesProduct(Base):
 
     uuid = sqlalchemy.Column(sqlalchemy.String(255), primary_key=True, unique=True)
     name = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, index=True)
+    product_line = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='', index=True)
+    profile_key = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='')
+    keywords = sqlalchemy.Column(sqlalchemy.JSON, nullable=False, default=[])
     category = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='')
     price = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='')
     link = sqlalchemy.Column(sqlalchemy.String(1024), nullable=False, default='')

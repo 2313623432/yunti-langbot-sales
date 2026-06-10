@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 
 import { SalesOverview, SalesProduct } from '@/app/infra/entities/api';
 import { httpClient, initializeUserInfo } from '@/app/infra/http';
-import { hasCustomSalesProduct } from '@/app/home/products/components/ProductLibraryManager';
+import { hasCustomSalesProduct } from '@/app/home/products/utils/productUtils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 

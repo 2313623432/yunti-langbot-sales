@@ -1031,7 +1031,9 @@ export default function PipelineFormComponent({
               <div
                 className={cn(
                   'flex-1 min-h-0',
-                  activeSection === 'workflow' ? 'overflow-y-auto' : 'overflow-y-auto',
+                  activeSection === 'workflow'
+                    ? 'flex flex-col overflow-hidden'
+                    : 'overflow-y-auto',
                 )}
               >
                 {/* Basic info section */}
@@ -1107,9 +1109,11 @@ export default function PipelineFormComponent({
                 {isEditMode &&
                   !isWorkflowAnswerMode &&
                   activeSection === 'workflow' && (
-                  <div className="space-y-4">
+                  <div className="flex h-full min-h-0 flex-col">
                     <PipelineTemplateConfigEditor
                       value={form.watch('template_config') as PipelineTemplateConfig}
+                      pipelineId={pipelineId}
+                      hasUnsavedChanges={hasUnsavedChanges}
                       pipelineName={form.watch('basic.name')}
                       pipelineDescription={form.watch('basic.description')}
                       pipelineAvatar={form.watch('basic.avatar')}

@@ -38,6 +38,37 @@ async def test_pipeline_manager_initialize(mock_app):
 
 
 @pytest.mark.asyncio
+async def test_load_pipeline_from_serialized_dict_ignores_api_only_fields(mock_app):
+    """Serialized pipeline dicts may include API-only fields such as is_builtin."""
+    pipelinemgr = get_pipelinemgr_module()
+    persistence_pipeline = get_persistence_pipeline_module()
+
+    mock_app.persistence_mgr.execute_async = AsyncMock(return_value=Mock(all=Mock(return_value=[])))
+
+    manager = pipelinemgr.PipelineManager(mock_app)
+    await manager.initialize()
+
+    pipeline_dict = {
+        'uuid': 'test-uuid',
+        'name': 'Test pipeline',
+        'description': 'desc',
+        'for_version': '1.0.0',
+        'is_default': False,
+        'stages': [],
+        'config': {'test': 'config'},
+        'extensions_preferences': {'plugins': []},
+        'is_builtin': True,
+        'created_at': '2026-01-01T00:00:00',
+        'updated_at': '2026-01-01T00:00:00',
+    }
+
+    await manager.load_pipeline(pipeline_dict)
+
+    assert len(manager.pipelines) == 1
+    assert manager.pipelines[0].pipeline_entity.uuid == 'test-uuid'
+
+
+@pytest.mark.asyncio
 async def test_load_pipeline(mock_app):
     """Test loading a single pipeline"""
     pipelinemgr = get_pipelinemgr_module()

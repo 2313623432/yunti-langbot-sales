@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 import sqlalchemy
 
-from langbot.pkg.api.http.service.sales import SalesService
+from langbot.pkg.api.http.service.sales import SalesService, YUANFUDAO_CATALOG_PRODUCTS
 from langbot_plugin.api.entities.builtin.platform import message as platform_message
 
 
@@ -417,3 +417,93 @@ async def test_reply_handoff_from_session_opens_then_replies(monkeypatch):
     assert result == {'sent': True, 'handoff_id': 7}
     open_handoff.assert_awaited_once_with('person_customer-1', '人工直接回复', 'sales-admin')
     reply_handoff.assert_awaited_once_with(7, '人工已接入', 'sales-admin')
+
+
+@pytest.mark.asyncio
+async def test_get_product_returns_serialized_product():
+    product_row = SimpleNamespace(
+        uuid='product-1',
+        name='AI 销售助手',
+        category='sales',
+        price='299/月',
+        link='https://example.com',
+        description='desc',
+        selling_points=['卖点'],
+        pain_points=[],
+        objections=[],
+        audience=[],
+        enabled=True,
+        created_at=None,
+        updated_at=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(return_value=_FakeResult(product_row)),
+        serialize_model=lambda _model, row: {
+            'uuid': row.uuid,
+            'name': row.name,
+            'category': row.category,
+            'price': row.price,
+            'link': row.link,
+            'description': row.description,
+            'selling_points': row.selling_points,
+            'pain_points': row.pain_points,
+            'objections': row.objections,
+            'audience': row.audience,
+            'enabled': row.enabled,
+        },
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    result = await service.get_product('product-1')
+
+    assert result['uuid'] == 'product-1'
+    assert result['name'] == 'AI 销售助手'
+
+
+@pytest.mark.asyncio
+async def test_get_product_raises_when_missing():
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(return_value=_FakeResult(None)),
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    with pytest.raises(ValueError, match='Product not found'):
+        await service.get_product('missing-product')
+
+
+@pytest.mark.asyncio
+async def test_create_product_requires_name():
+    service = SalesService(SimpleNamespace(persistence_mgr=SimpleNamespace(execute_async=AsyncMock())))
+
+    with pytest.raises(ValueError, match='Product name is required'):
+        await service.create_product({'name': '   '})
+
+
+def test_clean_product_payload_supports_product_line_fields():
+    service = SalesService(SimpleNamespace())
+
+    payload = service._clean_product_payload(
+        {
+            'name': '猿辅导阅读+思维特训营',
+            'product_line': '猿辅导',
+            'profile_key': 'reading_thinking',
+            'keywords': ['阅读', '思维'],
+            'category': '阅读+思维',
+            'price': '9元体验',
+        }
+    )
+
+    assert payload['product_line'] == '猿辅导'
+    assert payload['profile_key'] == 'reading_thinking'
+    assert payload['keywords'] == ['阅读', '思维']
+
+
+def test_yuanfudao_catalog_products_include_reading_thinking_course():
+    products_by_uuid = {product['uuid']: product for product in YUANFUDAO_CATALOG_PRODUCTS}
+
+    assert set(products_by_uuid) == {
+        'yuanfudao-phonics-course',
+        'yuanfudao-reading-thinking-course',
+    }
+    assert products_by_uuid['yuanfudao-phonics-course']['product_line'] == '猿辅导'
+    assert products_by_uuid['yuanfudao-reading-thinking-course']['profile_key'] == 'reading_thinking'

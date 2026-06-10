@@ -423,6 +423,9 @@ export interface SalesIntent {
 export interface SalesProduct {
   uuid?: string;
   name: string;
+  product_line?: string;
+  profile_key?: string;
+  keywords?: string[];
   category: string;
   price: string;
   link: string;

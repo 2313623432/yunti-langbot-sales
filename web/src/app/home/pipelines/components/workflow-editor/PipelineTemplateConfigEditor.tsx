@@ -4,16 +4,13 @@ import {
   Brain,
   CalendarClock,
   Database,
-  Handshake,
   Image as ImageIcon,
   Link2,
-  MessageCircleMore,
   MessageSquareText,
   Mic2,
   MousePointerClick,
   Plus,
   RadioTower,
-  SendHorizontal,
   ShieldCheck,
   Trash2,
   Upload,
@@ -42,13 +39,18 @@ import AgentAvatarPicker from '@/app/home/pipelines/components/agent-avatar/Agen
 import { agentAvatarUrl } from '@/app/home/pipelines/components/agent-avatar/agentAvatar';
 import {
   PipelineTemplateConfig,
+  PipelineTemplateCourseProfile,
   PipelineTemplateImageTextBinding,
 } from './types';
+import { groupProductsByLine } from '@/app/home/products/utils/productLineUtils';
 import { createBlankAgentTemplateConfig } from './workflowTemplates';
+import PipelinePreviewChat from '@/app/home/pipelines/components/preview-chat/PipelinePreviewChat';
 
 interface PipelineTemplateConfigEditorProps {
   value?: PipelineTemplateConfig;
   onChange: (value: PipelineTemplateConfig) => void;
+  pipelineId?: string;
+  hasUnsavedChanges?: boolean;
   pipelineName?: string;
   pipelineDescription?: string;
   pipelineAvatar?: string;
@@ -196,10 +198,8 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
       value?.followup_sequences?.length ? value.followup_sequences : defaults.followup_sequences || [],
     long_term_broadcasts:
       value?.long_term_broadcasts?.length ? value.long_term_broadcasts : defaults.long_term_broadcasts || [],
-    course_profiles:
-      value?.course_profiles?.length ? value.course_profiles : defaults.course_profiles || [],
-    source_materials:
-      value?.source_materials?.length ? value.source_materials : defaults.source_materials || [],
+    course_profiles: value?.course_profiles ?? defaults.course_profiles ?? [],
+    source_materials: value?.source_materials ?? defaults.source_materials ?? [],
     stop_rules: {
       ...(defaults.stop_rules || {
         stop_keywords: [],
@@ -321,9 +321,30 @@ function textToList(value: string): string[] {
     .filter(Boolean);
 }
 
+function courseProfileFromProduct(product: SalesProduct): PipelineTemplateCourseProfile {
+  const productUuid = product.uuid || '';
+  const keywordFallback = [product.category, ...(product.audience || [])].filter(Boolean);
+  return {
+    key: product.profile_key || productUuid || `line_${Date.now().toString(36)}`,
+    product_uuid: productUuid,
+    name: product.name,
+    keywords: product.keywords?.length ? product.keywords : keywordFallback,
+    facts: {
+      course_name: product.name,
+      price: product.price,
+      selling_point: product.selling_points?.join('；') || product.description,
+      target_grade: product.audience?.join('、') || '',
+      category: product.category,
+      product_line: product.product_line || '',
+    },
+  };
+}
+
 export default function PipelineTemplateConfigEditor({
   value,
   onChange,
+  pipelineId,
+  hasUnsavedChanges = false,
   pipelineName,
   pipelineDescription,
   pipelineAvatar,
@@ -338,10 +359,8 @@ export default function PipelineTemplateConfigEditor({
   const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
   const [voiceModels, setVoiceModels] = useState<LLMModel[]>([]);
   const [uploadingBindingId, setUploadingBindingId] = useState('');
-  const [previewQuestion, setPreviewQuestion] = useState('');
   const [showAdvancedRadar, setShowAdvancedRadar] = useState(false);
   const [showAdvancedStopRules, setShowAdvancedStopRules] = useState(false);
-  const [showAdvancedSourceMaterials, setShowAdvancedSourceMaterials] = useState(false);
 
   useEffect(() => {
     httpClient
@@ -437,6 +456,69 @@ export default function PipelineTemplateConfigEditor({
     patch({ [key]: next } as Partial<PipelineTemplateConfig>);
   }
 
+  function toggleProductLineSelection(products: SalesProduct[]) {
+    const productUuids = products
+      .map((product) => product.uuid)
+      .filter((uuid): uuid is string => Boolean(uuid));
+    if (!productUuids.length) return;
+
+    const allSelected = productUuids.every((uuid) => config.product_uuids.includes(uuid));
+    if (allSelected) {
+      patch({
+        product_uuids: config.product_uuids.filter((uuid) => !productUuids.includes(uuid)),
+        course_profiles: (config.course_profiles || []).filter(
+          (profile) => !productUuids.includes(profile.product_uuid),
+        ),
+      });
+      return;
+    }
+
+    const nextProductUuids = [...config.product_uuids];
+    const nextProfiles = [...(config.course_profiles || [])];
+    for (const product of products) {
+      if (!product.uuid || nextProductUuids.includes(product.uuid)) {
+        continue;
+      }
+      nextProductUuids.push(product.uuid);
+      if (!nextProfiles.some((profile) => profile.product_uuid === product.uuid)) {
+        nextProfiles.push(courseProfileFromProduct(product));
+      }
+    }
+    patch({
+      product_uuids: nextProductUuids,
+      course_profiles: nextProfiles,
+    });
+  }
+
+  function toggleProductSelection(productUuid: string) {
+    if (!productUuid) return;
+    const currentProductUuids = config.product_uuids || [];
+    const isSelected = currentProductUuids.includes(productUuid);
+    const currentProfiles = config.course_profiles || [];
+
+    if (isSelected) {
+      patch({
+        product_uuids: currentProductUuids.filter((item) => item !== productUuid),
+        course_profiles: currentProfiles.filter(
+          (profile) => profile.product_uuid !== productUuid,
+        ),
+      });
+      return;
+    }
+
+    const product = salesProducts.find((item) => item.uuid === productUuid);
+    const hasProfile = currentProfiles.some(
+      (profile) => profile.product_uuid === productUuid,
+    );
+    patch({
+      product_uuids: [...currentProductUuids, productUuid],
+      course_profiles:
+        hasProfile || !product
+          ? currentProfiles
+          : [...currentProfiles, courseProfileFromProduct(product)],
+    });
+  }
+
   function addImageTextBinding() {
     patch({
       image_text_bindings: [
@@ -452,8 +534,8 @@ export default function PipelineTemplateConfigEditor({
         ...(config.sales_links || []),
         {
           id: `link_${Date.now().toString(36)}`,
-          title: '新的报名链接',
-          url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen&reduceProxy=true',
+          title: '新的客户链接',
+          url: '',
           description: '',
           radar_enabled: true,
         },
@@ -907,16 +989,13 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderKnowledgeSettings() {
-    const courseProfiles = config.course_profiles || [];
-    const sourceMaterials = config.source_materials || [];
-    const knowledgePack = config.metadata?.knowledge_pack;
-    const hasKnowledgePack = Boolean(knowledgePack?.path);
-    const mountedKbIds = config.knowledge_base_uuids || [];
-    const mountedKbs = knowledgeBases.filter((kb) => mountedKbIds.includes(kb.id));
-    const fallbackKbNames = mountedKbIds.filter(
-      (id) => !knowledgeBases.some((kb) => kb.id === id),
-    );
-    const knowledgePackFreshness = knowledgePack?.freshness_range || '';
+    const productLineGroups = groupProductsByLine(salesProducts);
+    const selectedProductCount = config.product_uuids.length;
+    const selectedLineCount = productLineGroups.filter((group) =>
+      group.products.some(
+        (product) => product.uuid && config.product_uuids.includes(product.uuid),
+      ),
+    ).length;
 
     return (
       <Section
@@ -933,112 +1012,117 @@ export default function PipelineTemplateConfigEditor({
           />
           <ToggleRow
             label="启用产品数据库"
-            description="客户问课程、价格、权益时引用产品资料。"
+            description="客户问价格、权益、方案时引用产品资料。"
             checked={Boolean(config.tools.product_database)}
             onCheckedChange={(checked) => patchTool('product_database', checked)}
           />
         </div>
 
-        {(hasKnowledgePack || mountedKbIds.length > 0) && (
-          <div className="rounded-md border border-indigo-200 bg-indigo-50/60 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <FieldLabel>已挂载知识库</FieldLabel>
-                <p className="mt-1 text-sm font-medium text-indigo-950">
-                  {mountedKbs.map((kb) => kb.name).join('、') ||
-                    fallbackKbNames.join('、') ||
-                    '猿辅导销售知识库'}
-                </p>
-                {knowledgePack?.answering_rule && (
-                  <p className="mt-2 text-xs leading-5 text-indigo-900/80">
-                    {knowledgePack.answering_rule}
-                  </p>
-                )}
-                {knowledgePackFreshness && (
-                  <p className="mt-1 text-xs text-indigo-800/70">
-                    资料时效：{knowledgePackFreshness}
-                  </p>
-                )}
-              </div>
-              <Badge className="shrink-0 rounded bg-indigo-600 text-white hover:bg-indigo-600">
-                已挂载
-              </Badge>
-            </div>
+        <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <FieldLabel>业务产品线</FieldLabel>
+            <Badge variant="outline" className="rounded bg-white">
+              {selectedLineCount} 条产品线 · {selectedProductCount} 个产品
+            </Badge>
           </div>
-        )}
+          <p className="mb-3 text-xs text-muted-foreground">
+            一条产品线（如猿辅导）下可挂多个具体产品。请先在左侧「产品库」按产品线维护资料，再在这里勾选该员工负责的产品。
+          </p>
+          <div className="grid gap-3">
+            {productLineGroups.map((group) => {
+              const lineProductUuids = group.products
+                .map((product) => product.uuid)
+                .filter((uuid): uuid is string => Boolean(uuid));
+              const selectedInLine = lineProductUuids.filter((uuid) =>
+                config.product_uuids.includes(uuid),
+              ).length;
+              const allSelected =
+                lineProductUuids.length > 0 &&
+                selectedInLine === lineProductUuids.length;
+              const partiallySelected =
+                selectedInLine > 0 && selectedInLine < lineProductUuids.length;
 
-        {courseProfiles.length > 0 && (
-          <div className="rounded-md border border-indigo-100 bg-indigo-50/50 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <FieldLabel>已接入业务产品线</FieldLabel>
-              <Badge variant="outline" className="rounded bg-white">
-                {courseProfiles.length} 条
-              </Badge>
-            </div>
-            <p className="mb-3 text-xs text-muted-foreground">
-              展示模板已配置的课程产品线。开启「产品数据库」后，可勾选对应产品以参与报价与推荐。
-            </p>
-            <div className="grid gap-3">
-              {courseProfiles.map((profile) => {
-                const facts = profile.facts || {};
-                const productUuid = profile.product_uuid || '';
-                const linkedProduct = salesProducts.find((product) => product.uuid === productUuid);
-                const productSelected = productUuid
-                  ? config.product_uuids.includes(productUuid)
-                  : false;
-                return (
-                  <div key={profile.key} className="rounded-md border border-indigo-100 bg-white p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-slate-900">
-                          {profile.name || facts.course_name || profile.key}
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                          {[facts.price, facts.duration || facts.lesson_count, facts.target_grade]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </p>
-                      </div>
-                      <Badge className="shrink-0 rounded" variant="secondary">
-                        业务线
-                      </Badge>
+              return (
+                <div
+                  key={group.line}
+                  className="overflow-hidden rounded-md border border-slate-200 bg-white"
+                >
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {group.line}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {selectedInLine}/{group.products.length} 个产品已启用
+                      </p>
                     </div>
-                    {facts.selling_point && (
-                      <p className="mt-2 text-xs leading-5 text-slate-600">{facts.selling_point}</p>
-                    )}
-                    {productUuid && (
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-100 bg-slate-50 px-3 py-2">
-                        <div className="min-w-0 text-xs text-slate-600">
-                          <span className="font-medium text-slate-800">关联产品：</span>
-                          {linkedProduct?.name || productUuid}
-                        </div>
+                    <button
+                      type="button"
+                      disabled={!config.tools.product_database || !lineProductUuids.length}
+                      onClick={() => toggleProductLineSelection(group.products)}
+                      className={cn(
+                        'shrink-0 rounded-md border px-2.5 py-1 text-xs transition-colors',
+                        allSelected
+                          ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
+                          : partiallySelected
+                            ? 'border-amber-300 bg-amber-50 text-amber-900'
+                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                        !config.tools.product_database && 'cursor-not-allowed opacity-50',
+                      )}
+                    >
+                      {allSelected ? '整线已启用' : partiallySelected ? '部分启用' : '启用整线'}
+                    </button>
+                  </div>
+                  <div className="grid gap-2 p-3">
+                    {group.products.map((product) => {
+                      const productUuid = product.uuid || '';
+                      const productSelected = productUuid
+                        ? config.product_uuids.includes(productUuid)
+                        : false;
+                      return (
                         <button
+                          key={productUuid || product.name}
                           type="button"
-                          disabled={!config.tools.product_database}
-                          onClick={() => toggleTemplateListValue('product_uuids', productUuid)}
+                          disabled={!config.tools.product_database || !productUuid}
+                          onClick={() => toggleProductSelection(productUuid)}
                           className={cn(
-                            'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                            'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors',
                             productSelected
-                              ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
-                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+                              ? 'border-indigo-300 bg-indigo-50 text-indigo-950'
+                              : 'border-slate-200 bg-white hover:bg-slate-50',
                             !config.tools.product_database && 'cursor-not-allowed opacity-50',
                           )}
                         >
-                          {productSelected ? '已启用产品库' : '启用产品库'}
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">
+                              {product.name}
+                            </span>
+                            <span className="mt-1 block truncate text-xs text-muted-foreground">
+                              {[product.category, product.price, product.description]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                          </span>
+                          {productSelected && <Badge className="rounded">已选</Badge>}
                         </button>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
+            {!productLineGroups.length && (
+              <div className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-muted-foreground">
+                暂无产品，请先在左侧「产品库」中按产品线创建产品。
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4">
           <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
             <div className="mb-3 flex items-center justify-between">
-              <FieldLabel>{hasKnowledgePack ? '调整关联知识库' : '关联知识库'}</FieldLabel>
+              <FieldLabel>关联知识库</FieldLabel>
               <Badge variant="outline" className="rounded bg-white">
                 {config.knowledge_base_uuids.length} 个已选
               </Badge>
@@ -1073,82 +1157,12 @@ export default function PipelineTemplateConfigEditor({
               ))}
               {!knowledgeBases.length && (
                 <div className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-muted-foreground">
-                  暂无知识库。重启后端后会自动创建「猿辅导销售知识库」，或可在左侧知识库中手动创建。
-                </div>
-              )}
-            </div>
-          </div>
-          <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <FieldLabel>关联产品</FieldLabel>
-              <Badge variant="outline" className="rounded bg-white">
-                {config.product_uuids.length} 个已选
-              </Badge>
-            </div>
-            <div className="grid gap-2">
-              {salesProducts.map((product) => (
-                <button
-                  key={product.uuid}
-                  type="button"
-                  onClick={() =>
-                    toggleTemplateListValue('product_uuids', product.uuid || '')
-                  }
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors',
-                    config.product_uuids.includes(product.uuid || '')
-                      ? 'border-indigo-300 bg-indigo-50 text-indigo-950'
-                      : 'border-slate-200 bg-white hover:bg-slate-50',
-                  )}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate">{product.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {product.price || product.category || product.description}
-                    </span>
-                  </span>
-                  {config.product_uuids.includes(product.uuid || '') && (
-                    <Badge className="rounded">已选</Badge>
-                  )}
-                </button>
-              ))}
-              {!salesProducts.length && (
-                <div className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-muted-foreground">
-                  暂无产品，请先在销售工作台中创建
+                  暂无知识库，请在左侧「知识库」中创建并上传资料。
                 </div>
               )}
             </div>
           </div>
         </div>
-
-        {sourceMaterials.length > 0 && (
-          <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
-            <button
-              type="button"
-              onClick={() => setShowAdvancedSourceMaterials((value) => !value)}
-              className="flex w-full items-center justify-between text-left"
-            >
-              <FieldLabel>技术详情：业务资料来源</FieldLabel>
-              <span className="text-xs text-muted-foreground">
-                {showAdvancedSourceMaterials ? '收起' : '展开'}
-              </span>
-            </button>
-            {showAdvancedSourceMaterials && (
-              <div className="mt-3 grid gap-2">
-                <p className="text-xs text-muted-foreground">
-                  以下为模板内置资料清单，日常配置以「已挂载知识库」为准。
-                </p>
-                {sourceMaterials.map((source, index) => (
-                  <div
-                    key={`${source}-${index}`}
-                    className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                  >
-                    {source}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </Section>
     );
   }
@@ -1806,18 +1820,11 @@ export default function PipelineTemplateConfigEditor({
   }
 
   const currentAvatarUrl = agentAvatarUrl(pipelineAvatar);
-  const previewRadarLink =
-    config.radar?.link_url ||
-    (config.sales_links || []).find((link) => link.radar_enabled !== false)?.url ||
-    '';
-  const previewRadarReply =
-    config.radar?.rules?.[0]?.message ||
-    '客户点击链接后，数字员工会按自动跟进场景发送消息。';
 
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm lg:h-[calc(100vh-220px)]">
-      <div className="grid min-h-[720px] grid-cols-1 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="flex min-w-0 flex-col border-r border-slate-200 bg-white lg:min-h-0 lg:overflow-hidden">
+    <div className="flex h-[calc(100vh-168px)] min-h-[560px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="grid h-full min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="flex min-h-0 min-w-0 flex-col border-r border-slate-200 bg-white lg:overflow-hidden">
           <div className="shrink-0 border-b border-slate-200 px-5 py-4">
             <div className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-1">
               <div className="flex min-w-max gap-1">
@@ -1850,138 +1857,23 @@ export default function PipelineTemplateConfigEditor({
           </div>
         </div>
 
-        <aside className="flex min-h-0 min-w-0 flex-col bg-white lg:sticky lg:top-0 lg:h-full lg:overflow-hidden">
-          <div className="border-b border-slate-200 px-5 py-4">
+        <aside className="flex min-h-0 min-w-0 flex-col bg-white lg:overflow-hidden">
+          <div className="shrink-0 border-b border-slate-200 px-5 py-4">
             <h2 className="text-base font-semibold text-slate-950">预览调试</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              在平台内真实对话验证效果，确认无误后再发布到飞书等渠道
+            </p>
           </div>
 
           <div className="flex min-h-0 flex-1 flex-col bg-slate-50/70 p-5">
-            <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center gap-3">
-                <img
-                  src={currentAvatarUrl}
-                  alt="Agent头像"
-                  className="size-11 shrink-0 rounded-full border border-white bg-white object-cover shadow-sm"
-                />
-                <div className="min-w-0">
-                  <h3 className="truncate text-sm font-semibold text-slate-950">
-                    {config.name || '未命名数字员工'}
-                  </h3>
-                </div>
-              </div>
-            </div>
-
-            <div className="min-h-[460px] flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="space-y-4">
-                <div className="flex gap-3">
-                  <img
-                    src={currentAvatarUrl}
-                    alt="Agent头像"
-                    className="size-8 shrink-0 rounded-full border border-white bg-white object-cover shadow-sm"
-                  />
-                  <div className="max-w-[82%] rounded-lg rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800">
-                    {config.opening_message.trim() ? (
-                      config.opening_message
-                    ) : (
-                      <span className="text-slate-400">
-                        开场白会显示在这里
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {config.radar?.enabled !== false && previewRadarLink && (
-                  <>
-                    <div className="ml-11 rounded-lg border border-indigo-100 bg-indigo-50/80 p-3 text-left">
-                      <div className="flex items-center gap-2 text-xs font-medium text-indigo-700">
-                        <MousePointerClick className="size-3.5" />
-                        自动跟进链接
-                      </div>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {previewRadarLink}
-                      </p>
-                    </div>
-                    <div className="flex justify-end">
-                      <div className="rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white">
-                        客户已点击链接
-                      </div>
-                    </div>
-                    <div className="flex gap-3">
-                      <img
-                        src={currentAvatarUrl}
-                        alt="Agent头像"
-                        className="size-8 shrink-0 rounded-full border border-white bg-white object-cover shadow-sm"
-                      />
-                      <div className="max-w-[82%] rounded-lg rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800">
-                        {previewRadarReply}
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {enabledImageBindings[0] && (
-                  <div className="ml-11 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                    {(enabledImageBindings[0].image_url ||
-                      enabledImageBindings[0].file_key) && (
-                      <img
-                        src={
-                          enabledImageBindings[0].image_url ||
-                          imageAssetUrl(enabledImageBindings[0].file_key)
-                        }
-                        alt={enabledImageBindings[0].title}
-                        className="max-h-48 w-full object-contain"
-                      />
-                    )}
-                    <div className="p-3">
-                      <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
-                        <ImageIcon className="size-3.5" />
-                        {enabledImageBindings[0].title}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
-                        {enabledImageBindings[0].text}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
-              <div className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2.5">
-                <Input
-                  value={previewQuestion}
-                  onChange={(event) => setPreviewQuestion(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                    }
-                  }}
-                  className="h-8 flex-1 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
-                  placeholder="在此提问，测试基于配置的回答效果"
-                />
-                <Mic2 className={cn('size-4 shrink-0', config.voice.enabled ? 'text-indigo-600' : 'text-muted-foreground')} />
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-8 rounded-md px-3"
-                  disabled={!previewQuestion.trim()}
-                >
-                  <SendHorizontal className="mr-1.5 size-3.5" />
-                  发送
-                </Button>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-2 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <Handshake className="size-3.5" />
-                <span>转人工、群聊回复等复杂能力可在独立工作流页面中继续扩展。</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <MessageCircleMore className="size-3.5" />
-                <span>这里展示Agent配置的实时效果，页面右上角保存后生效。</span>
-              </div>
-            </div>
+            <PipelinePreviewChat
+              pipelineId={pipelineId}
+              avatarUrl={currentAvatarUrl}
+              agentName={config.name || pipelineName || '未命名数字员工'}
+              openingMessage={config.opening_message || ''}
+              voiceEnabled={config.voice.enabled}
+              hasUnsavedChanges={hasUnsavedChanges}
+            />
           </div>
         </aside>
       </div>

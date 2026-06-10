@@ -980,6 +980,10 @@ export class BackendClient extends BaseHttpClient {
     return this.get('/api/v1/sales/products');
   }
 
+  public getSalesProduct(uuid: string): Promise<{ product: SalesProduct }> {
+    return this.get(`/api/v1/sales/products/${uuid}`);
+  }
+
   public createSalesProduct(
     product: Partial<SalesProduct>,
   ): Promise<{ uuid: string }> {

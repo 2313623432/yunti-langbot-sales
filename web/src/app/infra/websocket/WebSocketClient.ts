@@ -37,6 +37,10 @@ export class WebSocketClient {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private heartbeatIntervalMs = 30000; // 30秒
   private isConnecting = false; // 防止重复连接
+  private connectPromiseResolve: ((connectionId: string) => void) | null = null;
+  private connectPromiseReject: ((error: Error) => void) | null = null;
+  private connectTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  private readonly connectTimeoutMs = 15000;
 
   // 事件回调
   private onConnectedCallback?: (data: WebSocketResponse) => void;
@@ -50,6 +54,50 @@ export class WebSocketClient {
     private sessionType: 'person' | 'group' = 'person',
     private token?: string,
   ) {}
+
+  private buildWebSocketUrl(): string {
+    const path = `/api/v1/pipelines/${this.pipelineId}/ws/connect?session_type=${this.sessionType}`;
+    const apiBase = import.meta.env.VITE_API_BASE_URL as string | undefined;
+
+    if (typeof window !== 'undefined') {
+      if (apiBase) {
+        const base = new URL(apiBase, window.location.origin);
+        const protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${base.host}${path}`;
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${window.location.host}${path}`;
+    }
+
+    return path;
+  }
+
+  private clearConnectPromise(error?: Error) {
+    if (this.connectTimeoutId) {
+      clearTimeout(this.connectTimeoutId);
+      this.connectTimeoutId = null;
+    }
+
+    if (error) {
+      this.connectPromiseReject?.(error);
+    }
+
+    this.connectPromiseResolve = null;
+    this.connectPromiseReject = null;
+  }
+
+  private resolveConnect(connectionId: string) {
+    if (this.connectTimeoutId) {
+      clearTimeout(this.connectTimeoutId);
+      this.connectTimeoutId = null;
+    }
+
+    this.connectionId = connectionId;
+    this.connectPromiseResolve?.(connectionId);
+    this.connectPromiseResolve = null;
+    this.connectPromiseReject = null;
+  }
 
   /**
    * 连接到WebSocket服务器
@@ -75,17 +123,21 @@ export class WebSocketClient {
         }
 
         this.isConnecting = true;
+        this.connectPromiseResolve = resolve;
+        this.connectPromiseReject = reject;
 
-        // 构建WebSocket URL
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // extract host from import.meta.env.VITE_API_BASE_URL
-        // If env var is undefined, use current page host (for production)
-        const host =
-          import.meta.env.VITE_API_BASE_URL?.split('://')[1] ||
-          window.location.host;
-        const url = `${protocol}//${host}/api/v1/pipelines/${this.pipelineId}/ws/connect?session_type=${this.sessionType}`;
-
+        const url = this.buildWebSocketUrl();
         this.ws = new WebSocket(url);
+
+        this.connectTimeoutId = setTimeout(() => {
+          if (!this.connectionId) {
+            const timeoutError = new Error('WebSocket connection timeout');
+            this.isConnecting = false;
+            this.onErrorCallback?.(timeoutError);
+            this.clearConnectPromise(timeoutError);
+            this.ws?.close();
+          }
+        }, this.connectTimeoutMs);
 
         // 连接打开
         this.ws.onopen = () => {
@@ -102,8 +154,7 @@ export class WebSocketClient {
 
             // 第一次连接成功
             if (data.type === 'connected' && data.connection_id) {
-              this.connectionId = data.connection_id;
-              resolve(data.connection_id);
+              this.resolveConnect(data.connection_id);
             }
           } catch (error) {
             console.error('解析WebSocket消息失败:', error);
@@ -115,6 +166,11 @@ export class WebSocketClient {
         this.ws.onclose = () => {
           this.isConnecting = false;
           this.stopHeartbeat();
+          if (!this.connectionId) {
+            this.clearConnectPromise(new Error('WebSocket closed before connected'));
+          } else {
+            this.clearConnectPromise();
+          }
           this.onCloseCallback?.();
 
           // 自动重连
@@ -132,10 +188,11 @@ export class WebSocketClient {
           this.isConnecting = false;
           const error = new Error('WebSocket连接失败');
           this.onErrorCallback?.(error);
-          reject(error);
+          this.clearConnectPromise(error);
         };
       } catch (error) {
         this.isConnecting = false;
+        this.clearConnectPromise(error as Error);
         reject(error);
       }
     });
@@ -254,11 +311,12 @@ export class WebSocketClient {
    * 断开连接
    */
   public disconnect() {
+    // 停止自动重连
+    this.reconnectAttempts = this.maxReconnectAttempts;
+    this.clearConnectPromise(new Error('WebSocket disconnected'));
+
     if (this.ws) {
       this.stopHeartbeat();
-
-      // 停止自动重连
-      this.reconnectAttempts = this.maxReconnectAttempts;
 
       // 发送断开消息
       if (this.ws.readyState === WebSocket.OPEN) {

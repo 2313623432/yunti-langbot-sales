@@ -119,7 +119,7 @@ class PipelineService:
 
     async def update_pipeline(self, pipeline_uuid: str, pipeline_data: dict) -> None:
         pipeline_data = pipeline_data.copy()
-        for protected_field in ('uuid', 'for_version', 'stages', 'is_default'):
+        for protected_field in ('uuid', 'for_version', 'stages', 'is_default', 'is_builtin', 'created_at', 'updated_at'):
             pipeline_data.pop(protected_field, None)
 
         await self.ap.persistence_mgr.execute_async(

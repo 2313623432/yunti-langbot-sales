@@ -416,16 +416,27 @@ class PipelineManager:
         for pipeline in pipelines:
             await self.load_pipeline(pipeline)
 
+    @staticmethod
+    def _coerce_legacy_pipeline_entity(
+        pipeline_entity: persistence_pipeline.LegacyPipeline
+        | sqlalchemy.Row[persistence_pipeline.LegacyPipeline]
+        | dict,
+    ) -> persistence_pipeline.LegacyPipeline:
+        if isinstance(pipeline_entity, sqlalchemy.Row):
+            return persistence_pipeline.LegacyPipeline(**pipeline_entity._mapping)
+        if isinstance(pipeline_entity, dict):
+            valid_keys = persistence_pipeline.LegacyPipeline.__table__.columns.keys()
+            filtered = {key: value for key, value in pipeline_entity.items() if key in valid_keys}
+            return persistence_pipeline.LegacyPipeline(**filtered)
+        return pipeline_entity
+
     async def load_pipeline(
         self,
         pipeline_entity: persistence_pipeline.LegacyPipeline
         | sqlalchemy.Row[persistence_pipeline.LegacyPipeline]
         | dict,
     ):
-        if isinstance(pipeline_entity, sqlalchemy.Row):
-            pipeline_entity = persistence_pipeline.LegacyPipeline(**pipeline_entity._mapping)
-        elif isinstance(pipeline_entity, dict):
-            pipeline_entity = persistence_pipeline.LegacyPipeline(**pipeline_entity)
+        pipeline_entity = self._coerce_legacy_pipeline_entity(pipeline_entity)
 
         coerce_pipeline_config(
             pipeline_entity.config,

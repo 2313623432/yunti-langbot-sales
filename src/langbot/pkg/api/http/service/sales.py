@@ -14,6 +14,57 @@ from ....entity.persistence import monitoring as persistence_monitoring
 from ....entity.persistence import sales as persistence_sales
 
 
+YUANFUDAO_CATALOG_PRODUCTS = [
+    {
+        'uuid': 'yuanfudao-phonics-course',
+        'product_line': '猿辅导',
+        'profile_key': 'phonics',
+        'keywords': ['英语', '自然拼读', '拼读', '发音', '单词', '绘本', '口语', '听音能写', '见词能读'],
+        'name': '猿辅导英语自然拼读体验课',
+        'category': '自然拼读',
+        'price': '9元体验',
+        'link': '',
+        'description': (
+            '猿辅导英语自然拼读体验课/自然拼读集训营，5天10节课，'
+            '适合大班至小学4年级，帮助孩子掌握自然拼读、口语发音和拼读规则。'
+        ),
+        'selling_points': [
+            '见词能拼、听音能写',
+            '用拼读方法替代死记硬背',
+            '5次绘本阅读实践、180次开口练习',
+            '3年内无限次回放',
+        ],
+        'pain_points': ['孩子英语发音和拼读基础弱', '家长不知道图书资源怎么用', '家长担心时间冲突'],
+        'objections': ['不买/考虑', '和其他课冲突', '没时间', '孩子年级不确定'],
+        'audience': ['大班至小学4年级家长', '自然拼读启蒙需求', '图书扫码资源用户'],
+        'enabled': True,
+    },
+    {
+        'uuid': 'yuanfudao-reading-thinking-course',
+        'product_line': '猿辅导',
+        'profile_key': 'reading_thinking',
+        'keywords': ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通', '读写'],
+        'name': '猿辅导阅读+思维特训营',
+        'category': '阅读+思维',
+        'price': '9元体验',
+        'link': '',
+        'description': (
+            '猿辅导阅读+思维特训营，390分钟名师直播精讲，'
+            '主要解决阅读没头绪、作文凑字数、数学难变通和常马虎等问题。'
+        ),
+        'selling_points': [
+            '数学思维体系搭建',
+            '阅读写作高频技巧',
+            '1次双科测评、150次精练与带练',
+            '从底层逻辑提升复杂题理解与表达',
+        ],
+        'pain_points': ['阅读没头绪', '作文凑字数', '数学难变通', '做题常马虎'],
+        'objections': ['不确定适不适合', '和其他课冲突', '孩子没时间'],
+        'audience': ['小学阶段家长', '阅读写作需要提升的孩子', '数学思维需要提升的孩子'],
+        'enabled': True,
+    },
+]
+
 DEFAULT_SALES_PRODUCTS = [
     {
         'uuid': 'sales-ai-assistant',
@@ -193,24 +244,72 @@ class SalesService:
             except sqlalchemy.exc.IntegrityError:
                 continue
 
-    async def get_products(self, enabled_only: bool = False) -> list[dict[str, Any]]:
+    async def ensure_catalog_products(self) -> None:
         await self.ensure_default_products()
+        for product in YUANFUDAO_CATALOG_PRODUCTS:
+            result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_sales.SalesProduct).where(
+                    persistence_sales.SalesProduct.uuid == product['uuid']
+                )
+            )
+            row = result.first()
+            if row is None:
+                try:
+                    await self.ap.persistence_mgr.execute_async(
+                        sqlalchemy.insert(persistence_sales.SalesProduct).values(product)
+                    )
+                except sqlalchemy.exc.IntegrityError:
+                    continue
+                continue
+            updates = {
+                key: product[key]
+                for key in ('product_line', 'profile_key', 'keywords', 'name', 'category', 'price', 'description')
+                if product.get(key) and getattr(row, key, None) in (None, '', [])
+            }
+            if updates:
+                updates['updated_at'] = datetime.datetime.now()
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.update(persistence_sales.SalesProduct)
+                    .where(persistence_sales.SalesProduct.uuid == product['uuid'])
+                    .values(**updates)
+                )
+
+    async def get_products(self, enabled_only: bool = False) -> list[dict[str, Any]]:
+        await self.ensure_catalog_products()
         query = sqlalchemy.select(persistence_sales.SalesProduct).order_by(persistence_sales.SalesProduct.created_at.desc())
         if enabled_only:
             query = query.where(persistence_sales.SalesProduct.enabled.is_(True))
         result = await self.ap.persistence_mgr.execute_async(query)
         return [self._serialize(persistence_sales.SalesProduct, row) for row in result.all()]
 
+    async def get_product(self, product_uuid: str) -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesProduct).where(
+                persistence_sales.SalesProduct.uuid == product_uuid
+            )
+        )
+        row = result.first()
+        if row is None:
+            raise ValueError('Product not found')
+        return self._serialize(persistence_sales.SalesProduct, row)
+
     async def create_product(self, data: dict[str, Any]) -> str:
+        name = str(data.get('name') or '').strip()
+        if not name:
+            raise ValueError('Product name is required')
         product = self._clean_product_payload(data)
+        product['name'] = name
         product['uuid'] = data.get('uuid') or str(uuid.uuid4())
         await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_sales.SalesProduct).values(product))
         return product['uuid']
 
     async def update_product(self, product_uuid: str, data: dict[str, Any]) -> None:
         payload = self._clean_product_payload(data, partial=True)
+        if 'name' in payload and not str(payload['name']).strip():
+            raise ValueError('Product name is required')
         if not payload:
             return
+        payload['updated_at'] = datetime.datetime.now()
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.update(persistence_sales.SalesProduct)
             .where(persistence_sales.SalesProduct.uuid == product_uuid)
@@ -218,6 +317,9 @@ class SalesService:
         )
 
     async def delete_product(self, product_uuid: str) -> None:
+        existing = await self.get_product(product_uuid)
+        if existing is None:
+            raise ValueError('Product not found')
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.delete(persistence_sales.SalesProduct).where(persistence_sales.SalesProduct.uuid == product_uuid)
         )
@@ -698,6 +800,9 @@ class SalesService:
     def _clean_product_payload(self, data: dict[str, Any], partial: bool = False) -> dict[str, Any]:
         fields = {
             'name',
+            'product_line',
+            'profile_key',
+            'keywords',
             'category',
             'price',
             'link',
@@ -709,11 +814,14 @@ class SalesService:
             'enabled',
         }
         payload = {k: data[k] for k in fields if k in data}
-        for key in ('selling_points', 'pain_points', 'objections', 'audience'):
+        for key in ('selling_points', 'pain_points', 'objections', 'audience', 'keywords'):
             if key in payload:
                 payload[key] = self._to_list(payload[key])
         if not partial:
             payload.setdefault('name', '未命名产品')
+            payload.setdefault('product_line', '')
+            payload.setdefault('profile_key', '')
+            payload.setdefault('keywords', [])
             payload.setdefault('category', '')
             payload.setdefault('price', '')
             payload.setdefault('link', '')
