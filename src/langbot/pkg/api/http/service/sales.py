@@ -827,7 +827,8 @@ class SalesService:
         return f'{base_url}{path}/{token}'
 
     def radar_tracking_public_base_url(self) -> str:
-        instance_config = getattr(self.ap, 'instance_config', {}) or {}
+        cfg_mgr = getattr(self.ap, 'instance_config', None)
+        instance_config = cfg_mgr.data if cfg_mgr is not None and hasattr(cfg_mgr, 'data') else {}
         sales_cfg = instance_config.get('sales') if isinstance(instance_config.get('sales'), dict) else {}
         api_cfg = instance_config.get('api') if isinstance(instance_config.get('api'), dict) else {}
         for candidate in (

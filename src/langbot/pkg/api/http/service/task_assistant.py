@@ -1159,7 +1159,7 @@ class TaskAssistantService:
                 'screenshot_help',
                 0.9,
                 '用户发送了截图，需要识别支付、报名、链接异常或资源页面卡点',
-                step_ids=['gift_qr'],
+                step_ids=[],
                 selected_profile=selected_profile,
             )
         if self._mentions_purchase_confirmation(normalized):
@@ -1207,7 +1207,7 @@ class TaskAssistantService:
                     selected_profile=selected_profile,
                 )
         if self._has_voice(message_chain):
-            return self._course_intent('course_intro', 0.76, '用户发送语音，按课程客服文字短句承接', step_ids=['gift_poster'], selected_profile=selected_profile)
+            return self._course_intent('course_intro', 0.76, '用户发送语音，按课程客服文字短句承接', step_ids=[], selected_profile=selected_profile)
         if any(keyword in normalized for keyword in ['报名', '购买', '怎么买', '要买', '链接', '领取']):
             return self._course_intent('purchase', 0.8, '用户咨询报名或购买方式', step_ids=[], include_link=True, selected_profile=selected_profile)
         if any(keyword in normalized for keyword in ['不回复', '没人', '没回']):
@@ -1228,7 +1228,7 @@ class TaskAssistantService:
                 step_ids=['gift_poster'],
                 selected_profile=selected_profile,
             )
-        return self._course_intent('course_intro', 0.64, '默认按自然拼读课程介绍承接', step_ids=['gift_poster'], selected_profile=selected_profile)
+        return self._course_intent('course_intro', 0.64, '默认按自然拼读课程介绍承接', step_ids=[], selected_profile=selected_profile)
 
     def _course_step_for_intent(self, intent: str) -> str:
         if intent in {'purchase', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
@@ -2208,11 +2208,77 @@ class TaskAssistantService:
         await self._ensure_template_pipeline()
         await self._ensure_course_sales_template_pipeline()
         await self._ensure_yuanfudao_enhanced_template_pipeline()
+        await self._ensure_builtin_pipeline_default_models()
         await self._ensure_course_sales_product()
         await self._ensure_course_sales_outreach_for_chatted_users()
 
     async def ensure_knowledge_resources(self) -> None:
         await self._ensure_yuanfudao_sales_knowledge_base()
+
+    async def _get_first_configured_text_model_uuid(self) -> str:
+        model_service = getattr(self.ap, 'llm_model_service', None)
+        if model_service is None:
+            self.ap.logger.warning('[DefaultModel] llm_model_service not available')
+            return ''
+        try:
+            models = await model_service.get_llm_models(
+                include_secret=False,
+                include_space_models=False,
+                include_system_models=False,
+                only_configured_providers=True,
+                model_category='text',
+            )
+        except Exception as e:
+            self.ap.logger.warning('[DefaultModel] Failed to query models: %s', e)
+            return ''
+        if models:
+            uuid = str(models[0].get('uuid') or '')
+            self.ap.logger.info('[DefaultModel] Found %d configured text models, using first: %s', len(models), uuid)
+            return uuid
+        self.ap.logger.info('[DefaultModel] No configured text models found')
+        return ''
+
+    async def _ensure_builtin_pipeline_default_models(self) -> None:
+        pipeline_uuids = [
+            TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID,
+            COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+            YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
+        ]
+        default_model_uuid = ''
+        for pipeline_uuid in pipeline_uuids:
+            result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                    persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
+                )
+            )
+            pipeline = result.first()
+            if pipeline is None:
+                self.ap.logger.debug('[DefaultModel] Pipeline %s not found, skipping', pipeline_uuid)
+                continue
+            config = pipeline.config if isinstance(pipeline.config, dict) else {}
+            template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
+            current_model = str(template_config.get('model_uuid') or '')
+            if current_model:
+                self.ap.logger.debug('[DefaultModel] Pipeline %s already has model %s', pipeline_uuid, current_model)
+                continue
+            if not default_model_uuid:
+                default_model_uuid = await self._get_first_configured_text_model_uuid()
+            if not default_model_uuid:
+                self.ap.logger.info('[DefaultModel] No default model available, skipping pipeline defaults')
+                return
+            self.ap.logger.info('[DefaultModel] Setting default model %s for pipeline %s', default_model_uuid, pipeline_uuid)
+            template_config['model_uuid'] = default_model_uuid
+            ai_config = config.get('ai') if isinstance(config.get('ai'), dict) else {}
+            local_agent = ai_config.get('local-agent') if isinstance(ai_config.get('local-agent'), dict) else {}
+            local_agent['model'] = {'primary': default_model_uuid, 'fallbacks': []}
+            ai_config['local-agent'] = local_agent
+            config['ai'] = ai_config
+            config['template_config'] = template_config
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+                .where(persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid)
+                .values(config=config)
+            )
 
     async def _remove_seeded_workflow_mode_pipelines(self) -> None:
         pipeline_uuids = [
@@ -2267,13 +2333,14 @@ class TaskAssistantService:
         model_uuid: str = DEFAULT_ASSISTANT_MODEL_UUID,
         existing_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        config = self.build_pipeline_config(
-            model_uuid=model_uuid,
-            existing_config=existing_config,
-        )
         existing_template = existing_config.get('template_config') if isinstance(existing_config, dict) else {}
         template_config = self.build_template_config(
             overrides=existing_template if isinstance(existing_template, dict) else None,
+        )
+        effective_model_uuid = model_uuid or str(template_config.get('model_uuid') or '')
+        config = self.build_pipeline_config(
+            model_uuid=effective_model_uuid,
+            existing_config=existing_config,
         )
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else None
         config['config_mode'] = 'template'
@@ -2813,8 +2880,9 @@ class TaskAssistantService:
             overrides=existing_template if isinstance(existing_template, dict) else None,
             template_slug=template_slug,
         )
+        effective_model_uuid = model_uuid or str(template_config.get('model_uuid') or '')
         config = self.build_course_sales_pipeline_config(
-            model_uuid=model_uuid,
+            model_uuid=effective_model_uuid,
             existing_config=existing_config,
             template_slug=template_slug,
             template_config=template_config,
@@ -2948,7 +3016,8 @@ class TaskAssistantService:
             elif isinstance(loaded_value, list) and loaded_value:
                 template_config[key] = copy.deepcopy(loaded_value)
             elif key == 'model_uuid' and loaded_value is not None:
-                template_config[key] = str(loaded_value)
+                if str(loaded_value):
+                    template_config[key] = str(loaded_value)
         loaded_metadata = loaded_template.get('metadata')
         if isinstance(loaded_metadata, dict):
             current_metadata = template_config.get('metadata') if isinstance(template_config.get('metadata'), dict) else {}
@@ -3251,7 +3320,7 @@ class TaskAssistantService:
             'enabled': True,
             'model_uuid': COURSE_SALES_TTS_MODEL_UUID,
             'voice_type': COURSE_SALES_TTS_VOICE_TYPE,
-            'encoding': 'mp3',
+            'encoding': 'ogg_opus',
         }
         asr = {
             'provider': 'volcengine',
@@ -3543,11 +3612,11 @@ class TaskAssistantService:
             'token': os.getenv('LANGBOT_TASK_ASSISTANT_VOLC_TTS_TOKEN', ''),
             'cluster': 'seed-tts-2.0',
             'voice_type': COURSE_SALES_TTS_VOICE_TYPE,
-            'encoding': 'mp3',
+            'encoding': 'ogg_opus',
         }
         if voice_overrides:
             for key, value in voice_overrides.items():
-                if value is not None:
+                if value is not None and key != 'encoding':
                     voice_config[key] = value
 
         nodes = [
