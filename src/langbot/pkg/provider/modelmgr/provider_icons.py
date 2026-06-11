@@ -27,6 +27,10 @@ BUILTIN_PROVIDER_ICON_FILES: dict[str, str] = {
     'lnv-doubao': 'doubao.svg',
     'lnv-elevenlabs': 'elevenlabs.svg',
     'lnv-browser': 'browser.svg',
+    # ASR
+    'lna-doubao': 'doubao.svg',
+    'lna-qwen': 'qwen.svg',
+    'lna-openai': 'openai.svg',
     # Embedding
     'lne-openai': 'openai.svg',
     'lne-zhipu': 'zhipu.svg',

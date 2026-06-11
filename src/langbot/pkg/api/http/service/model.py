@@ -8,8 +8,10 @@ from langbot_plugin.api.entities.builtin.provider import message as provider_mes
 from ....core import app
 from ....entity.persistence import model as persistence_model
 from ....entity.persistence import pipeline as persistence_pipeline
+from ....provider.modelmgr import asr_invoke
 from ....provider.modelmgr import builtin_registry
 from ....provider.modelmgr import requester as model_requester
+from ....provider.modelmgr import tts_invoke
 
 
 SYSTEM_SEEDED_PROVIDER_UUIDS = {'task-assistant-bailian-provider'}
@@ -21,6 +23,13 @@ def _is_voice_only_model(model_data: dict) -> bool:
     if not isinstance(abilities, list):
         return False
     return 'tts' in abilities and all(ability == 'tts' for ability in abilities)
+
+
+def _is_asr_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'asr' in abilities and all(ability == 'asr' for ability in abilities)
 
 
 def _is_pdf_only_model(model_data: dict) -> bool:
@@ -38,10 +47,16 @@ def _matches_model_category(model_data: dict, model_category: str | None) -> boo
         abilities = []
     if model_category == 'voice':
         return 'tts' in abilities
+    if model_category == 'asr':
+        return 'asr' in abilities
     if model_category == 'pdf':
         return 'pdf_parse' in abilities
     if model_category == 'text':
-        return not _is_voice_only_model(model_data) and not _is_pdf_only_model(model_data)
+        return (
+            not _is_voice_only_model(model_data)
+            and not _is_pdf_only_model(model_data)
+            and not _is_asr_only_model(model_data)
+        )
     return True
 
 
@@ -172,7 +187,9 @@ class LLMModelsService:
         )
         self.ap.model_mgr.llm_models.append(runtime_llm_model)
 
-        if auto_set_to_default_pipeline and not _is_voice_only_model(model_data) and not _is_pdf_only_model(model_data):
+        if auto_set_to_default_pipeline and not _is_voice_only_model(model_data) and not _is_pdf_only_model(
+            model_data
+        ) and not _is_asr_only_model(model_data):
             # set the default pipeline model to this model
             result = await self.ap.persistence_mgr.execute_async(
                 sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
@@ -260,7 +277,7 @@ class LLMModelsService:
         )
         await self.ap.model_mgr.remove_llm_model(model_uuid)
 
-    async def test_llm_model(self, model_uuid: str, model_data: dict) -> None:
+    async def test_llm_model(self, model_uuid: str, model_data: dict) -> dict | None:
         """Test an LLM model"""
         runtime_llm_model: model_requester.RuntimeLLMModel | None = None
 
@@ -274,6 +291,18 @@ class LLMModelsService:
         else:
             runtime_llm_model = await self.ap.model_mgr.init_temporary_runtime_llm_model(model_data)
 
+        abilities = model_data.get('abilities')
+        if not isinstance(abilities, list):
+            abilities = list(runtime_llm_model.model_entity.abilities or [])
+        if _is_voice_only_model({'abilities': abilities}):
+            await self._test_tts_model(runtime_llm_model, model_data)
+            return None
+        if _is_asr_only_model({'abilities': abilities}):
+            text = await self._test_asr_model(runtime_llm_model, model_data)
+            if not text:
+                raise Exception('ASR test failed: no transcription returned')
+            return {'transcription': text}
+
         extra_args = model_data.get('extra_args', {})
         await runtime_llm_model.provider.invoke_llm(
             query=None,
@@ -282,6 +311,71 @@ class LLMModelsService:
             funcs=[],
             extra_args=extra_args,
         )
+        return None
+
+    async def _test_tts_model(
+        self,
+        runtime_llm_model: model_requester.RuntimeLLMModel,
+        model_data: dict,
+    ) -> None:
+        extra_args = model_data.get('extra_args', {})
+        if not isinstance(extra_args, dict):
+            extra_args = dict(runtime_llm_model.model_entity.extra_args or {})
+
+        provider_entity = runtime_llm_model.provider.provider_entity
+        model_name = str(model_data.get('name') or runtime_llm_model.model_entity.name or '').strip()
+        voice_config = tts_invoke.apply_provider_api_keys(
+            {
+                'requester': provider_entity.requester or '',
+                'provider': extra_args.get('provider') or provider_entity.requester or '',
+                'model': model_name,
+                'base_url': provider_entity.base_url or '',
+                'voice_type': extra_args.get('voice_type') or extra_args.get('default_voice_type') or 'Cherry',
+                'language_type': extra_args.get('language_type') or 'Chinese',
+                'encoding': extra_args.get('encoding') or 'wav',
+                **extra_args,
+            },
+            requester=provider_entity.requester or '',
+            api_keys=runtime_llm_model.provider.token_mgr.tokens,
+        )
+        tts_config = tts_invoke.build_tts_invoke_config(
+            voice_config,
+            '你好，这是一条语音合成测试。',
+        )
+        audio_base64 = await tts_invoke.invoke_tts(tts_config, logger=self.ap.logger)
+        if not audio_base64:
+            raise Exception('TTS test failed: no audio returned')
+
+    async def _test_asr_model(
+        self,
+        runtime_llm_model: model_requester.RuntimeLLMModel,
+        model_data: dict,
+    ) -> str:
+        extra_args = model_data.get('extra_args', {})
+        if not isinstance(extra_args, dict):
+            extra_args = dict(runtime_llm_model.model_entity.extra_args or {})
+
+        provider_entity = runtime_llm_model.provider.provider_entity
+        model_name = str(model_data.get('name') or runtime_llm_model.model_entity.name or '').strip()
+        asr_config = asr_invoke.apply_provider_api_keys(
+            {
+                'requester': provider_entity.requester or '',
+                'provider': extra_args.get('provider') or provider_entity.requester or '',
+                'model': model_name,
+                'base_url': provider_entity.base_url or '',
+                'audio_base64': model_data.get('test_audio_base64') or model_data.get('audio_base64') or '',
+                'audio_url': model_data.get('test_audio_url') or extra_args.get('sample_audio_url') or '',
+                'language_type': extra_args.get('language_type') or 'Chinese',
+                **extra_args,
+            },
+            requester=provider_entity.requester or '',
+            api_keys=runtime_llm_model.provider.token_mgr.tokens,
+        )
+        config = asr_invoke.build_asr_invoke_config(asr_config)
+        text = await asr_invoke.invoke_asr(config, logger=self.ap.logger)
+        if not text:
+            raise Exception('ASR test failed: no transcription returned')
+        return text
 
 
 class EmbeddingModelsService:

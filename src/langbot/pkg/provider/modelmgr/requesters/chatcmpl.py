@@ -93,6 +93,13 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
             'ocr',
             'omni',
         )
+        audio_keywords = (
+            'audio',
+            'speech',
+            'asr',
+            'voice',
+            'omni',
+        )
         function_call_keywords = (
             'function',
             'tool',
@@ -105,6 +112,14 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
 
         if any(any(keyword in token for keyword in vision_keywords) for token in combined_tokens):
             abilities.add('vision')
+
+        input_modalities = self._normalize_modalities(item.get('input_modalities'))
+        if not input_modalities:
+            input_modalities = self._normalize_modalities(item.get('inputModalities'))
+        if 'audio' in input_modalities:
+            abilities.add('audio')
+        elif any(any(keyword in token for keyword in audio_keywords) for token in combined_tokens):
+            abilities.add('audio')
 
         if any(any(keyword in token for keyword in function_call_keywords) for token in combined_tokens):
             abilities.add('func_call')

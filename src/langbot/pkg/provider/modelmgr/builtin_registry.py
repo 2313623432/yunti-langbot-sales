@@ -5,6 +5,7 @@ from langbot.pkg.provider.modelmgr import builtin_provider_common
 
 def _catalog_lookup() -> dict[str, dict]:
     from langbot.pkg.provider.modelmgr import (
+        builtin_asr_providers,
         builtin_embedding_providers,
         builtin_pdf_providers,
         builtin_text_providers,
@@ -21,6 +22,14 @@ def _catalog_lookup() -> dict[str, dict]:
             'provider_kind': 'text',
         }
     for spec in builtin_tts_providers.BUILTIN_TTS_PROVIDER_SPECS:
+        lookup[spec.uuid] = {
+            'protocol': spec.protocol,
+            'api_key_required': spec.api_key_required,
+            'required_api_key_count': spec.required_api_key_count,
+            'sort_order': spec.sort_order,
+            'provider_kind': spec.provider_kind,
+        }
+    for spec in builtin_asr_providers.BUILTIN_ASR_PROVIDER_SPECS:
         lookup[spec.uuid] = {
             'protocol': spec.protocol,
             'api_key_required': spec.api_key_required,

@@ -112,12 +112,13 @@ def test_template_config_editor_supports_direct_image_upload_and_expanded_contro
     assert 'useSidebarData' in template_source
     assert 'knowledgeBases.map' in template_source
     assert 'getSalesProducts' in template_source
-    assert 'salesProducts.map' in template_source
+    assert 'groupProductsByLine(salesProducts)' in template_source
+    assert 'group.products.map' in template_source
     assert 'toggleTemplateListValue' in template_source
     assert '雷达跟进' in template_source
     assert 'interaction_radar' in template_source
     assert 'link_url' in template_source
-    assert '自动跟进链接' in template_source
+    assert '客户可点击的链接' in template_source
     assert 'patchStringList' not in template_source
     assert 'selectedConfigMode' not in form_source
     assert "selectedConfigMode === 'template'" not in form_source
@@ -143,9 +144,13 @@ def test_template_model_capability_uses_configured_llm_model_select():
     assert "include_system_models: false" in template_source
     assert "model_category: 'text'" in template_source
     assert "model_category: 'voice'" in template_source
+    assert "model_category: 'asr'" in template_source
     assert 'chatLlmModels' in model_settings
     assert 'voiceModels' in model_settings
+    assert 'asrModels' in model_settings
     assert 'handleVoiceModelChange' in model_settings
+    assert 'handleAsrModelChange' in model_settings
+    assert 'patchAsr' in template_source
     assert 'voiceToneOptionsFromModel' in template_source
     assert 'model_uuid' in model_settings
     assert "space-chat-completions" in template_source
@@ -161,6 +166,8 @@ def test_template_model_capability_uses_configured_llm_model_select():
     assert 'response_diversity' in template_source
     assert '语音回复模型' in model_settings
     assert '语音模型' in model_settings
+    assert 'pipelines.templateConfig.asrModelSectionTitle' in model_settings
+    assert 'pipelines.templateConfig.asrModelLabel' in model_settings
     assert '选择音色' in model_settings
     assert '自定义音色 ID' not in model_settings
     assert '音频编码' not in model_settings
@@ -189,10 +196,24 @@ def test_model_configuration_can_mark_llm_models_as_tts_capable():
 
     assert 'ttsAbility' in add_model_source
     assert 'ttsAbility' in model_item_source
-    assert "toggleAbility('tts', checked as boolean)" in add_model_source
     assert re.search(r"toggleScannedModelAbility\(\s*model\.id,\s*'tts'", add_model_source)
     assert re.search(r"abilities\?\.includes\('tts'\)", model_item_source)
-    assert "editAbilities.includes('tts')" in model_item_source
+
+
+def test_model_configuration_supports_asr_models():
+    add_model_source = ADD_MODEL_POPOVER_PATH.read_text(encoding='utf-8')
+    model_item_source = MODEL_ITEM_PATH.read_text(encoding='utf-8')
+    models_dialog_source = MODELS_DIALOG_PATH.read_text(encoding='utf-8')
+
+    assert 'asrAbility' in add_model_source
+    assert 'asrAbility' in model_item_source
+    assert 'asrCategory' in models_dialog_source
+    assert 'test_audio_base64' in models_dialog_source
+    assert 'asrTestStart' in models_dialog_source
+    assert re.search(r"toggleScannedModelAbility\(\s*model\.id,\s*'asr'", add_model_source)
+    assert re.search(r"abilities\?\.includes\('asr'\)", model_item_source)
+    assert "modelCategory === 'asr'" in models_dialog_source
+    assert "Array.from(new Set([...abilities, 'asr']))" in models_dialog_source
 
 
 def test_image_file_keys_preserve_path_segments_for_preview_urls():
@@ -284,15 +305,11 @@ def test_agent_radar_tab_removes_duplicate_interaction_radar_controls():
         r'function renderRadarSettings\(\) \{([\s\S]+?)\n  function renderPushSettings',
         template_source,
     ).group(1)
-    preview_panel = re.search(
-        r'<div className="min-h-\[460px\][\s\S]+?\n\s+\{enabledImageBindings\[0\]',
-        template_source,
-    ).group(0)
 
     assert '启用互动雷达' not in radar_settings
     assert '点击后 AI 行为回复' not in radar_settings
     assert 'value={config.interaction_radar.link_url}' not in radar_settings
-    assert '互动雷达链接' not in preview_panel
+    assert '互动雷达链接' not in template_source
     assert '雷达总开关' in radar_settings
     assert '客户可点击的链接' in radar_settings
     assert '点击后的自动跟进' in radar_settings
@@ -428,7 +445,7 @@ def test_standalone_workflow_templates_preserve_digital_employee_nodes():
         'image_import_identity',
     ]
     for node_id in task_node_ids:
-        assert f"id: '{node_id}'" in source or f"`step_${{step.id}}`" in source
+        assert f"id: '{node_id}'" in source or "`step_${step.id}`" in source
 
     course_node_ids = [
         'opening_message',
@@ -444,7 +461,7 @@ def test_standalone_workflow_templates_preserve_digital_employee_nodes():
         'image_gift_qr',
     ]
     for node_id in course_node_ids:
-        assert f"id: '{node_id}'" in source or f"`image_${{binding.step_id}}`" in source
+        assert f"id: '{node_id}'" in source or "`image_${binding.step_id}`" in source
 
     assert 'course-sales/phonics/gift_poster.jpeg' in source
     assert 'course-sales/phonics/gift_qr.jpeg' in source

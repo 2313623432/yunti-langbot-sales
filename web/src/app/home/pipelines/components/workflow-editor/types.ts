@@ -169,6 +169,11 @@ export interface PipelineTemplateConfig {
     voice_type: string;
     encoding: string;
   };
+  asr: {
+    model_uuid?: string;
+    provider: string;
+    fallback_text: string;
+  };
   scheduled_push: {
     enabled: boolean;
     mode: 'daily' | 'single_day';

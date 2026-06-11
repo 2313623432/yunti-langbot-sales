@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Trash2, Eye, Wrench, Volume2, Check } from 'lucide-react';
+import { Trash2, Eye, Wrench, Volume2, Mic, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -155,6 +155,10 @@ export default function ModelItem({
     modelType === 'llm' &&
     (model as LLMModel).abilities?.includes('tts') &&
     ((model as LLMModel).abilities || []).every((ability) => ability === 'tts');
+  const isAsrOnlyModel =
+    modelType === 'llm' &&
+    (model as LLMModel).abilities?.includes('asr') &&
+    ((model as LLMModel).abilities || []).every((ability) => ability === 'asr');
 
   return (
     <Popover
@@ -190,7 +194,9 @@ export default function ModelItem({
               {modelType === 'llm'
                 ? isVoiceOnlyModel
                   ? t('models.ttsAbility')
-                  : t('models.chat')
+                  : isAsrOnlyModel
+                    ? t('models.asrAbility')
+                    : t('models.chat')
                 : modelType === 'embedding'
                   ? t('models.embedding')
                   : t('models.rerank')}
@@ -211,6 +217,12 @@ export default function ModelItem({
               (model as LLMModel).abilities?.includes('tts') && (
                 <Badge variant="outline" className="text-xs gap-1">
                   <Volume2 className="h-3 w-3" />
+                </Badge>
+              )}
+            {modelType === 'llm' &&
+              (model as LLMModel).abilities?.includes('asr') && (
+                <Badge variant="outline" className="text-xs gap-1">
+                  <Mic className="h-3 w-3" />
                 </Badge>
               )}
           </div>

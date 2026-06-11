@@ -7,6 +7,7 @@ import {
   Eye,
   Wrench,
   Volume2,
+  Mic,
   Check,
   RefreshCw,
 } from 'lucide-react';
@@ -42,6 +43,7 @@ interface AddModelPopoverProps {
   initialMode?: 'manual' | 'scan';
   defaultModelType?: ModelType;
   lockedModelType?: ModelType;
+  defaultAbilities?: string[];
   trigger?: React.ReactNode;
   onOpen: () => void;
   onClose: () => void;
@@ -73,6 +75,7 @@ export default function AddModelPopover({
   initialMode = 'manual',
   defaultModelType = 'llm',
   lockedModelType,
+  defaultAbilities = [],
   trigger,
   onOpen,
   onClose,
@@ -113,7 +116,7 @@ export default function AddModelPopover({
       setName('');
       setAbilities([]);
       setExtraArgs([]);
-      setLlmFormValues(llmFormValuesFromModel('', []));
+      setLlmFormValues(llmFormValuesFromModel('', defaultAbilities));
       setScanLoading(false);
       setScannedModels([]);
       setSelectedScannedModels({});
@@ -545,6 +548,28 @@ export default function AddModelPopover({
                                         >
                                           <Volume2 className="h-3 w-3 inline mr-1" />
                                           {t('models.ttsAbility')}
+                                        </Label>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Checkbox
+                                          id={`scan-asr-${model.id}`}
+                                          checked={selectedAbilities.includes(
+                                            'asr',
+                                          )}
+                                          onCheckedChange={(checked) =>
+                                            toggleScannedModelAbility(
+                                              model.id,
+                                              'asr',
+                                              checked as boolean,
+                                            )
+                                          }
+                                        />
+                                        <Label
+                                          htmlFor={`scan-asr-${model.id}`}
+                                          className="text-sm"
+                                        >
+                                          <Mic className="h-3 w-3 inline mr-1" />
+                                          {t('models.asrAbility')}
                                         </Label>
                                       </div>
                                     </div>

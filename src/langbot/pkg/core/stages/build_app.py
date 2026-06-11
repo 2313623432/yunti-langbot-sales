@@ -144,6 +144,7 @@ class BuildAppStage(stage.BootingStage):
         await builtin_bootstrap.prune_removed_ollama_providers(ap)
         await llm_bootstrap.ensure_builtin_text_providers(ap)
 
+        await builtin_bootstrap.ensure_builtin_asr_providers(ap)
         await builtin_bootstrap.ensure_builtin_tts_providers(ap)
         await builtin_bootstrap.ensure_builtin_pdf_providers(ap)
         await embedding_bootstrap.ensure_default_embedding_model(ap)

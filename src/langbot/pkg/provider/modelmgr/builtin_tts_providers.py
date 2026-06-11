@@ -32,6 +32,31 @@ class BuiltinTTSProviderSpec:
     provider_kind: str = 'tts'
 
 
+QWEN3_TTS_VOICES: tuple[dict[str, str], ...] = (
+    {'value': 'Cherry', 'label': '芊悦 Cherry（阳光亲切）'},
+    {'value': 'Serena', 'label': 'Serena（温柔女声）'},
+    {'value': 'Ethan', 'label': '晨煦 Ethan（阳光男声）'},
+    {'value': 'Jennifer', 'label': '詹妮弗 Jennifer（美语女声）'},
+    {'value': 'Ryan', 'label': 'Ryan（节奏感男声）'},
+    {'value': 'Katerina', 'label': 'Katerina（俄语女声）'},
+    {'value': 'Elias', 'label': 'Elias（法语男声）'},
+    {'value': 'Sunny', 'label': 'Sunny（四川话女声）'},
+)
+
+
+def _qwen_tts_extra_args(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        'provider': 'dashscope-tts',
+        'voice_type': 'Cherry',
+        'default_voice_type': 'Cherry',
+        'language_type': 'Chinese',
+        'encoding': 'wav',
+        'voices': list(QWEN3_TTS_VOICES),
+    }
+    payload.update(overrides)
+    return payload
+
+
 def _model(
     provider_slug: str,
     model_slug: str,
@@ -95,9 +120,15 @@ BUILTIN_TTS_PROVIDER_SPECS: tuple[BuiltinTTSProviderSpec, ...] = (
         api_key_required=True,
         sort_order=40,
         models=(
-            _model('qwen', 'qwen3-tts-flash', 'qwen3-tts-flash', 'Qwen3 TTS Flash', provider='dashscope-tts'),
-            _model('qwen', 'qwen3-tts-instruct-flash', 'qwen3-tts-instruct-flash', 'Qwen3 TTS Instruct Flash', provider='dashscope-tts'),
-            _model('qwen', 'qwen-tts', 'qwen-tts', 'Qwen TTS', provider='dashscope-tts'),
+            _model('qwen', 'qwen3-tts-flash', 'qwen3-tts-flash', 'Qwen3 TTS Flash', **_qwen_tts_extra_args()),
+            _model(
+                'qwen',
+                'qwen3-tts-instruct-flash',
+                'qwen3-tts-instruct-flash',
+                'Qwen3 TTS Instruct Flash',
+                **_qwen_tts_extra_args(),
+            ),
+            _model('qwen', 'qwen-tts', 'qwen-tts', 'Qwen TTS', **_qwen_tts_extra_args()),
         ),
     ),
     BuiltinTTSProviderSpec(
@@ -120,21 +151,23 @@ BUILTIN_TTS_PROVIDER_SPECS: tuple[BuiltinTTSProviderSpec, ...] = (
     BuiltinTTSProviderSpec(
         uuid='lnv-doubao',
         name='豆包 TTS 2.0',
-        requester='volcengine-tts',
+        requester='openai-chat-completions',
         base_url='https://openspeech.bytedance.com',
         protocol='openai',
         api_key_required=True,
-        required_api_key_count=2,
+        required_api_key_count=1,
         sort_order=60,
         models=(
             _model(
                 'doubao',
-                'default',
-                'volcano_tts',
-                '豆包 TTS 2.0',
+                'seed-tts-2-0-standard',
+                'seed-tts-2.0-standard',
+                '豆包语音合成大模型 2.0 标准版',
                 provider='volcengine',
-                cluster='volcano_tts',
-                voice_type='zh_female_shuangkuaisisi_moon_bigtts',
+                resource_id='seed-tts-2.0',
+                voice_type='zh_female_vv_uranus_bigtts',
+                encoding='mp3',
+                streaming=True,
             ),
         ),
     ),

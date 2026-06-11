@@ -1,4 +1,4 @@
-export type ModelCategory = 'text' | 'voice' | 'embedding' | 'pdf';
+export type ModelCategory = 'text' | 'voice' | 'asr' | 'embedding' | 'pdf';
 
 const DASHSCOPE_TTS_PATH = '/services/aigc/multimodal-generation/generation';
 
@@ -134,6 +134,27 @@ export function resolvePdfRequestUrl(
   return rawBaseUrl;
 }
 
+export function resolveAsrRequestUrl(
+  requester: string,
+  baseUrl: string,
+): string {
+  const normalized = normalizeBaseUrl(baseUrl);
+  if (!normalized) return '-';
+
+  const requesterName = (requester || '').toLowerCase();
+  if (
+    requesterName === 'bailian-chat-completions' ||
+    requesterName === 'dashscope-asr' ||
+    normalized.includes('dashscope.aliyuncs.com')
+  ) {
+    return resolveDashscopeTtsUrl(normalized);
+  }
+  if (normalized.endsWith('/v1')) {
+    return `${normalized}/audio/transcriptions`;
+  }
+  return baseUrl;
+}
+
 export function providerRequestUrl(
   category: ModelCategory,
   requester: string,
@@ -144,6 +165,8 @@ export function providerRequestUrl(
   switch (category) {
     case 'voice':
       return resolveVoiceRequestUrl(requester, baseUrl);
+    case 'asr':
+      return resolveAsrRequestUrl(requester, baseUrl);
     case 'embedding':
       return resolveEmbeddingRequestUrl(requester, baseUrl);
     case 'pdf':

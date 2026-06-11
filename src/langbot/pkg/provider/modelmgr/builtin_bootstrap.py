@@ -5,10 +5,18 @@ import sqlalchemy
 from langbot.pkg.core import app
 from langbot.pkg.entity.persistence import model as persistence_model
 from langbot.pkg.provider.modelmgr import (
+    builtin_asr_providers,
     builtin_embedding_providers,
     builtin_pdf_providers,
     builtin_tts_providers,
 )
+
+
+async def ensure_builtin_asr_providers(ap: app.Application) -> None:
+    for provider_spec in builtin_asr_providers.BUILTIN_ASR_PROVIDER_SPECS:
+        await _ensure_provider(ap, provider_spec)
+        for model_spec in provider_spec.models:
+            await _ensure_asr_model(ap, provider_spec.uuid, model_spec)
 
 
 async def ensure_builtin_tts_providers(ap: app.Application) -> None:
@@ -136,7 +144,23 @@ async def _ensure_tts_model(
             persistence_model.LLMModel.uuid == model_spec.uuid
         )
     )
-    if existing.first() is not None:
+    existing_row = existing.first()
+    desired_extra_args = model_spec.to_extra_args()
+    if existing_row is not None:
+        current_extra_args = existing_row.extra_args if isinstance(existing_row.extra_args, dict) else {}
+        merged_extra_args = {**current_extra_args, **desired_extra_args}
+        if merged_extra_args != current_extra_args:
+            await ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_model.LLMModel)
+                .where(persistence_model.LLMModel.uuid == model_spec.uuid)
+                .values(extra_args=merged_extra_args)
+            )
+            runtime_model = next(
+                (model for model in ap.model_mgr.llm_models if model.model_entity.uuid == model_spec.uuid),
+                None,
+            )
+            if runtime_model is not None:
+                runtime_model.model_entity.extra_args = merged_extra_args
         return
 
     await ap.llm_model_service.create_llm_model(
@@ -152,6 +176,50 @@ async def _ensure_tts_model(
         auto_set_to_default_pipeline=False,
     )
     ap.logger.info('Created built-in TTS model: %s (%s)', model_spec.display_name, model_spec.model_id)
+
+
+async def _ensure_asr_model(
+    ap: app.Application,
+    provider_uuid: str,
+    model_spec: builtin_asr_providers.BuiltinASRModelSpec,
+) -> None:
+    existing = await ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_model.LLMModel).where(
+            persistence_model.LLMModel.uuid == model_spec.uuid
+        )
+    )
+    existing_row = existing.first()
+    desired_extra_args = model_spec.to_extra_args()
+    if existing_row is not None:
+        current_extra_args = existing_row.extra_args if isinstance(existing_row.extra_args, dict) else {}
+        merged_extra_args = {**current_extra_args, **desired_extra_args}
+        if merged_extra_args != current_extra_args:
+            await ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_model.LLMModel)
+                .where(persistence_model.LLMModel.uuid == model_spec.uuid)
+                .values(extra_args=merged_extra_args)
+            )
+            runtime_model = next(
+                (model for model in ap.model_mgr.llm_models if model.model_entity.uuid == model_spec.uuid),
+                None,
+            )
+            if runtime_model is not None:
+                runtime_model.model_entity.extra_args = merged_extra_args
+        return
+
+    await ap.llm_model_service.create_llm_model(
+        {
+            'uuid': model_spec.uuid,
+            'name': model_spec.model_id,
+            'provider_uuid': provider_uuid,
+            'abilities': ['asr'],
+            'extra_args': desired_extra_args,
+            'prefered_ranking': 0,
+        },
+        preserve_uuid=True,
+        auto_set_to_default_pipeline=False,
+    )
+    ap.logger.info('Created built-in ASR model: %s (%s)', model_spec.display_name, model_spec.model_id)
 
 
 async def _ensure_pdf_model(

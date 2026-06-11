@@ -6,6 +6,7 @@ import {
   ApiRespProviderLLMModel,
   ApiRespWorkflows,
   LLMModel,
+  TestLLMModelResult,
   ApiRespPipelines,
   Pipeline,
   ApiRespPlatformAdapters,
@@ -146,7 +147,7 @@ export class BackendClient extends BaseHttpClient {
       include_space_models?: boolean;
       include_system_models?: boolean;
       only_configured_providers?: boolean;
-      model_category?: 'text' | 'voice' | 'all';
+      model_category?: 'text' | 'voice' | 'asr' | 'pdf' | 'all';
     },
   ): Promise<ApiRespProviderLLMModels> {
     const params = {
@@ -175,7 +176,10 @@ export class BackendClient extends BaseHttpClient {
     return this.put(`/api/v1/provider/models/llm/${uuid}`, model);
   }
 
-  public testLLMModel(uuid: string, model: LLMModel): Promise<object> {
+  public testLLMModel(
+    uuid: string,
+    model: LLMModel,
+  ): Promise<TestLLMModelResult | null> {
     return this.post(`/api/v1/provider/models/llm/${uuid}/test`, model);
   }
 

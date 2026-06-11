@@ -7,6 +7,7 @@ from . import chatcmpl
 
 import uuid
 
+from .. import audio_content
 from .. import requester
 import langbot_plugin.api.entities.builtin.provider.message as provider_message
 import langbot_plugin.api.entities.builtin.pipeline.query as pipeline_query
@@ -105,14 +106,7 @@ class GeminiChatCompletions(chatcmpl.OpenAIChatCompletions):
         # 设置此次请求中的messages
         messages = req_messages.copy()
 
-        # 检查vision
-        for msg in messages:
-            if 'content' in msg and isinstance(msg['content'], list):
-                for me in msg['content']:
-                    if me['type'] == 'image_base64':
-                        me['image_url'] = {'url': me['image_base64']}
-                        me['type'] = 'image_url'
-                        del me['image_base64']
+        await self._prepare_messages_for_gemini(messages)
 
         args['messages'] = messages
         args['stream'] = True
@@ -203,3 +197,52 @@ class GeminiChatCompletions(chatcmpl.OpenAIChatCompletions):
 
             yield provider_message.MessageChunk(**chunk_data)
             chunk_idx += 1
+
+    async def _prepare_messages_for_gemini(self, messages: list[dict]) -> None:
+        for msg in messages:
+            if 'content' not in msg or not isinstance(msg['content'], list):
+                continue
+            for me in msg['content']:
+                if me.get('type') == 'image_base64':
+                    me['image_url'] = {'url': me['image_base64']}
+                    me['type'] = 'image_url'
+                    del me['image_base64']
+
+        await audio_content.transform_messages_for_gemini_input_audio(
+            messages,
+            logger=getattr(self.ap, 'logger', None),
+        )
+
+    async def _closure(
+        self,
+        query: pipeline_query.Query,
+        req_messages: list[dict],
+        use_model: requester.RuntimeLLMModel,
+        use_funcs: list[resource_tool.LLMTool] = None,
+        extra_args: dict[str, typing.Any] = {},
+        remove_think: bool = False,
+    ) -> tuple[provider_message.Message, dict]:
+        self.client.api_key = use_model.provider.token_mgr.get_token()
+
+        args = {}
+        args['model'] = use_model.model_entity.name
+
+        if use_funcs:
+            tools = await self.ap.tool_mgr.generate_tools_for_openai(use_funcs)
+            if tools:
+                args['tools'] = tools
+
+        messages = req_messages.copy()
+        await self._prepare_messages_for_gemini(messages)
+        args['messages'] = messages
+
+        resp = await self._req(args, extra_body=extra_args)
+        message = await self._make_msg(resp, remove_think)
+
+        usage_info = {}
+        if hasattr(resp, 'usage') and resp.usage:
+            usage_info['input_tokens'] = resp.usage.prompt_tokens or 0
+            usage_info['output_tokens'] = resp.usage.completion_tokens or 0
+            usage_info['total_tokens'] = resp.usage.total_tokens or 0
+
+        return message, usage_info

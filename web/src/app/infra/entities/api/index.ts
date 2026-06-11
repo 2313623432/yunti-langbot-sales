@@ -101,6 +101,11 @@ export interface LLMModel {
   provider?: ModelProvider;
   abilities?: string[];
   extra_args?: object;
+  test_audio_base64?: string;
+}
+
+export interface TestLLMModelResult {
+  transcription?: string;
 }
 
 export interface ApiRespProviderEmbeddingModels {

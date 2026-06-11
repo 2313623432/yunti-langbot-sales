@@ -507,3 +507,72 @@ def test_yuanfudao_catalog_products_include_reading_thinking_course():
     }
     assert products_by_uuid['yuanfudao-phonics-course']['product_line'] == '猿辅导'
     assert products_by_uuid['yuanfudao-reading-thinking-course']['profile_key'] == 'reading_thinking'
+
+
+def test_build_radar_tracking_url_wraps_destination_with_token():
+    service = SalesService(
+        SimpleNamespace(
+            instance_config={'api': {'host': '127.0.0.1', 'port': 5300}},
+        )
+    )
+
+    url = service.build_radar_tracking_url(
+        destination_url='https://m.yuanfudao.com/apply',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        link_id='phonics_radar_apply',
+        session_id='person_customer-1',
+    )
+
+    assert url.startswith('http://127.0.0.1:5300/api/v1/sales/radar/click/')
+    payload = service.decode_radar_tracking_token(url.rsplit('/', 1)[-1])
+    assert payload['d'] == 'https://m.yuanfudao.com/apply'
+    assert payload['b'] == 'bot-uuid'
+    assert payload['i'] == 'customer-1'
+
+
+def test_build_radar_tracking_url_uses_public_base_url_when_configured():
+    service = SalesService(
+        SimpleNamespace(
+            instance_config={
+                'api': {'host': '127.0.0.1', 'port': 5300},
+                'sales': {'radar_public_base_url': 'https://bot.example.com/base/'},
+            },
+        )
+    )
+
+    url = service.build_radar_tracking_url(
+        destination_url='https://m.yuanfudao.com/primary/templates/package?pageId=6641',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+    )
+
+    assert url.startswith('https://bot.example.com/base/api/v1/sales/radar/click/')
+
+
+@pytest.mark.asyncio
+async def test_handle_radar_tracking_click_schedules_followup_and_returns_destination():
+    task_assistant = SimpleNamespace(handle_course_sales_radar_event=AsyncMock(return_value={'handled': True}))
+    service = SalesService(
+        SimpleNamespace(
+            task_assistant_service=task_assistant,
+            logger=_SilentLogger(),
+            instance_config={'api': {'host': '127.0.0.1', 'port': 5300}},
+        )
+    )
+    token = service.build_radar_tracking_url(
+        destination_url='https://m.yuanfudao.com/apply',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        link_id='phonics_radar_apply',
+        session_id='person_customer-1',
+        event='link_open',
+    ).rsplit('/', 1)[-1]
+
+    destination = await service.handle_radar_tracking_click(token)
+
+    assert destination == 'https://m.yuanfudao.com/apply'
+    task_assistant.handle_course_sales_radar_event.assert_awaited_once()

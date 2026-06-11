@@ -8,6 +8,7 @@ import langbot_plugin.api.entities.events as events
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.pipeline.query as pipeline_query
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
+from ...provider.modelmgr import audio_content
 
 
 @stage.stage_class('PreProcessor')
@@ -177,11 +178,11 @@ class PreProcessor(stage.PipelineStage):
                     elif me.url:
                         content_list.append(provider_message.ContentElement.from_image_url(me.url))
             elif isinstance(me, platform_message.Voice):
-                # 转成文件链接，让下游 runner 上传到目标模型
+                voice_filename = audio_content.infer_voice_filename(me)
                 if me.base64:
-                    content_list.append(provider_message.ContentElement.from_file_base64(me.base64, 'voice.silk'))
+                    content_list.append(provider_message.ContentElement.from_file_base64(me.base64, voice_filename))
                 elif me.url:
-                    content_list.append(provider_message.ContentElement.from_file_url(me.url, 'voice'))
+                    content_list.append(provider_message.ContentElement.from_file_url(me.url, voice_filename))
             elif isinstance(me, platform_message.File):
                 if me.base64:
                     content_list.append(provider_message.ContentElement.from_file_base64(me.base64, me.name))
@@ -205,12 +206,13 @@ class PreProcessor(stage.PipelineStage):
                         elif msg.url:
                             content_list.append(provider_message.ContentElement.from_file_url(msg.url, msg.name))
                     elif isinstance(msg, platform_message.Voice):
+                        voice_filename = audio_content.infer_voice_filename(msg)
                         if msg.base64:
                             content_list.append(
-                                provider_message.ContentElement.from_file_base64(msg.base64, 'voice.silk')
+                                provider_message.ContentElement.from_file_base64(msg.base64, voice_filename)
                             )
                         elif msg.url:
-                            content_list.append(provider_message.ContentElement.from_file_url(msg.url, 'voice'))
+                            content_list.append(provider_message.ContentElement.from_file_url(msg.url, voice_filename))
 
         query.variables['user_message_text'] = plain_text
 

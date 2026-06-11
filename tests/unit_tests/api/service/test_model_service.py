@@ -24,6 +24,7 @@ from langbot.pkg.api.http.service.model import (
     _parse_provider_api_keys,
     _runtime_model_data,
     _is_voice_only_model,
+    _is_asr_only_model,
     _matches_model_category,
 )
 from langbot.pkg.entity.persistence.model import LLMModel, EmbeddingModel, RerankModel, ModelProvider
@@ -164,6 +165,14 @@ class TestModelCategoryMatching:
         assert _matches_model_category({'abilities': ['tts']}, 'voice') is True
         assert _matches_model_category({'abilities': ['vision', 'tts']}, 'voice') is True
         assert _matches_model_category({'abilities': ['vision']}, 'voice') is False
+
+    def test_asr_category_requires_asr_ability(self):
+        assert _matches_model_category({'abilities': ['asr']}, 'asr') is True
+        assert _matches_model_category({'abilities': ['vision', 'asr']}, 'asr') is True
+        assert _matches_model_category({'abilities': ['vision']}, 'asr') is False
+        assert _matches_model_category({'abilities': ['asr']}, 'text') is False
+        assert _is_asr_only_model({'abilities': ['asr']}) is True
+        assert _is_asr_only_model({'abilities': ['vision', 'asr']}) is False
 
     def test_pdf_category_requires_pdf_parse_ability(self):
         assert _matches_model_category({'abilities': ['pdf_parse']}, 'pdf') is True
@@ -373,9 +382,11 @@ class TestLLMModelsServiceGetLLMModels:
 
         text_models = await service.get_llm_models(model_category='text')
         voice_models = await service.get_llm_models(model_category='voice')
+        asr_models = await service.get_llm_models(model_category='asr')
 
         assert [model['uuid'] for model in text_models] == ['chat-model', 'mixed-model']
         assert [model['uuid'] for model in voice_models] == ['voice-model', 'mixed-model']
+        assert [model['uuid'] for model in asr_models] == []
 
     async def test_get_llm_models_hide_secret_keys(self):
         """Hides secret API keys when include_secret=False."""
@@ -697,6 +708,91 @@ class TestLLMModelsServiceUpdateLLMModel:
                 'name': 'Update',
                 'provider_uuid': 'nonexistent-provider',
             })
+
+
+class TestLLMModelsServiceTestLLMModel:
+    """Tests for LLMModelsService.test_llm_model method."""
+
+    async def test_test_llm_model_routes_voice_only_models_to_tts(self):
+        ap = SimpleNamespace()
+        ap.logger = SimpleNamespace(warning=lambda *args, **kwargs: None)
+        runtime_provider = SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                requester='bailian-chat-completions',
+                base_url='https://dashscope.aliyuncs.com/api/v1',
+            ),
+            token_mgr=SimpleNamespace(tokens=['sk-test']),
+            invoke_llm=AsyncMock(),
+        )
+        runtime_model = SimpleNamespace(
+            model_entity=SimpleNamespace(uuid='voice-model', name='qwen3-tts-flash', abilities=['tts']),
+            provider=runtime_provider,
+        )
+        ap.model_mgr = SimpleNamespace(
+            llm_models=[runtime_model],
+            init_temporary_runtime_llm_model=AsyncMock(),
+        )
+
+        service = LLMModelsService(ap)
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            invoke_tts = AsyncMock(return_value='audio-base64')
+            monkeypatch.setattr('langbot.pkg.api.http.service.model.tts_invoke.invoke_tts', invoke_tts)
+            await service.test_llm_model(
+                'voice-model',
+                {
+                    'name': 'qwen3-tts-flash',
+                    'abilities': ['tts'],
+                    'extra_args': {
+                        'provider': 'dashscope-tts',
+                        'voice_type': 'Cherry',
+                    },
+                },
+            )
+
+        runtime_provider.invoke_llm.assert_not_called()
+        invoke_tts.assert_awaited_once()
+
+    async def test_test_llm_model_routes_asr_only_models_to_asr(self):
+        ap = SimpleNamespace()
+        ap.logger = SimpleNamespace(warning=lambda *args, **kwargs: None)
+        runtime_provider = SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                requester='dashscope-asr',
+                base_url='https://dashscope.aliyuncs.com/api/v1',
+            ),
+            token_mgr=SimpleNamespace(tokens=['sk-test']),
+            invoke_llm=AsyncMock(),
+        )
+        runtime_model = SimpleNamespace(
+            model_entity=SimpleNamespace(uuid='asr-model', name='qwen3-asr-flash', abilities=['asr']),
+            provider=runtime_provider,
+        )
+        ap.model_mgr = SimpleNamespace(
+            llm_models=[runtime_model],
+            init_temporary_runtime_llm_model=AsyncMock(),
+        )
+
+        service = LLMModelsService(ap)
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            invoke_asr = AsyncMock(return_value='你好，这是语音识别测试。')
+            monkeypatch.setattr('langbot.pkg.api.http.service.model.asr_invoke.invoke_asr', invoke_asr)
+            result = await service.test_llm_model(
+                'asr-model',
+                {
+                    'name': 'qwen3-asr-flash',
+                    'abilities': ['asr'],
+                    'test_audio_base64': 'dGVzdA==',
+                    'extra_args': {
+                        'provider': 'dashscope-asr',
+                    },
+                },
+            )
+
+        runtime_provider.invoke_llm.assert_not_called()
+        invoke_asr.assert_awaited_once()
+        assert result == {'transcription': '你好，这是语音识别测试。'}
 
 
 class TestLLMModelsServiceDeleteLLMModel:

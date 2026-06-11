@@ -28,6 +28,7 @@ def resolve_dashscope_tts_url(base_url: str = '') -> str:
     return normalized or DEFAULT_DASHSCOPE_TTS_URL
 DEFAULT_VOLCENGINE_TTS_HTTP_URL = 'https://openspeech.bytedance.com/api/v1/tts'
 DEFAULT_VOLCENGINE_TTS_WS_URL = 'wss://openspeech.bytedance.com/api/v1/tts/ws_binary'
+DEFAULT_VOLCENGINE_TTS_V3_URL = 'https://openspeech.bytedance.com/api/v3/tts/unidirectional'
 
 _DASHSCOPE_PROVIDERS = frozenset({'dashscope', 'dashscope-tts', 'bailian-tts', 'qwen-tts', 'qwen'})
 _VOLCENGINE_PROVIDERS = frozenset({'volcengine', 'doubao', 'volcark', 'bytedance'})
@@ -67,6 +68,8 @@ def detect_tts_backend(config: TTSInvokeConfig) -> str:
 
     if requester == 'azure-tts' or provider == 'azure':
         return 'azure'
+    if 'openspeech.bytedance.com' in base_url or model.startswith('seed-tts'):
+        return 'volcengine'
     if requester == 'volcengine-tts' or provider in _VOLCENGINE_PROVIDERS:
         return 'volcengine'
     if requester == 'elevenlabs-tts' or provider == 'elevenlabs':
@@ -512,6 +515,9 @@ async def _request_dashscope_tts(config: TTSInvokeConfig, logger: logging.Logger
 
 
 async def _request_volcengine_tts(config: TTSInvokeConfig, logger: logging.Logger | None) -> str | None:
+    if _is_volcengine_seed_tts(config):
+        return await _request_volcengine_seed_tts(config, logger)
+
     if not config.app_id or not config.token:
         _log_warning(logger, 'Volcengine TTS skipped: app_id/token is not configured')
         return None
@@ -572,6 +578,126 @@ async def _request_volcengine_tts(config: TTSInvokeConfig, logger: logging.Logge
             data.get('message'),
         )
     return None
+
+
+def _is_volcengine_seed_tts(config: TTSInvokeConfig) -> bool:
+    model = str(config.model or '').lower()
+    base_url = str(config.base_url or '').lower()
+    resource_id = str(config.extra_args.get('resource_id') or '').lower()
+    return model.startswith('seed-tts') or resource_id.startswith('seed-tts') or 'openspeech.bytedance.com' in base_url
+
+
+def _volcengine_tts_v3_url(base_url: str) -> str:
+    normalized = (base_url or '').rstrip('/')
+    if not normalized:
+        return DEFAULT_VOLCENGINE_TTS_V3_URL
+    if normalized.endswith('/api/v3/tts/unidirectional'):
+        return normalized
+    if normalized.endswith('/api/v3'):
+        return f'{normalized}/tts/unidirectional'
+    return f'{normalized}/api/v3/tts/unidirectional'
+
+
+def _volcengine_seed_resource_id(config: TTSInvokeConfig) -> str:
+    resource_id = str(config.extra_args.get('resource_id') or '').strip()
+    if resource_id:
+        return resource_id
+    if str(config.model or '').startswith('seed-tts-2.0'):
+        return 'seed-tts-2.0'
+    return 'seed-tts'
+
+
+def _volcengine_seed_audio_format(encoding: str) -> str:
+    normalized = (encoding or '').strip().lower()
+    if normalized in {'ogg_opus', 'opus'}:
+        return 'ogg_opus'
+    if normalized == 'wav':
+        return 'wav'
+    return 'mp3'
+
+
+def parse_volcengine_tts_v3_stream(raw_text: str) -> bytes:
+    decoder = json.JSONDecoder()
+    index = 0
+    chunks: list[bytes] = []
+    text = raw_text or ''
+    while index < len(text):
+        while index < len(text) and text[index].isspace():
+            index += 1
+        if index >= len(text):
+            break
+        if text.startswith('data:', index):
+            line_end = text.find('\n', index)
+            if line_end < 0:
+                line_end = len(text)
+            data_text = text[index + 5 : line_end].strip()
+            index = line_end + 1
+            if not data_text or data_text == '[DONE]':
+                continue
+            event = json.loads(data_text)
+        else:
+            event, index = decoder.raw_decode(text, index)
+        if not isinstance(event, dict):
+            continue
+        code = event.get('code')
+        data = event.get('data') or event.get('audio')
+        if isinstance(data, str) and data:
+            chunks.append(base64.b64decode(data))
+        if code not in (None, 0, 20000000):
+            raise ValueError(str(event.get('message') or event.get('error') or f'Volcengine TTS error {code}'))
+    return b''.join(chunks)
+
+
+async def _request_volcengine_seed_tts(config: TTSInvokeConfig, logger: logging.Logger | None) -> str | None:
+    if not config.token:
+        _log_warning(logger, 'Volcengine seed TTS skipped: api key is not configured')
+        return None
+
+    speaker = config.voice_type or config.voice or config.voice_id or 'zh_female_vv_uranus_bigtts'
+    audio_format = _volcengine_seed_audio_format(config.encoding)
+    payload = {
+        'user': {'uid': str(config.extra_args.get('uid') or 'langbot-task-assistant')},
+        'req_params': {
+            'text': config.text,
+            'speaker': speaker,
+            'audio_params': {
+                'format': audio_format,
+            },
+        },
+    }
+    additions = config.extra_args.get('additions')
+    if isinstance(additions, dict) and additions:
+        payload['req_params']['additions'] = additions
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                _volcengine_tts_v3_url(config.base_url),
+                json=payload,
+                headers={
+                    'Content-Type': 'application/json',
+                    'X-Api-Key': config.token,
+                    'X-Api-Resource-Id': _volcengine_seed_resource_id(config),
+                    'X-Api-Request-Id': str(uuid.uuid4()),
+                    'X-Api-Sequence': '-1',
+                },
+                timeout=aiohttp.ClientTimeout(total=config.timeout),
+            ) as response:
+                raw_chunks: list[bytes] = []
+                async for chunk in response.content.iter_chunked(8192):
+                    raw_chunks.append(chunk)
+                raw_text = b''.join(raw_chunks).decode('utf-8', errors='replace')
+        if response.status != 200:
+            _log_warning(logger, 'Volcengine seed TTS request failed: status=%s response=%s', response.status, raw_text)
+            return None
+        audio_bytes = parse_volcengine_tts_v3_stream(raw_text)
+        if audio_bytes:
+            return base64.b64encode(audio_bytes).decode('utf-8')
+        _log_warning(logger, 'Volcengine seed TTS response did not include audio data')
+        return None
+    except Exception as exc:
+        _log_warning(logger, 'Volcengine seed TTS request failed: %s', exc)
+        return None
 
 
 async def _request_volcengine_tts_ws(

@@ -35,6 +35,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import AgentAvatarPicker from '@/app/home/pipelines/components/agent-avatar/AgentAvatarPicker';
 import { agentAvatarUrl } from '@/app/home/pipelines/components/agent-avatar/agentAvatar';
 import {
@@ -120,6 +121,15 @@ function stringExtraArg(extraArgs: Record<string, unknown>, key: string): string
   return typeof value === 'string' ? value : '';
 }
 
+const QWEN3_TTS_VOICE_OPTIONS: VoiceToneOption[] = [
+  { value: 'Cherry', label: '芊悦 Cherry（阳光亲切）' },
+  { value: 'Serena', label: 'Serena（温柔女声）' },
+  { value: 'Ethan', label: '晨煦 Ethan（阳光男声）' },
+  { value: 'Jennifer', label: '詹妮弗 Jennifer（美语女声）' },
+  { value: 'Ryan', label: 'Ryan（节奏感男声）' },
+  { value: 'Sunny', label: 'Sunny（四川话女声）' },
+];
+
 function voiceToneOptionsFromModel(model?: LLMModel): VoiceToneOption[] {
   const extraArgs = modelExtraArgs(model);
   const rawVoices = extraArgs.voices;
@@ -153,6 +163,21 @@ function voiceToneOptionsFromModel(model?: LLMModel): VoiceToneOption[] {
   ) {
     options.unshift({ value: defaultVoiceType, label: defaultVoiceType });
   }
+  if (!options.length) {
+    const provider = String(
+      extraArgs.provider || model?.provider?.requester || '',
+    ).toLowerCase();
+    const modelName = String(model?.name || '').toLowerCase();
+    if (
+      provider.includes('dashscope') ||
+      provider.includes('qwen') ||
+      provider.includes('bailian') ||
+      modelName.includes('qwen') ||
+      modelName.includes('tts')
+    ) {
+      return [...QWEN3_TTS_VOICE_OPTIONS];
+    }
+  }
   return options;
 }
 
@@ -172,6 +197,10 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
     voice: {
       ...defaults.voice,
       ...(value?.voice || {}),
+    },
+    asr: {
+      ...defaults.asr,
+      ...(value?.asr || {}),
     },
     scheduled_push: {
       ...defaults.scheduled_push,
@@ -353,11 +382,13 @@ export default function PipelineTemplateConfigEditor({
   onPipelineAvatarChange,
 }: PipelineTemplateConfigEditorProps) {
   const config = normalizeTemplateConfig(value);
+  const { t } = useTranslation();
   const { knowledgeBases } = useSidebarData();
   const [activeTab, setActiveTab] = useState<TemplateConfigTab>('basic');
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
   const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
   const [voiceModels, setVoiceModels] = useState<LLMModel[]>([]);
+  const [asrModels, setAsrModels] = useState<LLMModel[]>([]);
   const [uploadingBindingId, setUploadingBindingId] = useState('');
   const [showAdvancedRadar, setShowAdvancedRadar] = useState(false);
   const [showAdvancedStopRules, setShowAdvancedStopRules] = useState(false);
@@ -385,6 +416,15 @@ export default function PipelineTemplateConfigEditor({
       })
       .then((resp) => setVoiceModels(resp.models || []))
       .catch((error) => console.warn('Failed to load voice models', error));
+    httpClient
+      .getProviderLLMModels(undefined, {
+        include_space_models: false,
+        include_system_models: false,
+        only_configured_providers: true,
+        model_category: 'asr',
+      })
+      .then((resp) => setAsrModels(resp.models || []))
+      .catch((error) => console.warn('Failed to load ASR models', error));
   }, []);
 
   function patch(next: Partial<PipelineTemplateConfig>) {
@@ -398,6 +438,10 @@ export default function PipelineTemplateConfigEditor({
 
   function patchVoice(next: Partial<PipelineTemplateConfig['voice']>) {
     patch({ voice: { ...config.voice, ...next } });
+  }
+
+  function patchAsr(next: Partial<PipelineTemplateConfig['asr']>) {
+    patch({ asr: { ...config.asr, ...next } });
   }
 
   function patchScheduledPush(next: Partial<PipelineTemplateConfig['scheduled_push']>) {
@@ -767,11 +811,17 @@ export default function PipelineTemplateConfigEditor({
     const visibleVoiceModels = voiceModels.filter(
       (model) => model.provider?.requester !== 'space-chat-completions',
     );
+    const visibleAsrModels = asrModels.filter(
+      (model) => model.provider?.requester !== 'space-chat-completions',
+    );
     const selectedModel = chatLlmModels.find(
       (model) => model.uuid === config.model_uuid,
     );
     const selectedVoiceModel = visibleVoiceModels.find(
       (model) => model.uuid === config.voice.model_uuid,
+    );
+    const selectedAsrModel = visibleAsrModels.find(
+      (model) => model.uuid === config.asr.model_uuid,
     );
     const responseDiversity = Number.isFinite(config.response_diversity)
       ? config.response_diversity
@@ -802,6 +852,22 @@ export default function PipelineTemplateConfigEditor({
           encoding: stringExtraArg(extraArgs, 'encoding') || config.voice.encoding || 'ogg_opus',
         },
         tools: { ...config.tools, voice_reply: true },
+      });
+    }
+
+    function handleAsrModelChange(modelUuid: string) {
+      const model = visibleAsrModels.find((item) => item.uuid === modelUuid);
+      if (!model) {
+        return;
+      }
+      const extraArgs = modelExtraArgs(model);
+      patchAsr({
+        model_uuid: model.uuid,
+        provider:
+          stringExtraArg(extraArgs, 'provider') ||
+          model.provider?.requester ||
+          model.provider?.name ||
+          config.asr.provider,
       });
     }
 
@@ -953,6 +1019,53 @@ export default function PipelineTemplateConfigEditor({
                   ))}
                 </SelectContent>
               </Select>
+            </label>
+          </div>
+        </Section>
+
+        <Section
+          icon={Mic2}
+          title={t('pipelines.templateConfig.asrModelSectionTitle')}
+          description={t('pipelines.templateConfig.asrModelSectionDescription')}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <label>
+              <FieldLabel>{t('pipelines.templateConfig.asrModelLabel')}</FieldLabel>
+              <Select
+                value={selectedAsrModel?.uuid}
+                onValueChange={handleAsrModelChange}
+                disabled={!visibleAsrModels.length}
+              >
+                <SelectTrigger className="h-11 w-full bg-white">
+                  <SelectValue
+                    placeholder={
+                      visibleAsrModels.length
+                        ? t('pipelines.templateConfig.asrModelPlaceholder')
+                        : t('pipelines.templateConfig.asrModelEmptyHint')
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {visibleAsrModels.map((model) => (
+                    <SelectItem
+                      key={model.uuid}
+                      value={model.uuid}
+                      description={model.provider?.name}
+                    >
+                      {model.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label>
+              <FieldLabel>{t('pipelines.templateConfig.asrFallbackLabel')}</FieldLabel>
+              <Input
+                value={config.asr.fallback_text}
+                onChange={(event) => patchAsr({ fallback_text: event.target.value })}
+                className="h-11"
+                placeholder={t('pipelines.templateConfig.asrFallbackPlaceholder')}
+              />
             </label>
           </div>
         </Section>
@@ -1870,7 +1983,7 @@ export default function PipelineTemplateConfigEditor({
               pipelineId={pipelineId}
               avatarUrl={currentAvatarUrl}
               agentName={config.name || pipelineName || '未命名数字员工'}
-              openingMessage={config.opening_message || ''}
+              openingMessage={config.opening_message ?? ''}
               voiceEnabled={config.voice.enabled}
               hasUnsavedChanges={hasUnsavedChanges}
             />

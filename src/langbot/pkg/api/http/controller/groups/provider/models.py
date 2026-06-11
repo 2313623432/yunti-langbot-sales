@@ -64,9 +64,9 @@ class LLMModelsRouterGroup(group.RouterGroup):
         async def _(model_uuid: str) -> str:
             json_data = await quart.request.json
 
-            await self.ap.llm_model_service.test_llm_model(model_uuid, json_data)
+            result = await self.ap.llm_model_service.test_llm_model(model_uuid, json_data)
 
-            return self.success()
+            return self.success(data=result)
 
 
 @group.group_class('models/embedding', '/api/v1/provider/models/embedding')

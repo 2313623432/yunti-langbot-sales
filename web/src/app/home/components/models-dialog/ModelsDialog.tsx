@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Plus,
   MessageSquareText,
   Volume2,
+  Mic,
   Cpu,
   FileText,
   Settings,
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Popover,
   PopoverContent,
@@ -121,9 +123,15 @@ export default function ModelsDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
-  const [modelCategory, setModelCategory] = useState<'text' | 'voice' | 'embedding' | 'pdf'>(
+  const [modelCategory, setModelCategory] = useState<'text' | 'voice' | 'asr' | 'embedding' | 'pdf'>(
     'text',
   );
+  const [asrTestText, setAsrTestText] = useState('');
+  const [isRecordingAsr, setIsRecordingAsr] = useState(false);
+  const [asrTestAudioBase64, setAsrTestAudioBase64] = useState('');
+  const asrMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const asrMediaStreamRef = useRef<MediaStream | null>(null);
+  const asrAudioChunksRef = useRef<Blob[]>([]);
   const [selectedProviderUuid, setSelectedProviderUuid] = useState<string | null>(
     null,
   );
@@ -167,21 +175,124 @@ export default function ModelsDialog({
     ? providerModels[selectedProvider.uuid]
     : undefined;
   const selectedTextModels =
-    selectedModels?.llm.filter((model) => !isVoiceOnlyModel(model)) || [];
+    selectedModels?.llm.filter(
+      (model) =>
+        !isVoiceOnlyModel(model) &&
+        !isAsrOnlyModel(model) &&
+        !isPdfOnlyModel(model),
+    ) || [];
   const selectedVoiceModels =
     selectedModels?.llm.filter((model) => model.abilities?.includes('tts')) || [];
+  const selectedAsrModels =
+    selectedModels?.llm.filter((model) => model.abilities?.includes('asr')) || [];
   const selectedEmbeddingModels = selectedModels?.embedding || [];
   const selectedPdfModels =
     selectedModels?.llm.filter((model) => model.abilities?.includes('pdf_parse')) || [];
   const visibleLlmModels =
     modelCategory === 'voice'
       ? selectedVoiceModels
+      : modelCategory === 'asr'
+        ? selectedAsrModels
       : modelCategory === 'pdf'
         ? selectedPdfModels
         : selectedTextModels;
   const showProviderLogo = true;
   const showProviderProtocolBadge = modelCategory === 'text';
   const showAddProviderButton = modelCategory === 'text';
+  useEffect(() => {
+    if (modelCategory !== 'asr') {
+      setAsrTestText('');
+      setAsrTestAudioBase64('');
+      setIsRecordingAsr(false);
+    }
+  }, [modelCategory]);
+
+  useEffect(() => {
+    return () => {
+      asrMediaRecorderRef.current?.stop();
+      asrMediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  async function blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        if (typeof result !== 'string') {
+          reject(new Error('Failed to read audio blob'));
+          return;
+        }
+        const commaIndex = result.indexOf(',');
+        resolve(commaIndex >= 0 ? result.slice(commaIndex + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error ?? new Error('Failed to read audio blob'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function startAsrRecording() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast.error(t('models.asrMicUnavailable'));
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      asrMediaStreamRef.current = stream;
+      asrAudioChunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      asrMediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          asrAudioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        asrMediaStreamRef.current = null;
+        const blob = new Blob(asrAudioChunksRef.current, {
+          type: recorder.mimeType || 'audio/webm',
+        });
+        if (!blob.size) {
+          return;
+        }
+        try {
+          setAsrTestAudioBase64(await blobToBase64(blob));
+        } catch (error) {
+          console.error('Failed to encode ASR test audio', error);
+          toast.error(t('models.asrRecordError'));
+        }
+      };
+      recorder.start();
+      setIsRecordingAsr(true);
+      setAsrTestText('');
+    } catch (error) {
+      console.error('Failed to start ASR recording', error);
+      toast.error(t('models.asrMicUnavailable'));
+    }
+  }
+
+  function stopAsrRecording() {
+    const recorder = asrMediaRecorderRef.current;
+    if (!recorder || recorder.state === 'inactive') {
+      setIsRecordingAsr(false);
+      return;
+    }
+    recorder.stop();
+    setIsRecordingAsr(false);
+  }
+
+  function toggleAsrRecording() {
+    if (isRecordingAsr) {
+      stopAsrRecording();
+      return;
+    }
+    void startAsrRecording();
+  }
+
+  function isAsrTestModel(abilities: string[]) {
+    return abilities.includes('asr') && abilities.every((ability) => ability === 'asr');
+  }
 
   function getProviderIconURL(provider: ModelProvider) {
     return httpClient.getProviderIconURL(provider.uuid, provider.requester);
@@ -285,7 +396,7 @@ export default function ModelsDialog({
 
   function requesterSupportsCategory(
     requester: string,
-    category: 'text' | 'voice' | 'embedding' | 'pdf',
+    category: 'text' | 'voice' | 'asr' | 'embedding' | 'pdf',
   ) {
     const supportTypes = requesterSupportTypes[requester] || [];
     if (category === 'embedding') {
@@ -295,6 +406,14 @@ export default function ModelsDialog({
       return supportTypes.includes('pdf-parse');
     }
     return supportTypes.includes('llm');
+  }
+
+  function isAsrOnlyModel(model: LLMModel) {
+    const abilities = model.abilities || [];
+    return (
+      abilities.includes('asr') &&
+      abilities.every((ability) => ability === 'asr')
+    );
   }
 
   function isPdfOnlyModel(model: LLMModel) {
@@ -333,7 +452,7 @@ export default function ModelsDialog({
 
   function providerBelongsToCategory(
     provider: ModelProvider,
-    category: 'text' | 'voice' | 'embedding' | 'pdf',
+    category: 'text' | 'voice' | 'asr' | 'embedding' | 'pdf',
   ) {
     const models = providerModels[provider.uuid];
     if (models) {
@@ -355,7 +474,7 @@ export default function ModelsDialog({
           requesterSupportsCategory(provider.requester, category))
       );
     }
-    if (category === 'voice' || category === 'pdf') {
+    if (category === 'voice' || category === 'asr' || category === 'pdf') {
       return (provider.llm_count || 0) > 0;
     }
     return (
@@ -571,6 +690,13 @@ export default function ModelsDialog({
     const startTime = Date.now();
     try {
       const extraArgsObj = convertExtraArgsToObject(extraArgs);
+      const testingAsr =
+        modelType === 'llm' &&
+        (modelCategory === 'asr' || isAsrTestModel(abilities));
+      if (testingAsr && !asrTestAudioBase64) {
+        toast.error(t('models.asrRecordRequired'));
+        return;
+      }
 
       // Get the provider info
       const provider = providers.find((p) => p.uuid === providerUuid);
@@ -581,14 +707,18 @@ export default function ModelsDialog({
       };
 
       if (modelType === 'llm') {
-        await httpClient.testLLMModel('_', {
+        const result = await httpClient.testLLMModel('_', {
           uuid: '',
           name,
           provider_uuid: '',
           provider: providerData,
           abilities,
           extra_args: extraArgsObj,
+          ...(testingAsr ? { test_audio_base64: asrTestAudioBase64 } : {}),
         } as never);
+        if (testingAsr && result?.transcription) {
+          setAsrTestText(result.transcription);
+        }
       } else if (modelType === 'embedding') {
         await httpClient.testEmbeddingModel('_', {
           uuid: '',
@@ -649,6 +779,7 @@ export default function ModelsDialog({
 
   function categoryConfigTitle() {
     if (modelCategory === 'voice') return t('models.voiceConfigTitle');
+    if (modelCategory === 'asr') return t('models.asrConfigTitle');
     if (modelCategory === 'embedding') return t('models.embeddingConfigTitle');
     if (modelCategory === 'pdf') return t('models.pdfConfigTitle');
     return t('models.textConfigTitle');
@@ -656,6 +787,7 @@ export default function ModelsDialog({
 
   function categoryListTitle() {
     if (modelCategory === 'voice') return t('models.voiceListTitle');
+    if (modelCategory === 'asr') return t('models.asrListTitle');
     if (modelCategory === 'embedding') return t('models.embeddingListTitle');
     if (modelCategory === 'pdf') return t('models.pdfListTitle');
     return t('models.textListTitle');
@@ -663,6 +795,7 @@ export default function ModelsDialog({
 
   function categoryListHint() {
     if (modelCategory === 'voice') return t('models.voiceListHint');
+    if (modelCategory === 'asr') return t('models.asrListHint');
     if (modelCategory === 'embedding') return t('models.embeddingListHint');
     if (modelCategory === 'pdf') return t('models.pdfListHint');
     return t('models.textListHint');
@@ -670,6 +803,7 @@ export default function ModelsDialog({
 
   function categoryEmptyHint() {
     if (modelCategory === 'voice') return t('models.noVoiceModels');
+    if (modelCategory === 'asr') return t('models.noAsrModels');
     if (modelCategory === 'embedding') return t('models.noEmbeddingModels');
     if (modelCategory === 'pdf') return t('models.noPdfModels');
     return t('models.noModels');
@@ -679,7 +813,9 @@ export default function ModelsDialog({
     const models = providerModels[provider.uuid];
     if (!models) {
       if (modelCategory === 'embedding') return provider.embedding_count || 0;
-      if (modelCategory === 'voice' || modelCategory === 'pdf') return provider.llm_count || 0;
+      if (modelCategory === 'voice' || modelCategory === 'asr' || modelCategory === 'pdf') {
+        return provider.llm_count || 0;
+      }
       return provider.llm_count || 0;
     }
     return getModelsForCategory(provider, modelCategory).length;
@@ -687,7 +823,7 @@ export default function ModelsDialog({
 
   function getModelsForCategory(
     provider: ModelProvider,
-    category: 'text' | 'voice' | 'embedding' | 'pdf' = modelCategory,
+    category: 'text' | 'voice' | 'asr' | 'embedding' | 'pdf' = modelCategory,
   ) {
     const models = providerModels[provider.uuid];
     if (!models) return [];
@@ -697,10 +833,18 @@ export default function ModelsDialog({
     if (category === 'voice') {
       return models.llm.filter((model) => model.abilities?.includes('tts'));
     }
+    if (category === 'asr') {
+      return models.llm.filter((model) => model.abilities?.includes('asr'));
+    }
     if (category === 'pdf') {
       return models.llm.filter((model) => model.abilities?.includes('pdf_parse'));
     }
-    return models.llm.filter((model) => !isVoiceOnlyModel(model) && !isPdfOnlyModel(model));
+    return models.llm.filter(
+      (model) =>
+        !isVoiceOnlyModel(model) &&
+        !isAsrOnlyModel(model) &&
+        !isPdfOnlyModel(model),
+    );
   }
 
   function renderEmbeddingModelItem(model: EmbeddingModel) {
@@ -812,6 +956,7 @@ export default function ModelsDialog({
                 { key: 'text' as const, label: t('models.textCategory'), icon: MessageSquareText },
                 { key: 'embedding' as const, label: t('models.embeddingCategory'), icon: Cpu },
                 { key: 'voice' as const, label: t('models.voiceCategory'), icon: Volume2 },
+                { key: 'asr' as const, label: t('models.asrCategory'), icon: Mic },
                 { key: 'pdf' as const, label: t('models.pdfCategory'), icon: FileText },
               ].map((item) => {
                 const Icon = item.icon;
@@ -1023,6 +1168,39 @@ export default function ModelsDialog({
                       </span>
                     </div>
 
+                    {modelCategory === 'asr' && (
+                      <div className="mt-6 rounded-md border bg-slate-50/70 p-4">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-sm font-semibold text-slate-950">
+                              {t('models.asrTestTitle')}
+                            </h4>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t('models.asrListHint')}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant={isRecordingAsr ? 'destructive' : 'outline'}
+                            size="sm"
+                            onClick={toggleAsrRecording}
+                            disabled={isTesting}
+                          >
+                            <Mic className="mr-1 size-4" />
+                            {isRecordingAsr
+                              ? t('models.asrTestStop')
+                              : t('models.asrTestStart')}
+                          </Button>
+                        </div>
+                        <Textarea
+                          readOnly
+                          value={asrTestText}
+                          placeholder={t('models.asrTestPlaceholder')}
+                          className="min-h-24 resize-none bg-white"
+                        />
+                      </div>
+                    )}
+
                     <div className="mt-8">
                       <div className="mb-3 flex items-center justify-between">
                         <div>
@@ -1042,6 +1220,15 @@ export default function ModelsDialog({
                             initialMode="manual"
                             defaultModelType={
                               modelCategory === 'embedding' ? 'embedding' : 'llm'
+                            }
+                            defaultAbilities={
+                              modelCategory === 'asr'
+                                ? ['asr']
+                                : modelCategory === 'voice'
+                                  ? ['tts']
+                                  : modelCategory === 'pdf'
+                                    ? ['pdf_parse']
+                                    : []
                             }
                             lockedModelType={
                               modelCategory === 'embedding' ? 'embedding' : undefined
@@ -1068,6 +1255,8 @@ export default function ModelsDialog({
                                 name,
                                 modelCategory === 'voice'
                                   ? Array.from(new Set([...abilities, 'tts']))
+                                  : modelCategory === 'asr'
+                                    ? Array.from(new Set([...abilities, 'asr']))
                                   : modelCategory === 'pdf'
                                     ? Array.from(new Set([...abilities, 'pdf_parse']))
                                     : abilities,
@@ -1127,6 +1316,11 @@ export default function ModelsDialog({
                           {modelCategory === 'voice' && (
                             <Badge variant="outline" className="mt-3">
                               {t('models.ttsAbility')}
+                            </Badge>
+                          )}
+                          {modelCategory === 'asr' && (
+                            <Badge variant="outline" className="mt-3">
+                              {t('models.asrAbility')}
                             </Badge>
                           )}
                           {modelCategory === 'pdf' && (

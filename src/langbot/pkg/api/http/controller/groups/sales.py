@@ -134,3 +134,11 @@ class SalesRouterGroup(group.RouterGroup):
         async def _() -> str:
             sent = await self.ap.sales_service.run_due_outreach_once()
             return self.success(data={'sent': sent})
+
+        @self.route('/radar/click/<token>', methods=['GET'], auth_type=group.AuthType.NONE)
+        async def _(token: str):
+            try:
+                destination = await self.ap.sales_service.handle_radar_tracking_click(token)
+            except ValueError as exc:
+                return self.http_status(400, -1, str(exc))
+            return quart.redirect(destination)

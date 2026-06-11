@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import datetime
+import json
 import mimetypes
+import os
 import re
 import uuid
 from typing import Any
@@ -93,6 +95,9 @@ DEFAULT_SALES_PRODUCTS = [
         'enabled': True,
     },
 ]
+
+
+COURSE_SALES_EXPLICIT_REJECTION_COUNT_KEY = 'course_sales_explicit_rejection_count'
 
 
 class SalesService:
@@ -414,6 +419,63 @@ class SalesService:
 
         return {'id': memory_id, 'session_id': session_id, **values}
 
+    async def get_course_sales_explicit_rejection_count(self, session_id: str) -> int:
+        if not session_id:
+            return 0
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id == session_id
+            )
+        )
+        existing = self._first_row(result)
+        if existing is None:
+            return 0
+        profile = existing.profile if isinstance(existing.profile, dict) else {}
+        try:
+            return max(0, int(profile.get(COURSE_SALES_EXPLICIT_REJECTION_COUNT_KEY) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    async def increment_course_sales_explicit_rejection_count(self, query: Any, session_id: str) -> int:
+        if not session_id:
+            return 1
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id == session_id
+            )
+        )
+        existing = self._first_row(result)
+        profile = dict(existing.profile or {}) if existing is not None else {}
+        count = max(0, int(profile.get(COURSE_SALES_EXPLICIT_REJECTION_COUNT_KEY) or 0)) + 1
+        profile[COURSE_SALES_EXPLICIT_REJECTION_COUNT_KEY] = count
+        values: dict[str, Any] = {
+            'profile': profile,
+            'last_seen_at': datetime.datetime.now(),
+            'updated_at': datetime.datetime.now(),
+        }
+        if existing is not None:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_sales.SalesCustomerMemory)
+                .where(persistence_sales.SalesCustomerMemory.id == existing.id)
+                .values(**values)
+            )
+            return count
+
+        launcher_type = getattr(query.launcher_type, 'value', str(getattr(query, 'launcher_type', '') or ''))
+        values.update(
+            {
+                'session_id': session_id,
+                'platform': launcher_type,
+                'user_id': str(getattr(query, 'sender_id', '') or getattr(query, 'launcher_id', '') or ''),
+                'stage': 'objection',
+                'last_intent': 'explicit_rejection',
+            }
+        )
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(**values)
+        )
+        return count
+
     async def get_memories(self) -> list[dict[str, Any]]:
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesCustomerMemory).order_by(
@@ -686,6 +748,144 @@ class SalesService:
             )
             sent += 1
         return sent
+
+    async def run_due_outreach_for_target(
+        self,
+        *,
+        bot_uuid: str,
+        target_type: str,
+        target_id: str,
+    ) -> int:
+        now = datetime.datetime.now()
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.enabled.is_(True))
+            .where(persistence_sales.SalesOutreachPlan.scheduled_at <= now)
+            .where(persistence_sales.SalesOutreachPlan.bot_uuid == bot_uuid)
+            .where(persistence_sales.SalesOutreachPlan.target_type == (target_type or 'person'))
+            .where(persistence_sales.SalesOutreachPlan.target_id == target_id)
+        )
+        sent = 0
+        products = {p['uuid']: p for p in await self.get_products(enabled_only=True)}
+        for plan in result.all():
+            if not plan.bot_uuid or not plan.target_id:
+                continue
+            product = products.get(plan.product_uuid, {})
+            try:
+                runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(plan.bot_uuid)
+                if runtime_bot is None:
+                    continue
+                await runtime_bot.adapter.send_message(
+                    plan.target_type,
+                    plan.target_id,
+                    await self._build_outreach_message_chain(plan, product),
+                )
+            except Exception as e:
+                self.ap.logger.warning(f'Sales outreach plan {plan.id} failed: {e}')
+                continue
+
+            updates: dict[str, Any] = {'last_sent_at': now, 'updated_at': now}
+            if plan.interval_minutes > 0:
+                updates['scheduled_at'] = now + datetime.timedelta(minutes=plan.interval_minutes)
+            else:
+                updates['enabled'] = False
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+                .where(persistence_sales.SalesOutreachPlan.id == plan.id)
+                .values(**updates)
+            )
+            sent += 1
+        return sent
+
+    def build_radar_tracking_url(
+        self,
+        *,
+        destination_url: str,
+        bot_uuid: str,
+        target_type: str,
+        target_id: str,
+        link_id: str = '',
+        session_id: str = '',
+        pipeline_uuid: str = '',
+        event: str = 'link_open',
+        tracking_base_path: str = '/api/v1/sales/radar/click',
+    ) -> str:
+        payload = {
+            'd': destination_url,
+            'b': bot_uuid,
+            't': target_type or 'person',
+            'i': target_id,
+            'l': link_id,
+            's': session_id,
+            'p': pipeline_uuid,
+            'e': event,
+            'exp': int((datetime.datetime.now() + datetime.timedelta(days=30)).timestamp()),
+        }
+        token = base64.urlsafe_b64encode(json.dumps(payload, ensure_ascii=False).encode('utf-8')).decode('utf-8').rstrip('=')
+        base_url = self.radar_tracking_public_base_url().rstrip('/')
+        path = tracking_base_path.rstrip('/')
+        return f'{base_url}{path}/{token}'
+
+    def radar_tracking_public_base_url(self) -> str:
+        instance_config = getattr(self.ap, 'instance_config', {}) or {}
+        sales_cfg = instance_config.get('sales') if isinstance(instance_config.get('sales'), dict) else {}
+        api_cfg = instance_config.get('api') if isinstance(instance_config.get('api'), dict) else {}
+        for candidate in (
+            sales_cfg.get('radar_public_base_url'),
+            api_cfg.get('public_base_url'),
+            api_cfg.get('webhook_prefix'),
+            os.getenv('LANGBOT_RADAR_PUBLIC_BASE_URL'),
+        ):
+            value = str(candidate or '').strip()
+            if value:
+                return value.rstrip('/')
+        host = str(api_cfg.get('host') or '127.0.0.1')
+        port = int(api_cfg.get('port') or 5300)
+        if host in {'0.0.0.0', '::'}:
+            host = '127.0.0.1'
+        return f'http://{host}:{port}'
+
+    def decode_radar_tracking_token(self, token: str) -> dict[str, Any]:
+        padding = '=' * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(f'{token}{padding}')
+        payload = json.loads(raw.decode('utf-8'))
+        if not isinstance(payload, dict):
+            raise ValueError('Invalid radar tracking token')
+        expires_at = int(payload.get('exp') or 0)
+        if expires_at and datetime.datetime.now().timestamp() > expires_at:
+            raise ValueError('Radar tracking token expired')
+        destination = str(payload.get('d') or '').strip()
+        if not destination:
+            raise ValueError('Radar tracking destination missing')
+        return payload
+
+    async def handle_radar_tracking_click(self, token: str) -> str:
+        payload = self.decode_radar_tracking_token(token)
+        destination_url = str(payload.get('d') or '')
+        bot_uuid = str(payload.get('b') or '')
+        target_type = str(payload.get('t') or 'person')
+        target_id = str(payload.get('i') or '')
+        link_id = str(payload.get('l') or '')
+        session_id = str(payload.get('s') or '')
+        pipeline_uuid = str(payload.get('p') or '')
+        event = str(payload.get('e') or 'link_open')
+
+        task_assistant = getattr(self.ap, 'task_assistant_service', None)
+        if task_assistant is not None and bot_uuid and target_id:
+            try:
+                await task_assistant.handle_course_sales_radar_event(
+                    bot_uuid=bot_uuid,
+                    target_type=target_type,
+                    target_id=target_id,
+                    link_id=link_id,
+                    session_id=session_id,
+                    pipeline_uuid=pipeline_uuid,
+                    event=event,
+                )
+            except Exception as exc:
+                self.ap.logger.warning('Failed to handle radar tracking click: %s', exc)
+
+        return destination_url
 
     async def get_chatted_outreach_targets(
         self,

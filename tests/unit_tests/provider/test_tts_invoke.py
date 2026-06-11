@@ -56,6 +56,16 @@ def test_detect_tts_backend_for_builtin_providers():
         )
         == 'minimax'
     )
+    assert (
+        tts_invoke.detect_tts_backend(
+            tts_invoke.TTSInvokeConfig(
+                requester='openai-chat-completions',
+                base_url='https://openspeech.bytedance.com',
+                model='seed-tts-2.0-standard',
+            )
+        )
+        == 'volcengine'
+    )
 
 
 def test_resolve_dashscope_tts_url_from_api_v1_base():
@@ -79,6 +89,17 @@ def test_apply_provider_api_keys_for_volcengine_dual_keys():
 
     assert resolved['app_id'] == 'app-123'
     assert resolved['token'] == 'token-456'
+
+
+def test_apply_provider_api_keys_for_volcengine_seed_tts_single_key():
+    resolved = tts_invoke.apply_provider_api_keys(
+        {'model': 'seed-tts-2.0-standard'},
+        requester='openai-chat-completions',
+        api_keys=['speech-api-key'],
+    )
+
+    assert resolved['token'] == 'speech-api-key'
+    assert 'app_id' not in resolved
 
 
 def test_apply_provider_api_keys_preserves_existing_values():
@@ -121,6 +142,70 @@ def test_parse_volcengine_tts_ws_audio_message_returns_audio_and_final_state():
 
     assert chunk == audio_bytes
     assert is_final is True
+
+
+def test_parse_volcengine_tts_v3_stream_concatenated_json_audio():
+    raw = ''.join(
+        [
+            '{"code":0,"data":"YXVkaW8t"}',
+            '{"code":0,"data":"Ynl0ZXM="}',
+            '{"code":20000000,"message":"ok"}',
+        ]
+    )
+
+    assert tts_invoke.parse_volcengine_tts_v3_stream(raw) == b'audio-bytes'
+
+
+@pytest.mark.asyncio
+async def test_invoke_volcengine_seed_tts_uses_v3_api_key_headers():
+    captured = {}
+
+    class _Content:
+        async def iter_chunked(self, _size):
+            yield b'{"code":0,"data":"YXVkaW8tYnl0ZXM="}'
+            yield b'{"code":20000000,"message":"ok"}'
+
+    class _Response:
+        status = 200
+        content = _Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _Session:
+        def post(self, url, **kwargs):
+            captured['url'] = url
+            captured['kwargs'] = kwargs
+            return _Response()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    config = tts_invoke.TTSInvokeConfig(
+        requester='openai-chat-completions',
+        base_url='https://openspeech.bytedance.com',
+        model='seed-tts-2.0-standard',
+        text='你好',
+        token='speech-api-key',
+        voice_type='zh_female_vv_uranus_bigtts',
+        encoding='mp3',
+        extra_args={'resource_id': 'seed-tts-2.0'},
+    )
+    with patch('langbot.pkg.provider.modelmgr.tts_invoke.aiohttp.ClientSession', return_value=_Session()):
+        result = await tts_invoke.invoke_tts(config)
+
+    assert result == 'YXVkaW8tYnl0ZXM='
+    assert captured['url'] == 'https://openspeech.bytedance.com/api/v3/tts/unidirectional'
+    assert captured['kwargs']['headers']['X-Api-Key'] == 'speech-api-key'
+    assert captured['kwargs']['headers']['X-Api-Resource-Id'] == 'seed-tts-2.0'
+    assert captured['kwargs']['json']['req_params']['speaker'] == 'zh_female_vv_uranus_bigtts'
+    assert captured['kwargs']['json']['req_params']['audio_params']['format'] == 'mp3'
 
 
 @pytest.mark.asyncio

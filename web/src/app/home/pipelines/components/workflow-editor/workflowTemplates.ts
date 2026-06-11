@@ -114,12 +114,12 @@ const nodeDefaults: Record<
     config: { stage: 'new', tags: ['高意向', '待跟进'] },
   },
   radar: {
-    title: '模拟雷达',
+    title: '链接点击雷达',
     description: '按链接点击、浏览时长和按钮行为触发跟进',
     config: {
       enabled: true,
       link_title: '报名通道',
-      link_url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen&reduceProxy=true',
+      link_url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class',
       tracking_fields: ['session_id', 'clicked_at', 'browse_seconds', 'clicked_apply_button'],
       rules: [
         {
@@ -592,7 +592,7 @@ export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
 }
 
 const courseSalesSignupLink =
-  'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-jiawen&reduceProxy=true';
+  'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class';
 const courseResourceCardLink =
   'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347';
 const courseOpeningMessage =
@@ -652,7 +652,7 @@ const courseSalesLinks = [
     id: 'phonics_radar_apply',
     title: '猿辅导自然拼读9元体验课报名通道',
     url: courseSalesSignupLink,
-    description: '报名链接卡片：模拟记录打开、浏览时长、点击报名、未支付等雷达事件。',
+    description: '报名链接卡片：通过 tracking URL 记录打开并触发雷达跟进。',
     radar_enabled: true,
   },
 ];
@@ -756,7 +756,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       ],
     }),
     workflowNode('text_input', 'custom', '文字问题整理', '提取家长问题、孩子年级、是否点击链接、是否已报名', { x: 1160, y: 120 }, { output_key: 'user_text', params: '{"from": "message_chain.plain_text"}' }),
-    workflowNode('voice_asr', 'asr', '语音输入处理', '用户发语音时先理解课程咨询内容，语音回复开关开启时可用语音回复', { x: 1160, y: 320 }, { provider: 'bailian', fallback_text: '用户发来课程咨询语音，请用文字短句回复。' }),
+    workflowNode('voice_asr', 'asr', '语音输入处理', '用户发语音时先理解课程咨询内容，语音回复开关开启时可用语音回复', { x: 1160, y: 320 }, { provider: 'volcengine', model_uuid: 'lna-doubao-bigasr-flash', fallback_text: '用户发来课程咨询语音，请用文字短句回复。' }),
     workflowNode('screenshot_input', 'vision', '截图识别', '识别支付成功页、报名页、白屏、资源页或二维码页', { x: 1160, y: 520 }, { model_uuid: modelUuid, target_steps: ['gift_poster', 'gift_qr', 'link_error'] }),
     workflowNode('intent', 'intent', '意图识别', '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态', { x: 1460, y: 320 }, {
       intents: ['resource_help', 'course_intro', 'course_schedule', 'course_replay', 'course_content', 'purchase', 'purchased', 'objection', 'gift', 'radar_clicked', 'stop', 'screenshot_help'],
@@ -767,8 +767,8 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
     workflowNode('resource_faq', 'knowledge', '图书资源FAQ', '听力、答案、验证码、暂无资源、资源不对、下载等问题', { x: 2040, y: 80 }, { resource_faqs: courseResourceFaqs, knowledge_base_uuids: [], top_k: 5 }),
     workflowNode('course_faq', 'knowledge', '课程FAQ', '自然拼读课程介绍、上课时间、回放、赠品、冲突和年级适配', { x: 2040, y: 260 }, { course_faqs: courseFaqs, knowledge_base_uuids: [], top_k: 5 }),
     workflowNode('course_product', 'product', '课程产品库', '绑定猿辅导自然拼读体验课产品，输出价格、卖点、适龄和报名方式', { x: 2040, y: 440 }, { product_uuids: ['yuanfudao-phonics-course'], course_profile: courseSalesProfile, course_profiles: courseSalesProfiles }),
-    workflowNode('sales_link', 'custom', '发送报名链接', '发送指定报名链接卡片，并保留模拟雷达事件', { x: 2340, y: 440 }, { links: courseSalesLinks, link_url: courseRadarConfig.link_url }),
-    workflowNode('radar', 'radar', '模拟雷达', '记录链接打开、浏览时长、报名按钮点击和点击未支付', { x: 2640, y: 440 }, courseRadarConfig),
+    workflowNode('sales_link', 'custom', '发送报名链接', '发送指定报名链接卡片，雷达链接自动包装 tracking URL', { x: 2340, y: 440 }, { links: courseSalesLinks, link_url: courseRadarConfig.link_url }),
+    workflowNode('radar', 'radar', '链接点击雷达', '通过 tracking URL 回调感知链接打开，并按规则触发跟进', { x: 2640, y: 440 }, courseRadarConfig),
     workflowNode('radar_followup', 'outreach', '主动跟进话术矩阵', '按Excel跟进表在马上、5分钟、1小时、21:30主动跟进，必要时发送Excel素材图或报名链接卡片', { x: 2940, y: 440 }, { followup_sequences: courseFollowupSequences, radar_rules: courseRadarConfig.rules }),
     workflowNode('long_term_broadcast', 'outreach', 'SOP定时群发', '按SOP图片识别出的文字在每日10:05群发；不发送SOP图片', { x: 2640, y: 700 }, { broadcasts: courseLongTermBroadcasts, stop_rules: courseStopRules }),
     workflowNode('handoff', 'handoff', '人工接管', '投诉、高风险、订单纠纷或人工主动介入后停止AI和群发', { x: 2040, y: 700 }, { reason: '课程咨询需要人工处理', stop_ai_reply: true, stop_outreach: true }),
@@ -859,11 +859,11 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       },
     },
     voice: {
-      model_uuid: '',
+      model_uuid: 'lnv-doubao-seed-tts-2-0-standard',
       provider: 'volcengine',
       enabled: true,
-      voice_type: 'zh_female_yuanqinvyou_moon_bigtts',
-      encoding: 'ogg_opus',
+      voice_type: 'zh_female_vv_uranus_bigtts',
+      encoding: 'mp3',
     },
     nodes,
     edges,
@@ -952,6 +952,11 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
       voice_type: '',
       encoding: '',
     },
+    asr: {
+      model_uuid: '',
+      provider: '',
+      fallback_text: '用户发来一条语音咨询，请用短句回复。',
+    },
     scheduled_push: {
       enabled: false,
       mode: 'daily',
@@ -1026,6 +1031,11 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       voice_type: 'zh_female_yuanqinvyou_moon_bigtts',
       encoding: 'ogg_opus',
     },
+    asr: {
+      model_uuid: 'lna-doubao-bigasr-flash',
+      provider: 'volcengine',
+      fallback_text: '用户发来一条语音咨询，请用短句回复。',
+    },
     scheduled_push: {
       enabled: true,
       mode: 'daily',
@@ -1081,6 +1091,15 @@ export function applyTemplateConfigToWorkflow(
       }
       if (node.type === 'voice') {
         nextNode.config = { ...nextNode.config, ...templateConfig.voice };
+      }
+      if (node.type === 'asr') {
+        nextNode.config = {
+          ...nextNode.config,
+          model_uuid: templateConfig.asr?.model_uuid || '',
+          provider: templateConfig.asr?.provider || nextNode.config.provider,
+          fallback_text:
+            templateConfig.asr?.fallback_text || nextNode.config.fallback_text,
+        };
       }
       if (binding && node.type === 'task') {
         nextNode.title = binding.title;
