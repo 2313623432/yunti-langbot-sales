@@ -19,11 +19,13 @@ from importlib import import_module
 from tests.factories import (
     FakeApp,
     text_chain,
+    image_chain,
     friend_message_event,
     mock_adapter,
 )
 
 import langbot_plugin.api.entities.builtin.provider.session as provider_session
+import langbot_plugin.api.entities.builtin.platform.message as platform_message
 
 
 def get_aggregator_module():
@@ -328,6 +330,35 @@ class TestMessageAggregatorAddMessage:
         assert app.query_pool.add_query.called
 
     @pytest.mark.asyncio
+    async def test_drops_duplicate_source_message_id_before_queueing(self):
+        """Webhook retries with the same Source id should not create duplicate queries."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        agg = aggregator.MessageAggregator(app)
+
+        chain = platform_message.MessageChain([
+            platform_message.Source(id='msg-duplicate', time=0),
+            platform_message.Image(base64='data:image/png;base64,aW1n'),
+        ])
+        event = friend_message_event(chain)
+        adapter = mock_adapter()
+
+        for _ in range(2):
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id=12345,
+                sender_id=12345,
+                message_event=event,
+                message_chain=chain,
+                adapter=adapter,
+                pipeline_uuid=None,
+            )
+
+        assert app.query_pool.add_query.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_enabled_buffers_message(self):
         """Enabled aggregation should buffer message."""
         aggregator = get_aggregator_module()
@@ -478,6 +509,44 @@ class TestMessageAggregatorMerge:
         merged_str = str(merged.message_chain)
         assert "hello" in merged_str
         assert "world" in merged_str
+
+    def test_merge_text_then_image_keeps_single_combined_chain(self):
+        """Text followed by an image should become one user message."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        agg = aggregator.MessageAggregator(app)
+
+        chain1 = text_chain("这题选什么")
+        chain2 = image_chain(url="https://example.com/question.png")
+        event = friend_message_event(chain1)
+        adapter = mock_adapter()
+
+        pending1 = aggregator.PendingMessage(
+            bot_uuid='test-bot',
+            launcher_type=provider_session.LauncherTypes.PERSON,
+            launcher_id=12345,
+            sender_id=12345,
+            message_event=event,
+            message_chain=chain1,
+            adapter=adapter,
+            pipeline_uuid=None,
+        )
+        pending2 = aggregator.PendingMessage(
+            bot_uuid='test-bot',
+            launcher_type=provider_session.LauncherTypes.PERSON,
+            launcher_id=12345,
+            sender_id=12345,
+            message_event=event,
+            message_chain=chain2,
+            adapter=adapter,
+            pipeline_uuid=None,
+        )
+
+        merged = agg._merge_messages([pending1, pending2])
+
+        assert str(merged.message_chain) == '这题选什么\n[Image]'
+        assert [component.type for component in merged.message_chain] == ['Plain', 'Plain', 'Image']
 
     def test_merge_messages_preserves_routed_by_rule_if_any_input_matches(self):
         """Merged PendingMessage should keep routed_by_rule when any input was rule-routed."""

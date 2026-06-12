@@ -65,12 +65,16 @@ class MessageAggregator:
     buffers: dict[str, SessionBuffer]
     """Session ID -> SessionBuffer mapping"""
 
+    recent_message_ids: dict[str, dict[str, float]]
+    """Session ID -> recently seen platform message IDs and expiry timestamps"""
+
     lock: asyncio.Lock
     """Lock for thread-safe buffer operations"""
 
     def __init__(self, ap: app.Application):
         self.ap = ap
         self.buffers = {}
+        self.recent_message_ids = {}
         self.lock = asyncio.Lock()
 
     def _get_session_id(
@@ -81,6 +85,28 @@ class MessageAggregator:
     ) -> str:
         """Generate a unique session ID"""
         return f'{bot_uuid}:{launcher_type.value}:{launcher_id}'
+
+    def _message_source_id(self, message_chain: platform_message.MessageChain) -> str:
+        """Return the platform Source id when present."""
+        for component in message_chain:
+            if isinstance(component, platform_message.Source):
+                return str(component.id or '').strip()
+        return ''
+
+    def _is_recent_duplicate(self, session_id: str, source_id: str, now: float) -> bool:
+        if not source_id:
+            return False
+
+        recent_ids = self.recent_message_ids.setdefault(session_id, {})
+        expired_ids = [msg_id for msg_id, expires_at in recent_ids.items() if expires_at <= now]
+        for msg_id in expired_ids:
+            recent_ids.pop(msg_id, None)
+
+        if source_id in recent_ids:
+            return True
+
+        recent_ids[source_id] = now + 60
+        return False
 
     async def _get_aggregation_config(self, pipeline_uuid: typing.Optional[str]) -> tuple[bool, float]:
         """Get aggregation configuration for a pipeline
@@ -135,6 +161,10 @@ class MessageAggregator:
         merged with other messages from the same session.
         """
         enabled, delay = await self._get_aggregation_config(pipeline_uuid)
+        session_id = self._get_session_id(bot_uuid, launcher_type, launcher_id)
+        source_id = self._message_source_id(message_chain)
+        if self._is_recent_duplicate(session_id, source_id, time.time()):
+            return
 
         if not enabled:
             # Aggregation disabled, send directly to query pool
@@ -150,8 +180,6 @@ class MessageAggregator:
                 routed_by_rule=routed_by_rule,
             )
             return
-
-        session_id = self._get_session_id(bot_uuid, launcher_type, launcher_id)
 
         pending_msg = PendingMessage(
             bot_uuid=bot_uuid,

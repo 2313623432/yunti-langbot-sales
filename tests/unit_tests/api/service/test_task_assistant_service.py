@@ -228,6 +228,74 @@ async def test_course_sales_voice_uses_asr_fallback_when_native_audio_unavailabl
 
 
 @pytest.mark.asyncio
+async def test_course_sales_voice_prefers_asr_text_even_when_primary_model_supports_audio():
+    primary_model = SimpleNamespace(
+        uuid='gemini-model',
+        name='gemini-3-flash-preview',
+        abilities=['vision', 'func_call'],
+        provider_uuid='gemini-provider',
+    )
+    primary_provider = SimpleNamespace(requester='geminichatcmpl', name='Gemini', api_keys=['llm-key'])
+    asr_model = SimpleNamespace(
+        uuid='lna-doubao-bigasr-flash',
+        name='bigmodel',
+        abilities=['asr'],
+        provider_uuid='lna-doubao',
+        extra_args={'provider': 'volcengine-asr', 'resource_id': 'volc.bigasr.auc_turbo'},
+    )
+    asr_provider = SimpleNamespace(
+        requester='volcengine-asr',
+        name='豆包语音 ASR',
+        base_url='https://openspeech.bytedance.com',
+        api_keys=['speech-api-key'],
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FirstResult(primary_model),
+                _FirstResult(primary_provider),
+                _FirstResult(asr_model),
+                _FirstResult(asr_provider),
+            ]
+        )
+    )
+    service = TaskAssistantService(
+        SimpleNamespace(persistence_mgr=persistence_mgr, sales_service=None, logger=SimpleNamespace(warning=lambda *_: None))
+    )
+    query = voice_query('https://example.com/audio.mp3')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        model_uuid='gemini-model',
+        template_slug='yuanfudao-enhanced',
+        existing_config={'template_config': {'asr': {'model_uuid': 'lna-doubao-bigasr-flash'}}},
+    )
+    query.variables = {'user_message_text': ''}
+    query.prompt = SimpleNamespace(messages=[])
+    query.message_chain = [
+        platform_message.Voice(
+            base64='data:audio/mpeg;base64,YWJj',
+            url='https://example.com/audio.mp3',
+        )
+    ]
+    query.user_message = provider_message.Message(
+        role='user',
+        content=[provider_message.ContentElement.from_text('')],
+    )
+
+    with patch(
+        'langbot.pkg.api.http.service.task_assistant.asr_invoke.invoke_asr',
+        new=AsyncMock(return_value='9元体验课是什么东西'),
+    ) as invoke_asr:
+        await service.prepare_query(query)
+
+    invoke_asr.assert_awaited_once()
+    assert query.variables['course_sales_asr_text'] == '9元体验课是什么东西'
+    assert query.variables['user_message_text'] == '9元体验课是什么东西'
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '9元体验课是什么东西' in context_text
+    assert '必须按转写内容回答' in context_text
+
+
+@pytest.mark.asyncio
 async def test_prepare_query_limits_first_step_question_to_one_step():
     service = TaskAssistantService(SimpleNamespace())
     query = _query(text_chain('我现在只到第一步，二维码这一步怎么弄'), '我现在只到第一步，二维码这一步怎么弄')
@@ -1197,7 +1265,7 @@ def test_compose_course_sales_prompt_is_compact_persona_only():
     assert '雷达模拟规则：' not in prompt
 
 
-def test_course_sales_pipeline_avoids_duplicate_system_and_extra_delay():
+def test_course_sales_pipeline_avoids_duplicate_system_and_enables_multimodal_aggregation():
     service = TaskAssistantService(SimpleNamespace())
     config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
 
@@ -1208,7 +1276,8 @@ def test_course_sales_pipeline_avoids_duplicate_system_and_extra_delay():
     ]
     assert len(system_prompts) == 1
     assert '不要整段塞话术' in system_prompts[0]
-    assert config['trigger']['message-aggregation']['enabled'] is False
+    assert config['trigger']['message-aggregation']['enabled'] is True
+    assert config['trigger']['message-aggregation']['delay'] == 3.0
     assert config['output']['force-delay'] == {'min': 0, 'max': 0}
     assert config['ai']['local-agent']['rerank-top-k'] == 2
 

@@ -1114,7 +1114,8 @@ class TaskAssistantService:
             requester=str(model_info.get('requester') or ''),
             model_name=str(model_info.get('name') or ''),
         )
-        if self._has_voice(query.message_chain) and not supports_native_audio:
+        has_voice = self._has_voice(query.message_chain)
+        if has_voice:
             asr_text = await self._transcribe_course_sales_voice(query, workflow)
             if asr_text:
                 query.variables['course_sales_asr_text'] = asr_text
@@ -1424,7 +1425,8 @@ class TaskAssistantService:
         if self._has_voice(query.message_chain):
             voice_hint = (
                 '用户发来一条语音咨询。请按猿辅导自然拼读课程客服/销售场景回复，'
-                '短句、自然、像真人客服；如果用户用语音咨询且语音回复已启用，可生成适合 TTS 的短句。'
+                '短句、自然、像真人客服；如果上方已有语音转写文本，必须按转写内容回答，'
+                '不要泛泛回复“语音我听到了”；如果用户用语音咨询且语音回复已启用，可生成适合 TTS 的短句。'
             )
             if supports_native_audio:
                 self._append_native_voice_content(content, query.message_chain)
@@ -2848,7 +2850,9 @@ class TaskAssistantService:
             {'role': 'system', 'content': self.compose_course_sales_prompt(active_template)},
         ]
         config['ai']['local-agent']['rerank-top-k'] = 2
-        config['trigger'].setdefault('message-aggregation', {})['enabled'] = False
+        aggregation_config = config['trigger'].setdefault('message-aggregation', {})
+        aggregation_config['enabled'] = True
+        aggregation_config['delay'] = 3.0
         config['output']['force-delay'] = {'min': 0, 'max': 0}
         config['output']['misc']['at-sender'] = False
         config['output']['misc']['quote-origin'] = True

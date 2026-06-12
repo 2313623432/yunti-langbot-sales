@@ -171,6 +171,12 @@ class SendResponseBackStage(stage.PipelineStage):
     def _plain_text_from_chain(self, message_chain: platform_message.MessageChain) -> str:
         return ''.join(component.text for component in message_chain if isinstance(component, platform_message.Plain))
 
+    def _estimate_voice_length_seconds(self, text: str) -> int:
+        visible_chars = sum(1 for char in (text or '') if not char.isspace())
+        if visible_chars <= 0:
+            return 1
+        return max(1, min(60, (visible_chars + 4) // 5))
+
     async def _append_task_assistant_voice(self, query: pipeline_query.Query, text: str) -> None:
         if not query.resp_message_chain:
             return
@@ -179,7 +185,9 @@ class SendResponseBackStage(stage.PipelineStage):
             return
         voice_base64 = await task_assistant_service.synthesize_reply_voice(query, text)
         if voice_base64:
-            query.resp_message_chain[-1].append(platform_message.Voice(base64=voice_base64))
+            query.resp_message_chain[-1] = platform_message.MessageChain(
+                [platform_message.Voice(base64=voice_base64, length=self._estimate_voice_length_seconds(text))]
+            )
 
     async def _append_response_enrichments(self, query: pipeline_query.Query) -> None:
         if not query.resp_message_chain:

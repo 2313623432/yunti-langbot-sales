@@ -719,8 +719,9 @@ class TestSendResponseBackStage:
         outbound = platform.get_outbound_messages()
         assert len(outbound) == 1
         components = outbound[0]['message']
-        assert [component.type for component in components] == ['Plain', 'Voice']
-        assert components[1].base64 == 'data:audio/mpeg;base64,ZmFrZQ=='
+        assert [component.type for component in components] == ['Voice']
+        assert components[0].base64 == 'data:audio/mpeg;base64,ZmFrZQ=='
+        assert components[0].length and components[0].length > 0
         pipeline_app.task_assistant_service.synthesize_reply_voice.assert_awaited_once()
 
     @pytest.mark.asyncio
