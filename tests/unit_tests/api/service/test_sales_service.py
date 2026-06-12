@@ -637,6 +637,81 @@ async def test_reply_handoff_from_session_opens_then_replies(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_create_resource_issue_from_session_records_user_target_and_summary(sales_service_with_db):
+    service = sales_service_with_db
+    await _insert_monitoring_session_with_messages(service)
+
+    issue = await service.create_resource_issue_from_session(
+        'person_customer-1',
+        {
+            'issue_type': 'content_error',
+            'book_id': '266414',
+            'merchant': '开源图书',
+            'question_location': '宁五6 第三大题，第2小题和第3小题',
+            'user_description': '听力音频都是一样的，和题目对不上',
+            'evidence_images': ['book_qr.jpg', 'wrong_question.jpg'],
+        },
+    )
+
+    assert issue['status'] == 'open'
+    assert issue['session_id'] == 'person_customer-1'
+    assert issue['bot_uuid'] == 'bot-uuid'
+    assert issue['target_type'] == 'person'
+    assert issue['target_id'] == 'customer-1'
+    assert issue['user_id'] == 'ou_customer'
+    assert issue['book_id'] == '266414'
+    assert issue['merchant'] == '开源图书'
+    assert '听力音频都是一样的' in issue['issue_summary']
+    assert issue['evidence_images'] == ['book_qr.jpg', 'wrong_question.jpg']
+
+
+@pytest.mark.asyncio
+async def test_resolve_resource_issue_replies_to_original_user(sales_service_with_db):
+    class _FakeAdapter:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, target_type, target_id, message_chain):
+            self.sent.append((target_type, target_id, message_chain))
+
+    service = sales_service_with_db
+    await _insert_monitoring_session_with_messages(service)
+    issue = await service.create_resource_issue_from_session(
+        'person_customer-1',
+        {
+            'issue_type': 'missing_resource',
+            'book_id': '266414',
+            'merchant': '开源图书',
+            'user_description': '资源为空，页面显示正在上传中',
+        },
+    )
+    fake_adapter = _FakeAdapter()
+    service.ap.platform_mgr = SimpleNamespace(
+        get_bot_by_uuid=AsyncMock(return_value=SimpleNamespace(adapter=fake_adapter))
+    )
+
+    updated = await service.resolve_resource_issue(
+        issue['id'],
+        {
+            'status': 'resolved',
+            'resolution_note': '书商已补传资源',
+            'operator': 'sass运营',
+            'reply_user': True,
+        },
+    )
+
+    assert updated['status'] == 'replied'
+    assert updated['resolution_note'] == '书商已补传资源'
+    assert updated['replied_at'] is not None
+    assert len(fake_adapter.sent) == 1
+    target_type, target_id, message_chain = fake_adapter.sent[0]
+    assert target_type == 'person'
+    assert target_id == 'customer-1'
+    assert isinstance(message_chain, platform_message.MessageChain)
+    assert '已经处理好了' in message_chain[0].text
+
+
+@pytest.mark.asyncio
 async def test_get_product_returns_serialized_product():
     product_row = SimpleNamespace(
         uuid='product-1',

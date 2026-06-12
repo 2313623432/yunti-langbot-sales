@@ -9,10 +9,12 @@ import { ExportDropdown } from './components/ExportDropdown';
 import { useMonitoringFilters } from './hooks/useMonitoringFilters';
 import { useMonitoringData } from './hooks/useMonitoringData';
 import { useFeedbackData } from './hooks/useFeedbackData';
+import { useResourceIssueData } from './hooks/useResourceIssueData';
 import { MessageDetailsCard } from './components/MessageDetailsCard';
 import { MessageContentRenderer } from './components/MessageContentRenderer';
 import { FeedbackStatsCards } from './components/FeedbackCard';
 import { FeedbackList } from './components/FeedbackList';
+import { ResourceIssuesTab } from './components/ResourceIssuesTab';
 import { MessageDetails } from './types/monitoring';
 import { httpClient } from '@/app/infra/http/HttpClient';
 import { LoadingSpinner, LoadingPage } from '@/components/ui/loading-spinner';
@@ -130,12 +132,20 @@ function MonitoringPageContent() {
     endTime: feedbackTimeRange.endTime,
     limit: 50,
   });
+  const {
+    issues: resourceIssues,
+    loading: resourceIssuesLoading,
+    updatingId: resourceIssueUpdatingId,
+    refetch: refetchResourceIssues,
+    resolveIssue: resolveResourceIssue,
+  } = useResourceIssueData();
 
   // Combined refresh handler for both monitoring and feedback data
   const handleRefresh = useCallback(() => {
     refetch();
+    refetchResourceIssues();
     setFeedbackRefreshKey((k) => k + 1);
-  }, [refetch]);
+  }, [refetch, refetchResourceIssues]);
 
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(
     null,
@@ -320,6 +330,9 @@ function MonitoringPageContent() {
                 </TabsTrigger>
                 <TabsTrigger value="feedback" className="px-6 py-2">
                   {t('monitoring.tabs.feedback')}
+                </TabsTrigger>
+                <TabsTrigger value="resourceIssues" className="px-6 py-2">
+                  {t('monitoring.tabs.resourceIssues')}
                 </TabsTrigger>
                 <TabsTrigger value="errors" className="px-6 py-2">
                   {t('monitoring.tabs.errors')}
@@ -711,6 +724,16 @@ function MonitoringPageContent() {
                   </>
                 )}
               </div>
+            </TabsContent>
+
+            <TabsContent value="resourceIssues" className="p-6 m-0">
+              <ResourceIssuesTab
+                issues={resourceIssues}
+                loading={resourceIssuesLoading}
+                updatingId={resourceIssueUpdatingId}
+                onRefresh={refetchResourceIssues}
+                onResolve={resolveResourceIssue}
+              />
             </TabsContent>
 
             <TabsContent value="errors" className="p-6 m-0">

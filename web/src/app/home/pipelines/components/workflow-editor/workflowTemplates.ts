@@ -634,7 +634,7 @@ const defaultHumanHandoff = {
   ],
   stop_ai_reply: true,
   stop_outreach: true,
-  notify_message: '您好，已经帮您转人工老师处理，请稍候~',
+  notify_message: '我这边帮您记录好了，稍等我看下具体情况~',
 };
 const courseSalesProfile = {
   course_name: '猿辅导英语自然拼读体验课/自然拼读集训营',
@@ -1112,7 +1112,7 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
     human_handoff: {
       ...defaultHumanHandoff,
       enabled: false,
-      notify_message: '您好，已经帮您转人工处理，请稍候~',
+      notify_message: '我这边帮您记录好了，稍等我看下具体情况~',
     },
     image_text_bindings: bindings.map(([step_id, title, text, file_key]) => ({
       step_id,

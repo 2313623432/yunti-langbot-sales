@@ -1203,6 +1203,7 @@ const zhHans = {
       embeddingCalls: 'Embedding调用',
       modelCalls: '模型调用',
       feedback: '用户反馈',
+      resourceIssues: '资源问题',
       sessions: '会话分析',
       errors: '错误日志',
     },

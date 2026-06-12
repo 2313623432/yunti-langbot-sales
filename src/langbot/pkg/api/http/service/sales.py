@@ -732,6 +732,115 @@ class SalesService:
         await self.reply_handoff(int(handoff_id), reply, assigned_to)
         return {'sent': True, 'handoff_id': int(handoff_id)}
 
+    async def create_resource_issue_from_session(self, session_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession).where(
+                persistence_monitoring.MonitoringSession.session_id == session_id
+            )
+        )
+        session = self._first_row(session_result)
+        if session is None:
+            raise ValueError('Session not found')
+
+        target_type, target_id = self._target_from_session(session)
+        payload = self._clean_resource_issue_payload(data)
+        values = {
+            **payload,
+            'session_id': session_id,
+            'bot_uuid': getattr(session, 'bot_id', '') or '',
+            'pipeline_uuid': getattr(session, 'pipeline_id', '') or '',
+            'target_type': target_type,
+            'target_id': target_id,
+            'platform': getattr(session, 'platform', '') or '',
+            'user_id': getattr(session, 'user_id', '') or target_id,
+            'user_name': getattr(session, 'user_name', '') or '',
+            'status': 'open',
+            'updated_at': datetime.datetime.now(),
+        }
+        insert_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_sales.SalesResourceIssue).values(**values)
+        )
+        inserted_primary_key = getattr(insert_result, 'inserted_primary_key', None)
+        if inserted_primary_key:
+            values['id'] = int(inserted_primary_key[0])
+        return values
+
+    async def create_resource_issue_from_query(self, query: Any, data: dict[str, Any]) -> dict[str, Any]:
+        payload = self._clean_resource_issue_payload(data)
+        session_id = self._query_session_id(query)
+        values = {
+            **payload,
+            'session_id': session_id,
+            'bot_uuid': getattr(query, 'bot_uuid', '') or '',
+            'pipeline_uuid': getattr(query, 'pipeline_uuid', '') or '',
+            'target_type': getattr(query.launcher_type, 'value', str(query.launcher_type)),
+            'target_id': str(query.launcher_id),
+            'platform': query.adapter.__class__.__name__ if getattr(query, 'adapter', None) else '',
+            'user_id': str(getattr(query, 'sender_id', '') or ''),
+            'user_name': '',
+            'status': 'open',
+            'updated_at': datetime.datetime.now(),
+        }
+        insert_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_sales.SalesResourceIssue).values(**values)
+        )
+        inserted_primary_key = getattr(insert_result, 'inserted_primary_key', None)
+        if inserted_primary_key:
+            values['id'] = int(inserted_primary_key[0])
+        return values
+
+    async def get_resource_issues(self, status: str | None = None) -> list[dict[str, Any]]:
+        query = sqlalchemy.select(persistence_sales.SalesResourceIssue).order_by(
+            persistence_sales.SalesResourceIssue.updated_at.desc(),
+            persistence_sales.SalesResourceIssue.id.desc(),
+        )
+        if status:
+            query = query.where(persistence_sales.SalesResourceIssue.status == status)
+        result = await self.ap.persistence_mgr.execute_async(query)
+        return [self._serialize(persistence_sales.SalesResourceIssue, row) for row in result.all()]
+
+    async def resolve_resource_issue(self, issue_id: int, data: dict[str, Any]) -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesResourceIssue).where(
+                persistence_sales.SalesResourceIssue.id == issue_id
+            )
+        )
+        issue = self._first_row(result)
+        if issue is None:
+            raise ValueError('Resource issue not found')
+
+        now = datetime.datetime.now()
+        payload = self._clean_resource_issue_update_payload(data)
+        status = str(payload.get('status') or getattr(issue, 'status', '') or '').strip()
+        if status in {'resolved', 'replied'} and getattr(issue, 'resolved_at', None) is None:
+            payload['resolved_at'] = now
+        payload['updated_at'] = now
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesResourceIssue)
+            .where(persistence_sales.SalesResourceIssue.id == issue_id)
+            .values(**payload)
+        )
+
+        if data.get('reply_user') and status in {'resolved', 'replied'}:
+            reply = str(data.get('completion_reply') or '').strip()
+            if not reply:
+                reply = self._default_resource_issue_completion_reply(issue)
+            await self._send_resource_issue_reply(issue, reply)
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_sales.SalesResourceIssue)
+                .where(persistence_sales.SalesResourceIssue.id == issue_id)
+                .values(status='replied', completion_reply=reply, replied_at=now, updated_at=now)
+            )
+
+        updated_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesResourceIssue).where(
+                persistence_sales.SalesResourceIssue.id == issue_id
+            )
+        )
+        updated = self._first_row(updated_result)
+        return self._serialize(persistence_sales.SalesResourceIssue, updated)
+
     async def get_outreach_plans(self) -> list[dict[str, Any]]:
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesOutreachPlan).order_by(
@@ -1131,6 +1240,119 @@ class SalesService:
             payload.setdefault('audience', [])
             payload.setdefault('enabled', True)
         return payload
+
+    def _clean_resource_issue_payload(self, data: dict[str, Any]) -> dict[str, Any]:
+        issue_type = self._normalize_resource_issue_type(data.get('issue_type') or data.get('type'))
+        user_description = str(data.get('user_description') or data.get('description') or '').strip()
+        question_location = str(data.get('question_location') or '').strip()
+        issue_summary = str(data.get('issue_summary') or '').strip()
+        if not issue_summary:
+            issue_summary = self._build_resource_issue_summary(
+                issue_type=issue_type,
+                question_location=question_location,
+                user_description=user_description,
+            )
+        return {
+            'issue_type': issue_type,
+            'book_id': str(data.get('book_id') or data.get('book_number') or '').strip(),
+            'merchant': str(data.get('merchant') or '').strip(),
+            'question_location': question_location,
+            'issue_summary': issue_summary,
+            'user_description': user_description,
+            'evidence_images': self._to_list(data.get('evidence_images') or data.get('images')),
+            'internal_note': str(data.get('internal_note') or '').strip(),
+            'operator': str(data.get('operator') or '').strip(),
+            'resolution_note': '',
+            'completion_reply': '',
+        }
+
+    def _clean_resource_issue_update_payload(self, data: dict[str, Any]) -> dict[str, Any]:
+        allowed_fields = {
+            'status',
+            'issue_type',
+            'book_id',
+            'merchant',
+            'question_location',
+            'issue_summary',
+            'user_description',
+            'evidence_images',
+            'internal_note',
+            'operator',
+            'resolution_note',
+            'completion_reply',
+        }
+        payload = {key: data[key] for key in allowed_fields if key in data}
+        if 'issue_type' in payload:
+            payload['issue_type'] = self._normalize_resource_issue_type(payload['issue_type'])
+        if 'status' in payload:
+            payload['status'] = self._normalize_resource_issue_status(payload['status'])
+        if 'evidence_images' in payload:
+            payload['evidence_images'] = self._to_list(payload['evidence_images'])
+        for key in payload:
+            if key != 'evidence_images':
+                payload[key] = str(payload[key] or '').strip()
+        return payload
+
+    def _normalize_resource_issue_type(self, value: Any) -> str:
+        text = str(value or '').strip().lower()
+        if text == 'uploading':
+            return 'resource_uploading'
+        if text in {'content_error', 'missing_resource', 'empty_resource', 'resource_uploading', 'resource_error'}:
+            return text
+        if any(keyword in text for keyword in ['缺失', '暂无', '没有资源', 'missing']):
+            return 'missing_resource'
+        if any(keyword in text for keyword in ['为空', '空白', 'empty']):
+            return 'empty_resource'
+        if any(keyword in text for keyword in ['上传', '更新', 'upload']):
+            return 'resource_uploading'
+        if any(keyword in text for keyword in ['错', '不对', '不匹配', '音频', '答案']):
+            return 'content_error'
+        return 'resource_error'
+
+    def _normalize_resource_issue_status(self, value: Any) -> str:
+        status = str(value or '').strip().lower()
+        return status if status in {'open', 'reported', 'resolved', 'replied', 'closed'} else 'open'
+
+    def _build_resource_issue_summary(
+        self,
+        *,
+        issue_type: str,
+        question_location: str = '',
+        user_description: str = '',
+    ) -> str:
+        type_labels = {
+            'content_error': '资源内容错误',
+            'missing_resource': '资源缺失',
+            'empty_resource': '资源为空',
+            'resource_uploading': '资源正在上传中',
+            'resource_error': '资源有问题',
+        }
+        parts = [type_labels.get(issue_type, '资源有问题')]
+        if question_location:
+            parts.append(question_location)
+        if user_description:
+            parts.append(user_description)
+        return '：'.join(parts)
+
+    def _default_resource_issue_completion_reply(self, issue: Any) -> str:
+        book_id = getattr(issue, 'book_id', '') or ''
+        prefix = f'您反馈的图书资源问题（书籍编号：{book_id}）' if book_id else '您反馈的图书资源问题'
+        return f'您好，{prefix}已经处理好了，可以再打开试一下哈。'
+
+    async def _send_resource_issue_reply(self, issue: Any, reply: str) -> None:
+        if not getattr(issue, 'bot_uuid', '') or not getattr(issue, 'target_id', ''):
+            raise ValueError('Resource issue target is missing; cannot send completion reply')
+
+        from langbot_plugin.api.entities.builtin.platform import message as platform_message
+
+        runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(issue.bot_uuid)
+        if runtime_bot is None:
+            raise ValueError(f'Bot {issue.bot_uuid} is not running; cannot send completion reply')
+        await runtime_bot.adapter.send_message(
+            issue.target_type or 'person',
+            issue.target_id,
+            platform_message.MessageChain([platform_message.Plain(text=reply)]),
+        )
 
     def _clean_outreach_payload(self, data: dict[str, Any]) -> dict[str, Any]:
         scheduled_at = data.get('scheduled_at')

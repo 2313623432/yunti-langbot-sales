@@ -357,7 +357,8 @@ def test_template_config_editor_supports_human_handoff_configuration():
     assert '语义意图边界' in template_source
     assert '命中后停止 AI 自动回复' in template_source
     assert '命中后停止主动触达' in template_source
-    assert '转人工安抚话术' in template_source
+    assert '用户可见安抚话术' in template_source
+    assert '我这边帮您记录好了，稍等我看下具体情况~' in template_source
     assert 'PipelineTemplateHumanHandoff' in types_source
     assert 'semantic_triggers' in types_source
     assert 'human_handoff: templateConfig.human_handoff' in workflow_source

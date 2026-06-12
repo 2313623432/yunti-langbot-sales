@@ -719,6 +719,17 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert template['course_profile']['price'] == '9元体验'
     assert template['course_profile']['target_grade'] == '大班至小学4年级'
     assert len(template['resource_faqs']) >= 7
+    resource_faq_text = '\n'.join(
+        f"{faq.get('question', '')} {faq.get('answer', '')} {' '.join(faq.get('keywords', []))}"
+        for faq in template['resource_faqs']
+    )
+    assert '资源为空' in resource_faq_text
+    assert '正在上传' in resource_faq_text
+    assert '资源缺失' in resource_faq_text
+    assert '音频' in resource_faq_text and '不匹配' in resource_faq_text
+    assert '资源问题工单' in resource_faq_text
+    assert '图书二维码' in resource_faq_text
+    assert '有问题的那一页' in resource_faq_text
     assert len(template['course_faqs']) >= 10
     assert len(template['followup_sequences']) >= 6
     assert len(template['long_term_broadcasts']) == 49
@@ -786,6 +797,84 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
         followups_by_stage['radar_clicked']['messages'][0]['message']
         == '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。'
     )
+
+
+@pytest.mark.parametrize(
+    ('text', 'expected_issue_type'),
+    [
+        ('扫码以后提示资源缺失', 'missing_resource'),
+        ('页面显示资源正在上传中', 'resource_uploading'),
+        ('打开以后资源为空', 'empty_resource'),
+        ('听力音频和题目不匹配，内容是错的', 'content_error'),
+    ],
+)
+def test_course_sales_runtime_classifies_resource_issue_cases(text, expected_issue_type):
+    service = TaskAssistantService(SimpleNamespace())
+    workflow = service.build_course_sales_workflow_config(
+        template_config=service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    )
+
+    intent = service.classify_course_sales_intent(text, text_chain(text), workflow)
+
+    assert intent['intent'] == 'resource_help'
+    assert intent['resource_issue_type'] == expected_issue_type
+    assert intent['step_ids'] == ['gift_qr']
+
+
+@pytest.mark.asyncio
+async def test_prepare_course_sales_query_records_resource_issue_ticket(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    query = _query(
+        text_chain('听力音频和题目不匹配，内容是错的'),
+        '听力音频和题目不匹配，内容是错的',
+        session_id='customer-issue',
+    )
+    query.bot_uuid = 'bot-uuid'
+    query.sender_id = 'ou_customer'
+    query.adapter = SimpleNamespace()
+    query.pipeline_uuid = 'pipeline-1'
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    sales_service.create_resource_issue_from_query.assert_awaited_once()
+    _, payload = sales_service.create_resource_issue_from_query.await_args.args
+    assert payload['issue_type'] == 'content_error'
+    assert payload['user_description'] == '听力音频和题目不匹配，内容是错的'
+    assert '内容错误' in payload['issue_summary']
+
+
+@pytest.mark.asyncio
+async def test_prepare_course_sales_query_records_resource_issue_image_evidence(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    query = _query(
+        image_chain(text='听力音频和题目不匹配，内容是错的', url='https://example.com/resource-error.jpg'),
+        '听力音频和题目不匹配，内容是错的',
+        session_id='customer-issue',
+    )
+    query.bot_uuid = 'bot-uuid'
+    query.sender_id = 'ou_customer'
+    query.adapter = SimpleNamespace()
+    query.pipeline_uuid = 'pipeline-1'
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'resource_help'
+    assert intent['resource_issue_type'] == 'content_error'
+    assert intent['has_evidence_image'] is True
+    sales_service.create_resource_issue_from_query.assert_awaited_once()
+    _, payload = sales_service.create_resource_issue_from_query.await_args.args
+    assert payload['evidence_images'] == ['https://example.com/resource-error.jpg']
 
 
 def test_course_sales_template_config_migrates_legacy_default_assets_and_links():
@@ -944,7 +1033,9 @@ def test_course_sales_template_config_includes_human_handoff_rules():
     assert '投诉' in handoff['keywords']
     assert handoff['stop_ai_reply'] is True
     assert handoff['stop_outreach'] is True
-    assert '人工老师' in handoff['notify_message']
+    assert handoff['notify_message'] == '我这边帮您记录好了，稍等我看下具体情况~'
+    for forbidden in ['AI', '机器人', '转人工', '转接', '接管', '人工']:
+        assert forbidden not in handoff['notify_message']
     assert any(trigger['id'] == 'manual_request' for trigger in handoff['semantic_triggers'])
     assert any(trigger['id'] == 'high_risk_complaint' for trigger in handoff['semantic_triggers'])
 
@@ -1185,7 +1276,7 @@ async def test_course_sales_handoff_keyword_opens_handoff_and_stops_outreach():
     assert sales_service.handoffs[0]['message_text'] == '我要转人工，找真人客服'
     assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:']
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '转人工' in context_text
+    assert '本轮只回复安抚话术：“我这边帮您记录好了，稍等我看下具体情况~”' in context_text
     assert '不要继续促单' in context_text
 
 
@@ -1208,7 +1299,7 @@ async def test_course_sales_handoff_semantic_payment_issue_uses_configured_bound
                 ],
                 'stop_ai_reply': True,
                 'stop_outreach': True,
-                'notify_message': '您好，已经帮您转人工，请稍候~',
+                'notify_message': '我这边帮您记录好了，稍等我看下具体情况~',
             }
         }
     )
@@ -1226,7 +1317,7 @@ async def test_course_sales_handoff_semantic_payment_issue_uses_configured_bound
     assert sales_service.handoffs[0]['reason'] == 'payment_issue'
     assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:']
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '您好，已经帮您转人工，请稍候~' in context_text
+    assert '我这边帮您记录好了，稍等我看下具体情况~' in context_text
 
 
 @pytest.mark.asyncio
@@ -1249,7 +1340,7 @@ async def test_course_sales_abusive_rejection_opens_handoff_and_stops_all_outrea
     assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:']
     assert sales_service.plans == []
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '转人工' in context_text
+    assert '我这边帮您记录好了，稍等我看下具体情况~' in context_text
 
 
 @pytest.mark.asyncio

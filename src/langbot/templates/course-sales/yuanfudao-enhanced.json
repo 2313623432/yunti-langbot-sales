@@ -925,7 +925,7 @@
     ],
     "stop_ai_reply": true,
     "stop_outreach": true,
-    "notify_message": "您好，已经帮您转人工老师处理，请稍候~"
+    "notify_message": "我这边帮您记录好了，稍等我看下具体情况~"
   },
   "stop_policy": {
     "explicit_rejection_threshold": 2,

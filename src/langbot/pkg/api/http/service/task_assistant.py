@@ -128,8 +128,10 @@ COURSE_HUMAN_HANDOFF_CONFIG = {
     ],
     'stop_ai_reply': True,
     'stop_outreach': True,
-    'notify_message': '您好，已经帮您转人工老师处理，请稍候~',
+    'notify_message': '我这边帮您记录好了，稍等我看下具体情况~',
 }
+COURSE_SAFE_HANDOFF_NOTIFY_MESSAGE = '我这边帮您记录好了，稍等我看下具体情况~'
+COURSE_USER_VISIBLE_TECHNICAL_TERMS = ['AI', '机器人', '转人工', '转接', '接管', '人工']
 COURSE_REPLY_CONTROLS = {
     'multi_reply_enabled': False,
     'merge_reply_enabled': True,
@@ -208,13 +210,21 @@ COURSE_RESOURCE_FAQS = [
     },
     {
         'question': '扫码后暂无资源',
-        'answer': '回复资源可能还在更新，请等待后台上传；如用户着急，收集图书二维码所在页清晰照片。',
-        'keywords': ['暂无资源', '没有资源', '打不开'],
+        'answer': '扫码显示暂无资源、资源缺失、资源为空或正在上传中，都属于资源有问题。先安抚用户，收集图书二维码所在页清晰照片，生成资源问题工单，后续找书商上传或修复后再回访用户。',
+        'keywords': ['暂无资源', '没有资源', '资源缺失', '资源为空', '正在上传', '上传中', '打不开'],
+        'issue_type': 'missing_resource',
     },
     {
-        'question': '资源不对',
-        'answer': '收集图书二维码所在页和有问题页面照片，记录后反馈处理。',
-        'keywords': ['资源不对', '不是这本', '错了'],
+        'question': '资源内容错误/音频题目不匹配',
+        'answer': '用户反馈答案、听力、音频或资源内容不对时，收集图书二维码所在页照片和有问题的那一页内容照片，提取书籍编号、商家、题目位置和问题描述，生成资源问题工单反馈处理。',
+        'keywords': ['资源不对', '不是这本', '错了', '内容错误', '答案不对', '音频不对', '音频题目不匹配', '题目不匹配'],
+        'issue_type': 'content_error',
+    },
+    {
+        'question': '资源正在上传中/资源为空',
+        'answer': '资源缺失、正在上传中、资源为空都需要记录为资源问题工单。回复用户会帮忙反馈处理，并收集图书二维码页清晰照片；如果用户还有具体页面，也一起收集。',
+        'keywords': ['正在上传中', '正在上传', '资源为空', '空白', '空页面', '资源缺失'],
+        'issue_type': 'resource_uploading',
     },
     {
         'question': '资料能不能下载',
@@ -1500,6 +1510,7 @@ class TaskAssistantService:
 
         intent = self.classify_course_sales_intent(text, query.message_chain, workflow)
         intent = await self._apply_course_sales_rejection_policy(intent, text, workflow, session_key, query)
+        await self._record_course_resource_issue_for_query(query, intent, text)
         query.variables['course_sales_radar_link'] = intent.get('link_url') or COURSE_SALES_RADAR_LINK
         await self._schedule_course_sales_outreach_for_query(query, workflow, intent)
         intent = self._apply_course_faq_short_answer(intent, text, workflow, query)
@@ -1508,6 +1519,61 @@ class TaskAssistantService:
         self._append_course_sales_control_context(query, intent)
 
         return {'handled': True, 'intent': intent}
+
+    async def _record_course_resource_issue_for_query(
+        self,
+        query: pipeline_query.Query,
+        intent: dict[str, Any],
+        text: str,
+    ) -> None:
+        resource_issue_type = str(intent.get('resource_issue_type') or '').strip()
+        if intent.get('intent') != 'resource_help' or not resource_issue_type:
+            return
+        sales_service = getattr(self.ap, 'sales_service', None)
+        if not sales_service or not hasattr(sales_service, 'create_resource_issue_from_query'):
+            return
+        payload = {
+            'issue_type': resource_issue_type,
+            'user_description': text,
+            'issue_summary': self._course_resource_issue_summary(resource_issue_type, text),
+        }
+        evidence_images = self._course_resource_issue_evidence_images(query.message_chain)
+        if evidence_images:
+            payload['evidence_images'] = evidence_images
+        try:
+            await sales_service.create_resource_issue_from_query(query, payload)
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None and hasattr(logger, 'warning'):
+                logger.warning('Failed to record course sales resource issue: %s', exc)
+
+    def _course_resource_issue_evidence_images(
+        self,
+        message_chain: platform_message.MessageChain | list[platform_message.MessageComponent],
+    ) -> list[str]:
+        images: list[str] = []
+        for component in message_chain:
+            if not isinstance(component, platform_message.Image):
+                continue
+            for attr in ('image_id', 'url', 'path'):
+                value = getattr(component, attr, None)
+                if value:
+                    images.append(str(value))
+                    break
+            else:
+                if getattr(component, 'base64', None):
+                    images.append('[base64-image]')
+        return images
+
+    def _course_resource_issue_summary(self, issue_type: str, text: str) -> str:
+        labels = {
+            'missing_resource': '资源缺失',
+            'resource_uploading': '资源正在上传中',
+            'empty_resource': '资源为空',
+            'content_error': '资源内容错误',
+        }
+        label = labels.get(issue_type, '资源有问题')
+        return f'{label}：{text}'.strip('：')
 
     def classify_course_sales_intent(
         self,
@@ -1544,6 +1610,18 @@ class TaskAssistantService:
                     step_ids=['gift_qr'],
                     selected_profile=selected_profile,
                 )
+            resource_issue_type = self._classify_course_resource_issue_type(normalized)
+            if resource_issue_type:
+                intent = self._course_intent(
+                    'resource_help',
+                    0.9,
+                    '用户发送图片并描述图书资源异常，需要记录资源问题工单',
+                    step_ids=['gift_qr'],
+                    selected_profile=selected_profile,
+                )
+                intent['resource_issue_type'] = resource_issue_type
+                intent['has_evidence_image'] = True
+                return intent
             return self._course_intent(
                 'screenshot_help',
                 0.9,
@@ -1555,6 +1633,17 @@ class TaskAssistantService:
             return self._course_intent('stop', 0.96, '用户命中立即停发规则', step_ids=[], selected_profile=selected_profile)
         if self._mentions_purchase_confirmation(normalized):
             return self._course_intent('purchased', 0.88, '用户疑似已购买或已报名', step_ids=['gift_qr'], selected_profile=selected_profile)
+        resource_issue_type = self._classify_course_resource_issue_type(normalized)
+        if resource_issue_type:
+            intent = self._course_intent(
+                'resource_help',
+                0.88,
+                '命中图书资源异常，需要收集证据并记录资源问题工单',
+                step_ids=['gift_qr'],
+                selected_profile=selected_profile,
+            )
+            intent['resource_issue_type'] = resource_issue_type
+            return intent
         if self._mentions_screenshot_text(normalized):
             return self._course_intent(
                 'screenshot_help',
@@ -1581,9 +1670,14 @@ class TaskAssistantService:
                 include_link=True,
                 selected_profile=selected_profile,
             )
-        resource_keywords = {keyword for faq in COURSE_RESOURCE_FAQS for keyword in faq.get('keywords', [])}
+        resource_faqs = workflow.get('resource_faqs') if isinstance(workflow.get('resource_faqs'), list) else COURSE_RESOURCE_FAQS
+        resource_keywords = {keyword for faq in resource_faqs for keyword in faq.get('keywords', [])}
         if any(keyword.lower() in normalized for keyword in resource_keywords):
-            return self._course_intent('resource_help', 0.82, '命中图书资源问题', step_ids=['gift_qr'], selected_profile=selected_profile)
+            intent = self._course_intent('resource_help', 0.82, '命中图书资源问题', step_ids=['gift_qr'], selected_profile=selected_profile)
+            resource_issue_type = self._classify_course_resource_issue_type(normalized)
+            if resource_issue_type:
+                intent['resource_issue_type'] = resource_issue_type
+            return intent
         for faq in course_faqs:
             if any(str(keyword).lower() in normalized for keyword in faq.get('keywords', [])):
                 intent = str(faq.get('intent') or 'course_intro')
@@ -1619,6 +1713,21 @@ class TaskAssistantService:
             )
         return self._course_intent('course_intro', 0.64, '默认按自然拼读课程介绍承接', step_ids=[], selected_profile=selected_profile)
 
+    def _classify_course_resource_issue_type(self, normalized: str) -> str:
+        text = normalized or ''
+        has_resource_context = any(keyword in text for keyword in ['资源', '听力', '音频', '答案', '扫码', '二维码'])
+        if not has_resource_context:
+            return ''
+        if any(keyword in text for keyword in ['缺失', '暂无资源', '没有资源', '没资源']):
+            return 'missing_resource'
+        if any(keyword in text for keyword in ['正在上传中', '正在上传', '上传中', '更新中', '还在更新']):
+            return 'resource_uploading'
+        if any(keyword in text for keyword in ['资源为空', '空白', '空页面']):
+            return 'empty_resource'
+        if any(keyword in text for keyword in ['不匹配', '资源不对', '不是这本', '错了', '内容错误', '答案不对', '音频不对']):
+            return 'content_error'
+        return ''
+
     def _course_step_for_intent(self, intent: str) -> str:
         if intent in {'purchase', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
             return ''
@@ -1651,12 +1760,19 @@ class TaskAssistantService:
             merged['keywords'] = base['keywords']
         if not isinstance(merged.get('semantic_triggers'), list):
             merged['semantic_triggers'] = base['semantic_triggers']
-        if not str(merged.get('notify_message') or '').strip():
-            merged['notify_message'] = base['notify_message']
+        merged['notify_message'] = self._safe_course_handoff_notify_message(merged.get('notify_message'))
         merged['enabled'] = merged.get('enabled') is not False
         merged['stop_ai_reply'] = merged.get('stop_ai_reply') is not False
         merged['stop_outreach'] = merged.get('stop_outreach') is not False
         return merged
+
+    def _safe_course_handoff_notify_message(self, value: Any) -> str:
+        message = str(value or '').strip()
+        if not message:
+            return COURSE_SAFE_HANDOFF_NOTIFY_MESSAGE
+        if any(term in message for term in COURSE_USER_VISIBLE_TECHNICAL_TERMS):
+            return COURSE_SAFE_HANDOFF_NOTIFY_MESSAGE
+        return message
 
     def _course_sales_handoff_match(self, normalized: str, workflow: dict[str, Any]) -> dict[str, str] | None:
         if not normalized:
@@ -2091,14 +2207,12 @@ class TaskAssistantService:
             )
         elif intent_name == 'handoff':
             handoff_config = intent.get('handoff_config') if isinstance(intent.get('handoff_config'), dict) else {}
-            notify_message = str(
-                handoff_config.get('notify_message') or COURSE_HUMAN_HANDOFF_CONFIG['notify_message']
-            ).strip()
+            notify_message = self._safe_course_handoff_notify_message(handoff_config.get('notify_message'))
             control_text = (
                 '\n\n[课程销售上下文]\n'
-                f'用户已触发转人工规则，原因：{intent.get("handoff_reason") or "handoff"}。'
-                f'本轮只回复安抚转接话术：“{notify_message}”。'
-                '不要继续促单，不要发送报名链接，不要继续解释课程卖点。'
+                f'用户已触发后台协助规则，原因：{intent.get("handoff_reason") or "handoff"}。'
+                f'本轮只回复安抚话术：“{notify_message}”。'
+                '不要继续促单，不要发送报名链接，不要继续解释课程卖点，不要说明后台处理方式。'
             )
         elif intent_name == 'purchased':
             control_text = (
@@ -3987,6 +4101,9 @@ class TaskAssistantService:
                 elif key == 'human_handoff' and isinstance(value, dict):
                     current = template_config.get('human_handoff') if isinstance(template_config.get('human_handoff'), dict) else {}
                     template_config['human_handoff'] = {**copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG), **current, **value}
+                    template_config['human_handoff']['notify_message'] = self._safe_course_handoff_notify_message(
+                        template_config['human_handoff'].get('notify_message')
+                    )
                 elif key in {'stop_rules', 'course_profile'} and isinstance(value, dict):
                     current = template_config.get(key) if isinstance(template_config.get(key), dict) else {}
                     template_config[key] = {**current, **value}
@@ -4026,6 +4143,10 @@ class TaskAssistantService:
                     template_config[key] = value
         if template_slug == 'yuanfudao-enhanced' and loaded_template:
             self._refresh_yuanfudao_enhanced_template_fields(template_config, loaded_template)
+        if isinstance(template_config.get('human_handoff'), dict):
+            template_config['human_handoff']['notify_message'] = self._safe_course_handoff_notify_message(
+                template_config['human_handoff'].get('notify_message')
+            )
         template_config['reply_controls'] = self._normalize_course_reply_controls(template_config.get('reply_controls'))
         self._normalize_course_template_media_keys(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
@@ -4123,6 +4244,7 @@ class TaskAssistantService:
             if isinstance(template_config.get('human_handoff'), dict)
             else copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG)
         )
+        human_handoff['notify_message'] = self._safe_course_handoff_notify_message(human_handoff.get('notify_message'))
         radar = (
             copy.deepcopy(template_config.get('radar'))
             if isinstance(template_config.get('radar'), dict)

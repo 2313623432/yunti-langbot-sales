@@ -1270,6 +1270,7 @@ const enUS = {
       embeddingCalls: 'Embedding Calls',
       modelCalls: 'Model Calls',
       feedback: 'User Feedback',
+      resourceIssues: 'Resource Issues',
       sessions: 'Session Analysis',
       errors: 'Error Logs',
     },

@@ -195,6 +195,41 @@ export interface FeedbackStats {
   }>;
 }
 
+export type ResourceIssueStatus =
+  | 'open'
+  | 'reported'
+  | 'resolved'
+  | 'replied'
+  | 'closed';
+
+export interface ResourceIssue {
+  id: number;
+  sessionId: string;
+  botUuid: string;
+  pipelineUuid: string;
+  targetType: string;
+  targetId: string;
+  platform: string;
+  userId: string;
+  userName: string;
+  status: ResourceIssueStatus;
+  issueType: string;
+  bookId: string;
+  merchant: string;
+  questionLocation: string;
+  issueSummary: string;
+  userDescription: string;
+  evidenceImages: string[];
+  internalNote: string;
+  operator: string;
+  resolutionNote: string;
+  completionReply: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+  resolvedAt?: Date;
+  repliedAt?: Date;
+}
+
 export interface MonitoringData {
   overview: OverviewMetrics;
   messages: MonitoringMessage[];

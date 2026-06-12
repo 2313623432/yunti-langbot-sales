@@ -1942,7 +1942,7 @@ export default function PipelineTemplateConfigEditor({
           <div className="grid gap-3 md:grid-cols-2">
             <ToggleRow
               label="命中后停止 AI 自动回复"
-              description="仅发送转人工安抚话术，避免继续促单。"
+              description="仅发送用户可见安抚话术，避免继续促单。"
               checked={config.human_handoff.stop_ai_reply}
               onCheckedChange={(checked) => patchHumanHandoff({ stop_ai_reply: checked })}
             />
@@ -1954,13 +1954,16 @@ export default function PipelineTemplateConfigEditor({
             />
           </div>
           <label className="block">
-            <FieldLabel>转人工安抚话术</FieldLabel>
+            <FieldLabel>用户可见安抚话术</FieldLabel>
             <Textarea
               value={config.human_handoff.notify_message}
               onChange={(event) => patchHumanHandoff({ notify_message: event.target.value })}
               className="min-h-28 resize-none leading-6"
-              placeholder="您好，已经帮您转人工老师处理，请稍候~"
+              placeholder="我这边帮您记录好了，稍等我看下具体情况~"
             />
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              这句话会直接发给客户，请保持真人客服口吻，不要出现 AI、机器人、转人工、接管等字眼。
+            </p>
           </label>
         </Section>
       </div>
