@@ -1,10 +1,15 @@
+import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 import sqlalchemy
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from langbot.pkg.api.http.service.sales import SalesService, YUANFUDAO_CATALOG_PRODUCTS
+from langbot.pkg.entity.persistence.base import Base
+from langbot.pkg.entity.persistence import monitoring as persistence_monitoring
+from langbot.pkg.entity.persistence import sales as persistence_sales
 from langbot_plugin.api.entities.builtin.platform import message as platform_message
 
 
@@ -65,6 +70,44 @@ def test_generate_pitch_uses_selling_points_link_and_customer_context():
     assert '自动识别客户意图' in result['message']
     assert 'https://example.com/ai-sales' in result['message']
     assert result['next_action'] == 'send_product_link'
+
+
+def test_serialize_keeps_connection_row_with_column_attributes():
+    class _ColumnRow:
+        uuid = 'product-1'
+        name = 'AI 销售助手'
+        product_line = ''
+        profile_key = ''
+        keywords = []
+        category = 'sales'
+        price = ''
+        link = ''
+        description = ''
+        selling_points = []
+        pain_points = []
+        objections = []
+        audience = []
+        enabled = True
+        created_at = None
+        updated_at = None
+
+        def __getitem__(self, _index):
+            return self.uuid
+
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=SimpleNamespace(
+                serialize_model=lambda model, row: {
+                    column.name: getattr(row, column.name)
+                    for column in model.__table__.columns
+                }
+            )
+        )
+    )
+
+    result = service._serialize(persistence_sales.SalesProduct, _ColumnRow())
+
+    assert result['uuid'] == 'product-1'
 
 
 def test_compose_sales_prompt_includes_product_memory_and_handoff_policy():
@@ -129,6 +172,142 @@ class _FakeResult:
         if isinstance(self.row, list):
             return self.row
         return [self.row]
+
+
+class _AsyncSQLitePersistence:
+    def __init__(self, engine):
+        self.session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def execute_async(self, statement):
+        async with self.session_factory() as session:
+            result = await session.execute(statement)
+            await session.commit()
+            return result
+
+    def serialize_model(self, model, row):
+        item = row[0] if isinstance(row, tuple) else row
+        return {
+            column.name: getattr(item, column.name)
+            for column in model.__table__.columns
+        }
+
+
+@pytest.fixture
+async def sales_service_with_db():
+    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=_AsyncSQLitePersistence(engine),
+            logger=_SilentLogger(),
+        )
+    )
+    try:
+        yield service
+    finally:
+        await engine.dispose()
+
+
+async def _insert_monitoring_session_with_messages(service, session_id='person_customer-1'):
+    now = datetime.datetime(2026, 6, 12, 6, 10)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringSession).values(
+            session_id=session_id,
+            bot_id='bot-uuid',
+            bot_name='猿辅导销售知识',
+            pipeline_id='pipeline-1',
+            pipeline_name='课程销售',
+            message_count=2,
+            start_time=now,
+            last_activity=now,
+            is_active=True,
+            platform='person',
+            user_id='ou_customer',
+            user_name='on_9a88cdb7b2b5b7df0f9700f591bddda8',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringMessage).values(
+            [
+                {
+                    'id': 'm1',
+                    'timestamp': now,
+                    'bot_id': 'bot-uuid',
+                    'bot_name': '猿辅导销售知识',
+                    'pipeline_id': 'pipeline-1',
+                    'pipeline_name': '课程销售',
+                    'message_content': '[{"type":"Source","id":"om_1"},{"type":"Plain","text":"三年级"}]',
+                    'session_id': session_id,
+                    'status': 'success',
+                    'level': 'info',
+                    'platform': 'person',
+                    'user_id': 'ou_customer',
+                    'user_name': 'on_9a88cdb7b2b5b7df0f9700f591bddda8',
+                    'role': 'user',
+                },
+                {
+                    'id': 'm2',
+                    'timestamp': now,
+                    'bot_id': 'bot-uuid',
+                    'bot_name': '猿辅导销售知识',
+                    'pipeline_id': 'pipeline-1',
+                    'pipeline_name': '课程销售',
+                    'message_content': '[{"type":"Plain","text":"想要期末复习资料"}]',
+                    'session_id': session_id,
+                    'status': 'success',
+                    'level': 'info',
+                    'platform': 'person',
+                    'user_id': 'ou_customer',
+                    'user_name': 'on_9a88cdb7b2b5b7df0f9700f591bddda8',
+                    'role': 'user',
+                },
+            ]
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_memories_builds_customer_memory_from_monitoring_session_without_plugin(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await _insert_monitoring_session_with_messages(service)
+
+    memories = await service.get_memories()
+
+    assert len(memories) == 1
+    memory = memories[0]
+    assert memory['session_id'] == 'person_customer-1'
+    assert memory['platform'] == 'person'
+    assert memory['customer_name'] == '私聊客户'
+    assert memory['profile']['child_grade'] == '三年级'
+    assert memory['profile']['needs'] == '期末复习资料'
+    assert '三年级' in memory['summary']
+    assert '期末复习资料' in memory['summary']
+
+
+@pytest.mark.asyncio
+async def test_update_memory_creates_customer_memory_when_session_has_no_existing_memory(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await _insert_monitoring_session_with_messages(service)
+
+    memory = await service.update_memory(
+        'person_customer-1',
+        {
+            'customer_name': '张女士',
+            'stage': 'consideration',
+            'summary': '客户孩子三年级，关注期末资料',
+            'profile': {'wechat': 'parent_zhang'},
+        },
+    )
+
+    assert memory['customer_name'] == '张女士'
+    assert memory['stage'] == 'consideration'
+    assert memory['profile']['wechat'] == 'parent_zhang'
+    assert memory['profile']['child_grade'] == '三年级'
 
 
 class _SilentLogger:

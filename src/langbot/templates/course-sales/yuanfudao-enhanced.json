@@ -30,6 +30,11 @@
     "scheduled_push": true,
     "handoff": true
   },
+  "reply_controls": {
+    "multi_reply_enabled": false,
+    "merge_reply_enabled": true,
+    "merge_delay_seconds": 10.0
+  },
   "voice": {
     "provider": "volcengine",
     "enabled": true,
@@ -845,7 +850,12 @@
   "stop_rules": {
     "stop_keywords": [
       "不要再发",
+      "别来烦",
       "别联系",
+      "滚",
+      "骗子",
+      "诈骗",
+      "垃圾",
       "再发投诉",
       "投诉",
       "没有孩子",
@@ -869,6 +879,54 @@
     ],
     "message": "好的家长，收到，不再打扰您了。后面有需要可以随时联系我。"
   },
+  "human_handoff": {
+    "enabled": true,
+    "keywords": [
+      "转人工",
+      "人工",
+      "真人",
+      "真人客服",
+      "人工客服",
+      "客服",
+      "班主任",
+      "老师联系",
+      "电话联系",
+      "投诉",
+      "举报",
+      "退费",
+      "退款",
+      "订单异常",
+      "支付异常",
+      "看不到课",
+      "没收到课",
+      "诈骗",
+      "骗子",
+      "维权"
+    ],
+    "semantic_triggers": [
+      {
+        "id": "manual_request",
+        "label": "明确要求转人工",
+        "description": "客户明确要求人工、真人客服、班主任或电话联系。",
+        "enabled": true
+      },
+      {
+        "id": "payment_issue",
+        "label": "支付订单异常",
+        "description": "客户已支付但看不到课程、订单异常、没收到课、要求退款或退费。",
+        "enabled": true
+      },
+      {
+        "id": "high_risk_complaint",
+        "label": "投诉或高风险负面",
+        "description": "客户表达投诉、举报、诈骗、欺骗、维权、辱骂或强烈不满。",
+        "enabled": true
+      }
+    ],
+    "stop_ai_reply": true,
+    "stop_outreach": true,
+    "notify_message": "您好，已经帮您转人工老师处理，请稍候~"
+  },
   "stop_policy": {
     "explicit_rejection_threshold": 2,
     "explicit_rejection_keywords": [
@@ -877,7 +935,14 @@
       "不要",
       "不考虑",
       "没兴趣",
-      "别推了"
+      "别推了",
+      "别来烦",
+      "别联系",
+      "滚",
+      "骗子",
+      "诈骗",
+      "垃圾",
+      "cnm"
     ],
     "immediate_stop_keywords": [
       "再发投诉",
@@ -887,7 +952,15 @@
       "打错",
       "我是老师",
       "已报名",
-      "已支付"
+      "已支付",
+      "骗子",
+      "诈骗",
+      "垃圾",
+      "cnm",
+      "滚",
+      "别来烦",
+      "别联系",
+      "拉黑"
     ]
   },
   "image_text_bindings": [

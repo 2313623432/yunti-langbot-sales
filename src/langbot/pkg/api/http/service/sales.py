@@ -476,7 +476,41 @@ class SalesService:
         )
         return count
 
+    async def ensure_memories_from_monitoring_sessions(self, limit: int = 200) -> None:
+        """Create customer memories from real monitoring sessions when no sales plugin has written them."""
+        memory_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory.session_id)
+        )
+        existing_session_ids = {
+            self._row_value(row)
+            for row in memory_result.all()
+        }
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession)
+            .where(persistence_monitoring.MonitoringSession.message_count > 0)
+            .order_by(persistence_monitoring.MonitoringSession.last_activity.desc())
+            .limit(limit)
+        )
+        sessions = [self._row_value(row) for row in session_result.all()]
+        products = await self.get_products(enabled_only=True)
+
+        for session in sessions:
+            session_id = getattr(session, 'session_id', '')
+            if not session_id or session_id in existing_session_ids:
+                continue
+            values = await self._memory_values_from_monitoring_session(session, products)
+            if not values:
+                continue
+            try:
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(**values)
+                )
+                existing_session_ids.add(session_id)
+            except sqlalchemy.exc.IntegrityError:
+                existing_session_ids.add(session_id)
+
     async def get_memories(self) -> list[dict[str, Any]]:
+        await self.ensure_memories_from_monitoring_sessions()
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesCustomerMemory).order_by(
                 persistence_sales.SalesCustomerMemory.updated_at.desc()
@@ -492,7 +526,7 @@ class SalesService:
         )
         existing = self._first_row(result)
         if existing is None:
-            raise ValueError('Customer memory not found')
+            existing = await self._create_memory_from_monitoring_session(session_id)
 
         profile = dict(existing.profile or {})
         incoming_profile = data.get('profile')
@@ -523,6 +557,27 @@ class SalesService:
         )
         updated = self._first_row(updated_result)
         return self._serialize(persistence_sales.SalesCustomerMemory, updated)
+
+    async def _create_memory_from_monitoring_session(self, session_id: str) -> Any:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession).where(
+                persistence_monitoring.MonitoringSession.session_id == session_id
+            )
+        )
+        session = self._first_row(result)
+        if session is None:
+            raise ValueError('Customer memory not found')
+        products = await self.get_products(enabled_only=True)
+        values = await self._memory_values_from_monitoring_session(session, products, allow_empty=True)
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(**values)
+        )
+        created_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id == session_id
+            )
+        )
+        return self._first_row(created_result)
 
     async def get_open_handoff_for_query(self, query: Any) -> dict[str, Any] | None:
         session_id = self._query_session_id(query)
@@ -1036,7 +1091,10 @@ class SalesService:
         }
 
     def _serialize(self, model, row: Any) -> dict[str, Any]:
-        return self.ap.persistence_mgr.serialize_model(model, row)
+        try:
+            return self.ap.persistence_mgr.serialize_model(model, row)
+        except (AttributeError, KeyError):
+            return self.ap.persistence_mgr.serialize_model(model, self._row_value(row))
 
     def _clean_product_payload(self, data: dict[str, Any], partial: bool = False) -> dict[str, Any]:
         fields = {
@@ -1194,6 +1252,171 @@ class SalesService:
             .replace('{price}', product.get('price', ''))
         )
 
+    async def _memory_values_from_monitoring_session(
+        self,
+        session: Any,
+        products: list[dict[str, Any]],
+        allow_empty: bool = False,
+    ) -> dict[str, Any] | None:
+        session_id = getattr(session, 'session_id', '') or ''
+        messages = await self._recent_user_messages_for_session(session_id)
+        texts = [self._message_content_text(getattr(message, 'message_content', '')) for message in messages]
+        texts = [text for text in texts if text]
+        if not texts and not allow_empty:
+            return None
+
+        conversation_text = '\n'.join(texts[-8:])
+        intent = self.classify_intent(conversation_text)
+        product = self.select_best_product(conversation_text, products) if conversation_text else None
+        profile = self._extract_customer_profile(conversation_text)
+        summary = self._summarize_session_memory(conversation_text, intent, product, profile)
+        now = datetime.datetime.now()
+        return {
+            'session_id': session_id,
+            'platform': getattr(session, 'platform', '') or '',
+            'user_id': getattr(session, 'user_id', '') or '',
+            'customer_name': self._customer_name_from_session(session),
+            'summary': summary,
+            'stage': self._stage_for_intent(intent.get('intent', 'general')),
+            'last_intent': intent.get('intent', 'general'),
+            'preferred_product_uuid': product.get('uuid', '') if product else '',
+            'profile': profile,
+            'intents': [
+                {
+                    'intent': intent.get('intent', 'general'),
+                    'confidence': intent.get('confidence', 0),
+                    'message': conversation_text[-200:],
+                    'at': now.isoformat(),
+                    'source': 'monitoring_session',
+                }
+            ],
+            'last_seen_at': getattr(session, 'last_activity', None) or now,
+            'updated_at': now,
+        }
+
+    async def _recent_user_messages_for_session(self, session_id: str) -> list[Any]:
+        if not session_id:
+            return []
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage)
+            .where(persistence_monitoring.MonitoringMessage.session_id == session_id)
+            .where(
+                sqlalchemy.or_(
+                    persistence_monitoring.MonitoringMessage.role == 'user',
+                    persistence_monitoring.MonitoringMessage.role.is_(None),
+                )
+            )
+            .order_by(persistence_monitoring.MonitoringMessage.timestamp.desc())
+            .limit(20)
+        )
+        rows = [self._row_value(row) for row in result.all()]
+        return list(reversed(rows))
+
+    def _message_content_text(self, content: str) -> str:
+        if not content:
+            return ''
+        try:
+            parsed = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return str(content).strip()
+        if not isinstance(parsed, list):
+            return str(content).strip()
+
+        parts: list[str] = []
+        for component in parsed:
+            if not isinstance(component, dict):
+                continue
+            component_type = component.get('type')
+            if component_type == 'Plain':
+                parts.append(str(component.get('text') or ''))
+            elif component_type == 'At':
+                target = component.get('display') or component.get('target') or ''
+                if target:
+                    parts.append(f'@{target}')
+            elif component_type == 'AtAll':
+                parts.append('@All')
+            elif component_type == 'Image':
+                parts.append('[图片]')
+            elif component_type == 'File':
+                name = component.get('name') or '文件'
+                parts.append(f'[文件: {name}]')
+            elif component_type == 'Voice':
+                length = component.get('length') or ''
+                parts.append(f'[语音{f" {length}s" if length else ""}]')
+            elif component_type == 'Quote':
+                parts.append(self._message_content_text(json.dumps(component.get('origin') or [])))
+        return ''.join(parts).strip()
+
+    def _extract_customer_profile(self, text: str) -> dict[str, Any]:
+        profile: dict[str, Any] = {}
+        phone_match = re.search(r'(?<!\d)(1[3-9]\d{9})(?!\d)', text)
+        if phone_match:
+            profile['phone'] = phone_match.group(1)
+        email_match = re.search(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)+', text)
+        if email_match:
+            profile['email'] = email_match.group(0)
+        wechat_match = re.search(r'(?:微信号?|wechat|wx)[:：\s]*([A-Za-z][A-Za-z0-9_-]{4,})', text, re.I)
+        if wechat_match:
+            profile['wechat'] = wechat_match.group(1)
+        grade_match = re.search(r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]年级|初[一二三]|高[一二三])', text)
+        if grade_match:
+            profile['child_grade'] = grade_match.group(1)
+
+        needs = []
+        need_rules = [
+            ('期末复习资料', ['期末', '复习', '资料']),
+            ('自然拼读/英语启蒙', ['自然拼读', '拼读', '英语', '发音', '单词']),
+            ('阅读写作提升', ['阅读', '作文', '写作']),
+            ('数学思维提升', ['数学', '思维', '应用题', '粗心', '马虎']),
+        ]
+        for label, keywords in need_rules:
+            if any(keyword in text for keyword in keywords):
+                needs.append(label)
+        if needs:
+            profile['needs'] = '、'.join(dict.fromkeys(needs))
+        return profile
+
+    def _summarize_session_memory(
+        self,
+        conversation_text: str,
+        intent: dict[str, Any],
+        product: dict[str, Any] | None,
+        profile: dict[str, Any],
+    ) -> str:
+        if not conversation_text:
+            return ''
+        facts = []
+        if profile.get('child_grade'):
+            facts.append(f"孩子年级：{profile['child_grade']}")
+        if profile.get('needs'):
+            facts.append(f"关注需求：{profile['needs']}")
+        if product:
+            facts.append(f"关联产品：{product.get('name', '')}")
+        facts.append(f"最近意图：{intent.get('intent', 'general')}")
+        facts.append(f"客户原话：{conversation_text[-240:]}")
+        return '；'.join(item for item in facts if item)
+
+    def _customer_name_from_session(self, session: Any) -> str:
+        user_name = getattr(session, 'user_name', '') or ''
+        if user_name and not self._is_technical_identifier(user_name):
+            return user_name
+        platform = getattr(session, 'platform', '') or ''
+        if platform == 'group':
+            return '群聊客户'
+        if platform == 'person':
+            return '私聊客户'
+        return '客户'
+
+    def _is_technical_identifier(self, value: str) -> bool:
+        text = str(value or '').strip()
+        if not text:
+            return True
+        return (
+            'LauncherTypes.' in text
+            or re.match(r'^(on|om|ou|oc|of)_[A-Za-z0-9_-]{12,}$', text) is not None
+            or re.match(r'^[A-Za-z]+Types\.[A-Z_]+_', text) is not None
+        )
+
     def _query_session_id(self, query: Any) -> str:
         launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
         return f'{launcher_type}_{query.launcher_id}'
@@ -1209,9 +1432,17 @@ class SalesService:
 
     def _first_row(self, result: Any) -> Any:
         row = result.first()
-        if isinstance(row, tuple):
+        return self._row_value(row)
+
+    def _row_value(self, row: Any) -> Any:
+        if row is None:
+            return None
+        if isinstance(row, (str, int, float, bool, datetime.datetime)):
+            return row
+        try:
             return row[0]
-        return row
+        except (KeyError, IndexError, TypeError, AttributeError):
+            return row
 
     def _stage_for_intent(self, intent: str) -> str:
         if intent in ('purchase', 'price'):

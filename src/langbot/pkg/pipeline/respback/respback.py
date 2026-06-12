@@ -171,6 +171,59 @@ class SendResponseBackStage(stage.PipelineStage):
     def _plain_text_from_chain(self, message_chain: platform_message.MessageChain) -> str:
         return ''.join(component.text for component in message_chain if isinstance(component, platform_message.Plain))
 
+    def _multi_reply_config(self, query: pipeline_query.Query) -> tuple[bool, int]:
+        pipeline_config = query.pipeline_config if isinstance(query.pipeline_config, dict) else {}
+        output_config = pipeline_config.get('output') if isinstance(pipeline_config.get('output'), dict) else {}
+        misc_config = output_config.get('misc') if isinstance(output_config.get('misc'), dict) else {}
+        config = misc_config.get('multi-reply') if isinstance(misc_config.get('multi-reply'), dict) else {}
+        try:
+            threshold = int(config.get('threshold') or 200)
+        except (TypeError, ValueError):
+            threshold = 200
+        return bool(config.get('enabled')), max(1, threshold)
+
+    def _split_plain_text(self, text: str, threshold: int) -> list[str]:
+        stripped = text.strip()
+        if not stripped or len(stripped) <= threshold:
+            return [text]
+
+        chunks: list[str] = []
+        current = ''
+        for raw_part in stripped.replace('\r\n', '\n').split('\n'):
+            part = raw_part.strip()
+            if not part:
+                continue
+            if current and len(current) + len(part) + 1 > threshold:
+                chunks.append(current)
+                current = part
+            else:
+                current = f'{current}\n{part}' if current else part
+        if current:
+            chunks.append(current)
+        return chunks or [text]
+
+    def _multi_reply_chains(self, query: pipeline_query.Query) -> list[platform_message.MessageChain]:
+        if not query.resp_message_chain:
+            return []
+
+        enabled, threshold = self._multi_reply_config(query)
+        message_chain = query.resp_message_chain[-1]
+        if not enabled:
+            return [message_chain]
+
+        components = list(message_chain)
+        if not components or any(not isinstance(component, platform_message.Plain) for component in components):
+            return [message_chain]
+
+        text = self._plain_text_from_chain(message_chain)
+        if 'http://' in text or 'https://' in text or len(text.strip()) <= threshold:
+            return [message_chain]
+
+        chunks = self._split_plain_text(text, threshold)
+        if len(chunks) <= 1:
+            return [message_chain]
+        return [platform_message.MessageChain([platform_message.Plain(text=chunk)]) for chunk in chunks]
+
     def _course_sales_signup_link(self, query: pipeline_query.Query, intent_data: dict[str, Any]) -> str:
         link = str(intent_data.get('link_url') or query.variables.get('course_sales_radar_link') or '').strip()
         if not link or '/api/v1/sales/radar/click/' in link:
@@ -339,10 +392,11 @@ class SendResponseBackStage(stage.PipelineStage):
             )
         else:
             await self._append_response_enrichments(query)
-            await query.adapter.reply_message(
-                message_source=query.message_event,
-                message=query.resp_message_chain[-1],
-                quote_origin=quote_origin,
-            )
+            for index, message_chain in enumerate(self._multi_reply_chains(query)):
+                await query.adapter.reply_message(
+                    message_source=query.message_event,
+                    message=message_chain,
+                    quote_origin=quote_origin if index == 0 else False,
+                )
 
         return entities.StageProcessResult(result_type=entities.ResultType.CONTINUE, new_query=query)

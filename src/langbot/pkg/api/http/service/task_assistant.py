@@ -61,6 +61,80 @@ COURSE_PURCHASE_CONFIRMATION_KEYWORDS = [
     '已经支付',
     '已完成支付',
 ]
+COURSE_PURCHASE_NEGATION_KEYWORDS = [
+    '不买',
+    '不报名',
+    '不要买',
+    '没买',
+    '没有买',
+    '没报名',
+    '没有报名',
+    '不付款',
+    '不支付',
+]
+COURSE_ABUSIVE_STOP_KEYWORDS = [
+    '骗子',
+    '诈骗',
+    '垃圾',
+    'cnm',
+    '滚',
+    '别来烦',
+    '别联系',
+    '拉黑',
+]
+COURSE_HUMAN_HANDOFF_CONFIG = {
+    'enabled': True,
+    'keywords': [
+        '转人工',
+        '人工',
+        '真人',
+        '真人客服',
+        '人工客服',
+        '客服',
+        '班主任',
+        '老师联系',
+        '电话联系',
+        '投诉',
+        '举报',
+        '退费',
+        '退款',
+        '订单异常',
+        '支付异常',
+        '看不到课',
+        '没收到课',
+        '诈骗',
+        '骗子',
+        '维权',
+    ],
+    'semantic_triggers': [
+        {
+            'id': 'manual_request',
+            'label': '明确要求转人工',
+            'description': '客户明确要求人工、真人客服、班主任或电话联系。',
+            'enabled': True,
+        },
+        {
+            'id': 'payment_issue',
+            'label': '支付订单异常',
+            'description': '客户已支付但看不到课程、订单异常、没收到课、要求退款或退费。',
+            'enabled': True,
+        },
+        {
+            'id': 'high_risk_complaint',
+            'label': '投诉或高风险负面',
+            'description': '客户表达投诉、举报、诈骗、欺骗、维权、辱骂或强烈不满。',
+            'enabled': True,
+        },
+    ],
+    'stop_ai_reply': True,
+    'stop_outreach': True,
+    'notify_message': '您好，已经帮您转人工老师处理，请稍候~',
+}
+COURSE_REPLY_CONTROLS = {
+    'multi_reply_enabled': False,
+    'merge_reply_enabled': True,
+    'merge_delay_seconds': 10.0,
+}
 COURSE_PAYMENT_SCREENSHOT_KEYWORDS = ['付款截图', '支付截图', '付款成功', '订单截图', '订单已支付', '收款成功']
 COURSE_SCREENSHOT_TEXT_KEYWORDS = ['截图', '截屏', '截个图', '截一下', '发图']
 COURSE_SMALLTALK_KEYWORDS = [
@@ -857,7 +931,22 @@ COURSE_RADAR_CONFIG = {
 }
 
 COURSE_STOP_RULES = {
-    'stop_keywords': ['不需要', '不买', '不要再发', '再发投诉', '没有孩子', '不是目标年级', '我是老师', '已经学过'],
+    'stop_keywords': [
+        '不需要',
+        '不买',
+        '不要再发',
+        '别来烦',
+        '别联系',
+        '滚',
+        '骗子',
+        '诈骗',
+        '垃圾',
+        '再发投诉',
+        '没有孩子',
+        '不是目标年级',
+        '我是老师',
+        '已经学过',
+    ],
     'stop_tags': ['已报名', '已下单', '付费', '投诉', '明确拒绝', '人工接管', '无孩子', '非目标年级', '老师', '已学过'],
     'message': '好的家长，收到，不再打扰您了。后面有需要可以随时联系我。',
 }
@@ -1434,6 +1523,18 @@ class TaskAssistantService:
         stop_policy = workflow.get('stop_policy') if isinstance(workflow.get('stop_policy'), dict) else {}
         immediate_stop_keywords = self._lower_keywords(stop_policy.get('immediate_stop_keywords'))
         explicit_rejection_keywords = self._lower_keywords(stop_policy.get('explicit_rejection_keywords'))
+        handoff_match = self._course_sales_handoff_match(normalized, workflow)
+        if handoff_match:
+            intent = self._course_intent(
+                'handoff',
+                0.94,
+                str(handoff_match.get('label') or '命中人工介入规则'),
+                step_ids=[],
+                selected_profile=selected_profile,
+            )
+            intent['handoff_reason'] = handoff_match.get('id') or 'handoff'
+            intent['handoff_config'] = self._course_handoff_config(workflow)
+            return intent
         if self._has_image(message_chain):
             if self._mentions_payment_screenshot_confirmation(normalized):
                 return self._course_intent(
@@ -1450,6 +1551,8 @@ class TaskAssistantService:
                 step_ids=[],
                 selected_profile=selected_profile,
             )
+        if self._mentions_immediate_course_stop(normalized, immediate_stop_keywords):
+            return self._course_intent('stop', 0.96, '用户命中立即停发规则', step_ids=[], selected_profile=selected_profile)
         if self._mentions_purchase_confirmation(normalized):
             return self._course_intent('purchased', 0.88, '用户疑似已购买或已报名', step_ids=['gift_qr'], selected_profile=selected_profile)
         if self._mentions_screenshot_text(normalized):
@@ -1460,8 +1563,6 @@ class TaskAssistantService:
                 step_ids=['gift_qr'],
                 selected_profile=selected_profile,
             )
-        if any(keyword in normalized for keyword in immediate_stop_keywords):
-            return self._course_intent('stop', 0.96, '用户命中立即停发规则', step_ids=[], selected_profile=selected_profile)
         rejection_keywords = explicit_rejection_keywords or self._lower_keywords(stop_rules.get('stop_keywords'))
         if any(keyword in normalized for keyword in rejection_keywords):
             return self._course_intent(
@@ -1536,6 +1637,71 @@ class TaskAssistantService:
             return []
         return [str(keyword).strip().lower() for keyword in value if str(keyword).strip()]
 
+    def _course_handoff_config(self, workflow: dict[str, Any]) -> dict[str, Any]:
+        variables = workflow.get('variables') if isinstance(workflow.get('variables'), dict) else {}
+        configured = workflow.get('human_handoff')
+        if not isinstance(configured, dict):
+            configured = variables.get('human_handoff')
+        if not isinstance(configured, dict):
+            configured = {}
+
+        base = copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG)
+        merged = {**base, **configured}
+        if not isinstance(merged.get('keywords'), list):
+            merged['keywords'] = base['keywords']
+        if not isinstance(merged.get('semantic_triggers'), list):
+            merged['semantic_triggers'] = base['semantic_triggers']
+        if not str(merged.get('notify_message') or '').strip():
+            merged['notify_message'] = base['notify_message']
+        merged['enabled'] = merged.get('enabled') is not False
+        merged['stop_ai_reply'] = merged.get('stop_ai_reply') is not False
+        merged['stop_outreach'] = merged.get('stop_outreach') is not False
+        return merged
+
+    def _course_sales_handoff_match(self, normalized: str, workflow: dict[str, Any]) -> dict[str, str] | None:
+        if not normalized:
+            return None
+        config = self._course_handoff_config(workflow)
+        if config.get('enabled') is False:
+            return None
+
+        keywords = self._lower_keywords(config.get('keywords'))
+        for keyword in keywords:
+            if keyword and keyword in normalized:
+                if keyword in {'转人工', '人工', '真人', '真人客服', '人工客服', '客服', '班主任', '老师联系', '电话联系'}:
+                    return {'id': 'manual_request', 'label': f'命中转人工关键词：{keyword}'}
+                if keyword in {'退费', '退款', '订单异常', '支付异常', '看不到课', '没收到课'}:
+                    return {'id': 'payment_issue', 'label': f'命中订单异常关键词：{keyword}'}
+                if keyword in {'投诉', '举报', '诈骗', '骗子', '维权'}:
+                    return {'id': 'high_risk_complaint', 'label': f'命中高风险关键词：{keyword}'}
+                return {'id': 'keyword', 'label': f'命中转人工关键词：{keyword}'}
+
+        enabled_triggers = {
+            str(trigger.get('id') or '')
+            for trigger in config.get('semantic_triggers', [])
+            if isinstance(trigger, dict) and trigger.get('enabled') is not False
+        }
+        if 'manual_request' in enabled_triggers and any(
+            keyword in normalized
+            for keyword in ['转人工', '人工', '真人', '人工客服', '真人客服', '客服', '班主任', '电话联系', '联系我']
+        ):
+            return {'id': 'manual_request', 'label': '客户明确要求人工介入'}
+        if 'payment_issue' in enabled_triggers and any(
+            keyword in normalized
+            for keyword in ['看不到课', '没看到课', '没有课程', '不到账', '没收到课', '订单异常', '支付异常', '退款', '退费']
+        ):
+            return {'id': 'payment_issue', 'label': '客户遇到支付或订单异常'}
+        if 'payment_issue' in enabled_triggers and any(keyword in normalized for keyword in ['付了', '支付了', '已支付']) and any(
+            keyword in normalized for keyword in ['看不到', '没有', '没收到', '不到账']
+        ):
+            return {'id': 'payment_issue', 'label': '客户支付后未看到课程'}
+        if 'high_risk_complaint' in enabled_triggers and any(
+            keyword in normalized
+            for keyword in ['投诉', '举报', '诈骗', '骗子', '欺骗', '维权', '12315', '黑猫', '315', '垃圾', 'cnm', '滚']
+        ):
+            return {'id': 'high_risk_complaint', 'label': '客户表达投诉或高风险负面情绪'}
+        return None
+
     def _course_sales_profiles(self, workflow: dict[str, Any]) -> list[dict[str, Any]]:
         profiles = workflow.get('course_profiles') if isinstance(workflow.get('course_profiles'), list) else []
         if not profiles:
@@ -1565,7 +1731,18 @@ class TaskAssistantService:
         return profiles[0]
 
     def _mentions_purchase_confirmation(self, normalized: str) -> bool:
+        if any(keyword in normalized for keyword in COURSE_PURCHASE_NEGATION_KEYWORDS):
+            return False
         return any(keyword in normalized for keyword in COURSE_PURCHASE_CONFIRMATION_KEYWORDS)
+
+    def _mentions_immediate_course_stop(self, normalized: str, immediate_stop_keywords: list[str]) -> bool:
+        if not normalized:
+            return False
+        protected_purchase_keywords = {keyword.lower() for keyword in COURSE_PURCHASE_CONFIRMATION_KEYWORDS}
+        configured_keywords = [
+            keyword for keyword in immediate_stop_keywords if keyword and keyword not in protected_purchase_keywords
+        ]
+        return any(keyword in normalized for keyword in [*COURSE_ABUSIVE_STOP_KEYWORDS, *configured_keywords])
 
     def _mentions_payment_screenshot_confirmation(self, normalized: str) -> bool:
         return self._mentions_purchase_confirmation(normalized) or any(
@@ -1912,6 +2089,17 @@ class TaskAssistantService:
                 f'本轮要给报名动作和报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
                 '说明支付9元后截图或报名成功短信发来，用于登记开课和资料。'
             )
+        elif intent_name == 'handoff':
+            handoff_config = intent.get('handoff_config') if isinstance(intent.get('handoff_config'), dict) else {}
+            notify_message = str(
+                handoff_config.get('notify_message') or COURSE_HUMAN_HANDOFF_CONFIG['notify_message']
+            ).strip()
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                f'用户已触发转人工规则，原因：{intent.get("handoff_reason") or "handoff"}。'
+                f'本轮只回复安抚转接话术：“{notify_message}”。'
+                '不要继续促单，不要发送报名链接，不要继续解释课程卖点。'
+            )
         elif intent_name == 'purchased':
             control_text = (
                 '\n\n[课程销售上下文]\n'
@@ -1986,6 +2174,23 @@ class TaskAssistantService:
         intent_name = str(intent.get('intent') or '')
         text = str(query.variables.get('user_message_text') or '')
         try:
+            if intent_name == 'handoff':
+                handoff_config = intent.get('handoff_config') if isinstance(intent.get('handoff_config'), dict) else {}
+                if handoff_config.get('stop_outreach') is not False:
+                    await sales_service.disable_outreach_for_target(
+                        bot_uuid=target['bot_uuid'],
+                        target_type=target['target_type'],
+                        target_id=target['target_id'],
+                        segment_prefixes=['course-sales:'],
+                    )
+                if hasattr(sales_service, 'open_handoff_from_query'):
+                    await sales_service.open_handoff_from_query(
+                        query,
+                        str(intent.get('handoff_reason') or 'handoff'),
+                        text,
+                    )
+                return
+
             if intent_name == 'stop':
                 await sales_service.disable_outreach_for_target(
                     bot_uuid=target['bot_uuid'],
@@ -2006,8 +2211,20 @@ class TaskAssistantService:
                 return
 
             if await self._is_course_sales_first_contact(query):
-                await self._schedule_course_sales_opening_for_target(target, workflow)
-                await self._schedule_course_sales_broadcasts_for_target(target, workflow)
+                has_existing_opening = False
+                if hasattr(sales_service, 'count_outreach_plans_for_target_segments'):
+                    has_existing_opening = (
+                        await sales_service.count_outreach_plans_for_target_segments(
+                            bot_uuid=target['bot_uuid'],
+                            target_type=target['target_type'],
+                            target_id=target['target_id'],
+                            segments=['course-sales:opening:text', 'course-sales:opening:resource-card'],
+                        )
+                        > 0
+                    )
+                if not has_existing_opening:
+                    await self._schedule_course_sales_opening_for_target(target, workflow)
+                    await self._schedule_course_sales_broadcasts_for_target(target, workflow)
 
             followup_stage = self._course_followup_stage_for_intent(intent, text)
             if followup_stage:
@@ -3127,6 +3344,9 @@ class TaskAssistantService:
             elif key == 'tools' and isinstance(value, dict):
                 current = merged.get('tools') if isinstance(merged.get('tools'), dict) else {}
                 merged['tools'] = {**current, **copy.deepcopy(value)}
+            elif key == 'reply_controls' and isinstance(value, dict):
+                current = merged.get('reply_controls') if isinstance(merged.get('reply_controls'), dict) else {}
+                merged['reply_controls'] = {**current, **copy.deepcopy(value)}
             elif key == 'memory' and isinstance(value, dict):
                 current = merged.get('memory') if isinstance(merged.get('memory'), dict) else {}
                 merged['memory'] = {**current, **copy.deepcopy(value)}
@@ -3165,9 +3385,15 @@ class TaskAssistantService:
             {'role': 'system', 'content': self.compose_course_sales_prompt(active_template)},
         ]
         config['ai']['local-agent']['rerank-top-k'] = 2
+        reply_controls = self._normalize_course_reply_controls(active_template.get('reply_controls'))
+        active_template['reply_controls'] = reply_controls
         aggregation_config = config['trigger'].setdefault('message-aggregation', {})
-        aggregation_config['enabled'] = True
-        aggregation_config['delay'] = 3.0
+        aggregation_config['enabled'] = reply_controls['merge_reply_enabled']
+        aggregation_config['delay'] = float(reply_controls['merge_delay_seconds'])
+        config['output']['misc']['multi-reply'] = {
+            'enabled': bool(reply_controls['multi_reply_enabled']),
+            'threshold': 200,
+        }
         config['output']['force-delay'] = {'min': 0, 'max': 0}
         config['output']['misc']['at-sender'] = False
         config['output']['misc']['quote-origin'] = True
@@ -3297,6 +3523,18 @@ class TaskAssistantService:
             normalized['link_url'] = COURSE_SALES_RADAR_LINK
         if not normalized.get('link_title'):
             normalized['link_title'] = COURSE_RADAR_CONFIG['link_title']
+        return normalized
+
+    def _normalize_course_reply_controls(self, value: Any) -> dict[str, Any]:
+        source = value if isinstance(value, dict) else {}
+        normalized = {**copy.deepcopy(COURSE_REPLY_CONTROLS), **copy.deepcopy(source)}
+        normalized['multi_reply_enabled'] = bool(normalized.get('multi_reply_enabled'))
+        normalized['merge_reply_enabled'] = normalized.get('merge_reply_enabled') is not False
+        try:
+            delay = float(normalized.get('merge_delay_seconds'))
+        except (TypeError, ValueError):
+            delay = float(COURSE_REPLY_CONTROLS['merge_delay_seconds'])
+        normalized['merge_delay_seconds'] = max(1.0, delay)
         return normalized
 
     def _normalize_course_media_key(self, value: Any) -> Any:
@@ -3688,6 +3926,7 @@ class TaskAssistantService:
                 'scheduled_push': True,
                 'handoff': True,
             },
+            'reply_controls': copy.deepcopy(COURSE_REPLY_CONTROLS),
             'memory': {
                 'variables_enabled': True,
                 'table_enabled': True,
@@ -3716,6 +3955,7 @@ class TaskAssistantService:
                 }
             ],
             'radar': copy.deepcopy(COURSE_RADAR_CONFIG),
+            'human_handoff': copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG),
             'followup_sequences': copy.deepcopy(COURSE_FOLLOWUP_SEQUENCES),
             'long_term_broadcasts': copy.deepcopy(COURSE_LONG_TERM_BROADCASTS),
             'stop_rules': copy.deepcopy(COURSE_STOP_RULES),
@@ -3734,6 +3974,9 @@ class TaskAssistantService:
                 elif key == 'tools' and isinstance(value, dict):
                     current_tools = template_config.get('tools') if isinstance(template_config.get('tools'), dict) else {}
                     template_config['tools'] = {**current_tools, **value}
+                elif key == 'reply_controls' and isinstance(value, dict):
+                    current = template_config.get('reply_controls') if isinstance(template_config.get('reply_controls'), dict) else {}
+                    template_config['reply_controls'] = self._normalize_course_reply_controls({**current, **value})
                 elif key == 'scheduled_push' and isinstance(value, dict):
                     template_config['scheduled_push'] = {**scheduled_push, **value}
                 elif key == 'radar' and isinstance(value, dict):
@@ -3741,6 +3984,9 @@ class TaskAssistantService:
                         **COURSE_RADAR_CONFIG,
                         **self._normalize_course_radar_config(value),
                     }
+                elif key == 'human_handoff' and isinstance(value, dict):
+                    current = template_config.get('human_handoff') if isinstance(template_config.get('human_handoff'), dict) else {}
+                    template_config['human_handoff'] = {**copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG), **current, **value}
                 elif key in {'stop_rules', 'course_profile'} and isinstance(value, dict):
                     current = template_config.get(key) if isinstance(template_config.get(key), dict) else {}
                     template_config[key] = {**current, **value}
@@ -3780,6 +4026,7 @@ class TaskAssistantService:
                     template_config[key] = value
         if template_slug == 'yuanfudao-enhanced' and loaded_template:
             self._refresh_yuanfudao_enhanced_template_fields(template_config, loaded_template)
+        template_config['reply_controls'] = self._normalize_course_reply_controls(template_config.get('reply_controls'))
         self._normalize_course_template_media_keys(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
         for sequence in template_config.get('followup_sequences', []):
@@ -3859,8 +4106,22 @@ class TaskAssistantService:
             else {
                 'explicit_rejection_threshold': 1,
                 'explicit_rejection_keywords': COURSE_STOP_RULES['stop_keywords'],
-                'immediate_stop_keywords': ['投诉', '没有孩子', '没孩子', '打错', '我是老师', '已报名', '已支付'],
+                'immediate_stop_keywords': [
+                    '投诉',
+                    '没有孩子',
+                    '没孩子',
+                    '打错',
+                    '我是老师',
+                    '已报名',
+                    '已支付',
+                    *COURSE_ABUSIVE_STOP_KEYWORDS,
+                ],
             }
+        )
+        human_handoff = (
+            {**copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG), **copy.deepcopy(template_config.get('human_handoff'))}
+            if isinstance(template_config.get('human_handoff'), dict)
+            else copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG)
         )
         radar = (
             copy.deepcopy(template_config.get('radar'))
@@ -4037,6 +4298,7 @@ class TaskAssistantService:
                         'objection',
                         'gift',
                         'radar_clicked',
+                        'handoff',
                         'stop',
                         'screenshot_help',
                     ],
@@ -4125,10 +4387,10 @@ class TaskAssistantService:
             {
                 'id': 'handoff',
                 'type': 'handoff',
-                'title': '人工接管',
+                'title': '转人工',
                 'description': '投诉、高风险、订单纠纷或人工主动介入后停止AI和群发',
                 'position': {'x': 2040, 'y': 700},
-                'config': {'reason': '课程咨询需要人工处理', 'stop_ai_reply': True, 'stop_outreach': True},
+                'config': human_handoff,
             },
             {
                 'id': 'reply',
@@ -4145,6 +4407,7 @@ class TaskAssistantService:
                             'resource_faqs': resource_faqs,
                             'course_faqs': course_faqs,
                             'radar': radar,
+                            'human_handoff': human_handoff,
                             'stop_rules': stop_rules,
                         }
                     ),
@@ -4257,6 +4520,7 @@ class TaskAssistantService:
             'course_faqs': course_faqs,
             'sales_links': sales_links,
             'radar': radar,
+            'human_handoff': human_handoff,
             'followup_sequences': followups,
             'long_term_broadcasts': broadcasts,
             'stop_rules': stop_rules,
@@ -4271,6 +4535,7 @@ class TaskAssistantService:
                 'radar_event': {},
                 'selected_product_uuid': product_uuids[0],
                 'course_profiles': course_profiles,
+                'human_handoff': human_handoff,
                 'source_materials': source_materials,
             },
             'voice': voice_config,

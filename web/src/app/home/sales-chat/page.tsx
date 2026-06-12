@@ -27,6 +27,7 @@ import {
   SalesOutreachPlan,
 } from '@/app/infra/entities/api';
 import { httpClient, initializeUserInfo, userInfo } from '@/app/infra/http';
+import { MessageContentRenderer } from '@/app/home/monitoring/components/MessageContentRenderer';
 import { cn } from '@/lib/utils';
 
 type MainView = 'conversation' | 'customers' | 'workbench';
@@ -90,7 +91,19 @@ type CustomerProfileDraft = {
   title: string;
   location: string;
   budget: string;
+  child_grade: string;
+  needs: string;
   summary: string;
+};
+
+type MessageContentComponent = {
+  type?: string;
+  text?: string;
+  display?: string;
+  target?: string | number;
+  name?: string;
+  length?: number;
+  origin?: MessageContentComponent[];
 };
 
 const profileFields: Array<{
@@ -105,6 +118,8 @@ const profileFields: Array<{
   { key: 'title', label: '职位' },
   { key: 'location', label: '所在地' },
   { key: 'budget', label: '客单价/预算' },
+  { key: 'child_grade', label: '孩子年级' },
+  { key: 'needs', label: '关注需求' },
 ];
 
 const stageLabels: Record<string, string> = {
@@ -154,11 +169,78 @@ function intentLabel(intent?: string): string {
 
 function platformLabel(platform?: string | null): string {
   if (!platform) return '未知渠道';
+  if (platform.includes('LauncherTypes.PERSON')) return '私聊';
+  if (platform.includes('LauncherTypes.GROUP')) return '群聊';
   if (platform.includes('Wecom') || platform.includes('wecom'))
     return '企业微信';
   if (platform === 'person') return '私聊';
   if (platform === 'group') return '群聊';
   return platform;
+}
+
+function isTechnicalIdentifier(value?: string | null): boolean {
+  const text = String(value || '').trim();
+  if (!text) return true;
+  return (
+    text.includes('LauncherTypes.') ||
+    /^(on|om|ou|oc|of)_[A-Za-z0-9_-]{12,}$/.test(text) ||
+    /^[A-Za-z]+Types\.[A-Z_]+_/.test(text)
+  );
+}
+
+function displayCustomerName(
+  memory?: SalesCustomerMemory,
+  session?: MonitoringSession,
+  handoff?: SalesHandoff,
+): string {
+  const candidates = [
+    memory?.customer_name,
+    session?.user_name,
+    handoff?.user_id,
+    session?.user_id,
+  ];
+  const readable = candidates.find((item) => !isTechnicalIdentifier(item));
+  if (readable) return readable;
+  const source = platformLabel(
+    session?.platform || memory?.platform || handoff?.platform,
+  );
+  if (source === '私聊' || source === '群聊') return `${source}客户`;
+  return '客户';
+}
+
+function compactIdentifier(value?: string | null): string {
+  const text = String(value || '').trim();
+  if (!text) return '暂无ID';
+  return text.length > 28 ? `${text.slice(0, 12)}...${text.slice(-8)}` : text;
+}
+
+function messageContentText(content?: string | null): string {
+  if (!content) return '';
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (!Array.isArray(parsed)) return content;
+    return parsed
+      .map((component) => {
+        if (!component || typeof component !== 'object') return '';
+        const item = component as MessageContentComponent;
+        if (item.type === 'Plain') return item.text || '';
+        if (item.type === 'At') return `@${item.display || item.target || ''}`;
+        if (item.type === 'AtAll') return '@All';
+        if (item.type === 'Image') return '[图片]';
+        if (item.type === 'File')
+          return `[文件${item.name ? `: ${item.name}` : ''}]`;
+        if (item.type === 'Voice')
+          return `[语音${item.length ? ` ${item.length}s` : ''}]`;
+        if (item.type === 'Quote')
+          return messageContentText(JSON.stringify(item.origin || []));
+        if (item.type === 'Source') return '';
+        return item.type ? `[${item.type}]` : '';
+      })
+      .join('')
+      .trim();
+  } catch {
+    return content;
+  }
 }
 
 function conversationAccountLabel(conversation: ConversationRow): string {
@@ -198,15 +280,65 @@ function getProfileValue(
   memory: SalesCustomerMemory | undefined,
   key: keyof CustomerProfileDraft,
 ): string {
-  const value = memory?.profile?.[key];
-  return typeof value === 'string' ? value : '';
+  const aliases: Record<keyof CustomerProfileDraft, string[]> = {
+    customer_name: ['customer_name', 'name', '客户名称', '姓名'],
+    stage: ['stage', '客户阶段'],
+    phone: [
+      'phone',
+      'mobile',
+      'phone_number',
+      'mobile_phone',
+      'tel',
+      'telephone',
+      '手机号',
+      '手机',
+      '电话',
+      '电话号码',
+    ],
+    wechat: ['wechat', 'wechat_id', 'weixin', '微信', '微信号'],
+    email: ['email', 'mail', '邮箱', '电子邮箱'],
+    company: [
+      'company',
+      'company_name',
+      'organization',
+      '公司',
+      '公司名称',
+      '单位',
+    ],
+    industry: ['industry', 'industry_category', '行业', '行业类别'],
+    title: ['title', 'job_title', 'position', '职位', '职务'],
+    location: [
+      'location',
+      'city',
+      'region',
+      'address',
+      '所在地',
+      '城市',
+      '地区',
+      '地址',
+    ],
+    budget: ['budget', 'price', 'expected_price', '客单价', '预算', '预算范围'],
+    child_grade: ['child_grade', 'grade', 'target_grade', '孩子年级', '年级'],
+    needs: ['needs', 'demand', 'pain_point', '关注需求', '需求', '痛点'],
+    summary: ['summary', '客户摘要', '摘要'],
+  };
+  const profile = memory?.profile;
+  if (!profile || typeof profile !== 'object') return '';
+  for (const alias of aliases[key] || [key]) {
+    const value = profile[alias];
+    if (typeof value === 'string' && value.trim()) return value;
+    if (typeof value === 'number') return String(value);
+  }
+  return '';
 }
 
 function makeProfileDraft(
   memory: SalesCustomerMemory | undefined,
 ): CustomerProfileDraft {
   return {
-    customer_name: memory?.customer_name || '',
+    customer_name: isTechnicalIdentifier(memory?.customer_name)
+      ? ''
+      : memory?.customer_name || '',
     stage: memory?.stage || 'new',
     phone: getProfileValue(memory, 'phone'),
     wechat: getProfileValue(memory, 'wechat'),
@@ -216,6 +348,8 @@ function makeProfileDraft(
     title: getProfileValue(memory, 'title'),
     location: getProfileValue(memory, 'location'),
     budget: getProfileValue(memory, 'budget'),
+    child_grade: getProfileValue(memory, 'child_grade'),
+    needs: getProfileValue(memory, 'needs'),
     summary: memory?.summary || '',
   };
 }
@@ -337,14 +471,9 @@ function buildConversations(
       const session = sessionMap.get(sessionId);
       const memory = memoryMap.get(sessionId);
       const handoff = handoffMap.get(sessionId);
-      const name =
-        memory?.customer_name ||
-        session?.user_name ||
-        session?.user_id ||
-        handoff?.user_id ||
-        sessionId;
+      const name = displayCustomerName(memory, session, handoff);
       const preview =
-        handoff?.last_message ||
+        messageContentText(handoff?.last_message) ||
         memory?.summary ||
         (session ? `${session.message_count} 条真实消息` : '暂无消息摘要');
       const time = formatDate(
@@ -786,7 +915,10 @@ function ChatCenter({
                           : 'bg-white text-[#34415c]',
                       )}
                     >
-                      {message.message_content}
+                      <MessageContentRenderer
+                        content={message.message_content}
+                        maxLines={0}
+                      />
                     </div>
                   </div>
                   {isAgent && <Avatar name={message.bot_name || 'AI'} />}
@@ -933,7 +1065,7 @@ function RightPanelContent({
           <div className="space-y-5 p-6">
             {!conversation?.memory && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-800">
-                该会话还没有销售客户记忆。客户发来真实消息并经过销售插件处理后，会自动生成可编辑资料。
+                该会话还没有销售客户记忆。可直接补充并保存，系统会基于当前真实会话创建客户资料。
               </div>
             )}
             <div className="flex items-center gap-3">
@@ -952,10 +1084,16 @@ function RightPanelContent({
                   }
                   className="w-full rounded-md border border-transparent px-2 py-1 text-xl font-semibold outline-none hover:border-[#e2e6ef] focus:border-[#5f58ff]"
                   placeholder={conversation?.name || '客户名称'}
-                  disabled={!conversation?.memory}
+                  disabled={!conversation}
                 />
                 <div className="mt-1 text-sm text-[#6b7280]">
-                  {conversation?.sessionId || '暂无 session'}
+                  {conversation
+                    ? `${conversation.platform} · ${compactIdentifier(
+                        conversation.session?.user_id ||
+                          conversation.handoff?.user_id ||
+                          conversation.sessionId,
+                      )}`
+                    : '暂无会话'}
                 </div>
               </div>
             </div>
@@ -967,7 +1105,7 @@ function RightPanelContent({
                 onChange={(event) =>
                   onDraft({ ...memoryDraft, stage: event.target.value })
                 }
-                disabled={!conversation?.memory}
+                disabled={!conversation}
                 className="h-10 rounded-lg border border-[#e2e6ef] bg-white px-3 text-[#34415c] outline-none focus:border-[#5f58ff]"
               >
                 {Object.entries(stageLabels).map(([value, label]) => (
@@ -993,7 +1131,7 @@ function RightPanelContent({
                         [field.key]: event.target.value,
                       })
                     }
-                    disabled={!conversation?.memory}
+                    disabled={!conversation}
                     className="h-9 rounded-md border border-[#e2e6ef] px-3 text-[#34415c] outline-none focus:border-[#5f58ff] disabled:bg-[#f7f8fb]"
                     placeholder="暂无"
                   />
@@ -1008,7 +1146,7 @@ function RightPanelContent({
                 onChange={(event) =>
                   onDraft({ ...memoryDraft, summary: event.target.value })
                 }
-                disabled={!conversation?.memory}
+                disabled={!conversation}
                 className="min-h-28 resize-none rounded-lg border border-[#e2e6ef] px-3 py-2 text-[#34415c] outline-none focus:border-[#5f58ff] disabled:bg-[#f7f8fb]"
                 placeholder="暂无摘要"
               />
@@ -1017,7 +1155,7 @@ function RightPanelContent({
             <button
               type="button"
               onClick={onSaveMemory}
-              disabled={!conversation?.memory || savingMemory}
+              disabled={!conversation || savingMemory}
               className="inline-flex items-center gap-2 rounded-lg bg-[#5f58ff] px-4 py-2 text-white disabled:opacity-50"
             >
               {savingMemory ? (
@@ -1776,7 +1914,7 @@ export default function SalesChatPage() {
   };
 
   const saveMemory = async () => {
-    if (!selectedConversation?.memory) return;
+    if (!selectedConversation) return;
     setSavingMemory(true);
     try {
       const { customer_name, stage, summary, ...profile } = memoryDraft;

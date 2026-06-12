@@ -439,6 +439,48 @@ class TestMessageAggregatorAddMessage:
         session_id = agg._get_session_id('test-bot', provider_session.LauncherTypes.PERSON, 12345)
         assert session_id not in agg.buffers or len(agg.buffers[session_id].messages) == 0
 
+    @pytest.mark.asyncio
+    async def test_enabled_debounces_three_consecutive_text_messages_into_one_query(self):
+        """Consecutive user messages should become one merged query after the idle window."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+
+        mock_pipeline = Mock()
+        mock_pipeline.pipeline_entity = Mock()
+        mock_pipeline.pipeline_entity.config = {
+            'trigger': {
+                'message-aggregation': {
+                    'enabled': True,
+                    'delay': 1.0,
+                }
+            }
+        }
+        app.pipeline_mgr.get_pipeline_by_uuid = AsyncMock(return_value=mock_pipeline)
+
+        agg = aggregator.MessageAggregator(app)
+        adapter = mock_adapter()
+
+        for text in ['三年级', '记单词比较吃力', '还有课表也想看看']:
+            chain = text_chain(text)
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id=12345,
+                sender_id=12345,
+                message_event=friend_message_event(chain),
+                message_chain=chain,
+                adapter=adapter,
+                pipeline_uuid='test-pipeline',
+            )
+            await asyncio.sleep(0.2)
+
+        await asyncio.sleep(1.1)
+
+        assert app.query_pool.add_query.call_count == 1
+        merged_chain = app.query_pool.add_query.await_args.kwargs['message_chain']
+        assert str(merged_chain) == '三年级\n记单词比较吃力\n还有课表也想看看'
+
 
 class TestMessageAggregatorMerge:
     """Tests for message merging."""

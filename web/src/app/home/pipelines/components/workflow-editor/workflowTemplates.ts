@@ -597,6 +597,45 @@ const courseResourceCardLink =
   'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347';
 const courseOpeningMessage =
   '您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn';
+const defaultHumanHandoff = {
+  enabled: true,
+  keywords: [
+    '转人工',
+    '人工',
+    '真人客服',
+    '班主任',
+    '电话联系',
+    '投诉',
+    '退款',
+    '退费',
+    '支付异常',
+    '看不到课',
+    '骗子',
+  ],
+  semantic_triggers: [
+    {
+      id: 'manual_request',
+      label: '明确要求转人工',
+      description: '客户明确要求人工、真人客服、班主任或电话联系。',
+      enabled: true,
+    },
+    {
+      id: 'payment_issue',
+      label: '支付订单异常',
+      description: '客户已支付但看不到课程、订单异常、没收到课、要求退款或退费。',
+      enabled: true,
+    },
+    {
+      id: 'high_risk_complaint',
+      label: '投诉或高风险负面',
+      description: '客户表达投诉、举报、诈骗、欺骗、维权、辱骂或强烈不满。',
+      enabled: true,
+    },
+  ],
+  stop_ai_reply: true,
+  stop_outreach: true,
+  notify_message: '您好，已经帮您转人工老师处理，请稍候~',
+};
 const courseSalesProfile = {
   course_name: '猿辅导英语自然拼读体验课/自然拼读集训营',
   price: '9元体验',
@@ -759,7 +798,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
     workflowNode('voice_asr', 'asr', '语音输入处理', '用户发语音时先理解课程咨询内容，语音回复开关开启时可用语音回复', { x: 1160, y: 320 }, { provider: 'volcengine', model_uuid: 'lna-doubao-bigasr-flash', fallback_text: '用户发来课程咨询语音，请用文字短句回复。' }),
     workflowNode('screenshot_input', 'vision', '截图识别', '识别支付成功页、报名页、白屏、资源页或二维码页', { x: 1160, y: 520 }, { model_uuid: modelUuid, target_steps: ['gift_poster', 'gift_qr', 'link_error'] }),
     workflowNode('intent', 'intent', '意图识别', '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态', { x: 1460, y: 320 }, {
-      intents: ['resource_help', 'course_intro', 'course_schedule', 'course_replay', 'course_content', 'purchase', 'purchased', 'objection', 'gift', 'radar_clicked', 'stop', 'screenshot_help'],
+      intents: ['resource_help', 'course_intro', 'course_schedule', 'course_replay', 'course_content', 'purchase', 'purchased', 'objection', 'gift', 'radar_clicked', 'handoff', 'stop', 'screenshot_help'],
       confidence_threshold: 0.55,
       image_intents: ['screenshot_help', 'purchased', 'link_error'],
     }),
@@ -771,7 +810,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
     workflowNode('radar', 'radar', '链接点击雷达', '通过 tracking URL 回调感知链接打开，并按规则触发跟进', { x: 2640, y: 440 }, courseRadarConfig),
     workflowNode('radar_followup', 'outreach', '主动跟进话术矩阵', '按Excel跟进表在马上、5分钟、1小时、21:30主动跟进，必要时发送Excel素材图或报名链接卡片', { x: 2940, y: 440 }, { followup_sequences: courseFollowupSequences, radar_rules: courseRadarConfig.rules }),
     workflowNode('long_term_broadcast', 'outreach', 'SOP定时群发', '按SOP图片识别出的文字在每日10:05群发；不发送SOP图片', { x: 2640, y: 700 }, { broadcasts: courseLongTermBroadcasts, stop_rules: courseStopRules }),
-    workflowNode('handoff', 'handoff', '人工接管', '投诉、高风险、订单纠纷或人工主动介入后停止AI和群发', { x: 2040, y: 700 }, { reason: '课程咨询需要人工处理', stop_ai_reply: true, stop_outreach: true }),
+    workflowNode('handoff', 'handoff', '转人工', '投诉、高风险、订单纠纷或人工主动介入后停止AI和群发', { x: 2040, y: 700 }, defaultHumanHandoff),
     workflowNode('reply', 'llm', '真人客服回复', '按SOP生成短句、明确、有下一步的课程客服/销售回复', { x: 3240, y: 320 }, {
       model_uuid: modelUuid,
       tone: '真人客服、短句、先服务后转化',
@@ -882,6 +921,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       radar: courseRadarConfig,
       followup_sequences: courseFollowupSequences,
       long_term_broadcasts: courseLongTermBroadcasts,
+      human_handoff: defaultHumanHandoff,
       stop_rules: courseStopRules,
       stop_policy: courseStopPolicy,
       image_text_bindings: courseImageBindings,
@@ -940,6 +980,11 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
       image_recognition: false,
       voice_reply: false,
     },
+    reply_controls: {
+      multi_reply_enabled: false,
+      merge_reply_enabled: true,
+      merge_delay_seconds: 10,
+    },
     memory: {
       variables_enabled: false,
       table_enabled: false,
@@ -969,6 +1014,16 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
       enabled: false,
       link_url: '',
       click_reply: '',
+    },
+    human_handoff: {
+      ...defaultHumanHandoff,
+      enabled: false,
+      keywords: [],
+      semantic_triggers: defaultHumanHandoff.semantic_triggers.map((trigger) => ({
+        ...trigger,
+        enabled: false,
+      })),
+      notify_message: '',
     },
     image_text_bindings: [],
   };
@@ -1019,6 +1074,11 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       image_recognition: true,
       voice_reply: true,
     },
+    reply_controls: {
+      multi_reply_enabled: false,
+      merge_reply_enabled: true,
+      merge_delay_seconds: 10,
+    },
     memory: {
       variables_enabled: true,
       table_enabled: true,
@@ -1048,6 +1108,11 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       enabled: false,
       link_url: '',
       click_reply: '我看到您刚刚点开了链接，如果有不清楚的地方可以直接问我。',
+    },
+    human_handoff: {
+      ...defaultHumanHandoff,
+      enabled: false,
+      notify_message: '您好，已经帮您转人工处理，请稍候~',
     },
     image_text_bindings: bindings.map(([step_id, title, text, file_key]) => ({
       step_id,
@@ -1121,6 +1186,7 @@ export function applyTemplateConfigToWorkflow(
       ...(workflow.variables || {}),
       scheduled_push: templateConfig.scheduled_push,
       interaction_radar: templateConfig.interaction_radar,
+      human_handoff: templateConfig.human_handoff,
       opening_message: templateConfig.opening_message,
       recommended_questions: templateConfig.recommended_questions,
       sales_links: templateConfig.sales_links || [],
