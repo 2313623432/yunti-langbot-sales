@@ -1154,6 +1154,128 @@ class SalesService:
             .replace('{price}', product.get('price', ''))
         )
 
+    def normalize_sales_message_content(self, message_content: str) -> dict[str, Any]:
+        components: list[dict[str, Any]] = []
+        metadata: dict[str, Any] = {}
+        raw_content = message_content or ''
+        try:
+            parsed = json.loads(raw_content)
+        except (TypeError, json.JSONDecodeError):
+            parsed = [{'type': 'Plain', 'text': raw_content}] if raw_content else []
+
+        if not isinstance(parsed, list):
+            parsed = [{'type': 'Plain', 'text': raw_content}]
+
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            normalized = self._normalize_sales_message_component(item)
+            if normalized is None:
+                source_id = item.get('id')
+                if item.get('type') == 'Source' and source_id:
+                    metadata['source'] = {key: value for key, value in item.items() if key != 'type'}
+                continue
+            components.append(normalized)
+
+        return {
+            'components': components,
+            'preview': self._sales_message_preview(components),
+            'metadata': metadata,
+        }
+
+    def _normalize_sales_message_component(self, component: dict[str, Any]) -> dict[str, Any] | None:
+        component_type = str(component.get('type') or '').strip()
+        if component_type == 'Source':
+            return None
+        if component_type == 'Plain':
+            return {
+                'kind': 'text',
+                'text': str(component.get('text') or ''),
+                'raw': component,
+            }
+        if component_type in ('At', 'AtAll'):
+            label = component.get('display') or component.get('target') or 'All'
+            return {'kind': 'text', 'text': f'@{label}', 'raw': component}
+        if component_type == 'Image':
+            url = str(component.get('url') or '')
+            base64_data = str(component.get('base64') or '')
+            path = str(component.get('path') or '')
+            return {
+                'kind': 'image',
+                'url': url,
+                'base64': base64_data,
+                'path': path,
+                'name': str(component.get('name') or component.get('file_name') or ''),
+                'available': bool(url or base64_data or path),
+                'raw': component,
+            }
+        if component_type == 'Voice':
+            url = str(component.get('url') or '')
+            base64_data = str(component.get('base64') or '')
+            path = str(component.get('path') or '')
+            return {
+                'kind': 'voice',
+                'url': url,
+                'base64': base64_data,
+                'path': path,
+                'length': component.get('length') or component.get('duration') or 0,
+                'available': bool(url or base64_data or path),
+                'raw': component,
+            }
+        if component_type == 'File':
+            return {
+                'kind': 'file',
+                'name': str(component.get('name') or component.get('file_name') or '文件'),
+                'url': str(component.get('url') or ''),
+                'path': str(component.get('path') or ''),
+                'available': bool(component.get('url') or component.get('path')),
+                'raw': component,
+            }
+        if component_type in ('WeChatLink', 'Link'):
+            return {
+                'kind': 'link',
+                'title': str(component.get('title') or component.get('name') or '链接'),
+                'description': str(component.get('description') or ''),
+                'url': str(component.get('url') or component.get('link_url') or ''),
+                'thumb_url': str(component.get('thumb_url') or component.get('image') or ''),
+                'raw': component,
+            }
+        if component_type == 'Quote':
+            origin = component.get('origin') if isinstance(component.get('origin'), list) else []
+            quoted = []
+            for origin_item in origin:
+                if isinstance(origin_item, dict) and origin_item.get('type') == 'Plain':
+                    quoted.append(str(origin_item.get('text') or ''))
+            return {'kind': 'quote', 'text': '\n'.join(quoted), 'raw': component}
+        return {
+            'kind': 'attachment',
+            'type': component_type or 'Unknown',
+            'label': f'[{component_type or "Unknown"}]',
+            'raw': component,
+        }
+
+    def _sales_message_preview(self, components: list[dict[str, Any]]) -> str:
+        labels = []
+        for component in components:
+            kind = component.get('kind')
+            if kind == 'text':
+                text = str(component.get('text') or '').strip()
+                if text:
+                    labels.append(text)
+            elif kind == 'image':
+                labels.append('[图片]')
+            elif kind == 'voice':
+                labels.append('[语音]')
+            elif kind == 'file':
+                labels.append(f"[文件] {component.get('name') or ''}".strip())
+            elif kind == 'link':
+                labels.append(f"[链接] {component.get('title') or ''}".strip())
+            elif kind == 'quote':
+                labels.append('[引用]')
+            else:
+                labels.append(str(component.get('label') or '[附件]'))
+        return ' '.join(label for label in labels if label).strip()
+
     def _query_session_id(self, query: Any) -> str:
         launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
         return f'{launcher_type}_{query.launcher_id}'

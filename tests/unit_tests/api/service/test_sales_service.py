@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -16,6 +17,48 @@ def test_classify_intent_detects_handoff_request():
     assert result['intent'] == 'handoff'
     assert result['requires_handoff'] is True
     assert result['confidence'] >= 0.8
+
+
+def test_normalize_sales_message_content_preserves_text_image_voice_and_source_metadata():
+    service = SalesService(SimpleNamespace())
+    raw = json.dumps(
+        [
+            {'type': 'Source', 'id': 'source-1', 'timestamp': 1781173324},
+            {'type': 'Plain', 'text': '你好'},
+            {'type': 'Image', 'url': 'https://example.com/a.png', 'name': 'a.png'},
+            {'type': 'Voice', 'base64': 'data:audio/ogg;base64,AAAA', 'length': 3},
+        ],
+        ensure_ascii=False,
+    )
+
+    normalized = service.normalize_sales_message_content(raw)
+
+    assert normalized['preview'] == '你好 [图片] [语音]'
+    assert [part['kind'] for part in normalized['components']] == ['text', 'image', 'voice']
+    assert normalized['components'][1]['url'] == 'https://example.com/a.png'
+    assert normalized['components'][2]['base64'].startswith('data:audio/ogg;base64,')
+    assert normalized['metadata']['source']['id'] == 'source-1'
+
+
+def test_normalize_sales_message_content_keeps_unavailable_media_as_real_attachment():
+    service = SalesService(SimpleNamespace())
+    raw = json.dumps(
+        [
+            {'type': 'Voice', 'voice_id': 'file_v3_001', 'url': '', 'path': '', 'base64': ''},
+            {'type': 'Image', 'image_id': 'img_001'},
+        ],
+        ensure_ascii=False,
+    )
+
+    normalized = service.normalize_sales_message_content(raw)
+
+    assert normalized['preview'] == '[语音] [图片]'
+    assert normalized['components'][0]['kind'] == 'voice'
+    assert normalized['components'][0]['available'] is False
+    assert normalized['components'][0]['raw']['voice_id'] == 'file_v3_001'
+    assert normalized['components'][1]['kind'] == 'image'
+    assert normalized['components'][1]['available'] is False
+    assert normalized['components'][1]['raw']['image_id'] == 'img_001'
 
 
 def test_select_best_product_matches_selling_points_and_pain_points():
