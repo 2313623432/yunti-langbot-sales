@@ -6,6 +6,7 @@ import json
 import mimetypes
 import os
 import re
+from types import SimpleNamespace
 import uuid
 from typing import Any
 
@@ -1617,6 +1618,14 @@ class SalesService:
     def _row_entity(self, row: Any) -> Any:
         if isinstance(row, tuple):
             return row[0]
+        mapping = getattr(row, '_mapping', None)
+        if mapping:
+            mapped_values = list(mapping.values())
+            if len(mapped_values) == 1 and not isinstance(mapped_values[0], (str, int, float, bool, bytes, type(None))):
+                return mapped_values[0]
+            string_keys = {str(key): value for key, value in mapping.items() if isinstance(key, str)}
+            if string_keys:
+                return SimpleNamespace(**string_keys)
         try:
             return row[0]
         except (TypeError, KeyError, IndexError):

@@ -174,6 +174,15 @@ class _FakeResult:
         return [self.row]
 
 
+class _ColumnRow:
+    def __init__(self, **values):
+        self._values = values
+        self._mapping = values
+
+    def __getitem__(self, index):
+        return list(self._values.values())[index]
+
+
 @pytest.mark.asyncio
 async def test_get_sales_conversations_uses_latest_real_monitoring_message_not_memory_summary():
     session = SimpleNamespace(
@@ -237,6 +246,59 @@ async def test_get_sales_conversations_uses_latest_real_monitoring_message_not_m
     assert conversations[0]['latest_message_preview'] == '真实AI回复'
     assert conversations[0]['latest_message_preview'] != '这不是聊天记录'
     assert conversations[0]['handoff_status'] == 'ai_hosted'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_handles_column_rows_from_connection_execute():
+    session = _ColumnRow(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=2,
+        start_time=datetime.datetime(2026, 6, 12, 9, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        is_active=True,
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    message = _ColumnRow(
+        id='msg-2',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        session_id='person_customer-1',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '刚发的新消息'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == 'person_customer-1'
+    assert conversations[0]['latest_message_preview'] == '刚发的新消息'
 
 
 @pytest.mark.asyncio
