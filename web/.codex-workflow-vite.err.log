@@ -1,0 +1,82 @@
+[2m16:22:36[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:27:18[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:35:01[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:35:01[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next: init: i18next is already initialized. You should call init just once!
+[2m16:35:03[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mError handled by React Router default ErrorBoundary: Error: useSidebarData must be used within a SidebarDataProvider
+    at useSidebarData (http://localhost:3001/src/app/home/components/home-sidebar/SidebarDataContext.tsx:200:9)
+    at HomeLayoutInner (http://localhost:3001/src/app/home/layout.tsx:73:31)
+    at Object.react_stack_bottom_frame (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:12868:12)
+    at renderWithHooks (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:4213:19)
+    at updateFunctionComponent (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:5569:16)
+    at beginWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:6140:20)
+    at runWithFiberInDEV (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:851:66)
+    at performUnitOfWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8429:92)
+    at workLoopSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8325:37)
+    at renderRootSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8309:6)
+[2m16:35:03[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mError handled by React Router default ErrorBoundary: Error: useSidebarData must be used within a SidebarDataProvider
+    at useSidebarData (http://localhost:3001/src/app/home/components/home-sidebar/SidebarDataContext.tsx:200:9)
+    at HomeLayoutInner (http://localhost:3001/src/app/home/layout.tsx:73:31)
+    at Object.react_stack_bottom_frame (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:12868:12)
+    at renderWithHooks (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:4213:19)
+    at updateFunctionComponent (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:5569:16)
+    at beginWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:6140:20)
+    at runWithFiberInDEV (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:851:66)
+    at performUnitOfWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8429:92)
+    at workLoopSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8325:37)
+    at renderRootSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8309:6)
+[2m16:35:03[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mError handled by React Router default ErrorBoundary: Error: useSidebarData must be used within a SidebarDataProvider
+    at useSidebarData (http://localhost:3001/src/app/home/components/home-sidebar/SidebarDataContext.tsx:200:9)
+    at HomeLayoutInner (http://localhost:3001/src/app/home/layout.tsx:73:31)
+    at Object.react_stack_bottom_frame (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:12868:12)
+    at renderWithHooks (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:4213:19)
+    at updateFunctionComponent (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:5569:16)
+    at beginWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:6140:20)
+    at runWithFiberInDEV (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:851:66)
+    at performUnitOfWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8429:92)
+    at workLoopSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8325:37)
+    at renderRootSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8309:6)
+[2m16:35:03[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mError handled by React Router default ErrorBoundary: Error: useSidebarData must be used within a SidebarDataProvider
+    at useSidebarData (http://localhost:3001/src/app/home/components/home-sidebar/SidebarDataContext.tsx:200:9)
+    at HomeLayoutInner (http://localhost:3001/src/app/home/layout.tsx:73:31)
+    at Object.react_stack_bottom_frame (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:12868:12)
+    at renderWithHooks (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:4213:19)
+    at updateFunctionComponent (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:5569:16)
+    at beginWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:6140:20)
+    at runWithFiberInDEV (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:851:66)
+    at performUnitOfWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8429:92)
+    at workLoopSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8325:37)
+    at renderRootSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8309:6)
+[2m16:35:03[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mError: useSidebarData must be used within a SidebarDataProvider
+    at useSidebarData (http://localhost:3001/src/app/home/components/home-sidebar/SidebarDataContext.tsx:200:9)
+    at HomeLayoutInner (http://localhost:3001/src/app/home/layout.tsx:73:31)
+    at Object.react_stack_bottom_frame (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:12868:12)
+    at renderWithHooks (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:4213:19)
+    at updateFunctionComponent (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:5569:16)
+    at beginWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:6140:20)
+    at runWithFiberInDEV (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:851:66)
+    at performUnitOfWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8429:92)
+    at workLoopSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8325:37)
+    at renderRootSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8309:6)
+
+The above error occurred in the <HomeLayoutInner> component.
+
+React will try to recreate this component tree from scratch using the error boundary you provided, RenderErrorBoundary.
+
+[2m16:35:03[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mReact Router caught the following error during render Error: useSidebarData must be used within a SidebarDataProvider
+    at useSidebarData (http://localhost:3001/src/app/home/components/home-sidebar/SidebarDataContext.tsx:200:9)
+    at HomeLayoutInner (http://localhost:3001/src/app/home/layout.tsx:73:31)
+    at Object.react_stack_bottom_frame (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:12868:12)
+    at renderWithHooks (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:4213:19)
+    at updateFunctionComponent (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:5569:16)
+    at beginWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:6140:20)
+    at runWithFiberInDEV (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:851:66)
+    at performUnitOfWork (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8429:92)
+    at workLoopSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8325:37)
+    at renderRootSync (http://localhost:3001/node_modules/.vite/deps/react-dom_client.js?v=df7651a1:8309:6)
+[2m16:35:29[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:35:57[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:36:26[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:36:49[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:36:54[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:37:29[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m16:39:49[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
