@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
+
+from langbot.pkg.provider.modelmgr.requesters import catalog_requester
 from langbot.pkg.provider.modelmgr import (
     builtin_asr_providers,
     builtin_embedding_providers,
@@ -108,6 +113,17 @@ def test_asr_catalog_contains_doubao_api_key_provider():
         }
     )
     assert builtin_registry.is_provider_configured(provider, model_count=1) is True
+
+
+def test_doubao_asr_requester_metadata_is_loadable():
+    requester_path = Path('src/langbot/pkg/provider/modelmgr/requesters/volcengineasr.yaml')
+    assert requester_path.exists()
+
+    metadata = yaml.safe_load(requester_path.read_text(encoding='utf-8'))
+
+    assert metadata['metadata']['name'] == 'volcengine-asr'
+    assert metadata['execution']['python']['attr'] == 'VolcengineASRRequester'
+    assert hasattr(catalog_requester, 'VolcengineASRRequester')
 
 
 def test_unpdf_provider_does_not_require_api_key():

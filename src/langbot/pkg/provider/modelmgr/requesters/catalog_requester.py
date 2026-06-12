@@ -7,6 +7,7 @@ from langbot.pkg.rag.knowledge import mineru_cloud
 from langbot.pkg.rag.knowledge import paddleocr_vl
 
 from .. import requester
+from .. import asr_invoke
 from .. import tts_invoke
 
 
@@ -66,6 +67,33 @@ class _TTSRequesterMixin(_CatalogStubRequester):
         return await tts_invoke.invoke_tts(config, logger=self.ap.logger)
 
 
+class _ASRRequesterMixin(_CatalogStubRequester):
+    asr_requester: str = ''
+    asr_provider: str = ''
+
+    async def invoke_asr(
+        self,
+        *,
+        model_name: str,
+        api_keys: list[str] | None = None,
+        extra_args: dict[str, typing.Any] | None = None,
+    ) -> str | None:
+        merged_extra_args = extra_args if isinstance(extra_args, dict) else {}
+        asr_config = asr_invoke.apply_provider_api_keys(
+            {
+                'requester': self.asr_requester or self.name,
+                'provider': merged_extra_args.get('provider') or self.asr_provider,
+                'model': model_name,
+                'base_url': self.requester_cfg.get('base_url', ''),
+                **merged_extra_args,
+            },
+            requester=self.asr_requester or self.name or '',
+            api_keys=api_keys,
+        )
+        config = asr_invoke.build_asr_invoke_config(asr_config)
+        return await asr_invoke.invoke_asr(config, logger=self.ap.logger)
+
+
 class AzureTTSRequester(_TTSRequesterMixin):
     tts_requester = 'azure-tts'
     tts_provider = 'azure'
@@ -79,6 +107,11 @@ class VolcengineTTSRequester(_TTSRequesterMixin):
 class ElevenLabsTTSRequester(_TTSRequesterMixin):
     tts_requester = 'elevenlabs-tts'
     tts_provider = 'elevenlabs'
+
+
+class VolcengineASRRequester(_ASRRequesterMixin):
+    asr_requester = 'volcengine-asr'
+    asr_provider = 'volcengine'
 
 
 class BuiltinPdfParseRequester(_CatalogStubRequester):

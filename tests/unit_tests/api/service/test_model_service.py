@@ -25,6 +25,7 @@ from langbot.pkg.api.http.service.model import (
     _runtime_model_data,
     _is_voice_only_model,
     _is_asr_only_model,
+    _is_pdf_only_model,
     _matches_model_category,
 )
 from langbot.pkg.entity.persistence.model import LLMModel, EmbeddingModel, RerankModel, ModelProvider
@@ -179,6 +180,8 @@ class TestModelCategoryMatching:
         assert _matches_model_category({'abilities': ['pdf_parse', 'tts']}, 'pdf') is True
         assert _matches_model_category({'abilities': ['pdf_parse']}, 'text') is False
         assert _matches_model_category({'abilities': ['vision']}, 'pdf') is False
+        assert _is_pdf_only_model({'abilities': ['pdf_parse']}) is True
+        assert _is_pdf_only_model({'abilities': ['vision', 'pdf_parse']}) is False
 
 
 class TestLLMModelsServiceGetLLMModels:
@@ -793,6 +796,51 @@ class TestLLMModelsServiceTestLLMModel:
         runtime_provider.invoke_llm.assert_not_called()
         invoke_asr.assert_awaited_once()
         assert result == {'transcription': '你好，这是语音识别测试。'}
+
+    async def test_test_llm_model_routes_pdf_only_models_to_pdf_parse(self):
+        ap = SimpleNamespace()
+        ap.logger = SimpleNamespace(warning=lambda *args, **kwargs: None)
+        runtime_provider = SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                requester='paddleocr-vl',
+                base_url='https://paddleocr.aistudio-app.com/api/v2/ocr/jobs',
+            ),
+            token_mgr=SimpleNamespace(tokens=['paddle-token']),
+            invoke_llm=AsyncMock(),
+            invoke_pdf_parse=AsyncMock(return_value='Parsed PDF test document.'),
+        )
+        runtime_model = SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid='pdf-model',
+                name='PaddleOCR-VL-1.6',
+                abilities=['pdf_parse'],
+                extra_args={'model': 'PaddleOCR-VL-1.6'},
+            ),
+            provider=runtime_provider,
+        )
+        ap.model_mgr = SimpleNamespace(
+            llm_models=[runtime_model],
+            init_temporary_runtime_llm_model=AsyncMock(),
+        )
+
+        service = LLMModelsService(ap)
+
+        result = await service.test_llm_model(
+            'pdf-model',
+            {
+                'name': 'PaddleOCR-VL-1.6',
+                'abilities': ['pdf_parse'],
+                'extra_args': {'model': 'PaddleOCR-VL-1.6'},
+            },
+        )
+
+        runtime_provider.invoke_llm.assert_not_called()
+        runtime_provider.invoke_pdf_parse.assert_awaited_once()
+        filename = runtime_provider.invoke_pdf_parse.await_args.kwargs['filename']
+        content = runtime_provider.invoke_pdf_parse.await_args.kwargs['content']
+        assert filename == 'langbot-pdf-parse-test.pdf'
+        assert content.startswith(b'%PDF')
+        assert result == {'text': 'Parsed PDF test document.'}
 
 
 class TestLLMModelsServiceDeleteLLMModel:

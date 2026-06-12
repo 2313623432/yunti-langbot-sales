@@ -16,6 +16,42 @@ from ....provider.modelmgr import tts_invoke
 
 SYSTEM_SEEDED_PROVIDER_UUIDS = {'task-assistant-bailian-provider'}
 SYSTEM_SEEDED_LLM_MODEL_UUIDS = {'task-assistant-qwen-vl-plus'}
+PDF_PARSE_TEST_FILENAME = 'langbot-pdf-parse-test.pdf'
+PDF_PARSE_TEST_CONTENT = (
+    b'%PDF-1.4\n'
+    b'1 0 obj\n'
+    b'<< /Type /Catalog /Pages 2 0 R >>\n'
+    b'endobj\n'
+    b'2 0 obj\n'
+    b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>\n'
+    b'endobj\n'
+    b'3 0 obj\n'
+    b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] '
+    b'/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\n'
+    b'endobj\n'
+    b'4 0 obj\n'
+    b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n'
+    b'endobj\n'
+    b'5 0 obj\n'
+    b'<< /Length 47 >>\n'
+    b'stream\n'
+    b'BT /F1 12 Tf 72 72 Td (LangBot PDF test) Tj ET\n'
+    b'endstream\n'
+    b'endobj\n'
+    b'xref\n'
+    b'0 6\n'
+    b'0000000000 65535 f \n'
+    b'0000000009 00000 n \n'
+    b'0000000058 00000 n \n'
+    b'0000000115 00000 n \n'
+    b'0000000241 00000 n \n'
+    b'0000000311 00000 n \n'
+    b'trailer\n'
+    b'<< /Size 6 /Root 1 0 R >>\n'
+    b'startxref\n'
+    b'407\n'
+    b'%%EOF\n'
+)
 
 
 def _is_voice_only_model(model_data: dict) -> bool:
@@ -302,6 +338,11 @@ class LLMModelsService:
             if not text:
                 raise Exception('ASR test failed: no transcription returned')
             return {'transcription': text}
+        if _is_pdf_only_model({'abilities': abilities}):
+            text = await self._test_pdf_model(runtime_llm_model, model_data)
+            if not text:
+                raise Exception('PDF parse test failed: no text returned')
+            return {'text': text}
 
         extra_args = model_data.get('extra_args', {})
         await runtime_llm_model.provider.invoke_llm(
@@ -376,6 +417,22 @@ class LLMModelsService:
         if not text:
             raise Exception('ASR test failed: no transcription returned')
         return text
+
+    async def _test_pdf_model(
+        self,
+        runtime_llm_model: model_requester.RuntimeLLMModel,
+        model_data: dict,
+    ) -> str:
+        extra_args = model_data.get('extra_args', {})
+        if not isinstance(extra_args, dict):
+            extra_args = dict(runtime_llm_model.model_entity.extra_args or {})
+
+        return await runtime_llm_model.provider.invoke_pdf_parse(
+            model=runtime_llm_model,
+            filename=PDF_PARSE_TEST_FILENAME,
+            content=PDF_PARSE_TEST_CONTENT,
+            extra_args=extra_args,
+        )
 
 
 class EmbeddingModelsService:
