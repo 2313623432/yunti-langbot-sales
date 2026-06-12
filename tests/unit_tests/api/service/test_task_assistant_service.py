@@ -1,5 +1,6 @@
 import sys
 import types
+import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -366,6 +367,7 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_course_sales_template_pipeline = AsyncMock()
     service._ensure_yuanfudao_enhanced_template_pipeline = AsyncMock()
     service._ensure_course_sales_outreach_for_chatted_users = AsyncMock()
+    service._ensure_builtin_pipeline_default_models = AsyncMock()
 
     await service.ensure_default_resources()
 
@@ -767,9 +769,20 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert template['course_profile']['price'] == '9元体验'
     assert template['course_profile']['target_grade'] == '大班至小学4年级'
     assert len(template['resource_faqs']) >= 7
+    resource_faq_text = '\n'.join(
+        f"{faq.get('question', '')} {faq.get('answer', '')} {' '.join(faq.get('keywords', []))}"
+        for faq in template['resource_faqs']
+    )
+    assert '资源为空' in resource_faq_text
+    assert '正在上传' in resource_faq_text
+    assert '资源缺失' in resource_faq_text
+    assert '音频' in resource_faq_text and '不匹配' in resource_faq_text
+    assert '资源问题工单' in resource_faq_text
+    assert '图书二维码' in resource_faq_text
+    assert '有问题的那一页' in resource_faq_text
     assert len(template['course_faqs']) >= 10
     assert len(template['followup_sequences']) >= 6
-    assert len(template['long_term_broadcasts']) == 14
+    assert len(template['long_term_broadcasts']) == 49
     assert template['radar']['enabled'] is True
     assert template['radar']['link_url'] == COURSE_SALES_RADAR_LINK
     assert len(template['radar']['rules']) >= 4
@@ -777,7 +790,7 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert template['tools']['voice_reply'] is True
     assert template['voice']['enabled'] is True
     assert template['voice']['voice_type'] == COURSE_SALES_TTS_VOICE_TYPE
-    assert template['voice']['encoding'] == 'mp3'
+    assert template['voice']['encoding'] == 'ogg_opus'
     assert template['opening_message'].startswith('您的图书配套学习资源点击')
     assert COURSE_RESOURCE_CARD_LINK not in template['opening_message']
     assert COURSE_RESOURCE_CARD_LINK not in template['role_prompt']
@@ -832,8 +845,86 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     )
     assert (
         followups_by_stage['radar_clicked']['messages'][0]['message']
-        == '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功的短信，我给您登记开课并赠送资料'
+        == '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。'
     )
+
+
+@pytest.mark.parametrize(
+    ('text', 'expected_issue_type'),
+    [
+        ('扫码以后提示资源缺失', 'missing_resource'),
+        ('页面显示资源正在上传中', 'resource_uploading'),
+        ('打开以后资源为空', 'empty_resource'),
+        ('听力音频和题目不匹配，内容是错的', 'content_error'),
+    ],
+)
+def test_course_sales_runtime_classifies_resource_issue_cases(text, expected_issue_type):
+    service = TaskAssistantService(SimpleNamespace())
+    workflow = service.build_course_sales_workflow_config(
+        template_config=service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    )
+
+    intent = service.classify_course_sales_intent(text, text_chain(text), workflow)
+
+    assert intent['intent'] == 'resource_help'
+    assert intent['resource_issue_type'] == expected_issue_type
+    assert intent['step_ids'] == ['gift_qr']
+
+
+@pytest.mark.asyncio
+async def test_prepare_course_sales_query_records_resource_issue_ticket(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    query = _query(
+        text_chain('听力音频和题目不匹配，内容是错的'),
+        '听力音频和题目不匹配，内容是错的',
+        session_id='customer-issue',
+    )
+    query.bot_uuid = 'bot-uuid'
+    query.sender_id = 'ou_customer'
+    query.adapter = SimpleNamespace()
+    query.pipeline_uuid = 'pipeline-1'
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    sales_service.create_resource_issue_from_query.assert_awaited_once()
+    _, payload = sales_service.create_resource_issue_from_query.await_args.args
+    assert payload['issue_type'] == 'content_error'
+    assert payload['user_description'] == '听力音频和题目不匹配，内容是错的'
+    assert '内容错误' in payload['issue_summary']
+
+
+@pytest.mark.asyncio
+async def test_prepare_course_sales_query_records_resource_issue_image_evidence(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    query = _query(
+        image_chain(text='听力音频和题目不匹配，内容是错的', url='https://example.com/resource-error.jpg'),
+        '听力音频和题目不匹配，内容是错的',
+        session_id='customer-issue',
+    )
+    query.bot_uuid = 'bot-uuid'
+    query.sender_id = 'ou_customer'
+    query.adapter = SimpleNamespace()
+    query.pipeline_uuid = 'pipeline-1'
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'resource_help'
+    assert intent['resource_issue_type'] == 'content_error'
+    assert intent['has_evidence_image'] is True
+    sales_service.create_resource_issue_from_query.assert_awaited_once()
+    _, payload = sales_service.create_resource_issue_from_query.await_args.args
+    assert payload['evidence_images'] == ['https://example.com/resource-error.jpg']
 
 
 def test_course_sales_template_config_migrates_legacy_default_assets_and_links():
@@ -974,6 +1065,29 @@ def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
     radar_node = next(node for node in workflow['nodes'] if node['id'] == 'radar')
     assert radar_node['config']['link_url'] == COURSE_SALES_RADAR_LINK
     assert any(rule['event'] == 'click_apply_button' for rule in radar_node['config']['rules'])
+    handoff_node = next(node for node in workflow['nodes'] if node['id'] == 'handoff')
+    assert handoff_node['title'] == '转人工'
+    assert handoff_node['config']['enabled'] is True
+    assert '转人工' in handoff_node['config']['keywords']
+    assert any(trigger['id'] == 'payment_issue' for trigger in handoff_node['config']['semantic_triggers'])
+
+
+def test_course_sales_template_config_includes_human_handoff_rules():
+    service = TaskAssistantService(SimpleNamespace())
+
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+
+    handoff = template['human_handoff']
+    assert handoff['enabled'] is True
+    assert '转人工' in handoff['keywords']
+    assert '投诉' in handoff['keywords']
+    assert handoff['stop_ai_reply'] is True
+    assert handoff['stop_outreach'] is True
+    assert handoff['notify_message'] == '我这边帮您记录好了，稍等我看下具体情况~'
+    for forbidden in ['AI', '机器人', '转人工', '转接', '接管', '人工']:
+        assert forbidden not in handoff['notify_message']
+    assert any(trigger['id'] == 'manual_request' for trigger in handoff['semantic_triggers'])
+    assert any(trigger['id'] == 'high_risk_complaint' for trigger in handoff['semantic_triggers'])
 
 
 def test_course_sales_template_mode_builds_active_workflow_from_independent_template():
@@ -1075,6 +1189,7 @@ class _CourseOutreachSalesService:
         self.user_message_count = user_message_count
         self.plans = []
         self.disabled = []
+        self.handoffs = []
 
     async def count_user_messages_for_session(self, _session_id):
         return self.user_message_count
@@ -1083,8 +1198,28 @@ class _CourseOutreachSalesService:
         self.plans.append(data)
         return len(self.plans)
 
+    async def count_outreach_plans_for_target_segments(self, *, bot_uuid, target_type, target_id, segments):
+        return sum(
+            1
+            for plan in self.plans
+            if plan.get('bot_uuid') == bot_uuid
+            and plan.get('target_type') == target_type
+            and plan.get('target_id') == target_id
+            and plan.get('segment') in segments
+        )
+
     async def disable_outreach_for_target(self, **kwargs):
         self.disabled.append(kwargs)
+
+    async def open_handoff_from_query(self, query, reason, message_text):
+        self.handoffs.append(
+            {
+                'query': query,
+                'reason': reason,
+                'message_text': message_text,
+            }
+        )
+        return len(self.handoffs)
 
     def build_radar_tracking_url(self, **kwargs):
         return 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
@@ -1132,7 +1267,7 @@ async def test_course_sales_first_contact_schedules_opening_resource_card_and_so
         for plan in sales_service.plans
     )
     broadcast_plans = [plan for plan in sales_service.plans if plan['segment'] == 'course-sales:broadcast']
-    assert len(broadcast_plans) == 14
+    assert len(broadcast_plans) == len(query.pipeline_config['workflow']['long_term_broadcasts'])
     assert all(component['type'] == 'plain' for plan in broadcast_plans for component in plan['message_components'])
     assert all(
         'sop_doc_media' not in str(plan['message_components']).lower()
@@ -1141,7 +1276,121 @@ async def test_course_sales_first_contact_schedules_opening_resource_card_and_so
         and 'image3.png' not in str(plan['message_components']).lower()
         for plan in broadcast_plans
     )
-    assert any(plan['segment'] == 'course-sales:followup:purchase' for plan in sales_service.plans)
+    assert not any(plan['segment'] == 'course-sales:followup:purchase' for plan in sales_service.plans)
+    assert any(plan['segment'] == 'course-sales:followup:silence_revisit' for plan in sales_service.plans)
+
+
+@pytest.mark.asyncio
+async def test_course_sales_first_contact_skips_duplicate_opening_when_welcome_exists():
+    sales_service = _CourseOutreachSalesService(user_message_count=1)
+    sales_service.plans.append(
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'customer-1',
+            'segment': 'course-sales:opening:text',
+            'message_components': [{'type': 'plain', 'text': COURSE_OPENING_MESSAGE}],
+        }
+    )
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain('好的'), '好的', session_id='customer-1')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    opening_plans = [plan for plan in sales_service.plans if plan['segment'].startswith('course-sales:opening')]
+    assert len(opening_plans) == 1
+    assert not any(plan['segment'] == 'course-sales:broadcast' for plan in sales_service.plans)
+
+
+@pytest.mark.asyncio
+async def test_course_sales_handoff_keyword_opens_handoff_and_stops_outreach():
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain('我要转人工，找真人客服'), '我要转人工，找真人客服', session_id='customer-handoff')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    await service.prepare_query(query)
+
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'handoff'
+    assert intent['handoff_reason'] == 'manual_request'
+    assert sales_service.handoffs[0]['reason'] == 'manual_request'
+    assert sales_service.handoffs[0]['message_text'] == '我要转人工，找真人客服'
+    assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '本轮只回复安抚话术：“我这边帮您记录好了，稍等我看下具体情况~”' in context_text
+    assert '不要继续促单' in context_text
+
+
+@pytest.mark.asyncio
+async def test_course_sales_handoff_semantic_payment_issue_uses_configured_boundary():
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    workflow = service.build_course_sales_workflow_config(
+        template_config={
+            'human_handoff': {
+                'enabled': True,
+                'keywords': ['退费'],
+                'semantic_triggers': [
+                    {
+                        'id': 'payment_issue',
+                        'label': '支付订单异常',
+                        'description': '用户已支付但看不到课程、订单异常、要求退款或退费',
+                        'enabled': True,
+                    }
+                ],
+                'stop_ai_reply': True,
+                'stop_outreach': True,
+                'notify_message': '我这边帮您记录好了，稍等我看下具体情况~',
+            }
+        }
+    )
+    query = _query(text_chain('我已经付了但是看不到课'), '我已经付了但是看不到课', session_id='customer-pay-issue')
+    query.pipeline_config = {'workflow': workflow}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    await service.prepare_query(query)
+
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'handoff'
+    assert intent['handoff_reason'] == 'payment_issue'
+    assert sales_service.handoffs[0]['reason'] == 'payment_issue'
+    assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '我这边帮您记录好了，稍等我看下具体情况~' in context_text
+
+
+@pytest.mark.asyncio
+async def test_course_sales_abusive_rejection_opens_handoff_and_stops_all_outreach():
+    sales_service = _PersistingRejectionSalesService(user_message_count=3)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain('cnm 我不买了 你这个骗子'), 'cnm 我不买了 你这个骗子', session_id='customer-anger')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert query.variables['workflow_intent']['intent'] == 'handoff'
+    assert query.variables['workflow_intent']['handoff_reason'] == 'high_risk_complaint'
+    assert sales_service.handoffs[0]['reason'] == 'high_risk_complaint'
+    assert sales_service.disabled
+    assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:']
+    assert sales_service.plans == []
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '我这边帮您记录好了，稍等我看下具体情况~' in context_text
 
 
 @pytest.mark.asyncio
@@ -1327,9 +1576,38 @@ def test_course_sales_pipeline_avoids_duplicate_system_and_enables_multimodal_ag
     assert len(system_prompts) == 1
     assert '不要整段塞话术' in system_prompts[0]
     assert config['trigger']['message-aggregation']['enabled'] is True
-    assert config['trigger']['message-aggregation']['delay'] == 3.0
+    assert config['trigger']['message-aggregation']['delay'] == 10.0
+    assert config['template_config']['reply_controls']['merge_reply_enabled'] is True
+    assert config['template_config']['reply_controls']['merge_delay_seconds'] == 10.0
+    assert config['template_config']['reply_controls']['multi_reply_enabled'] is False
+    assert config['output']['misc']['multi-reply']['enabled'] is False
     assert config['output']['force-delay'] == {'min': 0, 'max': 0}
     assert config['ai']['local-agent']['rerank-top-k'] == 2
+
+
+def test_course_sales_reply_controls_override_runtime_aggregation_and_multi_reply():
+    service = TaskAssistantService(SimpleNamespace())
+    existing_config = {
+        'template_config': {
+            'reply_controls': {
+                'merge_reply_enabled': False,
+                'merge_delay_seconds': 3,
+                'multi_reply_enabled': True,
+            },
+        },
+    }
+
+    config = service.build_course_sales_template_pipeline_config(
+        template_slug='yuanfudao-enhanced',
+        existing_config=existing_config,
+    )
+
+    assert config['template_config']['reply_controls']['merge_reply_enabled'] is False
+    assert config['template_config']['reply_controls']['merge_delay_seconds'] == 3
+    assert config['template_config']['reply_controls']['multi_reply_enabled'] is True
+    assert config['trigger']['message-aggregation']['enabled'] is False
+    assert config['trigger']['message-aggregation']['delay'] == 3.0
+    assert config['output']['misc']['multi-reply'] == {'enabled': True, 'threshold': 200}
 
 
 def test_select_yuanfudao_knowledge_snippets_only_on_match_and_short():
@@ -1837,6 +2115,53 @@ class _CourseOutreachSalesServiceWithTargetSend(_CourseOutreachSalesService):
         return 2
 
 
+class _CourseOutreachSalesServiceWithRadarSend(_CourseOutreachSalesService):
+    async def run_due_outreach_for_target(self, **kwargs):
+        self.target_send = kwargs
+        return 1
+
+
+class _DedupingCourseOutreachSalesService(_CourseOutreachSalesService):
+    def __init__(self, user_message_count=0):
+        super().__init__(user_message_count=user_message_count)
+        self._next_id = 1
+
+    async def create_outreach_plan(self, data):
+        dedupe_key = str(data.get('dedupe_key') or '')
+        for plan in self.plans:
+            if dedupe_key and plan.get('dedupe_key') == dedupe_key:
+                if plan.get('last_sent_at') is not None and plan.get('enabled') is False:
+                    return plan['id']
+                plan.update(data)
+                return plan['id']
+
+        stored = dict(data)
+        stored['id'] = self._next_id
+        self._next_id += 1
+        stored.setdefault('last_sent_at', None)
+        self.plans.append(stored)
+        return stored['id']
+
+    async def run_due_outreach_for_target(self, **kwargs):
+        now = datetime.datetime.now()
+        sent = 0
+        for plan in sorted(self.plans, key=lambda item: (item['scheduled_at'], item['id'])):
+            if not plan.get('enabled'):
+                continue
+            if plan.get('scheduled_at') > now:
+                continue
+            if plan.get('bot_uuid') != kwargs.get('bot_uuid'):
+                continue
+            if plan.get('target_type') != kwargs.get('target_type'):
+                continue
+            if plan.get('target_id') != kwargs.get('target_id'):
+                continue
+            plan['last_sent_at'] = now
+            plan['enabled'] = False
+            sent += 1
+        return sent
+
+
 @pytest.mark.asyncio
 async def test_handle_course_sales_contact_added_schedules_opening_and_broadcasts():
     sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
@@ -1857,7 +2182,118 @@ async def test_handle_course_sales_contact_added_schedules_opening_and_broadcast
     assert result['sent_immediately'] == 2
     assert any(plan['segment'] == 'course-sales:opening:text' for plan in sales_service.plans)
     assert any(plan['segment'] == 'course-sales:opening:resource-card' for plan in sales_service.plans)
-    assert len([plan for plan in sales_service.plans if plan['segment'] == 'course-sales:broadcast']) == 14
+    assert len([plan for plan in sales_service.plans if plan['segment'] == 'course-sales:broadcast']) == len(
+        config['workflow']['long_term_broadcasts']
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_course_sales_contact_added_makes_opening_text_and_card_due_immediately():
+    sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    await service.handle_course_sales_contact_added(
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='ou_customer',
+        pipeline_uuid='yuanfudao-enhanced-template-pipeline',
+        user_id='ou_customer',
+        pipeline_config=config,
+    )
+
+    after = datetime.datetime.now()
+    opening_plans = [
+        plan for plan in sales_service.plans if plan['segment'] in {'course-sales:opening:text', 'course-sales:opening:resource-card'}
+    ]
+    assert len(opening_plans) == 2
+    assert all(plan['scheduled_at'] <= after for plan in opening_plans)
+
+
+@pytest.mark.asyncio
+async def test_handle_course_sales_contact_added_sends_welcome_only_once_per_target():
+    sales_service = _DedupingCourseOutreachSalesService(user_message_count=0)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    first = await service.handle_course_sales_contact_added(
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='ou_customer',
+        pipeline_uuid='yuanfudao-enhanced-template-pipeline',
+        user_id='ou_customer',
+        pipeline_config=config,
+    )
+    second = await service.handle_course_sales_contact_added(
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='ou_customer',
+        pipeline_uuid='yuanfudao-enhanced-template-pipeline',
+        user_id='ou_customer',
+        pipeline_config=config,
+    )
+
+    assert first['sent_immediately'] == 2
+    assert second['sent_immediately'] == 0
+    opening_plans = [
+        plan for plan in sales_service.plans if plan['segment'] in {'course-sales:opening:text', 'course-sales:opening:resource-card'}
+    ]
+    assert len(opening_plans) == 2
+    assert all(plan['last_sent_at'] is not None and plan['enabled'] is False for plan in opening_plans)
+
+
+@pytest.mark.asyncio
+async def test_handle_course_sales_contact_added_skips_entered_event_after_user_messages():
+    sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.handle_course_sales_contact_added(
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='ou_customer',
+        pipeline_uuid='yuanfudao-enhanced-template-pipeline',
+        user_id='ou_customer',
+        pipeline_config=config,
+        source_event='im.chat.access_event.bot_p2p_chat_entered_v1',
+    )
+
+    assert result == {'handled': True, 'scheduled': False, 'reason': 'entered event ignored after user messages'}
+    assert sales_service.plans == []
+    assert not hasattr(sales_service, 'target_send')
+
+
+@pytest.mark.asyncio
+async def test_handle_course_sales_contact_added_skips_entered_event_after_existing_opening_plan(monkeypatch):
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr('langbot.pkg.api.http.service.task_assistant.asyncio.sleep', no_sleep)
+    sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
+    sales_service.plans.append(
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'ou_customer',
+            'segment': 'course-sales:opening:text',
+        }
+    )
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.handle_course_sales_contact_added(
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='ou_customer',
+        pipeline_uuid='yuanfudao-enhanced-template-pipeline',
+        user_id='ou_customer',
+        pipeline_config=config,
+        source_event='im.chat.access_event.bot_p2p_chat_entered_v1',
+    )
+
+    assert result == {'handled': True, 'scheduled': False, 'reason': 'entered event ignored after existing welcome plan'}
+    assert len(sales_service.plans) == 1
+    assert not hasattr(sales_service, 'target_send')
 
 
 @pytest.mark.asyncio
@@ -1872,7 +2308,7 @@ async def test_course_sales_purchase_intent_schedules_silence_revisit():
 
     await service.prepare_query(query)
 
-    assert any(plan['segment'] == 'course-sales:followup:purchase' for plan in sales_service.plans)
+    assert not any(plan['segment'] == 'course-sales:followup:purchase' for plan in sales_service.plans)
     assert any(plan['segment'] == 'course-sales:followup:silence_revisit' for plan in sales_service.plans)
 
 
@@ -1898,13 +2334,51 @@ async def test_course_sales_radar_link_uses_tracking_url():
     assert component['url'].startswith('http://127.0.0.1:5300/api/v1/sales/radar/click/')
 
 
-def test_enhanced_template_long_term_broadcasts_cover_seven_days_twice_daily():
+@pytest.mark.asyncio
+async def test_course_sales_radar_event_does_not_resend_signup_link_followup():
+    sales_service = _CourseOutreachSalesServiceWithRadarSend(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    workflow = service.build_course_sales_workflow_config()
+
+    result = await service.handle_course_sales_radar_event(
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-radar',
+        link_id='phonics_radar_apply',
+        session_id='person_customer-radar',
+        pipeline_uuid=COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+        event='link_open',
+        pipeline_config={'workflow': workflow},
+    )
+
+    assert result['handled'] is True
+    assert result['stage'] == 'silence_revisit'
+    assert not any(plan['segment'] == 'course-sales:followup:radar_clicked' for plan in sales_service.plans)
+    assert any(plan['segment'] == 'course-sales:followup:silence_revisit' for plan in sales_service.plans)
+    radar_plan = next(plan for plan in sales_service.plans if plan['segment'] == 'course-sales:radar:link_open')
+    assert all(component['type'] != 'link' for component in radar_plan['message_components'])
+    assert radar_plan['message_components'] == [
+        {
+            'type': 'plain',
+            'text': '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。',
+        }
+    ]
+    assert sales_service.target_send == {
+        'bot_uuid': 'bot-uuid',
+        'target_type': 'person',
+        'target_id': 'customer-radar',
+    }
+
+
+def test_enhanced_template_long_term_broadcasts_cover_excel_sop():
     service = TaskAssistantService(SimpleNamespace())
 
     config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
     broadcasts = config['template_config']['long_term_broadcasts']
 
-    assert len(broadcasts) == 14
-    assert {item['day'] for item in broadcasts} == set(range(1, 8))
+    assert len(broadcasts) == 49
+    assert {item['day'] for item in broadcasts} == set(range(1, 39))
+    assert any('180次开口练习' in item['message'] for item in broadcasts)
+    assert any('最后3个' in item['message'] for item in broadcasts)
     assert any(item['time'] == '15:40' for item in broadcasts)
     assert any(item['time'] == '21:20' for item in broadcasts)

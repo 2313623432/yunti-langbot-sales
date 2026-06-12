@@ -15,6 +15,7 @@ import {
   Trash2,
   Upload,
   UserRound,
+  UserRoundCheck,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
@@ -69,6 +70,7 @@ type TemplateConfigTab =
   | 'memory'
   | 'radar'
   | 'push'
+  | 'handoff'
   | 'media';
 
 const CONFIG_TABS: Array<{
@@ -84,6 +86,7 @@ const CONFIG_TABS: Array<{
   { id: 'memory', label: '记忆', icon: Bot },
   { id: 'radar', label: '雷达跟进', icon: MousePointerClick },
   { id: 'push', label: '定时推送', icon: CalendarClock },
+  { id: 'handoff', label: '转人工', icon: UserRoundCheck },
   { id: 'media', label: '图文素材', icon: ImageIcon },
 ];
 
@@ -190,6 +193,14 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
       ...defaults.tools,
       ...(value?.tools || {}),
     },
+    reply_controls: {
+      ...defaults.reply_controls,
+      ...(value?.reply_controls || {}),
+      merge_delay_seconds: Math.max(
+        1,
+        Number(value?.reply_controls?.merge_delay_seconds ?? defaults.reply_controls.merge_delay_seconds),
+      ),
+    },
     memory: {
       ...defaults.memory,
       ...(value?.memory || {}),
@@ -209,6 +220,16 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
     interaction_radar: {
       ...defaults.interaction_radar,
       ...(value?.interaction_radar || {}),
+    },
+    human_handoff: {
+      ...defaults.human_handoff,
+      ...(value?.human_handoff || {}),
+      keywords: value?.human_handoff?.keywords?.length
+        ? value.human_handoff.keywords
+        : defaults.human_handoff.keywords,
+      semantic_triggers: value?.human_handoff?.semantic_triggers?.length
+        ? value.human_handoff.semantic_triggers
+        : defaults.human_handoff.semantic_triggers,
     },
     image_text_bindings:
       value?.image_text_bindings?.length ? value.image_text_bindings : defaults.image_text_bindings,
@@ -452,6 +473,18 @@ export default function PipelineTemplateConfigEditor({
     patch({ scheduled_push: scheduledPush });
   }
 
+  function patchHumanHandoff(next: Partial<PipelineTemplateConfig['human_handoff']>) {
+    patch({ human_handoff: { ...config.human_handoff, ...next } });
+  }
+
+  function patchHumanHandoffTrigger(index: number, next: Partial<PipelineTemplateConfig['human_handoff']['semantic_triggers'][number]>) {
+    patchHumanHandoff({
+      semantic_triggers: config.human_handoff.semantic_triggers.map((trigger, triggerIndex) =>
+        triggerIndex === index ? { ...trigger, ...next } : trigger,
+      ),
+    });
+  }
+
   function patchRadar(next: Partial<NonNullable<PipelineTemplateConfig['radar']>>) {
     patch({ radar: { ...config.radar!, ...next } });
   }
@@ -470,6 +503,10 @@ export default function PipelineTemplateConfigEditor({
 
   function patchTool(key: string, enabled: boolean) {
     patch({ tools: { ...config.tools, [key]: enabled } });
+  }
+
+  function patchReplyControls(next: Partial<PipelineTemplateConfig['reply_controls']>) {
+    patch({ reply_controls: { ...config.reply_controls, ...next } });
   }
 
   function patchBinding(index: number, next: Partial<PipelineTemplateImageTextBinding>) {
@@ -1096,6 +1133,55 @@ export default function PipelineTemplateConfigEditor({
               onCheckedChange={(checked) => patchTool(key, checked)}
             />
           ))}
+        </div>
+        <div className="rounded-md border border-slate-200 bg-slate-50/70 p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <FieldLabel>回复控制</FieldLabel>
+              <p className="text-xs text-muted-foreground">
+                控制长回复拆分，以及用户连续提问时是否合并后再处理。
+              </p>
+            </div>
+            <Badge variant="outline" className="rounded bg-white">
+              {config.reply_controls.merge_reply_enabled
+                ? `${config.reply_controls.merge_delay_seconds} 秒合并`
+                : '实时处理'}
+            </Badge>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleRow
+              label="多条回复"
+              description="长内容按段拆成多条消息发送。"
+              checked={Boolean(config.reply_controls.multi_reply_enabled)}
+              onCheckedChange={(checked) => patchReplyControls({ multi_reply_enabled: checked })}
+            />
+            <ToggleRow
+              label="合并回复"
+              description="用户连续发送多条消息时，等待一段时间合并成一个问题再回复。"
+              checked={Boolean(config.reply_controls.merge_reply_enabled)}
+              onCheckedChange={(checked) => patchReplyControls({ merge_reply_enabled: checked })}
+            />
+          </div>
+          <label className="mt-3 block">
+            <FieldLabel>合并等待时间</FieldLabel>
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              <span>将距用户提问后</span>
+              <Input
+                type="number"
+                min={1}
+                max={120}
+                value={config.reply_controls.merge_delay_seconds}
+                disabled={!config.reply_controls.merge_reply_enabled}
+                onChange={(event) =>
+                  patchReplyControls({
+                    merge_delay_seconds: Math.max(1, Number(event.target.value || 10)),
+                  })
+                }
+                className="h-10 w-24"
+              />
+              <span>秒内的所有问题合并回复</span>
+            </div>
+          </label>
         </div>
       </Section>
     );
@@ -1796,6 +1882,94 @@ export default function PipelineTemplateConfigEditor({
     );
   }
 
+  function renderHandoffSettings() {
+    return (
+      <div className="space-y-4">
+        <Section
+          icon={UserRoundCheck}
+          title="转人工"
+          description="配置客户在什么关键词或语义意图下需要申请人工介入。"
+          right={
+            <SummaryPill active={config.human_handoff.enabled}>
+              {config.human_handoff.enabled ? '已启用' : '未启用'}
+            </SummaryPill>
+          }
+        >
+          <ToggleRow
+            label="启用转人工"
+            description="命中规则后申请人工介入。"
+            checked={config.human_handoff.enabled}
+            onCheckedChange={(checked) => patchHumanHandoff({ enabled: checked })}
+          />
+          <label className="block">
+            <FieldLabel>触发关键词</FieldLabel>
+            <Textarea
+              value={(config.human_handoff.keywords || []).join('\n')}
+              onChange={(event) => patchHumanHandoff({ keywords: textToList(event.target.value) })}
+              className="min-h-32 resize-none leading-6"
+              placeholder="转人工&#10;人工客服&#10;投诉&#10;退款&#10;看不到课"
+            />
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              每行一个关键词。客户消息包含这些词时，会优先申请人工介入。
+            </p>
+          </label>
+          <div className="space-y-3">
+            <FieldLabel>语义意图边界</FieldLabel>
+            {(config.human_handoff.semantic_triggers || []).map((trigger, index) => (
+              <div key={trigger.id || index} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-900">{trigger.label}</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">{trigger.id}</p>
+                  </div>
+                  <Switch
+                    checked={trigger.enabled !== false}
+                    onCheckedChange={(checked) => patchHumanHandoffTrigger(index, { enabled: checked })}
+                  />
+                </div>
+                <Textarea
+                  value={trigger.description}
+                  onChange={(event) => patchHumanHandoffTrigger(index, { description: event.target.value })}
+                  className="min-h-20 resize-none bg-white leading-6"
+                  placeholder="描述这个语义边界，例如客户明确要真人客服、已支付但看不到课程、投诉或强烈负面情绪。"
+                />
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section icon={ShieldCheck} title="命中后的动作边界">
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleRow
+              label="命中后停止 AI 自动回复"
+              description="仅发送用户可见安抚话术，避免继续促单。"
+              checked={config.human_handoff.stop_ai_reply}
+              onCheckedChange={(checked) => patchHumanHandoff({ stop_ai_reply: checked })}
+            />
+            <ToggleRow
+              label="命中后停止主动触达"
+              description="停止定时推送、雷达跟进和长期群发。"
+              checked={config.human_handoff.stop_outreach}
+              onCheckedChange={(checked) => patchHumanHandoff({ stop_outreach: checked })}
+            />
+          </div>
+          <label className="block">
+            <FieldLabel>用户可见安抚话术</FieldLabel>
+            <Textarea
+              value={config.human_handoff.notify_message}
+              onChange={(event) => patchHumanHandoff({ notify_message: event.target.value })}
+              className="min-h-28 resize-none leading-6"
+              placeholder="我这边帮您记录好了，稍等我看下具体情况~"
+            />
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              这句话会直接发给客户，请保持真人客服口吻，不要出现 AI、机器人、转人工、接管等字眼。
+            </p>
+          </label>
+        </Section>
+      </div>
+    );
+  }
+
   function renderMediaSettings() {
     return (
       <div className="space-y-4">
@@ -1925,6 +2099,8 @@ export default function PipelineTemplateConfigEditor({
         return renderRadarSettings();
       case 'push':
         return renderPushSettings();
+      case 'handoff':
+        return renderHandoffSettings();
       case 'media':
         return renderMediaSettings();
       default:

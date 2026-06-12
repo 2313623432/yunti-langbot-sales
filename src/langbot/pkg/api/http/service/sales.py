@@ -500,7 +500,41 @@ class SalesService:
         )
         return count
 
+    async def ensure_memories_from_monitoring_sessions(self, limit: int = 200) -> None:
+        """Create customer memories from real monitoring sessions when no sales plugin has written them."""
+        memory_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory.session_id)
+        )
+        existing_session_ids = {
+            self._row_value(row)
+            for row in memory_result.all()
+        }
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession)
+            .where(persistence_monitoring.MonitoringSession.message_count > 0)
+            .order_by(persistence_monitoring.MonitoringSession.last_activity.desc())
+            .limit(limit)
+        )
+        sessions = [self._row_value(row) for row in session_result.all()]
+        products = await self.get_products(enabled_only=True)
+
+        for session in sessions:
+            session_id = getattr(session, 'session_id', '')
+            if not session_id or session_id in existing_session_ids:
+                continue
+            values = await self._memory_values_from_monitoring_session(session, products)
+            if not values:
+                continue
+            try:
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(**values)
+                )
+                existing_session_ids.add(session_id)
+            except sqlalchemy.exc.IntegrityError:
+                existing_session_ids.add(session_id)
+
     async def get_memories(self) -> list[dict[str, Any]]:
+        await self.ensure_memories_from_monitoring_sessions()
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesCustomerMemory).order_by(
                 persistence_sales.SalesCustomerMemory.updated_at.desc()
@@ -516,7 +550,7 @@ class SalesService:
         )
         existing = self._first_row(result)
         if existing is None:
-            raise ValueError('Customer memory not found')
+            existing = await self._create_memory_from_monitoring_session(session_id)
 
         profile = dict(existing.profile or {})
         incoming_profile = data.get('profile')
@@ -547,6 +581,27 @@ class SalesService:
         )
         updated = self._first_row(updated_result)
         return self._serialize(persistence_sales.SalesCustomerMemory, updated)
+
+    async def _create_memory_from_monitoring_session(self, session_id: str) -> Any:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession).where(
+                persistence_monitoring.MonitoringSession.session_id == session_id
+            )
+        )
+        session = self._first_row(result)
+        if session is None:
+            raise ValueError('Customer memory not found')
+        products = await self.get_products(enabled_only=True)
+        values = await self._memory_values_from_monitoring_session(session, products, allow_empty=True)
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(**values)
+        )
+        created_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id == session_id
+            )
+        )
+        return self._first_row(created_result)
 
     async def get_open_handoff_for_query(self, query: Any) -> dict[str, Any] | None:
         session_id = self._query_session_id(query)
@@ -816,6 +871,115 @@ class SalesService:
         await self.reply_handoff(int(handoff_id), reply, assigned_to)
         return {'sent': True, 'handoff_id': int(handoff_id)}
 
+    async def create_resource_issue_from_session(self, session_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession).where(
+                persistence_monitoring.MonitoringSession.session_id == session_id
+            )
+        )
+        session = self._first_row(session_result)
+        if session is None:
+            raise ValueError('Session not found')
+
+        target_type, target_id = self._target_from_session(session)
+        payload = self._clean_resource_issue_payload(data)
+        values = {
+            **payload,
+            'session_id': session_id,
+            'bot_uuid': getattr(session, 'bot_id', '') or '',
+            'pipeline_uuid': getattr(session, 'pipeline_id', '') or '',
+            'target_type': target_type,
+            'target_id': target_id,
+            'platform': getattr(session, 'platform', '') or '',
+            'user_id': getattr(session, 'user_id', '') or target_id,
+            'user_name': getattr(session, 'user_name', '') or '',
+            'status': 'open',
+            'updated_at': datetime.datetime.now(),
+        }
+        insert_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_sales.SalesResourceIssue).values(**values)
+        )
+        inserted_primary_key = getattr(insert_result, 'inserted_primary_key', None)
+        if inserted_primary_key:
+            values['id'] = int(inserted_primary_key[0])
+        return values
+
+    async def create_resource_issue_from_query(self, query: Any, data: dict[str, Any]) -> dict[str, Any]:
+        payload = self._clean_resource_issue_payload(data)
+        session_id = self._query_session_id(query)
+        values = {
+            **payload,
+            'session_id': session_id,
+            'bot_uuid': getattr(query, 'bot_uuid', '') or '',
+            'pipeline_uuid': getattr(query, 'pipeline_uuid', '') or '',
+            'target_type': getattr(query.launcher_type, 'value', str(query.launcher_type)),
+            'target_id': str(query.launcher_id),
+            'platform': query.adapter.__class__.__name__ if getattr(query, 'adapter', None) else '',
+            'user_id': str(getattr(query, 'sender_id', '') or ''),
+            'user_name': '',
+            'status': 'open',
+            'updated_at': datetime.datetime.now(),
+        }
+        insert_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_sales.SalesResourceIssue).values(**values)
+        )
+        inserted_primary_key = getattr(insert_result, 'inserted_primary_key', None)
+        if inserted_primary_key:
+            values['id'] = int(inserted_primary_key[0])
+        return values
+
+    async def get_resource_issues(self, status: str | None = None) -> list[dict[str, Any]]:
+        query = sqlalchemy.select(persistence_sales.SalesResourceIssue).order_by(
+            persistence_sales.SalesResourceIssue.updated_at.desc(),
+            persistence_sales.SalesResourceIssue.id.desc(),
+        )
+        if status:
+            query = query.where(persistence_sales.SalesResourceIssue.status == status)
+        result = await self.ap.persistence_mgr.execute_async(query)
+        return [self._serialize(persistence_sales.SalesResourceIssue, row) for row in result.all()]
+
+    async def resolve_resource_issue(self, issue_id: int, data: dict[str, Any]) -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesResourceIssue).where(
+                persistence_sales.SalesResourceIssue.id == issue_id
+            )
+        )
+        issue = self._first_row(result)
+        if issue is None:
+            raise ValueError('Resource issue not found')
+
+        now = datetime.datetime.now()
+        payload = self._clean_resource_issue_update_payload(data)
+        status = str(payload.get('status') or getattr(issue, 'status', '') or '').strip()
+        if status in {'resolved', 'replied'} and getattr(issue, 'resolved_at', None) is None:
+            payload['resolved_at'] = now
+        payload['updated_at'] = now
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesResourceIssue)
+            .where(persistence_sales.SalesResourceIssue.id == issue_id)
+            .values(**payload)
+        )
+
+        if data.get('reply_user') and status in {'resolved', 'replied'}:
+            reply = str(data.get('completion_reply') or '').strip()
+            if not reply:
+                reply = self._default_resource_issue_completion_reply(issue)
+            await self._send_resource_issue_reply(issue, reply)
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_sales.SalesResourceIssue)
+                .where(persistence_sales.SalesResourceIssue.id == issue_id)
+                .values(status='replied', completion_reply=reply, replied_at=now, updated_at=now)
+            )
+
+        updated_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesResourceIssue).where(
+                persistence_sales.SalesResourceIssue.id == issue_id
+            )
+        )
+        updated = self._first_row(updated_result)
+        return self._serialize(persistence_sales.SalesResourceIssue, updated)
+
     async def get_outreach_plans(self) -> list[dict[str, Any]]:
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesOutreachPlan).order_by(
@@ -823,6 +987,26 @@ class SalesService:
             )
         )
         return [self._serialize(persistence_sales.SalesOutreachPlan, row) for row in result.all()]
+
+    async def count_outreach_plans_for_target_segments(
+        self,
+        *,
+        bot_uuid: str,
+        target_type: str,
+        target_id: str,
+        segments: list[str],
+    ) -> int:
+        if not bot_uuid or not target_id or not segments:
+            return 0
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(sqlalchemy.func.count())
+            .select_from(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.bot_uuid == bot_uuid)
+            .where(persistence_sales.SalesOutreachPlan.target_type == (target_type or 'person'))
+            .where(persistence_sales.SalesOutreachPlan.target_id == target_id)
+            .where(persistence_sales.SalesOutreachPlan.segment.in_(segments))
+        )
+        return int(result.scalar() or 0)
 
     async def create_outreach_plan(self, data: dict[str, Any]) -> int:
         payload = self._clean_outreach_payload(data)
@@ -849,12 +1033,43 @@ class SalesService:
         )
         return int(result.inserted_primary_key[0]) if result.inserted_primary_key else 0
 
+    async def _claim_due_outreach_plan(self, plan, now: datetime.datetime) -> bool:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.id == plan.id)
+            .where(persistence_sales.SalesOutreachPlan.enabled.is_(True))
+            .where(persistence_sales.SalesOutreachPlan.scheduled_at <= now)
+            .values(enabled=False, updated_at=now)
+        )
+        return getattr(result, 'rowcount', 1) != 0
+
+    async def _restore_claimed_outreach_plan(self, plan, now: datetime.datetime) -> None:
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.id == plan.id)
+            .values(enabled=True, updated_at=now)
+        )
+
+    async def _mark_outreach_plan_sent(self, plan, now: datetime.datetime) -> None:
+        updates: dict[str, Any] = {'last_sent_at': now, 'updated_at': now}
+        if plan.interval_minutes > 0:
+            updates['scheduled_at'] = now + datetime.timedelta(minutes=plan.interval_minutes)
+            updates['enabled'] = True
+        else:
+            updates['enabled'] = False
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.id == plan.id)
+            .values(**updates)
+        )
+
     async def run_due_outreach_once(self) -> int:
         now = datetime.datetime.now()
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesOutreachPlan)
             .where(persistence_sales.SalesOutreachPlan.enabled.is_(True))
             .where(persistence_sales.SalesOutreachPlan.scheduled_at <= now)
+            .order_by(persistence_sales.SalesOutreachPlan.scheduled_at.asc(), persistence_sales.SalesOutreachPlan.id.asc())
         )
         sent = 0
         products = {p['uuid']: p for p in await self.get_products(enabled_only=True)}
@@ -862,6 +1077,8 @@ class SalesService:
             if not plan.bot_uuid or not plan.target_id:
                 continue
             product = products.get(plan.product_uuid, {})
+            if not await self._claim_due_outreach_plan(plan, now):
+                continue
             try:
                 runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(plan.bot_uuid)
                 if runtime_bot is None:
@@ -872,19 +1089,11 @@ class SalesService:
                     await self._build_outreach_message_chain(plan, product),
                 )
             except Exception as e:
+                await self._restore_claimed_outreach_plan(plan, now)
                 self.ap.logger.warning(f'Sales outreach plan {plan.id} failed: {e}')
                 continue
 
-            updates: dict[str, Any] = {'last_sent_at': now, 'updated_at': now}
-            if plan.interval_minutes > 0:
-                updates['scheduled_at'] = now + datetime.timedelta(minutes=plan.interval_minutes)
-            else:
-                updates['enabled'] = False
-            await self.ap.persistence_mgr.execute_async(
-                sqlalchemy.update(persistence_sales.SalesOutreachPlan)
-                .where(persistence_sales.SalesOutreachPlan.id == plan.id)
-                .values(**updates)
-            )
+            await self._mark_outreach_plan_sent(plan, now)
             sent += 1
         return sent
 
@@ -903,6 +1112,7 @@ class SalesService:
             .where(persistence_sales.SalesOutreachPlan.bot_uuid == bot_uuid)
             .where(persistence_sales.SalesOutreachPlan.target_type == (target_type or 'person'))
             .where(persistence_sales.SalesOutreachPlan.target_id == target_id)
+            .order_by(persistence_sales.SalesOutreachPlan.scheduled_at.asc(), persistence_sales.SalesOutreachPlan.id.asc())
         )
         sent = 0
         products = {p['uuid']: p for p in await self.get_products(enabled_only=True)}
@@ -910,29 +1120,23 @@ class SalesService:
             if not plan.bot_uuid or not plan.target_id:
                 continue
             product = products.get(plan.product_uuid, {})
+            if not await self._claim_due_outreach_plan(plan, now):
+                continue
             try:
                 runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(plan.bot_uuid)
                 if runtime_bot is None:
-                    continue
+                    raise ValueError(f'Bot {plan.bot_uuid} is not running')
                 await runtime_bot.adapter.send_message(
                     plan.target_type,
                     plan.target_id,
                     await self._build_outreach_message_chain(plan, product),
                 )
             except Exception as e:
+                await self._restore_claimed_outreach_plan(plan, now)
                 self.ap.logger.warning(f'Sales outreach plan {plan.id} failed: {e}')
                 continue
 
-            updates: dict[str, Any] = {'last_sent_at': now, 'updated_at': now}
-            if plan.interval_minutes > 0:
-                updates['scheduled_at'] = now + datetime.timedelta(minutes=plan.interval_minutes)
-            else:
-                updates['enabled'] = False
-            await self.ap.persistence_mgr.execute_async(
-                sqlalchemy.update(persistence_sales.SalesOutreachPlan)
-                .where(persistence_sales.SalesOutreachPlan.id == plan.id)
-                .values(**updates)
-            )
+            await self._mark_outreach_plan_sent(plan, now)
             sent += 1
         return sent
 
@@ -1138,7 +1342,10 @@ class SalesService:
         }
 
     def _serialize(self, model, row: Any) -> dict[str, Any]:
-        return self.ap.persistence_mgr.serialize_model(model, row)
+        try:
+            return self.ap.persistence_mgr.serialize_model(model, row)
+        except (AttributeError, KeyError):
+            return self.ap.persistence_mgr.serialize_model(model, self._row_value(row))
 
     def _clean_product_payload(self, data: dict[str, Any], partial: bool = False) -> dict[str, Any]:
         fields = {
@@ -1175,6 +1382,119 @@ class SalesService:
             payload.setdefault('audience', [])
             payload.setdefault('enabled', True)
         return payload
+
+    def _clean_resource_issue_payload(self, data: dict[str, Any]) -> dict[str, Any]:
+        issue_type = self._normalize_resource_issue_type(data.get('issue_type') or data.get('type'))
+        user_description = str(data.get('user_description') or data.get('description') or '').strip()
+        question_location = str(data.get('question_location') or '').strip()
+        issue_summary = str(data.get('issue_summary') or '').strip()
+        if not issue_summary:
+            issue_summary = self._build_resource_issue_summary(
+                issue_type=issue_type,
+                question_location=question_location,
+                user_description=user_description,
+            )
+        return {
+            'issue_type': issue_type,
+            'book_id': str(data.get('book_id') or data.get('book_number') or '').strip(),
+            'merchant': str(data.get('merchant') or '').strip(),
+            'question_location': question_location,
+            'issue_summary': issue_summary,
+            'user_description': user_description,
+            'evidence_images': self._to_list(data.get('evidence_images') or data.get('images')),
+            'internal_note': str(data.get('internal_note') or '').strip(),
+            'operator': str(data.get('operator') or '').strip(),
+            'resolution_note': '',
+            'completion_reply': '',
+        }
+
+    def _clean_resource_issue_update_payload(self, data: dict[str, Any]) -> dict[str, Any]:
+        allowed_fields = {
+            'status',
+            'issue_type',
+            'book_id',
+            'merchant',
+            'question_location',
+            'issue_summary',
+            'user_description',
+            'evidence_images',
+            'internal_note',
+            'operator',
+            'resolution_note',
+            'completion_reply',
+        }
+        payload = {key: data[key] for key in allowed_fields if key in data}
+        if 'issue_type' in payload:
+            payload['issue_type'] = self._normalize_resource_issue_type(payload['issue_type'])
+        if 'status' in payload:
+            payload['status'] = self._normalize_resource_issue_status(payload['status'])
+        if 'evidence_images' in payload:
+            payload['evidence_images'] = self._to_list(payload['evidence_images'])
+        for key in payload:
+            if key != 'evidence_images':
+                payload[key] = str(payload[key] or '').strip()
+        return payload
+
+    def _normalize_resource_issue_type(self, value: Any) -> str:
+        text = str(value or '').strip().lower()
+        if text == 'uploading':
+            return 'resource_uploading'
+        if text in {'content_error', 'missing_resource', 'empty_resource', 'resource_uploading', 'resource_error'}:
+            return text
+        if any(keyword in text for keyword in ['缺失', '暂无', '没有资源', 'missing']):
+            return 'missing_resource'
+        if any(keyword in text for keyword in ['为空', '空白', 'empty']):
+            return 'empty_resource'
+        if any(keyword in text for keyword in ['上传', '更新', 'upload']):
+            return 'resource_uploading'
+        if any(keyword in text for keyword in ['错', '不对', '不匹配', '音频', '答案']):
+            return 'content_error'
+        return 'resource_error'
+
+    def _normalize_resource_issue_status(self, value: Any) -> str:
+        status = str(value or '').strip().lower()
+        return status if status in {'open', 'reported', 'resolved', 'replied', 'closed'} else 'open'
+
+    def _build_resource_issue_summary(
+        self,
+        *,
+        issue_type: str,
+        question_location: str = '',
+        user_description: str = '',
+    ) -> str:
+        type_labels = {
+            'content_error': '资源内容错误',
+            'missing_resource': '资源缺失',
+            'empty_resource': '资源为空',
+            'resource_uploading': '资源正在上传中',
+            'resource_error': '资源有问题',
+        }
+        parts = [type_labels.get(issue_type, '资源有问题')]
+        if question_location:
+            parts.append(question_location)
+        if user_description:
+            parts.append(user_description)
+        return '：'.join(parts)
+
+    def _default_resource_issue_completion_reply(self, issue: Any) -> str:
+        book_id = getattr(issue, 'book_id', '') or ''
+        prefix = f'您反馈的图书资源问题（书籍编号：{book_id}）' if book_id else '您反馈的图书资源问题'
+        return f'您好，{prefix}已经处理好了，可以再打开试一下哈。'
+
+    async def _send_resource_issue_reply(self, issue: Any, reply: str) -> None:
+        if not getattr(issue, 'bot_uuid', '') or not getattr(issue, 'target_id', ''):
+            raise ValueError('Resource issue target is missing; cannot send completion reply')
+
+        from langbot_plugin.api.entities.builtin.platform import message as platform_message
+
+        runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(issue.bot_uuid)
+        if runtime_bot is None:
+            raise ValueError(f'Bot {issue.bot_uuid} is not running; cannot send completion reply')
+        await runtime_bot.adapter.send_message(
+            issue.target_type or 'person',
+            issue.target_id,
+            platform_message.MessageChain([platform_message.Plain(text=reply)]),
+        )
 
     def _clean_outreach_payload(self, data: dict[str, Any]) -> dict[str, Any]:
         scheduled_at = data.get('scheduled_at')
@@ -1294,6 +1614,171 @@ class SalesService:
             .replace('{selling_points}', '、'.join(self._to_list(product.get('selling_points'))[:3]))
             .replace('{link}', product.get('link', ''))
             .replace('{price}', product.get('price', ''))
+        )
+
+    async def _memory_values_from_monitoring_session(
+        self,
+        session: Any,
+        products: list[dict[str, Any]],
+        allow_empty: bool = False,
+    ) -> dict[str, Any] | None:
+        session_id = getattr(session, 'session_id', '') or ''
+        messages = await self._recent_user_messages_for_session(session_id)
+        texts = [self._message_content_text(getattr(message, 'message_content', '')) for message in messages]
+        texts = [text for text in texts if text]
+        if not texts and not allow_empty:
+            return None
+
+        conversation_text = '\n'.join(texts[-8:])
+        intent = self.classify_intent(conversation_text)
+        product = self.select_best_product(conversation_text, products) if conversation_text else None
+        profile = self._extract_customer_profile(conversation_text)
+        summary = self._summarize_session_memory(conversation_text, intent, product, profile)
+        now = datetime.datetime.now()
+        return {
+            'session_id': session_id,
+            'platform': getattr(session, 'platform', '') or '',
+            'user_id': getattr(session, 'user_id', '') or '',
+            'customer_name': self._customer_name_from_session(session),
+            'summary': summary,
+            'stage': self._stage_for_intent(intent.get('intent', 'general')),
+            'last_intent': intent.get('intent', 'general'),
+            'preferred_product_uuid': product.get('uuid', '') if product else '',
+            'profile': profile,
+            'intents': [
+                {
+                    'intent': intent.get('intent', 'general'),
+                    'confidence': intent.get('confidence', 0),
+                    'message': conversation_text[-200:],
+                    'at': now.isoformat(),
+                    'source': 'monitoring_session',
+                }
+            ],
+            'last_seen_at': getattr(session, 'last_activity', None) or now,
+            'updated_at': now,
+        }
+
+    async def _recent_user_messages_for_session(self, session_id: str) -> list[Any]:
+        if not session_id:
+            return []
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage)
+            .where(persistence_monitoring.MonitoringMessage.session_id == session_id)
+            .where(
+                sqlalchemy.or_(
+                    persistence_monitoring.MonitoringMessage.role == 'user',
+                    persistence_monitoring.MonitoringMessage.role.is_(None),
+                )
+            )
+            .order_by(persistence_monitoring.MonitoringMessage.timestamp.desc())
+            .limit(20)
+        )
+        rows = [self._row_value(row) for row in result.all()]
+        return list(reversed(rows))
+
+    def _message_content_text(self, content: str) -> str:
+        if not content:
+            return ''
+        try:
+            parsed = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return str(content).strip()
+        if not isinstance(parsed, list):
+            return str(content).strip()
+
+        parts: list[str] = []
+        for component in parsed:
+            if not isinstance(component, dict):
+                continue
+            component_type = component.get('type')
+            if component_type == 'Plain':
+                parts.append(str(component.get('text') or ''))
+            elif component_type == 'At':
+                target = component.get('display') or component.get('target') or ''
+                if target:
+                    parts.append(f'@{target}')
+            elif component_type == 'AtAll':
+                parts.append('@All')
+            elif component_type == 'Image':
+                parts.append('[图片]')
+            elif component_type == 'File':
+                name = component.get('name') or '文件'
+                parts.append(f'[文件: {name}]')
+            elif component_type == 'Voice':
+                length = component.get('length') or ''
+                parts.append(f'[语音{f" {length}s" if length else ""}]')
+            elif component_type == 'Quote':
+                parts.append(self._message_content_text(json.dumps(component.get('origin') or [])))
+        return ''.join(parts).strip()
+
+    def _extract_customer_profile(self, text: str) -> dict[str, Any]:
+        profile: dict[str, Any] = {}
+        phone_match = re.search(r'(?<!\d)(1[3-9]\d{9})(?!\d)', text)
+        if phone_match:
+            profile['phone'] = phone_match.group(1)
+        email_match = re.search(r'[\w.+-]+@[\w-]+(?:\.[\w-]+)+', text)
+        if email_match:
+            profile['email'] = email_match.group(0)
+        wechat_match = re.search(r'(?:微信号?|wechat|wx)[:：\s]*([A-Za-z][A-Za-z0-9_-]{4,})', text, re.I)
+        if wechat_match:
+            profile['wechat'] = wechat_match.group(1)
+        grade_match = re.search(r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]年级|初[一二三]|高[一二三])', text)
+        if grade_match:
+            profile['child_grade'] = grade_match.group(1)
+
+        needs = []
+        need_rules = [
+            ('期末复习资料', ['期末', '复习', '资料']),
+            ('自然拼读/英语启蒙', ['自然拼读', '拼读', '英语', '发音', '单词']),
+            ('阅读写作提升', ['阅读', '作文', '写作']),
+            ('数学思维提升', ['数学', '思维', '应用题', '粗心', '马虎']),
+        ]
+        for label, keywords in need_rules:
+            if any(keyword in text for keyword in keywords):
+                needs.append(label)
+        if needs:
+            profile['needs'] = '、'.join(dict.fromkeys(needs))
+        return profile
+
+    def _summarize_session_memory(
+        self,
+        conversation_text: str,
+        intent: dict[str, Any],
+        product: dict[str, Any] | None,
+        profile: dict[str, Any],
+    ) -> str:
+        if not conversation_text:
+            return ''
+        facts = []
+        if profile.get('child_grade'):
+            facts.append(f"孩子年级：{profile['child_grade']}")
+        if profile.get('needs'):
+            facts.append(f"关注需求：{profile['needs']}")
+        if product:
+            facts.append(f"关联产品：{product.get('name', '')}")
+        facts.append(f"最近意图：{intent.get('intent', 'general')}")
+        facts.append(f"客户原话：{conversation_text[-240:]}")
+        return '；'.join(item for item in facts if item)
+
+    def _customer_name_from_session(self, session: Any) -> str:
+        user_name = getattr(session, 'user_name', '') or ''
+        if user_name and not self._is_technical_identifier(user_name):
+            return user_name
+        platform = getattr(session, 'platform', '') or ''
+        if platform == 'group':
+            return '群聊客户'
+        if platform == 'person':
+            return '私聊客户'
+        return '客户'
+
+    def _is_technical_identifier(self, value: str) -> bool:
+        text = str(value or '').strip()
+        if not text:
+            return True
+        return (
+            'LauncherTypes.' in text
+            or re.match(r'^(on|om|ou|oc|of)_[A-Za-z0-9_-]{12,}$', text) is not None
+            or re.match(r'^[A-Za-z]+Types\.[A-Z_]+_', text) is not None
         )
 
     def normalize_sales_message_content(self, message_content: str) -> dict[str, Any]:
@@ -1745,6 +2230,7 @@ class SalesService:
             return '\n'.join(parts)
         return str(content or '')
 
+
     def _query_session_id(self, query: Any) -> str:
         launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
         return f'{launcher_type}_{query.launcher_id}'
@@ -1760,9 +2246,33 @@ class SalesService:
 
     def _first_row(self, result: Any) -> Any:
         row = result.first()
+        return self._row_value(row)
+
+    def _row_value(self, row: Any) -> Any:
+        if row is None:
+            return None
+        if isinstance(row, (str, int, float, bool, datetime.datetime)):
+            return row
+        try:
+            return row[0]
+        except (KeyError, IndexError, TypeError, AttributeError):
+            return row
+
+    def _row_entity(self, row: Any) -> Any:
         if isinstance(row, tuple):
             return row[0]
-        return row
+        mapping = getattr(row, '_mapping', None)
+        if mapping:
+            mapped_values = list(mapping.values())
+            if len(mapped_values) == 1 and not isinstance(mapped_values[0], (str, int, float, bool, bytes, type(None))):
+                return mapped_values[0]
+            string_keys = {str(key): value for key, value in mapping.items() if isinstance(key, str)}
+            if string_keys:
+                return SimpleNamespace(**string_keys)
+        try:
+            return row[0]
+        except (TypeError, KeyError, IndexError):
+            return row
 
     def _row_entity(self, row: Any) -> Any:
         if isinstance(row, tuple):

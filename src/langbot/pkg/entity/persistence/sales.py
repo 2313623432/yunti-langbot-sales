@@ -83,6 +83,43 @@ class SalesHandoff(Base):
     )
 
 
+class SalesResourceIssue(Base):
+    """Book scan resource issue that needs publisher or operator follow-up."""
+
+    __tablename__ = 'sales_resource_issues'
+
+    id = sqlalchemy.Column(sqlalchemy.Integer, primary_key=True, autoincrement=True)
+    session_id = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, index=True)
+    bot_uuid = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='', index=True)
+    pipeline_uuid = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='', index=True)
+    target_type = sqlalchemy.Column(sqlalchemy.String(32), nullable=False, default='person')
+    target_id = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='', index=True)
+    platform = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='')
+    user_id = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='')
+    user_name = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='')
+    status = sqlalchemy.Column(sqlalchemy.String(32), nullable=False, default='open', index=True)
+    issue_type = sqlalchemy.Column(sqlalchemy.String(64), nullable=False, default='resource_error', index=True)
+    book_id = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='', index=True)
+    merchant = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='', index=True)
+    question_location = sqlalchemy.Column(sqlalchemy.String(512), nullable=False, default='')
+    issue_summary = sqlalchemy.Column(sqlalchemy.Text, nullable=False, default='')
+    user_description = sqlalchemy.Column(sqlalchemy.Text, nullable=False, default='')
+    evidence_images = sqlalchemy.Column(sqlalchemy.JSON, nullable=False, default=[])
+    internal_note = sqlalchemy.Column(sqlalchemy.Text, nullable=False, default='')
+    operator = sqlalchemy.Column(sqlalchemy.String(255), nullable=False, default='')
+    resolution_note = sqlalchemy.Column(sqlalchemy.Text, nullable=False, default='')
+    completion_reply = sqlalchemy.Column(sqlalchemy.Text, nullable=False, default='')
+    created_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=False, server_default=sqlalchemy.func.now())
+    updated_at = sqlalchemy.Column(
+        sqlalchemy.DateTime,
+        nullable=False,
+        server_default=sqlalchemy.func.now(),
+        onupdate=sqlalchemy.func.now(),
+    )
+    resolved_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+    replied_at = sqlalchemy.Column(sqlalchemy.DateTime, nullable=True)
+
+
 class SalesOutreachPlan(Base):
     """Scheduled product-link outreach plan."""
 

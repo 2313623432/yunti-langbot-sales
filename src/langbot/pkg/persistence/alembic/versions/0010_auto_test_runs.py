@@ -1,15 +1,15 @@
 """add auto test runs
 
-Revision ID: 0009_auto_test_runs
-Revises: 0008_sales_product_line
+Revision ID: 0010_auto_test_runs
+Revises: 0009_sales_resource_issues
 Create Date: 2026-06-12
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = '0009_auto_test_runs'
-down_revision = '0008_sales_product_line'
+revision = '0010_auto_test_runs'
+down_revision = '0009_sales_resource_issues'
 branch_labels = None
 depends_on = None
 

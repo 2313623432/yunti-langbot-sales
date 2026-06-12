@@ -22,6 +22,8 @@ ROUTER_PATH = Path('web/src/router.tsx')
 ADD_MODEL_POPOVER_PATH = Path('web/src/app/home/components/models-dialog/components/AddModelPopover.tsx')
 MODEL_ITEM_PATH = Path('web/src/app/home/components/models-dialog/components/ModelItem.tsx')
 MODELS_DIALOG_PATH = Path('web/src/app/home/components/models-dialog/ModelsDialog.tsx')
+SALES_CHAT_PAGE_PATH = Path('web/src/app/home/sales-chat/page.tsx')
+
 PROVIDER_FORM_PATH = Path(
     'web/src/app/home/components/models-dialog/component/provider-form/ProviderForm.tsx'
 )
@@ -31,6 +33,7 @@ PIPELINE_AUTO_TEST_PATH = Path(
     'web/src/app/home/pipelines/components/auto-test/PipelineAutoTestTab.tsx'
 )
 AUTO_TEST_PAGE_PATH = Path('web/src/app/home/auto-test/page.tsx')
+
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -135,6 +138,25 @@ def test_template_config_editor_supports_direct_image_upload_and_expanded_contro
     assert '每天推送' in template_source
     assert '指定单天' in template_source
     assert '图片文字绑定' in template_source
+
+
+def test_template_tool_settings_expose_reply_controls():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    workflow_templates_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    tool_settings = re.search(
+        r'function renderToolSettings\(\) \{([\s\S]+?)\n  function renderKnowledgeSettings',
+        template_source,
+    ).group(1)
+
+    assert 'reply_controls' in template_source
+    assert 'patchReplyControls' in template_source
+    assert '多条回复' in tool_settings
+    assert '合并回复' in tool_settings
+    assert '合并等待时间' in tool_settings
+    assert 'merge_reply_enabled' in tool_settings
+    assert 'merge_delay_seconds' in tool_settings
+    assert 'multi_reply_enabled' in tool_settings
+    assert 'merge_delay_seconds: 10' in workflow_templates_source
 
 
 def test_template_model_capability_uses_configured_llm_model_select():
@@ -347,6 +369,28 @@ def test_agent_radar_tab_removes_duplicate_interaction_radar_controls():
     assert '0 表示立即跟进' not in radar_settings
     assert radar_settings.index('雷达总开关') < radar_settings.index('客户可点击的链接')
     assert radar_settings.index('客户可点击的链接') < radar_settings.index('点击后的自动跟进')
+
+
+def test_template_config_editor_supports_human_handoff_configuration():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    types_source = Path('web/src/app/home/pipelines/components/workflow-editor/types.ts').read_text(
+        encoding='utf-8'
+    )
+
+    assert "'handoff'" in template_source
+    assert "label: '转人工'" in template_source
+    assert 'human_handoff' in template_source
+    assert 'patchHumanHandoff' in template_source
+    assert '触发关键词' in template_source
+    assert '语义意图边界' in template_source
+    assert '命中后停止 AI 自动回复' in template_source
+    assert '命中后停止主动触达' in template_source
+    assert '用户可见安抚话术' in template_source
+    assert '我这边帮您记录好了，稍等我看下具体情况~' in template_source
+    assert 'PipelineTemplateHumanHandoff' in types_source
+    assert 'semantic_triggers' in types_source
+    assert 'human_handoff: templateConfig.human_handoff' in workflow_source
 
 
 def test_template_config_editor_shows_only_selected_config_tab():
@@ -611,6 +655,31 @@ def test_models_dialog_exposes_embedding_category():
     assert 'handleDeleteProvider' in source
     assert 'lockedModelType' in popover_source
     assert 'defaultModelType' in popover_source
+
+
+def test_sales_chat_renders_normalized_sales_message_components_and_hides_technical_customer_ids():
+    source = SALES_CHAT_PAGE_PATH.read_text(encoding='utf-8')
+    component_source = Path('web/src/app/home/sales-chat/message-components.tsx').read_text(encoding='utf-8')
+
+    assert 'SalesMessageComponents' in source
+    assert '<SalesMessageComponents components={message.components}' in source
+    assert "component.kind === 'image'" in component_source
+    assert "component.kind === 'voice'" in component_source
+    assert "component.kind === 'file'" in component_source
+    assert "component.kind === 'link'" in component_source
+    assert "component.kind === 'quote'" in component_source
+    assert 'isTechnicalIdentifier' in source
+    assert 'LauncherTypes.' in source
+    assert 'compactIdentifier' in source
+    assert 'conversation.platform} · ${compactIdentifier' in source
+    assert "'wechat_id'" in source
+    assert "'手机号'" in source
+    assert 'child_grade' in source
+    assert '孩子年级' in source
+    assert "'needs'" in source
+    assert '关注需求' in source
+    assert 'if (!selectedConversation) return;' in source
+    assert 'disabled={!conversation || savingMemory}' in source
 
 
 def test_pipeline_detail_exposes_auto_test_tab_for_agents_and_workflows():

@@ -204,6 +204,37 @@ class SalesRouterGroup(group.RouterGroup):
             await self.ap.sales_service.reply_handoff(handoff_id, reply, data.get('assigned_to', ''))
             return self.success(data={'sent': True})
 
+        @self.route('/resource-issues', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            status = quart.request.args.get('status')
+            return self.success(data={'issues': await self.ap.sales_service.get_resource_issues(status=status)})
+
+        @self.route('/resource-issues/from-session', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            data = await quart.request.json
+            session_id = data.get('session_id', '').strip()
+            if not session_id:
+                return self.http_status(400, -1, 'session_id is required')
+            issue = await self.ap.sales_service.create_resource_issue_from_session(session_id, data)
+            return self.success(data={'issue': issue})
+
+        @self.route('/resource-issues/<int:issue_id>', methods=['PUT'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(issue_id: int) -> str:
+            data = await quart.request.json
+            issue = await self.ap.sales_service.resolve_resource_issue(issue_id, data or {})
+            return self.success(data={'issue': issue})
+
+        @self.route(
+            '/resource-issues/<int:issue_id>/resolve',
+            methods=['POST'],
+            auth_type=group.AuthType.USER_TOKEN_OR_API_KEY,
+        )
+        async def _(issue_id: int) -> str:
+            data = await quart.request.json
+            payload = {'status': 'resolved', **(data or {})}
+            issue = await self.ap.sales_service.resolve_resource_issue(issue_id, payload)
+            return self.success(data={'issue': issue})
+
         @self.route('/outreach', methods=['GET', 'POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
             if quart.request.method == 'GET':

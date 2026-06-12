@@ -872,9 +872,9 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         def sync_on_message(event: lark_oapi.im.v1.P2ImMessageReceiveV1):
             asyncio.create_task(on_message(event))
 
-        def sync_on_p2p_chat_created(event):
+        def sync_on_p2p_chat_access(event, event_type: str):
             try:
-                event_payload = {}
+                event_payload = {'event_type': event_type}
                 if hasattr(event, 'event') and event.event is not None:
                     if hasattr(event.event, 'operator'):
                         operator = event.event.operator
@@ -888,6 +888,12 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 asyncio.create_task(self._handle_contact_added_event(event_payload))
             except Exception:
                 asyncio.create_task(self.logger.error(f'Error in lark p2p chat created callback: {traceback.format_exc()}'))
+
+        def sync_on_p2p_chat_created(event):
+            sync_on_p2p_chat_access(event, 'im.chat.access_event.bot_p2p_chat_created_v1')
+
+        def sync_on_p2p_chat_entered(event):
+            sync_on_p2p_chat_access(event, 'im.chat.access_event.bot_p2p_chat_entered_v1')
 
         def sync_on_card_action(event):
             try:
@@ -957,7 +963,8 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         )
         if hasattr(event_handler, 'register_p2_im_chat_access_event_bot_p2p_chat_created_v1'):
             event_handler.register_p2_im_chat_access_event_bot_p2p_chat_created_v1(sync_on_p2p_chat_created)
-
+        if hasattr(event_handler, 'register_p2_im_chat_access_event_bot_p2p_chat_entered_v1'):
+            event_handler.register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(sync_on_p2p_chat_entered)
         bot_account_id = config['bot_name']
 
         domain = self._resolve_domain(config)
@@ -1697,16 +1704,45 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     ) -> None:
         self.contact_added_callback = callback
 
+    @staticmethod
+    def _is_contact_added_chat_access_event(event_type: str) -> bool:
+        return event_type in {
+            'im.chat.access_event.bot_p2p_chat_created_v1',
+            'im.chat.access_event.bot_p2p_chat_entered_v1',
+        }
+
+    def _lark_user_id_from_contact_event(self, event_payload: dict[str, typing.Any]) -> str:
+        operator = event_payload.get('operator') if isinstance(event_payload.get('operator'), dict) else {}
+        operator_id = operator.get('operator_id') if isinstance(operator.get('operator_id'), dict) else {}
+        root_operator_id = event_payload.get('operator_id') if isinstance(event_payload.get('operator_id'), dict) else {}
+        return str(
+            operator_id.get('open_id')
+            or operator_id.get('user_id')
+            or operator_id.get('union_id')
+            or operator.get('open_id')
+            or operator.get('user_id')
+            or operator.get('union_id')
+            or root_operator_id.get('open_id')
+            or root_operator_id.get('user_id')
+            or root_operator_id.get('union_id')
+            or event_payload.get('open_id')
+            or event_payload.get('user_id')
+            or ''
+        ).strip()
+
     async def _handle_contact_added_event(self, event_payload: dict[str, typing.Any]) -> None:
         if self.contact_added_callback is None:
             return
-        operator = event_payload.get('operator') if isinstance(event_payload.get('operator'), dict) else {}
-        user_id = str(operator.get('open_id') or operator.get('user_id') or operator.get('union_id') or '').strip()
-        if not user_id:
-            user_id = str(event_payload.get('user_id') or event_payload.get('open_id') or '').strip()
+        user_id = self._lark_user_id_from_contact_event(event_payload)
         if not user_id:
             return
-        await self.contact_added_callback({'user_id': user_id, 'platform': 'lark'})
+        await self.contact_added_callback(
+            {
+                'user_id': user_id,
+                'platform': 'lark',
+                'event_type': str(event_payload.get('event_type') or event_payload.get('type') or '').strip(),
+            }
+        )
 
     def register_listener(
         self,
@@ -1830,9 +1866,10 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                     await self.logger.error(f'Error in lark card action callback: {traceback.format_exc()}')
                     return {'toast': {'type': 'error', 'content': '反馈处理失败'}}
 
-            elif 'im.chat.access_event.bot_p2p_chat_created_v1' == type:
+            elif self._is_contact_added_chat_access_event(type):
                 try:
-                    await self._handle_contact_added_event(context.event if isinstance(context.event, dict) else {})
+                    event_payload = context.event if isinstance(context.event, dict) else {}
+                    await self._handle_contact_added_event({**event_payload, 'event_type': type})
                 except Exception:
                     await self.logger.error(f'Error in lark p2p chat created webhook: {traceback.format_exc()}')
 

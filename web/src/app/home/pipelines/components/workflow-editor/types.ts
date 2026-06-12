@@ -135,6 +135,28 @@ export interface PipelineTemplateStopPolicy {
   immediate_stop_keywords: string[];
 }
 
+export interface PipelineTemplateHumanHandoffTrigger {
+  id: string;
+  label: string;
+  description: string;
+  enabled?: boolean;
+}
+
+export interface PipelineTemplateHumanHandoff {
+  enabled: boolean;
+  keywords: string[];
+  semantic_triggers: PipelineTemplateHumanHandoffTrigger[];
+  stop_ai_reply: boolean;
+  stop_outreach: boolean;
+  notify_message: string;
+}
+
+export interface PipelineTemplateReplyControls {
+  multi_reply_enabled: boolean;
+  merge_reply_enabled: boolean;
+  merge_delay_seconds: number;
+}
+
 export interface PipelineTemplateKnowledgePack {
   path?: string;
   freshness_range?: string;
@@ -157,6 +179,7 @@ export interface PipelineTemplateConfig {
   knowledge_base_uuids: string[];
   product_uuids: string[];
   tools: Record<string, boolean>;
+  reply_controls: PipelineTemplateReplyControls;
   memory: {
     variables_enabled: boolean;
     table_enabled: boolean;
@@ -187,6 +210,7 @@ export interface PipelineTemplateConfig {
     link_url: string;
     click_reply: string;
   };
+  human_handoff: PipelineTemplateHumanHandoff;
   image_text_bindings: PipelineTemplateImageTextBinding[];
   course_profile?: Record<string, string>;
   course_profiles?: PipelineTemplateCourseProfile[];
