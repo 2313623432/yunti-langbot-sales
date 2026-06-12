@@ -1,19 +1,16 @@
 D:\销售终极最后\.venv\Lib\site-packages\lark_oapi\ws\pb\google\__init__.py:2: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
   __import__('pkg_resources').declare_namespace(__name__)
-[06-12 15:59:13.320] app.py (45) - [INFO] : settings.cloud_service_url: https://space.langbot.app
-[06-12 15:59:13.321] app.py (119) - [INFO] : Ensuring all installed plugins dependencies are installed...
-[06-12 15:59:13.335] server.py (341) - [INFO] : server listening on 0.0.0.0:5400
-[06-12 15:59:13.335] server.py (29) - [INFO] : WebSocket server started on port 5400
-[06-12 15:59:13.335] server.py (341) - [INFO] : server listening on 0.0.0.0:5401
-[06-12 15:59:13.335] server.py (29) - [INFO] : WebSocket server started on port 5401
-[06-12 15:59:16.358] server.py (529) - [INFO] : connection open
-[06-12 15:59:16.358] server.py (33) - [INFO] : New connection from ('127.0.0.1', 55133)
-[06-12 15:59:16.358] app.py (78) - [INFO] : Got control connection.
-[06-12 15:59:16.359] mgr.py (118) - [INFO] : launch all plugins: 0
-[06-12 15:59:16.365] handler.py (150) - [INFO] : [Action] list_knowledge_engines
-[06-12 15:59:17.366] handler.py (150) - [INFO] : [Action] list_knowledge_engines
-[2026-06-12 15:59:22 +0800] [35536] [INFO] Running on http://0.0.0.0:5300 (CTRL + C to quit)
-[06-12 16:01:43.398] handler.py (150) - [INFO] : [Action] list_plugins
-[06-12 16:01:43.405] handler.py (150) - [INFO] : [Action] list_knowledge_engines
-[06-12 16:02:48.967] handler.py (150) - [INFO] : [Action] list_plugins
-[06-12 16:02:48.987] handler.py (150) - [INFO] : [Action] list_knowledge_engines
+[06-12 16:51:53.044] app.py (45) - [INFO] : settings.cloud_service_url: https://space.langbot.app
+[06-12 16:51:53.044] app.py (119) - [INFO] : Ensuring all installed plugins dependencies are installed...
+[06-12 16:51:53.059] server.py (341) - [INFO] : server listening on 0.0.0.0:5400
+[06-12 16:51:53.060] server.py (29) - [INFO] : WebSocket server started on port 5400
+[06-12 16:51:53.060] server.py (341) - [INFO] : server listening on 0.0.0.0:5401
+[06-12 16:51:53.060] server.py (29) - [INFO] : WebSocket server started on port 5401
+[06-12 16:51:54.450] server.py (529) - [INFO] : connection open
+[06-12 16:51:54.451] server.py (33) - [INFO] : New connection from ('127.0.0.1', 62088)
+[06-12 16:51:54.452] app.py (78) - [INFO] : Got control connection.
+[06-12 16:51:54.452] mgr.py (118) - [INFO] : launch all plugins: 0
+[2026-06-12 16:51:57 +0800] [30580] [INFO] Running on http://0.0.0.0:5300 (CTRL + C to quit)
+[06-12 16:52:34.988] handler.py (150) - [INFO] : [Action] list_knowledge_engines
+[06-12 16:54:13.492] handler.py (150) - [INFO] : [Action] list_plugins
+[06-12 16:54:13.496] handler.py (150) - [INFO] : [Action] list_knowledge_engines

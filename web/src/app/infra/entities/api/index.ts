@@ -632,6 +632,9 @@ export interface SalesReplySuggestionResp {
     next_action: string;
   };
   product: SalesProduct;
+  source?: 'llm' | 'fallback';
+  model_uuid?: string;
+  model_name?: string;
 }
 
 export interface SalesOutreachPlan {

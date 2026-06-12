@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy
 
 from langbot.pkg.api.http.service.sales import SalesService, YUANFUDAO_CATALOG_PRODUCTS
+from langbot_plugin.api.entities.builtin.provider import message as provider_message
 from langbot_plugin.api.entities.builtin.platform import message as platform_message
 
 
@@ -731,6 +732,94 @@ async def test_reply_handoff_from_session_opens_then_replies(monkeypatch):
     assert result == {'sent': True, 'handoff_id': 7}
     open_handoff.assert_awaited_once_with('person_customer-1', '人工直接回复', 'sales-admin')
     reply_handoff.assert_awaited_once_with(7, '人工已接入', 'sales-admin')
+
+
+@pytest.mark.asyncio
+async def test_generate_sales_reply_suggestion_uses_configured_llm(monkeypatch):
+    unconfigured_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='space-model',
+            name='space-model',
+            provider_uuid='00000000-0000-0000-0000-000000000000',
+            extra_args={},
+        ),
+        provider=SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                uuid='00000000-0000-0000-0000-000000000000',
+                requester='space-chat-completions',
+                api_keys=[],
+            )
+        ),
+    )
+    runtime_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='model-1',
+            name='real-chat-model',
+            provider_uuid='provider-1',
+            extra_args={},
+        ),
+        provider=SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                uuid='provider-1',
+                requester='openai-chat-completions',
+                api_keys=['sk-test'],
+            ),
+            invoke_llm=AsyncMock(
+                return_value=provider_message.Message(
+                    role='assistant',
+                    content='这是根据真实模型生成的人工推荐回复。',
+                )
+            )
+        ),
+    )
+    ap = SimpleNamespace(
+        model_mgr=SimpleNamespace(
+            llm_models=[unconfigured_model, runtime_model],
+            get_model_by_uuid=AsyncMock(return_value=runtime_model),
+        )
+    )
+    service = SalesService(ap)
+    monkeypatch.setattr(
+        service,
+        'get_sales_conversation_messages',
+        AsyncMock(
+            return_value={
+                'messages': [
+                    {'role': 'user', 'sender_name': 'Customer', 'preview': '价格有点贵，想找人工确认'},
+                    {'role': 'assistant', 'sender_name': 'AI', 'preview': '可以，我帮您看一下。'},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        'get_products',
+        AsyncMock(
+            return_value=[
+                {
+                    'uuid': 'product-1',
+                    'name': '猿辅导体验课',
+                    'price': '9元',
+                    'link': 'https://example.com',
+                    'description': '自然拼读课程',
+                    'selling_points': ['先体验再决定'],
+                    'pain_points': ['价格顾虑'],
+                    'objections': ['担心没效果'],
+                    'audience': ['小学家长'],
+                    'enabled': True,
+                }
+            ]
+        ),
+    )
+
+    result = await service.generate_sales_reply_suggestion_from_session('person_customer-1')
+
+    assert result['suggestion']['message'] == '这是根据真实模型生成的人工推荐回复。'
+    assert result['suggestion']['tone'] == 'consultative'
+    assert result['source'] == 'llm'
+    assert result['model_name'] == 'real-chat-model'
+    ap.model_mgr.get_model_by_uuid.assert_awaited_once_with('model-1')
+    runtime_model.provider.invoke_llm.assert_awaited_once()
 
 
 @pytest.mark.asyncio

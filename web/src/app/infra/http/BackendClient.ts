@@ -329,6 +329,8 @@ export class BackendClient extends BaseHttpClient {
     target_uuid: string;
     scenario?: string;
     turns?: number;
+    sop_text?: string;
+    sop_filename?: string;
   }): Promise<ApiRespAutoTestRun> {
     return this.post('/api/v1/autotest/runs', data);
   }
@@ -341,6 +343,10 @@ export class BackendClient extends BaseHttpClient {
     },
   ): Promise<ApiRespAutoTestRun> {
     return this.post(`/api/v1/autotest/runs/${runUuid}/feedback`, data);
+  }
+
+  public revertAutoTestRunOptimization(runUuid: string): Promise<ApiRespAutoTestRun> {
+    return this.post(`/api/v1/autotest/runs/${runUuid}/revert`);
   }
 
   // ============ Workflow Library API ============

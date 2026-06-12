@@ -639,6 +639,33 @@ def test_pipeline_detail_exposes_auto_test_tab_for_agents_and_workflows():
     assert "feedback === 'unsatisfied'" in auto_test_source
 
 
+def test_auto_test_ui_surfaces_real_applied_optimizer_patches():
+    auto_test_source = PIPELINE_AUTO_TEST_PATH.read_text(encoding='utf-8')
+    client_source = BACKEND_CLIENT_PATH.read_text(encoding='utf-8')
+
+    assert 'optimizationPatch' in auto_test_source
+    assert 'applied_patches' in auto_test_source
+    assert 'apply_config_patch' in auto_test_source
+    assert 'model_name' in auto_test_source
+    assert 'reverted_at' in auto_test_source
+    assert 'revertAutoTestRunOptimization' in auto_test_source
+    assert 'version_retention' in auto_test_source
+    assert 'revertAutoTestRunOptimization' in client_source
+
+
+def test_auto_test_ui_supports_uploading_sop_for_auto_optimization():
+    auto_test_source = PIPELINE_AUTO_TEST_PATH.read_text(encoding='utf-8')
+    client_source = BACKEND_CLIENT_PATH.read_text(encoding='utf-8')
+
+    assert 'sopText' in auto_test_source
+    assert 'sopFilename' in auto_test_source
+    assert 'file.text()' in auto_test_source
+    assert 'sop_text: sopText' in auto_test_source
+    assert 'sop_filename: sopFilename' in auto_test_source
+    assert 'sop_text?: string' in client_source
+    assert 'sop_filename?: string' in client_source
+
+
 def test_auto_test_has_standalone_home_tab_next_to_workflow_and_database():
     sidebar_source = SIDEBAR_CONFIG_PATH.read_text(encoding='utf-8')
     router_source = ROUTER_PATH.read_text(encoding='utf-8')

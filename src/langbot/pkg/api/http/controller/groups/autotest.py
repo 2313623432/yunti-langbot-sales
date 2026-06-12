@@ -38,3 +38,11 @@ class AutoTestRouterGroup(group.RouterGroup):
             except ValueError as exc:
                 return self.http_status(400, -1, str(exc))
             return self.success(data={'run': run})
+
+        @self.route('/runs/<run_uuid>/revert', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(run_uuid: str) -> str:
+            try:
+                run = await self.ap.auto_test_service.revert_run_optimization(run_uuid)
+            except ValueError as exc:
+                return self.http_status(400, -1, str(exc))
+            return self.success(data={'run': run})

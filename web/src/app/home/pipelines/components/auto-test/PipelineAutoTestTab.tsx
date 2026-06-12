@@ -3,14 +3,17 @@ import { toast } from 'sonner';
 import {
   Bot,
   CheckCircle2,
+  FileText,
   History,
   Loader2,
   MessageSquareText,
   Play,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
+  Upload,
   Workflow,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -35,6 +38,24 @@ import type {
 interface PipelineAutoTestTabProps {
   initialTargetType?: AutoTestTargetType;
   initialTargetUuid?: string;
+}
+
+interface OptimizationPatchDetail {
+  operation?: string;
+  ai_generated?: boolean;
+  model_name?: string;
+  model_uuid?: string;
+  reverted_at?: string;
+  version_retention?: number;
+  applied_patches?: Array<{
+    path?: string;
+    before?: unknown;
+    after?: unknown;
+  }>;
+  ignored_patches?: Array<{
+    path?: string;
+    reason?: string;
+  }>;
 }
 
 function errorMessage(error: unknown): string {
@@ -85,6 +106,8 @@ export default function PipelineAutoTestTab({
   const [runs, setRuns] = useState<AutoTestRun[]>([]);
   const [selectedRun, setSelectedRun] = useState<AutoTestRun | null>(null);
   const [scenario, setScenario] = useState('');
+  const [sopText, setSopText] = useState('');
+  const [sopFilename, setSopFilename] = useState('');
   const [feedback, setFeedback] = useState<'satisfied' | 'unsatisfied'>(
     'satisfied',
   );
@@ -93,6 +116,7 @@ export default function PipelineAutoTestTab({
   const [loadingRuns, setLoadingRuns] = useState(false);
   const [starting, setStarting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [reverting, setReverting] = useState(false);
 
   const targetOptions = useMemo(
     () => (targetType === 'pipeline' ? targets.pipelines : targets.workflows),
@@ -102,6 +126,21 @@ export default function PipelineAutoTestTab({
   const selectedTarget = useMemo(
     () => targetOptions.find((item) => item.uuid === targetUuid) || null,
     [targetOptions, targetUuid],
+  );
+
+  const optimizationPatch = useMemo<OptimizationPatchDetail>(() => {
+    const patch = selectedRun?.optimization_patch;
+    return patch && typeof patch === 'object'
+      ? (patch as OptimizationPatchDetail)
+      : {};
+  }, [selectedRun]);
+
+  const appliedPatches = useMemo(
+    () =>
+      Array.isArray(optimizationPatch.applied_patches)
+        ? optimizationPatch.applied_patches.filter((item) => item.path)
+        : [],
+    [optimizationPatch],
   );
 
   const loadTargets = useCallback(async () => {
@@ -150,6 +189,14 @@ export default function PipelineAutoTestTab({
     loadRuns();
   }, [loadRuns]);
 
+  async function handleSopFileChange(file?: File) {
+    if (!file) return;
+    const text = await file.text();
+    setSopText(text);
+    setSopFilename(file.name);
+    toast.success('SOP 已读取，将用于自动测试调优');
+  }
+
   async function handleStartRun() {
     if (!targetUuid) {
       toast.error('请先选择测试目标');
@@ -162,6 +209,8 @@ export default function PipelineAutoTestTab({
         target_uuid: targetUuid,
         scenario,
         turns: 3,
+        sop_text: sopText,
+        sop_filename: sopFilename,
       });
       setRuns((items) => [result.run, ...items]);
       setSelectedRun(result.run);
@@ -196,6 +245,25 @@ export default function PipelineAutoTestTab({
       toast.error(`反馈提交失败：${errorMessage(error)}`);
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleRevertOptimization() {
+    if (!selectedRun || optimizationPatch.reverted_at) return;
+    setReverting(true);
+    try {
+      const result = await httpClient.revertAutoTestRunOptimization(
+        selectedRun.uuid,
+      );
+      setSelectedRun(result.run);
+      setRuns((items) =>
+        items.map((item) => (item.uuid === result.run.uuid ? result.run : item)),
+      );
+      toast.success('已撤销本次自动优化');
+    } catch (error) {
+      toast.error(`撤销失败：${errorMessage(error)}`);
+    } finally {
+      setReverting(false);
     }
   }
 
@@ -303,6 +371,41 @@ export default function PipelineAutoTestTab({
               onChange={(event) => setScenario(event.target.value)}
               className="min-h-24 resize-none text-sm"
               placeholder="可留空，系统会按当前目标自动生成客户咨询场景"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                <FileText className="size-3.5" />
+                SOP 自动调优
+              </div>
+              <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                <Upload className="size-3.5" />
+                上传
+                <input
+                  type="file"
+                  accept=".txt,.md,.json,.csv"
+                  className="hidden"
+                  onChange={(event) =>
+                    handleSopFileChange(event.target.files?.[0])
+                  }
+                />
+              </label>
+            </div>
+            {sopFilename && (
+              <div className="truncate text-xs text-cyan-700">
+                {sopFilename}
+              </div>
+            )}
+            <Textarea
+              value={sopText}
+              onChange={(event) => {
+                setSopText(event.target.value);
+                if (!event.target.value.trim()) setSopFilename('');
+              }}
+              className="min-h-28 resize-none text-sm"
+              placeholder="上传或粘贴 SOP；启动测试后 AI 会按 SOP 模拟客户、评估回复，并自动写回优化配置"
             />
           </div>
 
@@ -505,9 +608,61 @@ export default function PipelineAutoTestTab({
               优化结果
             </div>
             {selectedRun?.optimization_summary ? (
-              <p className="rounded-lg bg-cyan-50 p-3 text-sm leading-6 text-cyan-900">
-                {selectedRun.optimization_summary}
-              </p>
+              <div className="rounded-lg bg-cyan-50 p-3 text-sm leading-6 text-cyan-900">
+                <p>{selectedRun.optimization_summary}</p>
+                {optimizationPatch.operation === 'apply_config_patch' && (
+                  <div className="mt-3 border-t border-cyan-100 pt-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="bg-cyan-700 text-white">
+                        {optimizationPatch.ai_generated ? 'AI 生成补丁' : '规则兜底补丁'}
+                      </Badge>
+                      {optimizationPatch.model_name && (
+                        <span className="text-xs text-cyan-700">
+                          {optimizationPatch.model_name}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 text-xs text-cyan-700">
+                      保留最近 {optimizationPatch.version_retention || 3} 个版本
+                    </div>
+                    {appliedPatches.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <div className="text-xs font-medium text-cyan-800">
+                          已生效字段
+                        </div>
+                        {appliedPatches.map((patch) => (
+                          <div
+                            key={patch.path}
+                            className="rounded-md bg-white/75 px-2 py-1.5 font-mono text-[11px] leading-5 text-cyan-950"
+                          >
+                            {patch.path}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {optimizationPatch.reverted_at ? (
+                      <div className="mt-3 rounded-md bg-slate-100 px-2 py-1.5 text-xs text-slate-600">
+                        已撤销：{formatTime(optimizationPatch.reverted_at)}
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-3 h-8 rounded-md bg-white text-xs"
+                        disabled={reverting || appliedPatches.length === 0}
+                        onClick={handleRevertOptimization}
+                      >
+                        {reverting ? (
+                          <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="mr-1.5 size-3.5" />
+                        )}
+                        撤销本次修改
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <p className="text-sm text-slate-500">
                 选择不满意并填写原因后，AI 会自动追加优化建议

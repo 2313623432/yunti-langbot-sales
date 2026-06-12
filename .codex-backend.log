@@ -1,32 +1,34 @@
-[37m[06-12 15:58:28.241] mgr.py (30) - [INFO] : Initialized local storage backend.[0m
-[37m[06-12 15:58:28.241] mgr.py (38) - [INFO] : Initializing database type: sqlite...[0m
-[37m[06-12 15:58:28.268] mgr.py (94) - [INFO] : Creating initial metadata...[0m
-[37m[06-12 15:58:28.420] mgr.py (158) - [INFO] : Alembic migrations completed.[0m
-[37m[06-12 15:58:28.464] task_assistant.py (2242) - [INFO] : [DefaultModel] Found 1 configured text models, using first: 24790c39-3240-480a-aee0-995e7c467baa[0m
-[37m[06-12 15:58:29.900] modelmgr.py (65) - [INFO] : Loading models from db...[0m
-[37m[06-12 15:58:57.779] modelmgr.py (54) - [INFO] : LangBot Space Models service is disabled, skipping sync.[0m
-[37m[06-12 15:58:57.997] mcp.py (294) - [INFO] : Loading MCP servers from db...[0m
-[37m[06-12 15:59:11.325] botmgr.py (502) - [INFO] : Loading bots from db...[0m
-[37m[06-12 15:59:11.334] pipelinemgr.py (409) - [INFO] : Loading pipelines from db...[0m
-[37m[06-12 15:59:11.343] kbmgr.py (595) - [INFO] : Loading knowledge bases from db...[0m
-[37m[06-12 15:59:12.535] mgr.py (23) - [INFO] : Initialized Chroma vector database backend.[0m
-[37m[06-12 15:59:12.673] connector.py (141) - [INFO] : (windows) use cmd to launch plugin runtime and communicate via ws[0m
-[33m[06-12 15:59:12.731] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
-[37m[06-12 15:59:16.363] connector.py (111) - [INFO] : Connected to plugin runtime.[0m
-[37m[06-12 15:59:16.406] chroma.py (29) - [INFO] : Chroma collection 'yuanfudao-sales-knowledge-base' accessed/created.[0m
-[37m[06-12 15:59:20.885] task_assistant.py (3244) - [INFO] : Yuanfudao KB document import finished: queued 0 new files (59 available, 59 already present)[0m
-[37m[06-12 15:59:20.886] app.py (361) - [INFO] : =======================================[0m
-[37m[06-12 15:59:20.886] app.py (361) - [INFO] : ✨ Access WebUI / 访问管理面板[0m
-[37m[06-12 15:59:20.887] app.py (361) - [INFO] : [0m
-[37m[06-12 15:59:20.887] app.py (361) - [INFO] : 🏠 Local Address: http://127.0.0.1:5300/[0m
-[37m[06-12 15:59:20.887] app.py (361) - [INFO] : 🌐 Public Address: http://<Your Public IP>:5300/[0m
-[37m[06-12 15:59:20.888] app.py (361) - [INFO] : [0m
-[37m[06-12 15:59:20.888] app.py (361) - [INFO] : 📌 Running this program in a container? Please ensure that the 5300 port is exposed[0m
-[37m[06-12 15:59:20.889] app.py (361) - [INFO] : =======================================[0m
-[33m[06-12 15:59:21.974] version.py (41) - [WARNING] : 获取发行列表失败: 403 Client Error: rate limit exceeded for url: https://api.github.com/repos/langbot-app/LangBot/releases[0m
-[37m[06-12 15:59:21.978] show_notes.py (32) - [INFO] : 您正在使用 Windows 系统，若窗口左上角显示处于”选择“模式，程序将被暂停运行，此时请右键窗口中空白区域退出选择模式。[0m
-[37m[06-12 15:59:21.979] show_notes.py (32) - [INFO] : You are using Windows system, if the top left corner of the window displays "Selection" mode, the program will be paused running, please right-click on the blank area in the window to exit the selection mode.[0m
-[37m[06-12 15:59:21.979] show_notes.py (32) - [INFO] : Current Version: v4.9.7[0m
+[37m[06-12 16:50:57.708] mgr.py (30) - [INFO] : Initialized local storage backend.[0m
+[37m[06-12 16:50:57.708] mgr.py (38) - [INFO] : Initializing database type: sqlite...[0m
+[37m[06-12 16:50:57.735] mgr.py (94) - [INFO] : Creating initial metadata...[0m
+[37m[06-12 16:50:57.923] mgr.py (158) - [INFO] : Alembic migrations completed.[0m
+[37m[06-12 16:50:57.959] task_assistant.py (2242) - [INFO] : [DefaultModel] Found 1 configured text models, using first: 24790c39-3240-480a-aee0-995e7c467baa[0m
+[37m[06-12 16:50:59.719] modelmgr.py (65) - [INFO] : Loading models from db...[0m
+[37m[06-12 16:51:34.111] modelmgr.py (54) - [INFO] : LangBot Space Models service is disabled, skipping sync.[0m
+[37m[06-12 16:51:34.404] mcp.py (294) - [INFO] : Loading MCP servers from db...[0m
+[37m[06-12 16:51:51.713] botmgr.py (502) - [INFO] : Loading bots from db...[0m
+[37m[06-12 16:51:51.720] pipelinemgr.py (409) - [INFO] : Loading pipelines from db...[0m
+[37m[06-12 16:51:51.726] kbmgr.py (595) - [INFO] : Loading knowledge bases from db...[0m
+[37m[06-12 16:51:52.357] mgr.py (23) - [INFO] : Initialized Chroma vector database backend.[0m
+[37m[06-12 16:51:52.407] connector.py (141) - [INFO] : (windows) use cmd to launch plugin runtime and communicate via ws[0m
+[33m[06-12 16:51:52.434] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
+[33m[06-12 16:51:53.885] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
+[37m[06-12 16:51:53.921] chroma.py (29) - [INFO] : Chroma collection 'yuanfudao-sales-knowledge-base' accessed/created.[0m
+[33m[06-12 16:51:54.446] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
+[37m[06-12 16:51:54.453] connector.py (111) - [INFO] : Connected to plugin runtime.[0m
+[37m[06-12 16:51:55.695] task_assistant.py (3244) - [INFO] : Yuanfudao KB document import finished: queued 0 new files (59 available, 59 already present)[0m
+[37m[06-12 16:51:55.697] app.py (361) - [INFO] : =======================================[0m
+[37m[06-12 16:51:55.699] app.py (361) - [INFO] : ✨ Access WebUI / 访问管理面板[0m
+[37m[06-12 16:51:55.700] app.py (361) - [INFO] : [0m
+[37m[06-12 16:51:55.700] app.py (361) - [INFO] : 🏠 Local Address: http://127.0.0.1:5300/[0m
+[37m[06-12 16:51:55.701] app.py (361) - [INFO] : 🌐 Public Address: http://<Your Public IP>:5300/[0m
+[37m[06-12 16:51:55.701] app.py (361) - [INFO] : [0m
+[37m[06-12 16:51:55.701] app.py (361) - [INFO] : 📌 Running this program in a container? Please ensure that the 5300 port is exposed[0m
+[37m[06-12 16:51:55.702] app.py (361) - [INFO] : =======================================[0m
+[33m[06-12 16:51:57.117] version.py (41) - [WARNING] : 获取发行列表失败: 403 Client Error: rate limit exceeded for url: https://api.github.com/repos/langbot-app/LangBot/releases[0m
+[37m[06-12 16:51:57.122] show_notes.py (32) - [INFO] : 您正在使用 Windows 系统，若窗口左上角显示处于”选择“模式，程序将被暂停运行，此时请右键窗口中空白区域退出选择模式。[0m
+[37m[06-12 16:51:57.124] show_notes.py (32) - [INFO] : You are using Windows system, if the top left corner of the window displays "Selection" mode, the program will be paused running, please right-click on the blank area in the window to exit the selection mode.[0m
+[37m[06-12 16:51:57.125] show_notes.py (32) - [INFO] : Current Version: v4.9.7[0m
 
  _                   ___      _   
 | |   __ _ _ _  __ _| _ ) ___| |_ 
@@ -41,171 +43,104 @@ LangBot instance id: instance_e7d43b5d-0ec5-4a52-ad63-839506797fb7
 LangBot edition: community
 Requesting app ticket for app_id: cli***bd1
 Requesting app ticket for app_id: cli***cd6
-[2026-06-12 15:59:22 +0800] [35536] [INFO] 127.0.0.1:55136 GET /healthz 1.1 200 22 3225
-[2026-06-12 15:59:33 +0800] [35536] [INFO] 127.0.0.1:55194 GET /api/v1/user/auto-login 1.1 200 268 4316
-[2026-06-12 15:59:33 +0800] [35536] [INFO] 127.0.0.1:55194 GET /api/v1/autotest/targets 1.1 200 2662 36368
-[2026-06-12 15:59:33 +0800] [35536] [INFO] 127.0.0.1:55194 POST /api/v1/autotest/runs 1.1 200 3728 16137
-[2026-06-12 15:59:33 +0800] [35536] [INFO] 127.0.0.1:55194 POST /api/v1/autotest/runs/9eab513d-9caa-428c-aed5-75ac652ee365/feedback 1.1 200 4487 27061
-[2026-06-12 15:59:40 +0800] [35536] [INFO] 127.0.0.1:55208 GET /api/v1/user/auto-login 1.1 200 268 2383
-[2026-06-12 15:59:40 +0800] [35536] [INFO] 127.0.0.1:55208 GET /api/v1/autotest/runs 1.1 200 4483 5688
-[2026-06-12 15:59:40 +0800] [35536] [INFO] 127.0.0.1:55208 POST /api/v1/autotest/runs/9eab513d-9caa-428c-aed5-75ac652ee365/feedback 1.1 400 68 2767
-[2026-06-12 15:59:49 +0800] [35536] [INFO] 127.0.0.1:55221 GET /home/pipelines 1.1 200 521 35922
-[2026-06-12 16:00:11 +0800] [35536] [INFO] 127.0.0.1:65294 GET /api/v1/system/tasks 1.1 200 56 10186
-[2026-06-12 16:00:11 +0800] [35536] [INFO] 127.0.0.1:65295 GET /api/v1/survey/pending 1.1 200 45 10035
-[2026-06-12 16:00:11 +0800] [35536] [INFO] 127.0.0.1:65297 OPTIONS /api/v1/system/tasks 1.1 200 0 1663
-[2026-06-12 16:00:11 +0800] [35536] [INFO] 127.0.0.1:65298 OPTIONS /api/v1/survey/pending 1.1 200 0 3425
-[2026-06-12 16:00:11 +0800] [35536] [INFO] 127.0.0.1:65297 GET /api/v1/survey/pending 1.1 200 45 2920
-[2026-06-12 16:00:11 +0800] [35536] [INFO] 127.0.0.1:65298 GET /api/v1/system/tasks 1.1 200 56 9542
-[2026-06-12 16:00:24 +0800] [35536] [INFO] 127.0.0.1:65504 GET /healthz 1.1 200 22 1270
-[2026-06-12 16:01:11 +0800] [35536] [INFO] 127.0.0.1:61992 GET /api/v1/system/tasks 1.1 200 56 2772
-[2026-06-12 16:01:11 +0800] [35536] [INFO] 127.0.0.1:61993 GET /api/v1/survey/pending 1.1 200 45 3189
-[2026-06-12 16:01:11 +0800] [35536] [INFO] 127.0.0.1:62001 OPTIONS /api/v1/system/tasks 1.1 200 0 513
-[2026-06-12 16:01:11 +0800] [35536] [INFO] 127.0.0.1:62002 OPTIONS /api/v1/survey/pending 1.1 200 0 409
-[2026-06-12 16:01:11 +0800] [35536] [INFO] 127.0.0.1:62001 GET /api/v1/survey/pending 1.1 200 45 13105
-[2026-06-12 16:01:11 +0800] [35536] [INFO] 127.0.0.1:62002 GET /api/v1/system/tasks 1.1 200 56 14303
-[2026-06-12 16:01:17 +0800] [35536] [INFO] 127.0.0.1:62028 OPTIONS /api/v1/system/tasks 1.1 200 0 531
-[2026-06-12 16:01:17 +0800] [35536] [INFO] 127.0.0.1:62028 GET /api/v1/system/tasks 1.1 200 56 1916
-[2026-06-12 16:01:18 +0800] [35536] [INFO] 127.0.0.1:62028 GET /api/v1/system/tasks 1.1 200 56 2235
-[2026-06-12 16:01:21 +0800] [35536] [INFO] 127.0.0.1:62028 GET /api/v1/system/tasks 1.1 200 56 2399
-[2026-06-12 16:01:41 +0800] [35536] [INFO] 127.0.0.1:62100 GET / 1.1 200 521 10121
-[2026-06-12 16:01:41 +0800] [35536] [INFO] 127.0.0.1:62101 GET /assets/index-DWIsHAuD.css 1.1 200 160174 29256
-[2026-06-12 16:01:42 +0800] [35536] [INFO] 127.0.0.1:62100 GET /assets/index-D3RfRkzZ.js 1.1 200 3007442 1339852
-[2026-06-12 16:01:42 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/info 1.1 200 411 2538
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62100 GET /favicon.ico 1.1 200 521 4805
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62101 GET /api/v1/system/tasks 1.1 200 56 14372
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/user/info 1.1 200 102 20061
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62134 GET /api/v1/system/info 1.1 200 411 10694
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/plugins 1.1 200 44 27598
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62133 GET /api/v1/pipelines 1.1 200 364529 44181
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62101 GET /api/v1/mcp/servers 1.1 200 44 35313
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62135 GET /api/v1/platform/bots 1.1 200 1477 46079
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62134 GET /api/v1/user/info 1.1 200 102 35248
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62136 GET /api/v1/knowledge/bases 1.1 200 1514 52281
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62136 GET /api/v1/platform/adapters/lark/icon 1.1 200 1158 19986
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62101 GET /api/v1/pipelines 1.1 200 364529 43978
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62135 GET /api/v1/platform/bots 1.1 200 1477 42238
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62133 GET /api/v1/sales/products 1.1 200 4547 57891
-[2026-06-12 16:01:43 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/sales/overview 1.1 200 9886 67062
-[2026-06-12 16:01:46 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 3515
-[2026-06-12 16:01:48 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/survey/pending 1.1 200 45 2969
-[2026-06-12 16:01:49 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 6881
-[2026-06-12 16:01:52 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 5686
-[2026-06-12 16:01:55 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 4152
-[2026-06-12 16:01:58 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 4647
-[2026-06-12 16:02:01 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 5799
-[2026-06-12 16:02:04 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 3024
-[2026-06-12 16:02:07 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 6129
-[2026-06-12 16:02:10 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 7591
-[2026-06-12 16:02:11 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 6223
-[2026-06-12 16:02:11 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/survey/pending 1.1 200 45 6241
-[2026-06-12 16:02:13 +0800] [35536] [INFO] 127.0.0.1:62100 GET /api/v1/system/tasks 1.1 200 56 4502
-[2026-06-12 16:02:13 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/sales/overview 1.1 200 9886 22734
-[2026-06-12 16:02:16 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 4602
-[2026-06-12 16:02:19 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 6872
-[2026-06-12 16:02:22 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 6031
-[2026-06-12 16:02:25 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 5066
-[2026-06-12 16:02:28 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 5588
-[2026-06-12 16:02:31 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 5662
-[2026-06-12 16:02:34 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 6263
-[2026-06-12 16:02:37 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 2841
-[2026-06-12 16:02:40 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/system/tasks 1.1 200 56 5152
-[2026-06-12 16:02:43 +0800] [35536] [INFO] 127.0.0.1:62240 GET /api/v1/system/tasks 1.1 200 56 7582
-[2026-06-12 16:02:43 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/sales/overview 1.1 200 9886 29141
-[2026-06-12 16:02:43 +0800] [35536] [INFO] 127.0.0.1:62187 GET /favicon.ico 1.1 200 521 4876
-[2026-06-12 16:02:43 +0800] [35536] [INFO] 127.0.0.1:62187 GET /agent-avatars/sales-agent-blue.png 1.1 200 1550322 224912
-[2026-06-12 16:02:43 +0800] [35536] [INFO] 127.0.0.1:62240 GET /agent-avatars/sales-agent-data.png 1.1 200 1586444 228880
-[2026-06-12 16:02:46 +0800] [35536] [INFO] 127.0.0.1:62240 GET /api/v1/system/tasks 1.1 200 56 4645
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62240 GET /api/v1/survey/pending 1.1 200 45 3511
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62240 GET /home/pipelines 1.1 200 521 7266
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62187 GET /assets/index-DWIsHAuD.css 1.1 200 160174 38401
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62240 GET /assets/index-D3RfRkzZ.js 1.1 200 3007442 198819
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62240 GET /api/v1/system/info 1.1 200 411 5016
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62240 GET /api/v1/system/tasks 1.1 200 56 17176
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62251 GET /api/v1/plugins 1.1 200 44 15237
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/platform/bots 1.1 200 1477 32325
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62251 GET /api/v1/system/info 1.1 200 411 11079
-[2026-06-12 16:02:48 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/mcp/servers 1.1 200 44 33464
-[2026-06-12 16:02:49 +0800] [35536] [INFO] 127.0.0.1:62249 GET /api/v1/pipelines 1.1 200 364529 57554
-[2026-06-12 16:02:49 +0800] [35536] [INFO] 127.0.0.1:62250 GET /api/v1/knowledge/bases 1.1 200 1514 59838
-[2026-06-12 16:02:49 +0800] [35536] [INFO] 127.0.0.1:62240 GET /api/v1/user/info 1.1 200 102 40447
-[2026-06-12 16:02:49 +0800] [35536] [INFO] 127.0.0.1:62240 GET /api/v1/platform/adapters/lark/icon 1.1 200 1158 1302
-[2026-06-12 16:02:49 +0800] [35536] [INFO] 127.0.0.1:62250 GET /agent-avatars/sales-agent-blue.png 1.1 200 1550322 286386
-[2026-06-12 16:02:49 +0800] [35536] [INFO] 127.0.0.1:62249 GET /agent-avatars/sales-agent-data.png 1.1 200 1586444 291838
-[2026-06-12 16:02:49 +0800] [35536] [INFO] 127.0.0.1:62249 GET /favicon.ico 1.1 200 521 4092
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62249 GET /favicon.ico 1.1 200 521 20421
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62260 GET /api/v1/pipelines/56687ae4-0d88-4347-9d94-e8de13961a21/ws/connect 1.1 101 - 1874
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62251 GET /api/v1/pipelines/56687ae4-0d88-4347-9d94-e8de13961a21/ws/messages/person 1.1 200 45 18923
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62249 GET /api/v1/sales/products 1.1 200 4547 83442
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/provider/models/llm 1.1 200 609 82560
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62251 GET /api/v1/provider/models/llm 1.1 200 1492 86553
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62187 GET /api/v1/pipelines/56687ae4-0d88-4347-9d94-e8de13961a21 1.1 200 106652 27673
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62249 GET /api/v1/provider/models/llm 1.1 200 713 56843
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62250 GET /agent-avatars/sales-agent-blue.png 1.1 200 1550322 332432
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62240 GET /agent-avatars/sales-agent-data.png 1.1 200 1586444 336176
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62252 GET /agent-avatars/sales-agent-chat.png 1.1 200 1778713 345446
-[2026-06-12 16:02:51 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/system/tasks 1.1 200 56 4182
-[2026-06-12 16:02:53 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/survey/pending 1.1 200 45 4019
-[2026-06-12 16:02:54 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/system/tasks 1.1 200 56 4750
-[2026-06-12 16:02:56 +0800] [35536] [INFO] 127.0.0.1:62240 GET /api/v1/autotest/runs 1.1 200 8174 36367
-[2026-06-12 16:02:56 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/autotest/targets 1.1 200 2662 75733
-[2026-06-12 16:02:57 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/system/tasks 1.1 200 56 3797
-[2026-06-12 16:03:00 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/system/tasks 1.1 200 56 5429
-[2026-06-12 16:03:03 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/system/tasks 1.1 200 56 5691
-[2026-06-12 16:03:06 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/system/tasks 1.1 200 56 4220
-[2026-06-12 16:03:09 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/system/tasks 1.1 200 56 3743
-[2026-06-12 16:03:11 +0800] [35536] [INFO] 127.0.0.1:62252 GET /api/v1/system/tasks 1.1 200 56 9295
-[2026-06-12 16:03:11 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/survey/pending 1.1 200 45 7905
-[2026-06-12 16:03:12 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 5350
-[2026-06-12 16:03:15 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 4955
-[2026-06-12 16:03:18 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 7128
-[2026-06-12 16:03:21 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 1538
-[2026-06-12 16:03:24 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 3823
-[2026-06-12 16:03:27 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 3447
-[2026-06-12 16:03:30 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 5369
-[2026-06-12 16:03:33 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 2560
-[2026-06-12 16:03:36 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 4181
-[2026-06-12 16:03:39 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 4319
-[2026-06-12 16:03:42 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 4423
-[2026-06-12 16:03:45 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 3672
-[2026-06-12 16:03:48 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 4883
-[2026-06-12 16:03:51 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 2100
-[2026-06-12 16:03:53 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/survey/pending 1.1 200 45 1722
-[2026-06-12 16:03:54 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 2609
-[2026-06-12 16:03:57 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 2853
-[2026-06-12 16:04:00 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 4446
-[2026-06-12 16:04:03 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 1465
-[2026-06-12 16:04:06 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 4621
-[2026-06-12 16:04:09 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 4780
-[2026-06-12 16:04:11 +0800] [35536] [INFO] 127.0.0.1:62305 GET /api/v1/system/tasks 1.1 200 56 6919
-[2026-06-12 16:04:11 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/survey/pending 1.1 200 45 6047
-[2026-06-12 16:04:12 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 6004
-[2026-06-12 16:04:15 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4826
-[2026-06-12 16:04:18 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 3650
-[2026-06-12 16:04:21 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 2229
-[2026-06-12 16:04:24 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 3148
-[2026-06-12 16:04:27 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4859
-[2026-06-12 16:04:30 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4253
-[2026-06-12 16:04:33 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 2609
-[2026-06-12 16:04:36 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4362
-[2026-06-12 16:04:39 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 2286
-[2026-06-12 16:04:42 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 5570
-[2026-06-12 16:04:45 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 2160
-[2026-06-12 16:04:48 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 2430
-[2026-06-12 16:04:51 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 1454
-[2026-06-12 16:04:53 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/survey/pending 1.1 200 45 6667
-[2026-06-12 16:04:54 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 3499
-[2026-06-12 16:04:57 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 1732
-[2026-06-12 16:05:00 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 5607
-[2026-06-12 16:05:03 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4192
-[2026-06-12 16:05:06 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 3517
-[2026-06-12 16:05:09 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4590
-[2026-06-12 16:05:11 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4024
-[2026-06-12 16:05:11 +0800] [35536] [INFO] 127.0.0.1:63258 GET /api/v1/survey/pending 1.1 200 45 4343
-[2026-06-12 16:05:12 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4221
-[2026-06-12 16:05:15 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 1767
-[2026-06-12 16:05:18 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 2598
-[2026-06-12 16:05:21 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4123
-[2026-06-12 16:05:24 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 5265
-[2026-06-12 16:05:25 +0800] [35536] [INFO] 127.0.0.1:63301 GET /home/auto-test 1.1 200 521 22081
-[2026-06-12 16:05:27 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 4335
-[2026-06-12 16:05:30 +0800] [35536] [INFO] 127.0.0.1:62383 GET /api/v1/system/tasks 1.1 200 56 1782
+[2026-06-12 16:51:57 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/system/tasks 1.1 401 49 2189
+[2026-06-12 16:51:57 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/user/auto-login 1.1 200 268 3441
+[2026-06-12 16:51:57 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/system/tasks 1.1 200 56 6129
+[2026-06-12 16:51:57 +0800] [30580] [INFO] 127.0.0.1:62106 GET /api/v1/system/info 1.1 200 411 2262
+[2026-06-12 16:52:00 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/system/tasks 1.1 200 56 6786
+[2026-06-12 16:52:03 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/system/tasks 1.1 200 56 1639
+[2026-06-12 16:52:06 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/system/tasks 1.1 200 56 4334
+[2026-06-12 16:52:09 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/system/tasks 1.1 200 56 2044
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62155 GET /api/v1/survey/pending 1.1 200 45 22944
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/system/tasks 1.1 200 56 40441
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62157 GET /api/v1/survey/pending 1.1 200 45 11558
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62158 GET /api/v1/system/tasks 1.1 200 56 15031
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62156 GET /api/v1/user/info 1.1 200 102 22932
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62155 GET /api/v1/survey/pending 1.1 200 45 14686
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62157 GET /api/v1/system/tasks 1.1 200 56 11674
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62156 GET /api/v1/sales/memories 1.1 200 45 49915
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62158 GET /api/v1/sales/handoffs 1.1 200 45 60786
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62107 GET /api/v1/sales/outreach 1.1 200 44232 72671
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62157 GET /api/v1/sales/products 1.1 200 4547 92233
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62155 GET /api/v1/sales/overview 1.1 200 9886 119969
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62156 GET /api/v1/sales/conversations 1.1 200 552356 74879
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/monitoring/data 1.1 200 4116655 150983
+[2026-06-12 16:52:11 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/sales/overview 1.1 200 9886 20483
+[2026-06-12 16:52:12 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 3284
+[2026-06-12 16:52:15 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 2519
+[2026-06-12 16:52:18 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 5665
+[2026-06-12 16:52:19 +0800] [30580] [INFO] 127.0.0.1:62175 GET /api/v1/system/info 1.1 200 411 3033
+[2026-06-12 16:52:21 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 4983
+[2026-06-12 16:52:24 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 1622
+[2026-06-12 16:52:27 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 5695
+[2026-06-12 16:52:30 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 4455
+[2026-06-12 16:52:32 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/survey/pending 1.1 200 45 5162
+[2026-06-12 16:52:33 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 5730
+[2026-06-12 16:52:34 +0800] [30580] [INFO] 127.0.0.1:62159 GET /favicon.ico 1.1 200 521 9657
+[2026-06-12 16:52:34 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/knowledge/migration/status 1.1 200 90 21637
+[2026-06-12 16:52:34 +0800] [30580] [INFO] 127.0.0.1:57044 GET /api/v1/knowledge/bases 1.1 200 1514 27571
+[2026-06-12 16:52:35 +0800] [30580] [INFO] 127.0.0.1:57044 GET /favicon.ico 1.1 200 521 6822
+[2026-06-12 16:52:35 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/sales/products 1.1 200 4547 14164
+[2026-06-12 16:52:36 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 3124
+[2026-06-12 16:52:37 +0800] [30580] [INFO] 127.0.0.1:57044 GET /api/v1/webhooks 1.1 200 45 16474
+[2026-06-12 16:52:37 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/apikeys 1.1 200 41 18404
+[2026-06-12 16:52:37 +0800] [30580] [INFO] 127.0.0.1:57046 GET /favicon.ico 1.1 200 521 5073
+[2026-06-12 16:52:39 +0800] [30580] [INFO] 127.0.0.1:57046 GET /api/v1/system/tasks 1.1 200 56 4891
+[2026-06-12 16:52:39 +0800] [30580] [INFO] 127.0.0.1:57046 GET /favicon.ico 1.1 200 521 10160
+[2026-06-12 16:52:40 +0800] [30580] [INFO] 127.0.0.1:57046 GET /favicon.ico 1.1 200 521 15289
+[2026-06-12 16:52:40 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/user/info 1.1 200 102 17227
+[2026-06-12 16:52:40 +0800] [30580] [INFO] 127.0.0.1:57044 GET /api/v1/platform/bots 1.1 200 1477 38064
+[2026-06-12 16:52:40 +0800] [30580] [INFO] 127.0.0.1:57050 GET /api/v1/pipelines 1.1 200 365107 70562
+[2026-06-12 16:52:40 +0800] [30580] [INFO] 127.0.0.1:57046 GET /api/v1/sales/products 1.1 200 4547 106636
+[2026-06-12 16:52:40 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/sales/overview 1.1 200 9886 125624
+[2026-06-12 16:52:41 +0800] [30580] [INFO] 127.0.0.1:57051 GET /api/v1/user/auto-login 1.1 200 268 3976
+[2026-06-12 16:52:41 +0800] [30580] [INFO] 127.0.0.1:57051 GET /api/v1/sales/conversations 1.1 200 2079 17848
+[2026-06-12 16:52:42 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 5498
+[2026-06-12 16:52:45 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 10020
+[2026-06-12 16:52:48 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 5044
+[2026-06-12 16:52:51 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 5222
+[2026-06-12 16:52:52 +0800] [30580] [INFO] 127.0.0.1:57051 POST /api/v1/sales/conversations/LauncherTypes.PERSON_ou_26bd1e35ee9080c67ce49964c53ded27/ai-suggestion 1.1 200 976 10498130
+[2026-06-12 16:52:54 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/system/tasks 1.1 200 56 6447
+[2026-06-12 16:52:56 +0800] [30580] [INFO] 127.0.0.1:57092 GET /favicon.ico 1.1 200 521 778387
+[2026-06-12 16:52:57 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/platform/bots 1.1 200 1477 810087
+[2026-06-12 16:52:57 +0800] [30580] [INFO] 127.0.0.1:57091 GET /api/v1/monitoring/feedback 1.1 200 77 852068
+[2026-06-12 16:52:57 +0800] [30580] [INFO] 127.0.0.1:57089 GET /api/v1/pipelines 1.1 200 365107 859862
+[2026-06-12 16:52:57 +0800] [30580] [INFO] 127.0.0.1:57092 GET /api/v1/system/tasks 1.1 200 56 44571
+[2026-06-12 16:52:57 +0800] [30580] [INFO] 127.0.0.1:57090 GET /api/v1/monitoring/feedback/stats 1.1 200 119 885061
+[2026-06-12 16:52:57 +0800] [30580] [INFO] 127.0.0.1:57088 GET /api/v1/monitoring/data 1.1 200 2199985 995122
+[2026-06-12 16:52:57 +0800] [30580] [INFO] 127.0.0.1:57088 GET /favicon.ico 1.1 200 521 5085
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:57088 GET /api/v1/user/info 1.1 200 102 7244
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:57091 GET /api/v1/sales/handoffs 1.1 200 45 47825
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:57089 GET /api/v1/sales/memories 1.1 200 45 51416
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/sales/outreach 1.1 200 44232 70879
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:57092 GET /api/v1/sales/products 1.1 200 4547 99951
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:57088 GET /api/v1/sales/overview 1.1 200 9886 131850
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:57091 GET /api/v1/sales/conversations 1.1 200 552356 138620
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:57090 GET /api/v1/monitoring/data 1.1 200 4116655 261725
+[2026-06-12 16:52:58 +0800] [30580] [INFO] 127.0.0.1:57090 GET /api/v1/sales/conversations/LauncherTypes.PERSON_ou_26bd1e35ee9080c67ce49964c53ded27/messages 1.1 200 15312 10188
+[2026-06-12 16:52:59 +0800] [30580] [INFO] 127.0.0.1:57090 GET /favicon.ico 1.1 200 521 18394
+[2026-06-12 16:52:59 +0800] [30580] [INFO] 127.0.0.1:57091 GET /agent-avatars/sales-agent-blue.png 1.1 200 1550322 321528
+[2026-06-12 16:52:59 +0800] [30580] [INFO] 127.0.0.1:57088 GET /agent-avatars/sales-agent-data.png 1.1 200 1586444 323665
+[2026-06-12 16:53:00 +0800] [30580] [INFO] 127.0.0.1:57088 GET /api/v1/system/tasks 1.1 200 56 6186
+[2026-06-12 16:53:00 +0800] [30580] [INFO] 127.0.0.1:57088 GET /favicon.ico 1.1 200 521 10252
+[2026-06-12 16:53:00 +0800] [30580] [INFO] 127.0.0.1:57090 GET /api/v1/platform/bots 1.1 200 1477 40719
+[2026-06-12 16:53:00 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/pipelines 1.1 200 365107 71516
+[2026-06-12 16:53:00 +0800] [30580] [INFO] 127.0.0.1:57092 GET /api/v1/monitoring/feedback 1.1 200 77 80241
+[2026-06-12 16:53:00 +0800] [30580] [INFO] 127.0.0.1:57091 GET /api/v1/monitoring/feedback/stats 1.1 200 119 99531
+[2026-06-12 16:53:00 +0800] [30580] [INFO] 127.0.0.1:57088 GET /api/v1/monitoring/data 1.1 200 2199985 212396
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57088 GET /favicon.ico 1.1 200 521 7631
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57088 GET /api/v1/user/info 1.1 200 102 8079
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57090 GET /api/v1/sales/handoffs 1.1 200 45 43823
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:62159 GET /api/v1/sales/memories 1.1 200 45 60385
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57089 GET /api/v1/sales/outreach 1.1 200 44232 107821
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57091 GET /api/v1/sales/products 1.1 200 4547 125344
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57088 GET /api/v1/sales/overview 1.1 200 9886 154416
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57090 GET /api/v1/sales/conversations 1.1 200 552356 159126
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57092 GET /api/v1/monitoring/data 1.1 200 4116655 294263
+[2026-06-12 16:53:01 +0800] [30580] [INFO] 127.0.0.1:57092 GET /api/v1/sales/conversations/LauncherTypes.PERSON_ou_26bd1e35ee9080c67ce49964c53ded27/messages 1.1 200 15312 8350
+[2026-06-12 16:53:03 +0800] [30580] [INFO] 127.0.0.1:57092 GET /api/v1/system/tasks 1.1 200 56 4925
+[2026-06-12 16:53:04 +0800] [30580] [INFO] 127.0.0.1:57092 GET /favicon.ico 1.1 200 521 26611
+[2026-06-12 16:53:04 +0800] [30580] [INFO] 127.0.0.1:57090 GET /agent-avatars/sales-agent-blue.png 1.1 200 1550322 268256
+[2026-06-12 16:53:04 +0800] [30580] [INFO] 127.0.0.1:57088 GET /agent-avatars/sales-agent-data.png 1.1 200 1586444 265519
+[2026-06-12 16:53:04 +0800] [30580] [INFO] 127.0.0.1:57090 GET /favicon.ico 1.1 200 521 11461
+[2026-06-12 16:53:04 +0800] [30580] [INFO] 127.0.0.1:57088 GET /api/v1/workflows 1.1 200 179040 49872

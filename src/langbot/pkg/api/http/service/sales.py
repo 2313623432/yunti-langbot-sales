@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import datetime
 import json
 import mimetypes
@@ -1593,8 +1594,156 @@ class SalesService:
             product = self.select_best_product(context, products)
         if product is None:
             raise ValueError('No product available')
+        llm_suggestion = await self._generate_llm_sales_reply_suggestion(
+            messages['messages'][-12:],
+            product,
+            tone,
+        )
+        if llm_suggestion is not None:
+            return {
+                'suggestion': llm_suggestion['suggestion'],
+                'product': product,
+                'source': 'llm',
+                'model_uuid': llm_suggestion.get('model_uuid', ''),
+                'model_name': llm_suggestion.get('model_name', ''),
+            }
         pitch = self.generate_pitch(product, customer_profile=context, intent=context, tone=tone)
-        return {'suggestion': pitch, 'product': product}
+        return {'suggestion': pitch, 'product': product, 'source': 'fallback', 'model_uuid': '', 'model_name': ''}
+
+    async def _generate_llm_sales_reply_suggestion(
+        self,
+        messages: list[dict[str, Any]],
+        product: dict[str, Any],
+        tone: str,
+    ) -> dict[str, Any] | None:
+        model_uuid = self._preferred_sales_suggestion_model_uuid()
+        if not model_uuid:
+            return None
+        try:
+            from langbot_plugin.api.entities.builtin.provider import message as provider_message
+
+            runtime_model = await self.ap.model_mgr.get_model_by_uuid(model_uuid)
+            model_entity = getattr(runtime_model, 'model_entity', None)
+            model_name = str(getattr(model_entity, 'name', '') or model_uuid)
+            prompt = self._build_sales_suggestion_prompt(messages, product, tone)
+            response = await runtime_model.provider.invoke_llm(
+                query=None,
+                model=runtime_model,
+                messages=[
+                    provider_message.Message(
+                        role='system',
+                        content=(
+                            '你是SCRM人工接管工作台里的销售助理。'
+                            '请基于真实聊天上下文给人工客服一条可直接发送的中文回复。'
+                            '不要编造不存在的优惠、名额、承诺或链接；如果需要人工确认，就明确说我帮您确认。'
+                        ),
+                    ),
+                    provider_message.Message(role='user', content=prompt),
+                ],
+                funcs=[],
+                extra_args=copy.deepcopy(getattr(model_entity, 'extra_args', {}) or {}),
+                remove_think=True,
+            )
+            text = self._provider_message_content_to_text(getattr(response, 'content', response)).strip()
+            if not text:
+                return None
+            return {
+                'suggestion': {
+                    'tone': tone,
+                    'message': text,
+                    'next_action': 'manual_review',
+                },
+                'model_uuid': model_uuid,
+                'model_name': model_name,
+            }
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning(f'[Sales] LLM reply suggestion failed, falling back to rule pitch: {exc}')
+            return None
+
+    def _preferred_sales_suggestion_model_uuid(self) -> str:
+        model_mgr = getattr(self.ap, 'model_mgr', None)
+        for runtime_model in getattr(model_mgr, 'llm_models', []) or []:
+            provider = getattr(runtime_model, 'provider', None)
+            provider_entity = getattr(provider, 'provider_entity', None)
+            requester = str(getattr(provider_entity, 'requester', '') or '')
+            provider_uuid = str(getattr(provider_entity, 'uuid', '') or '')
+            if requester == 'space-chat-completions' or provider_uuid == '00000000-0000-0000-0000-000000000000':
+                continue
+            if not self._provider_has_api_key(getattr(provider_entity, 'api_keys', None)):
+                continue
+            model_entity = getattr(runtime_model, 'model_entity', None)
+            model_uuid = str(getattr(model_entity, 'uuid', '') or '').strip()
+            if model_uuid:
+                return model_uuid
+        return ''
+
+    def _provider_has_api_key(self, api_keys: Any) -> bool:
+        if isinstance(api_keys, list):
+            return any(str(key or '').strip() for key in api_keys)
+        if isinstance(api_keys, str):
+            text = api_keys.strip()
+            if not text:
+                return False
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    return any(str(key or '').strip() for key in parsed)
+            except json.JSONDecodeError:
+                return bool(text)
+        return False
+
+    def _build_sales_suggestion_prompt(
+        self,
+        messages: list[dict[str, Any]],
+        product: dict[str, Any],
+        tone: str,
+    ) -> str:
+        conversation_lines = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = message.get('role') or message.get('sender_type') or ''
+            sender = message.get('sender_name') or ('客户' if role == 'user' else 'AI')
+            preview = str(message.get('preview') or '').strip()
+            if preview:
+                conversation_lines.append(f'{sender}: {preview}')
+        payload = {
+            'tone': tone,
+            'conversation': conversation_lines[-12:],
+            'product': {
+                'name': product.get('name'),
+                'price': product.get('price'),
+                'link': product.get('link'),
+                'description': product.get('description'),
+                'selling_points': product.get('selling_points') or [],
+                'pain_points': product.get('pain_points') or [],
+                'objections': product.get('objections') or [],
+                'audience': product.get('audience') or [],
+            },
+            'requirements': [
+                '只输出一条人工客服可直接发送的回复，不要输出标题或解释。',
+                '先回应客户刚刚的问题或情绪，再给清晰下一步。',
+                '语气像真实SCRM聊天，短句、可读，不要长篇营销。',
+                '如果客户要求人工或情绪激动，回复应体现人工正在接入处理。',
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    def _provider_message_content_to_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                text = getattr(item, 'text', None)
+                if text is None and isinstance(item, dict):
+                    text = item.get('text')
+                if text:
+                    parts.append(str(text))
+            return '\n'.join(parts)
+        return str(content or '')
 
     def _query_session_id(self, query: Any) -> str:
         launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
