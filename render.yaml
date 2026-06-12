@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: yunti-langbot-sales
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/v1/system/info
+    disk:
+      name: yunti-langbot-data
+      mountPath: /app/data
+      sizeGB: 10
+    envVars:
+      - key: PYTHONUTF8
+        value: "1"
+      - key: PYTHONIOENCODING
+        value: utf-8
+      - key: SPACE__DISABLE_MODELS_SERVICE
+        value: "true"
+      - key: LANGBOT_SEED_DATA_URL
+        sync: false
+      - key: API__WEBHOOK_PREFIX
+        sync: false
