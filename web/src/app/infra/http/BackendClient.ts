@@ -61,6 +61,10 @@ import {
   RagMigrationStatusResp,
   ApiRespTools,
   ApiRespToolDetail,
+  ApiRespAutoTestTargets,
+  ApiRespAutoTestRuns,
+  ApiRespAutoTestRun,
+  AutoTestTargetType,
 } from '@/app/infra/entities/api';
 import { Plugin } from '@/app/infra/entities/plugin';
 import { GetBotLogsRequest } from '@/app/infra/http/requestParam/bots/GetBotLogsRequest';
@@ -305,6 +309,38 @@ export class BackendClient extends BaseHttpClient {
 
   public copyPipeline(uuid: string): Promise<{ uuid: string }> {
     return this.post(`/api/v1/pipelines/${uuid}/copy`);
+  }
+
+  // ============ Auto Test API ============
+  public getAutoTestTargets(): Promise<ApiRespAutoTestTargets> {
+    return this.get('/api/v1/autotest/targets');
+  }
+
+  public getAutoTestRuns(params?: {
+    target_type?: AutoTestTargetType;
+    target_uuid?: string;
+    limit?: number;
+  }): Promise<ApiRespAutoTestRuns> {
+    return this.get('/api/v1/autotest/runs', params);
+  }
+
+  public startAutoTestRun(data: {
+    target_type: AutoTestTargetType;
+    target_uuid: string;
+    scenario?: string;
+    turns?: number;
+  }): Promise<ApiRespAutoTestRun> {
+    return this.post('/api/v1/autotest/runs', data);
+  }
+
+  public submitAutoTestFeedback(
+    runUuid: string,
+    data: {
+      feedback: 'satisfied' | 'unsatisfied';
+      reason?: string;
+    },
+  ): Promise<ApiRespAutoTestRun> {
+    return this.post(`/api/v1/autotest/runs/${runUuid}/feedback`, data);
   }
 
   // ============ Workflow Library API ============

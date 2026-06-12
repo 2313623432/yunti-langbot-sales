@@ -25,6 +25,12 @@ MODELS_DIALOG_PATH = Path('web/src/app/home/components/models-dialog/ModelsDialo
 PROVIDER_FORM_PATH = Path(
     'web/src/app/home/components/models-dialog/component/provider-form/ProviderForm.tsx'
 )
+BACKEND_CLIENT_PATH = Path('web/src/app/infra/http/BackendClient.ts')
+API_ENTITIES_PATH = Path('web/src/app/infra/entities/api/index.ts')
+PIPELINE_AUTO_TEST_PATH = Path(
+    'web/src/app/home/pipelines/components/auto-test/PipelineAutoTestTab.tsx'
+)
+AUTO_TEST_PAGE_PATH = Path('web/src/app/home/auto-test/page.tsx')
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -605,3 +611,50 @@ def test_models_dialog_exposes_embedding_category():
     assert 'handleDeleteProvider' in source
     assert 'lockedModelType' in popover_source
     assert 'defaultModelType' in popover_source
+
+
+def test_pipeline_detail_exposes_auto_test_tab_for_agents_and_workflows():
+    detail_source = PIPELINE_DETAIL_PATH.read_text(encoding='utf-8')
+    client_source = BACKEND_CLIENT_PATH.read_text(encoding='utf-8')
+    types_source = API_ENTITIES_PATH.read_text(encoding='utf-8')
+    auto_test_source = PIPELINE_AUTO_TEST_PATH.read_text(encoding='utf-8')
+
+    assert 'PipelineAutoTestTab' in detail_source
+    assert 'autoTestOpen' in detail_source
+    assert 'setAutoTestOpen(true)' in detail_source
+    assert '自动测试' in detail_source
+
+    assert 'getAutoTestTargets' in client_source
+    assert 'startAutoTestRun' in client_source
+    assert 'submitAutoTestFeedback' in client_source
+    assert 'ApiRespAutoTestTargets' in types_source
+    assert 'AutoTestRun' in types_source
+
+    assert "targetType === 'pipeline'" in auto_test_source
+    assert "targetType === 'workflow'" in auto_test_source
+    assert 'getAutoTestTargets' in auto_test_source
+    assert 'startAutoTestRun' in auto_test_source
+    assert 'submitAutoTestFeedback' in auto_test_source
+    assert 'reason.trim()' in auto_test_source
+    assert "feedback === 'unsatisfied'" in auto_test_source
+
+
+def test_auto_test_has_standalone_home_tab_next_to_workflow_and_database():
+    sidebar_source = SIDEBAR_CONFIG_PATH.read_text(encoding='utf-8')
+    router_source = ROUTER_PATH.read_text(encoding='utf-8')
+    page_source = AUTO_TEST_PAGE_PATH.read_text(encoding='utf-8')
+
+    assert "id: 'auto-test'" in sidebar_source
+    assert "route: '/home/auto-test'" in sidebar_source
+    assert '自动测试' in sidebar_source
+    assert 'Sparkles' in sidebar_source
+    assert sidebar_source.index("id: 'workflows'") < sidebar_source.index("id: 'auto-test'")
+    assert sidebar_source.index("id: 'auto-test'") < sidebar_source.index("id: 'knowledge'")
+
+    assert 'import AutoTestPage' in router_source
+    assert "path: '/home/auto-test'" in router_source
+    auto_test_route_block = router_source.split("path: '/home/auto-test'", 1)[1].split("path: '/home/monitoring'", 1)[0]
+    assert '<AutoTestPage />' in auto_test_route_block
+
+    assert 'PipelineAutoTestTab' in page_source
+    assert '<PipelineAutoTestTab />' in page_source

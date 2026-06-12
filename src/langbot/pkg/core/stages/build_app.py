@@ -34,6 +34,7 @@ from ...api.http.service import maintenance as maintenance_service
 from ...api.http.service import sales as sales_service
 from ...api.http.service import task_assistant as task_assistant_service
 from ...api.http.service import workflow as workflow_service
+from ...api.http.service import autotest as autotest_service
 from ...discover import engine as discover_engine
 from ...storage import mgr as storagemgr
 from ...utils import logcache
@@ -99,6 +100,9 @@ class BuildAppStage(stage.BootingStage):
 
         workflow_service_inst = workflow_service.WorkflowService(ap)
         ap.workflow_service = workflow_service_inst
+
+        auto_test_service_inst = autotest_service.AutoTestService(ap)
+        ap.auto_test_service = auto_test_service_inst
 
         proxy_mgr = proxy.ProxyManager(ap)
         await proxy_mgr.initialize()

@@ -144,6 +144,60 @@ export interface ApiRespPipelines {
   pipelines: Pipeline[];
 }
 
+export type AutoTestTargetType = 'pipeline' | 'workflow';
+
+export interface AutoTestTarget {
+  type: AutoTestTargetType;
+  uuid: string;
+  name: string;
+  description: string;
+  folder?: string;
+  is_builtin?: boolean;
+}
+
+export interface AutoTestMessage {
+  role: 'user' | 'assistant';
+  sender: string;
+  content_type: 'text' | 'image' | 'voice' | 'file';
+  content: string;
+  turn: number;
+}
+
+export interface AutoTestRun {
+  uuid: string;
+  target_type: AutoTestTargetType;
+  target_uuid: string;
+  target_name: string;
+  status: string;
+  scenario: string;
+  messages: AutoTestMessage[];
+  evaluation: {
+    score?: number;
+    max_score?: number;
+    checks?: Record<string, boolean>;
+    suggestions?: string[];
+  };
+  user_feedback: '' | 'satisfied' | 'unsatisfied';
+  feedback_reason: string;
+  optimization_summary: string;
+  optimization_patch: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ApiRespAutoTestTargets {
+  pipelines: AutoTestTarget[];
+  workflows: AutoTestTarget[];
+}
+
+export interface ApiRespAutoTestRuns {
+  runs: AutoTestRun[];
+}
+
+export interface ApiRespAutoTestRun {
+  run: AutoTestRun;
+}
+
 export interface WorkflowProject {
   uuid: string;
   folder: string;
