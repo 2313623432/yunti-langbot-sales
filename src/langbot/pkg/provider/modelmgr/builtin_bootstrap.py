@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlalchemy
 
 from langbot.pkg.core import app
+from langbot.pkg.entity.errors import provider as provider_errors
 from langbot.pkg.entity.persistence import model as persistence_model
 from langbot.pkg.provider.modelmgr import (
     builtin_asr_providers,
@@ -14,14 +15,16 @@ from langbot.pkg.provider.modelmgr import (
 
 async def ensure_builtin_asr_providers(ap: app.Application) -> None:
     for provider_spec in builtin_asr_providers.BUILTIN_ASR_PROVIDER_SPECS:
-        await _ensure_provider(ap, provider_spec)
+        if not await _ensure_provider(ap, provider_spec):
+            continue
         for model_spec in provider_spec.models:
             await _ensure_asr_model(ap, provider_spec.uuid, model_spec)
 
 
 async def ensure_builtin_tts_providers(ap: app.Application) -> None:
     for provider_spec in builtin_tts_providers.BUILTIN_TTS_PROVIDER_SPECS:
-        await _ensure_provider(ap, provider_spec)
+        if not await _ensure_provider(ap, provider_spec):
+            continue
         for model_spec in provider_spec.models:
             await _ensure_tts_model(ap, provider_spec.uuid, model_spec)
 
@@ -49,7 +52,8 @@ REMOVED_OLLAMA_EMBEDDING_MODEL_UUIDS = frozenset(
 async def ensure_builtin_pdf_providers(ap: app.Application) -> None:
     await _prune_removed_pdf_providers(ap)
     for provider_spec in builtin_pdf_providers.BUILTIN_PDF_PROVIDER_SPECS:
-        await _ensure_provider(ap, provider_spec)
+        if not await _ensure_provider(ap, provider_spec):
+            continue
         for model_spec in provider_spec.models:
             await _ensure_pdf_model(ap, provider_spec.uuid, model_spec)
 
@@ -105,19 +109,29 @@ async def prune_removed_ollama_providers(ap: app.Application) -> None:
 
 async def ensure_builtin_embedding_providers(ap: app.Application) -> None:
     for provider_spec in builtin_embedding_providers.BUILTIN_EMBEDDING_PROVIDER_SPECS:
-        await _ensure_provider(ap, provider_spec)
+        if not await _ensure_provider(ap, provider_spec):
+            continue
         for model_spec in provider_spec.models:
             await _ensure_embedding_model(ap, provider_spec.uuid, model_spec)
 
 
-async def _ensure_provider(ap: app.Application, provider_spec) -> None:
+async def _ensure_provider(ap: app.Application, provider_spec) -> bool:
     provider_result = await ap.persistence_mgr.execute_async(
         sqlalchemy.select(persistence_model.ModelProvider).where(
             persistence_model.ModelProvider.uuid == provider_spec.uuid
         )
     )
-    if provider_result.first() is not None:
-        return
+    existing_provider = provider_result.first()
+    if existing_provider is not None:
+        if provider_spec.uuid in ap.model_mgr.provider_dict:
+            return True
+        try:
+            runtime_provider = await ap.model_mgr.load_provider(existing_provider)
+        except provider_errors.RequesterNotFoundError as e:
+            ap.logger.warning('Requester %s not found, skipping built-in provider %s', e.requester_name, provider_spec.uuid)
+            return False
+        ap.model_mgr.provider_dict[provider_spec.uuid] = runtime_provider
+        return True
 
     provider_data = {
         'uuid': provider_spec.uuid,
@@ -126,12 +140,18 @@ async def _ensure_provider(ap: app.Application, provider_spec) -> None:
         'base_url': provider_spec.base_url,
         'api_keys': [],
     }
+    try:
+        runtime_provider = await ap.model_mgr.load_provider(provider_data)
+    except provider_errors.RequesterNotFoundError as e:
+        ap.logger.warning('Requester %s not found, skipping built-in provider %s', e.requester_name, provider_spec.uuid)
+        return False
+
     await ap.persistence_mgr.execute_async(
         sqlalchemy.insert(persistence_model.ModelProvider).values(provider_data)
     )
-    runtime_provider = await ap.model_mgr.load_provider(provider_data)
     ap.model_mgr.provider_dict[provider_spec.uuid] = runtime_provider
     ap.logger.info('Created built-in provider: %s', provider_spec.name)
+    return True
 
 
 async def _ensure_tts_model(

@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import PipelineFormComponent from '@/app/home/pipelines/components/pipeline-form/PipelineFormComponent';
 import PipelineMonitoringTab from '@/app/home/pipelines/components/monitoring-tab/PipelineMonitoringTab';
+import PipelineAutoTestTab from '@/app/home/pipelines/components/auto-test/PipelineAutoTestTab';
 import { useSidebarData } from '@/app/home/components/home-sidebar/SidebarDataContext';
 import { useTranslation } from 'react-i18next';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, Sparkles } from 'lucide-react';
 
 export default function PipelineDetailContent({ id }: { id: string }) {
   const isCreateMode = id === 'new';
@@ -29,6 +30,7 @@ export default function PipelineDetailContent({ id }: { id: string }) {
   }, [id, isCreateMode, pipelines, setDetailEntityName, t]);
 
   const [monitoringOpen, setMonitoringOpen] = useState(false);
+  const [autoTestOpen, setAutoTestOpen] = useState(false);
   const [formDirty, setFormDirty] = useState(false);
 
   function handleFinish() {
@@ -99,6 +101,15 @@ export default function PipelineDetailContent({ id }: { id: string }) {
           <Button
             type="button"
             variant="ghost"
+            className="h-10 rounded-lg px-3 text-cyan-700 hover:bg-cyan-50 hover:text-cyan-900"
+            onClick={() => setAutoTestOpen(true)}
+          >
+            <Sparkles className="mr-1.5 size-4" />
+            自动测试
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
             className="h-10 rounded-lg px-3 text-slate-600 hover:bg-slate-100 hover:text-slate-950"
             onClick={() => setMonitoringOpen(true)}
           >
@@ -138,6 +149,15 @@ export default function PipelineDetailContent({ id }: { id: string }) {
               setMonitoringOpen(false);
               navigate('/home/monitoring');
             }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={autoTestOpen} onOpenChange={setAutoTestOpen}>
+        <DialogContent className="flex h-[82vh] !max-w-[94vw] flex-col rounded-2xl p-6 sm:max-w-[1320px]">
+          <PipelineAutoTestTab
+            initialTargetType="pipeline"
+            initialTargetUuid={id}
           />
         </DialogContent>
       </Dialog>

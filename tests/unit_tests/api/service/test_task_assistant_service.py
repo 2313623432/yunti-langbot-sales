@@ -677,6 +677,56 @@ def test_task_assistant_pipeline_uses_frontend_configured_model_only():
     assert voice_node['config']['encoding'] == 'ogg_opus'
 
 
+@pytest.mark.asyncio
+async def test_builtin_pipeline_default_model_replaces_unconfigured_saved_model():
+    saved_config = TaskAssistantService(SimpleNamespace()).build_course_sales_template_pipeline_config(
+        model_uuid='lnp-openai-gpt-4o-mini',
+        template_slug='yuanfudao-enhanced',
+    )
+    saved_config['template_config']['model_uuid'] = 'lnp-openai-gpt-4o-mini'
+    pipeline = SimpleNamespace(config=saved_config)
+    ap = SimpleNamespace(
+        logger=SimpleNamespace(info=Mock(), warning=Mock(), debug=Mock()),
+        llm_model_service=SimpleNamespace(
+            get_llm_models=AsyncMock(
+                return_value=[
+                    {
+                        'uuid': 'configured-model',
+                        'name': 'gemini-3-flash-preview',
+                        'abilities': ['vision', 'func_call'],
+                    }
+                ]
+            )
+        ),
+        persistence_mgr=SimpleNamespace(
+            execute_async=AsyncMock(
+                side_effect=[
+                    _FirstResult(pipeline),
+                    None,
+                    _FirstResult(None),
+                    _FirstResult(None),
+                ]
+            )
+        ),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_builtin_pipeline_default_models()
+
+    update_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
+    params = update_statement.compile().params
+    updated_config = params['config']
+    assert updated_config['template_config']['model_uuid'] == 'configured-model'
+    assert updated_config['ai']['local-agent']['model']['primary'] == 'configured-model'
+    ap.llm_model_service.get_llm_models.assert_awaited_once_with(
+        include_secret=False,
+        include_space_models=False,
+        include_system_models=False,
+        only_configured_providers=True,
+        model_category='text',
+    )
+
+
 def test_task_assistant_template_pipeline_config_matches_workflow_capabilities():
     service = TaskAssistantService(SimpleNamespace())
 

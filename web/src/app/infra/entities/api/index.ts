@@ -144,6 +144,60 @@ export interface ApiRespPipelines {
   pipelines: Pipeline[];
 }
 
+export type AutoTestTargetType = 'pipeline' | 'workflow';
+
+export interface AutoTestTarget {
+  type: AutoTestTargetType;
+  uuid: string;
+  name: string;
+  description: string;
+  folder?: string;
+  is_builtin?: boolean;
+}
+
+export interface AutoTestMessage {
+  role: 'user' | 'assistant';
+  sender: string;
+  content_type: 'text' | 'image' | 'voice' | 'file';
+  content: string;
+  turn: number;
+}
+
+export interface AutoTestRun {
+  uuid: string;
+  target_type: AutoTestTargetType;
+  target_uuid: string;
+  target_name: string;
+  status: string;
+  scenario: string;
+  messages: AutoTestMessage[];
+  evaluation: {
+    score?: number;
+    max_score?: number;
+    checks?: Record<string, boolean>;
+    suggestions?: string[];
+  };
+  user_feedback: '' | 'satisfied' | 'unsatisfied';
+  feedback_reason: string;
+  optimization_summary: string;
+  optimization_patch: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ApiRespAutoTestTargets {
+  pipelines: AutoTestTarget[];
+  workflows: AutoTestTarget[];
+}
+
+export interface ApiRespAutoTestRuns {
+  runs: AutoTestRun[];
+}
+
+export interface ApiRespAutoTestRun {
+  run: AutoTestRun;
+}
+
 export interface WorkflowProject {
   uuid: string;
   folder: string;
@@ -474,6 +528,113 @@ export interface SalesHandoff {
   operator_reply: string;
   assigned_to: string;
   updated_at?: string;
+}
+
+export type SalesConversationStatus =
+  | 'ai_hosted'
+  | 'pending_manual'
+  | 'manual_handling';
+
+export type SalesMessageComponent =
+  | {
+      kind: 'text';
+      text: string;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'image';
+      url?: string;
+      base64?: string;
+      path?: string;
+      name?: string;
+      available: boolean;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'voice';
+      url?: string;
+      base64?: string;
+      path?: string;
+      length?: number;
+      available: boolean;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'file';
+      name: string;
+      url?: string;
+      path?: string;
+      available: boolean;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'link';
+      title: string;
+      description?: string;
+      url: string;
+      thumb_url?: string;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'quote';
+      text: string;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'attachment';
+      type: string;
+      label: string;
+      raw?: Record<string, unknown>;
+    };
+
+export interface SalesConversationMessage {
+  id: string;
+  timestamp: string;
+  session_id: string;
+  role: string | null;
+  sender_kind: 'customer' | 'assistant' | 'operator';
+  sender_label: string;
+  bot_id: string;
+  bot_name: string;
+  platform: string | null;
+  user_id: string | null;
+  user_name: string | null;
+  runner_name: string | null;
+  status: string;
+  level: string;
+  preview: string;
+  components: SalesMessageComponent[];
+  metadata: Record<string, unknown>;
+  raw_message_content: string;
+}
+
+export interface SalesConversation {
+  session_id: string;
+  customer_name: string;
+  platform: string;
+  user_id: string;
+  user_name: string;
+  bot_id: string;
+  bot_name: string;
+  message_count: number;
+  last_activity: string;
+  latest_message: SalesConversationMessage | null;
+  latest_message_preview: string;
+  handoff_status: SalesConversationStatus;
+  handoff: SalesHandoff | null;
+  memory: SalesCustomerMemory | null;
+}
+
+export interface SalesReplySuggestionResp {
+  suggestion: {
+    tone: string;
+    message: string;
+    next_action: string;
+  };
+  product: SalesProduct;
+  source?: 'llm' | 'fallback';
+  model_uuid?: string;
+  model_name?: string;
 }
 
 export interface SalesOutreachPlan {

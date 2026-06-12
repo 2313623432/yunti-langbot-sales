@@ -3,8 +3,10 @@ import { httpClient } from '@/app/infra/http/HttpClient';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
+import type { FieldErrors } from 'react-hook-form';
 import { z } from 'zod';
 import { useTranslation } from 'react-i18next';
+import { RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -39,7 +41,10 @@ const getFormSchema = (t: (key: string) => string) =>
 
 interface ProviderFormProps {
   providerId?: string;
-  onFormSubmit: () => void;
+  onFormSubmit: (
+    providerUuid?: string,
+    options?: { scan?: boolean },
+  ) => void | Promise<void>;
   onFormCancel: () => void;
 }
 
@@ -81,7 +86,19 @@ export default function ProviderForm({
     form.setValue('api_key', provider.api_keys?.[0] || '');
   }
 
-  async function handleFormSubmit(values: z.infer<typeof formSchema>) {
+  function notifyValidationError(errors: FieldErrors<z.infer<typeof formSchema>>) {
+    const firstError = Object.values(errors)[0];
+    if (firstError?.message) {
+      toast.error(String(firstError.message));
+    } else {
+      toast.error(t('models.providerSaveError'));
+    }
+  }
+
+  async function handleFormSubmit(
+    values: z.infer<typeof formSchema>,
+    scanAfterSave = false,
+  ) {
     const protocol = values.protocol;
     const data = {
       name: values.name,
@@ -93,17 +110,26 @@ export default function ProviderForm({
 
     try {
       form.clearErrors();
+      let savedProviderUuid = providerId;
       if (providerId) {
         await httpClient.updateModelProvider(providerId, data);
         toast.success(t('models.providerSaved'));
       } else {
-        await httpClient.createModelProvider(data);
+        const resp = await httpClient.createModelProvider(data);
+        savedProviderUuid = resp.uuid;
         toast.success(t('models.providerCreated'));
       }
-      onFormSubmit();
+      await onFormSubmit(savedProviderUuid, { scan: scanAfterSave });
     } catch (err) {
       toast.error(t('models.providerSaveError') + (err as CustomApiError).msg);
     }
+  }
+
+  async function handleSaveAndScan() {
+    await form.handleSubmit(
+      (values) => handleFormSubmit(values, true),
+      notifyValidationError,
+    )();
   }
 
   function handleProtocolChange(protocol: ProviderProtocol) {
@@ -116,14 +142,10 @@ export default function ProviderForm({
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit(handleFormSubmit, (errors) => {
-          const firstError = Object.values(errors)[0];
-          if (firstError?.message) {
-            toast.error(String(firstError.message));
-          } else {
-            toast.error(t('models.providerSaveError'));
-          }
-        })}
+        onSubmit={form.handleSubmit(
+          (values) => handleFormSubmit(values),
+          notifyValidationError,
+        )}
         className="space-y-4"
       >
         <FormField
@@ -211,7 +233,19 @@ export default function ProviderForm({
         />
 
         <DialogFooter>
-          <Button type="submit" disabled={form.formState.isSubmitting}>
+          <Button
+            type="button"
+            onClick={handleSaveAndScan}
+            disabled={form.formState.isSubmitting}
+          >
+            <RefreshCw className="mr-1 size-4" />
+            {t('models.saveAndScanModels')}
+          </Button>
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={form.formState.isSubmitting}
+          >
             {t('common.save')}
           </Button>
           <Button type="button" variant="outline" onClick={onFormCancel}>

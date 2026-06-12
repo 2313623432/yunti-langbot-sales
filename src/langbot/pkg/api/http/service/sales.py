@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import base64
+import copy
 import datetime
 import json
 import mimetypes
 import os
 import re
+from types import SimpleNamespace
 import uuid
 from typing import Any
 
@@ -109,7 +111,29 @@ class SalesService:
     def classify_intent(self, text: str) -> dict[str, Any]:
         normalized = (text or '').strip().lower()
         rules = [
-            ('handoff', ['转人工', '人工', '真人', '销售联系', '电话联系', '加微信', '报价单', '合同'], 0.9, True),
+            (
+                'handoff',
+                [
+                    '转人工',
+                    '人工',
+                    '真人',
+                    '销售联系',
+                    '电话联系',
+                    '加微信',
+                    '报价单',
+                    '合同',
+                    '投诉',
+                    '生气',
+                    '太差',
+                    '骗人',
+                    '退钱',
+                    '不满意',
+                    '别废话',
+                    '找负责人',
+                ],
+                0.9,
+                True,
+            ),
             ('price', ['价格', '多少钱', '费用', '收费', '报价', '预算', '便宜', '贵'], 0.78, False),
             ('purchase', ['购买', '下单', '开通', '试用', '怎么买', '付款', '成交'], 0.82, False),
             ('comparison', ['对比', '比较', '竞品', '区别', '优势', '为什么选'], 0.72, False),
@@ -696,28 +720,143 @@ class SalesService:
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesHandoff).where(persistence_sales.SalesHandoff.id == handoff_id)
         )
-        handoff = result.first()
+        handoff = self._first_row(result)
         if handoff is None:
             raise ValueError('Handoff not found')
         if not handoff.bot_uuid or not handoff.target_id:
             raise ValueError('Handoff target is missing; cannot send manual reply')
 
-        from langbot_plugin.api.entities.builtin.platform import message as platform_message
-
-        runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(handoff.bot_uuid)
-        if runtime_bot is None:
-            raise ValueError(f'Bot {handoff.bot_uuid} is not running; cannot send manual reply')
-
-        await runtime_bot.adapter.send_message(
-            handoff.target_type,
-            handoff.target_id,
-            platform_message.MessageChain([platform_message.Plain(text=reply)]),
+        await self._send_operator_message(
+            bot_uuid=handoff.bot_uuid,
+            target_type=handoff.target_type,
+            target_id=handoff.target_id,
+            reply=reply,
+        )
+        await self._record_operator_monitoring_message(
+            session_id=handoff.session_id,
+            bot_id=handoff.bot_uuid,
+            bot_name='',
+            pipeline_id='',
+            pipeline_name='',
+            platform=handoff.platform,
+            user_id=handoff.user_id,
+            user_name='',
+            reply=reply,
+            assigned_to=assigned_to,
         )
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.update(persistence_sales.SalesHandoff)
             .where(persistence_sales.SalesHandoff.id == handoff_id)
-            .values(status='handled', operator_reply=reply, assigned_to=assigned_to, updated_at=datetime.datetime.now())
+            .values(status='open', operator_reply=reply, assigned_to=assigned_to, updated_at=datetime.datetime.now())
         )
+
+    async def send_operator_message_from_session(
+        self,
+        session_id: str,
+        reply: str,
+        assigned_to: str = '',
+        pause_ai: bool = False,
+    ) -> dict[str, Any]:
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession).where(
+                persistence_monitoring.MonitoringSession.session_id == session_id
+            )
+        )
+        session = self._first_row(session_result)
+        if session is None:
+            raise ValueError('Session not found')
+
+        handoff_id: int | None = None
+        if pause_ai:
+            handoff = await self.open_handoff_from_session(session_id, '人工接入处理中', assigned_to)
+            handoff_id = int(handoff['id']) if handoff.get('id') else None
+
+        target_type, target_id = self._target_from_session(session)
+        await self._send_operator_message(
+            bot_uuid=getattr(session, 'bot_id', '') or '',
+            target_type=target_type,
+            target_id=target_id,
+            reply=reply,
+        )
+        await self._record_operator_monitoring_message(
+            session_id=getattr(session, 'session_id', '') or '',
+            bot_id=getattr(session, 'bot_id', '') or '',
+            bot_name=getattr(session, 'bot_name', '') or '',
+            pipeline_id=getattr(session, 'pipeline_id', '') or '',
+            pipeline_name=getattr(session, 'pipeline_name', '') or '',
+            platform=getattr(session, 'platform', None),
+            user_id=getattr(session, 'user_id', None),
+            user_name=getattr(session, 'user_name', None),
+            reply=reply,
+            assigned_to=assigned_to,
+        )
+        return {'sent': True, 'handoff_id': handoff_id}
+
+    async def _send_operator_message(self, bot_uuid: str, target_type: str, target_id: str, reply: str) -> None:
+        if not bot_uuid or not target_id:
+            raise ValueError('Handoff target is missing; cannot send manual reply')
+        from langbot_plugin.api.entities.builtin.platform import message as platform_message
+
+        runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(bot_uuid)
+        if runtime_bot is None:
+            raise ValueError(f'Bot {bot_uuid} is not running; cannot send manual reply')
+        await runtime_bot.adapter.send_message(
+            target_type,
+            target_id,
+            platform_message.MessageChain([platform_message.Plain(text=reply)]),
+        )
+
+    async def _record_operator_monitoring_message(
+        self,
+        *,
+        session_id: str,
+        bot_id: str,
+        bot_name: str,
+        pipeline_id: str,
+        pipeline_name: str,
+        platform: str | None,
+        user_id: str | None,
+        user_name: str | None,
+        reply: str,
+        assigned_to: str,
+    ) -> None:
+        monitoring_service = getattr(self.ap, 'monitoring_service', None)
+        if monitoring_service is None:
+            return
+        message_content = json.dumps([{'type': 'Plain', 'text': reply}], ensure_ascii=False)
+        variables = json.dumps({'sales_sender_kind': 'operator'}, ensure_ascii=False)
+        await monitoring_service.record_message(
+            bot_id=bot_id,
+            bot_name=bot_name,
+            pipeline_id=pipeline_id,
+            pipeline_name=pipeline_name,
+            message_content=message_content,
+            session_id=session_id,
+            status='success',
+            level='info',
+            platform=platform,
+            user_id=user_id,
+            user_name=user_name,
+            runner_name=assigned_to or '人工销售',
+            variables=variables,
+            role='assistant',
+        )
+
+    async def restore_ai_hosting_from_session(self, session_id: str, assigned_to: str = '') -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesHandoff)
+            .where(persistence_sales.SalesHandoff.session_id == session_id)
+            .where(persistence_sales.SalesHandoff.status == 'open')
+        )
+        handoff = self._first_row(result)
+        if handoff is None:
+            return {'restored': True, 'handoff_id': None}
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesHandoff)
+            .where(persistence_sales.SalesHandoff.id == handoff.id)
+            .values(status='ai_resumed', assigned_to=assigned_to or handoff.assigned_to, updated_at=datetime.datetime.now())
+        )
+        return {'restored': True, 'handoff_id': handoff.id}
 
     async def reply_handoff_from_session(
         self,
@@ -1032,7 +1171,10 @@ class SalesService:
 
     def radar_tracking_public_base_url(self) -> str:
         cfg_mgr = getattr(self.ap, 'instance_config', None)
-        instance_config = cfg_mgr.data if cfg_mgr is not None and hasattr(cfg_mgr, 'data') else {}
+        if isinstance(cfg_mgr, dict):
+            instance_config = cfg_mgr
+        else:
+            instance_config = cfg_mgr.data if cfg_mgr is not None and hasattr(cfg_mgr, 'data') else {}
         sales_cfg = instance_config.get('sales') if isinstance(instance_config.get('sales'), dict) else {}
         api_cfg = instance_config.get('api') if isinstance(instance_config.get('api'), dict) else {}
         for candidate in (
@@ -1639,6 +1781,456 @@ class SalesService:
             or re.match(r'^[A-Za-z]+Types\.[A-Z_]+_', text) is not None
         )
 
+    def normalize_sales_message_content(self, message_content: str) -> dict[str, Any]:
+        components: list[dict[str, Any]] = []
+        metadata: dict[str, Any] = {}
+        raw_content = message_content or ''
+        try:
+            parsed = json.loads(raw_content)
+        except (TypeError, json.JSONDecodeError):
+            parsed = [{'type': 'Plain', 'text': raw_content}] if raw_content else []
+
+        if not isinstance(parsed, list):
+            parsed = [{'type': 'Plain', 'text': raw_content}]
+
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            normalized = self._normalize_sales_message_component(item)
+            if normalized is None:
+                source_id = item.get('id')
+                if item.get('type') == 'Source' and source_id:
+                    metadata['source'] = {key: value for key, value in item.items() if key != 'type'}
+                continue
+            components.append(normalized)
+
+        return {
+            'components': components,
+            'preview': self._sales_message_preview(components),
+            'metadata': metadata,
+        }
+
+    def _normalize_sales_message_component(self, component: dict[str, Any]) -> dict[str, Any] | None:
+        component_type = str(component.get('type') or '').strip()
+        if component_type == 'Source':
+            return None
+        if component_type == 'Plain':
+            return {
+                'kind': 'text',
+                'text': str(component.get('text') or ''),
+                'raw': component,
+            }
+        if component_type in ('At', 'AtAll'):
+            label = component.get('display') or component.get('target') or 'All'
+            return {'kind': 'text', 'text': f'@{label}', 'raw': component}
+        if component_type == 'Image':
+            url = str(component.get('url') or '')
+            base64_data = str(component.get('base64') or '')
+            path = str(component.get('path') or '')
+            return {
+                'kind': 'image',
+                'url': url,
+                'base64': base64_data,
+                'path': path,
+                'name': str(component.get('name') or component.get('file_name') or ''),
+                'available': bool(url or base64_data or path),
+                'raw': component,
+            }
+        if component_type == 'Voice':
+            url = str(component.get('url') or '')
+            base64_data = str(component.get('base64') or '')
+            path = str(component.get('path') or '')
+            return {
+                'kind': 'voice',
+                'url': url,
+                'base64': base64_data,
+                'path': path,
+                'length': component.get('length') or component.get('duration') or 0,
+                'available': bool(url or base64_data or path),
+                'raw': component,
+            }
+        if component_type == 'File':
+            return {
+                'kind': 'file',
+                'name': str(component.get('name') or component.get('file_name') or '文件'),
+                'url': str(component.get('url') or ''),
+                'path': str(component.get('path') or ''),
+                'available': bool(component.get('url') or component.get('path')),
+                'raw': component,
+            }
+        if component_type in ('WeChatLink', 'Link'):
+            return {
+                'kind': 'link',
+                'title': str(component.get('title') or component.get('name') or '链接'),
+                'description': str(component.get('description') or ''),
+                'url': str(component.get('url') or component.get('link_url') or ''),
+                'thumb_url': str(component.get('thumb_url') or component.get('image') or ''),
+                'raw': component,
+            }
+        if component_type == 'Quote':
+            origin = component.get('origin') if isinstance(component.get('origin'), list) else []
+            quoted = []
+            for origin_item in origin:
+                if isinstance(origin_item, dict) and origin_item.get('type') == 'Plain':
+                    quoted.append(str(origin_item.get('text') or ''))
+            return {'kind': 'quote', 'text': '\n'.join(quoted), 'raw': component}
+        return {
+            'kind': 'attachment',
+            'type': component_type or 'Unknown',
+            'label': f'[{component_type or "Unknown"}]',
+            'raw': component,
+        }
+
+    def _sales_message_preview(self, components: list[dict[str, Any]]) -> str:
+        labels = []
+        for component in components:
+            kind = component.get('kind')
+            if kind == 'text':
+                text = str(component.get('text') or '').strip()
+                if text:
+                    labels.append(text)
+            elif kind == 'image':
+                labels.append('[图片]')
+            elif kind == 'voice':
+                labels.append('[语音]')
+            elif kind == 'file':
+                labels.append(f"[文件] {component.get('name') or ''}".strip())
+            elif kind == 'link':
+                labels.append(f"[链接] {component.get('title') or ''}".strip())
+            elif kind == 'quote':
+                labels.append('[引用]')
+            else:
+                labels.append(str(component.get('label') or '[附件]'))
+        return ' '.join(label for label in labels if label).strip()
+
+    def _normalized_handoff_status(self, handoff: Any | None) -> str:
+        if handoff is None or getattr(handoff, 'status', '') != 'open':
+            return 'ai_hosted'
+        if getattr(handoff, 'assigned_to', '') or getattr(handoff, 'operator_reply', ''):
+            return 'manual_handling'
+        return 'pending_manual'
+
+    def _sales_sender_kind(self, message: Any) -> str:
+        role = getattr(message, 'role', None)
+        variables = getattr(message, 'variables', None)
+        if variables:
+            try:
+                parsed = json.loads(variables)
+            except (TypeError, json.JSONDecodeError):
+                parsed = {}
+            if parsed.get('sales_sender_kind') == 'operator':
+                return 'operator'
+        if role == 'assistant':
+            return 'assistant'
+        return 'customer'
+
+    def _serialize_sales_message(self, message: Any) -> dict[str, Any]:
+        normalized = self.normalize_sales_message_content(getattr(message, 'message_content', '') or '')
+        sender_kind = self._sales_sender_kind(message)
+        if sender_kind == 'operator':
+            sender_label = getattr(message, 'runner_name', '') or '人工销售'
+        elif sender_kind == 'assistant':
+            sender_label = getattr(message, 'bot_name', '') or '数字员工'
+        else:
+            sender_label = getattr(message, 'user_name', '') or getattr(message, 'user_id', '') or '客户'
+        return {
+            'id': getattr(message, 'id', ''),
+            'timestamp': self._format_datetime(getattr(message, 'timestamp', None)),
+            'session_id': getattr(message, 'session_id', ''),
+            'role': getattr(message, 'role', None),
+            'sender_kind': sender_kind,
+            'sender_label': sender_label,
+            'bot_id': getattr(message, 'bot_id', ''),
+            'bot_name': getattr(message, 'bot_name', ''),
+            'platform': getattr(message, 'platform', None),
+            'user_id': getattr(message, 'user_id', None),
+            'user_name': getattr(message, 'user_name', None),
+            'runner_name': getattr(message, 'runner_name', None),
+            'status': getattr(message, 'status', ''),
+            'level': getattr(message, 'level', ''),
+            'preview': normalized['preview'],
+            'components': normalized['components'],
+            'metadata': normalized['metadata'],
+            'raw_message_content': getattr(message, 'message_content', ''),
+        }
+
+    def _format_datetime(self, value: Any) -> str:
+        if value is None:
+            return ''
+        if isinstance(value, datetime.datetime):
+            return value.isoformat()
+        return str(value)
+
+    async def get_sales_conversations(
+        self,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession)
+            .order_by(persistence_monitoring.MonitoringSession.last_activity.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        sessions = [self._row_entity(row) for row in session_result.all()]
+        session_ids = [session.session_id for session in sessions]
+        if not session_ids:
+            return []
+
+        message_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage)
+            .where(persistence_monitoring.MonitoringMessage.session_id.in_(session_ids))
+            .order_by(persistence_monitoring.MonitoringMessage.timestamp.desc())
+        )
+        latest_by_session: dict[str, Any] = {}
+        for row in message_result.all():
+            message = self._row_entity(row)
+            latest_by_session.setdefault(message.session_id, message)
+
+        memory_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id.in_(session_ids)
+            )
+        )
+        memories = {}
+        for row in memory_result.all():
+            memory = self._row_entity(row)
+            memories[memory.session_id] = memory
+
+        handoff_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesHandoff).where(
+                persistence_sales.SalesHandoff.session_id.in_(session_ids)
+            )
+        )
+        handoffs: dict[str, Any] = {}
+        for row in handoff_result.all():
+            handoff = self._row_entity(row)
+            current = handoffs.get(handoff.session_id)
+            current_time = getattr(current, 'updated_at', datetime.datetime.min) if current is not None else datetime.datetime.min
+            handoff_time = getattr(handoff, 'updated_at', datetime.datetime.min) or datetime.datetime.min
+            if current is None or handoff_time >= current_time:
+                handoffs[handoff.session_id] = handoff
+
+        conversations: list[dict[str, Any]] = []
+        for session in sessions:
+            handoff = handoffs.get(session.session_id)
+            normalized_status = self._normalized_handoff_status(handoff)
+            if status and status != 'all' and normalized_status != status:
+                continue
+            latest_message = latest_by_session.get(session.session_id)
+            latest = self._serialize_sales_message(latest_message) if latest_message else None
+            memory = memories.get(session.session_id)
+            conversations.append(
+                {
+                    'session_id': session.session_id,
+                    'customer_name': getattr(memory, 'customer_name', '')
+                    or getattr(session, 'user_name', '')
+                    or getattr(session, 'user_id', '')
+                    or session.session_id,
+                    'platform': getattr(session, 'platform', '') or '',
+                    'user_id': getattr(session, 'user_id', '') or '',
+                    'user_name': getattr(session, 'user_name', '') or '',
+                    'bot_id': getattr(session, 'bot_id', '') or '',
+                    'bot_name': getattr(session, 'bot_name', '') or '',
+                    'message_count': getattr(session, 'message_count', 0) or 0,
+                    'last_activity': self._format_datetime(getattr(session, 'last_activity', None)),
+                    'latest_message': latest,
+                    'latest_message_preview': latest['preview'] if latest else '',
+                    'handoff_status': normalized_status,
+                    'handoff': self.ap.persistence_mgr.serialize_model(persistence_sales.SalesHandoff, handoff)
+                    if handoff
+                    else None,
+                    'memory': self.ap.persistence_mgr.serialize_model(persistence_sales.SalesCustomerMemory, memory)
+                    if memory
+                    else None,
+                }
+            )
+        return conversations
+
+    async def get_sales_conversation_messages(
+        self,
+        session_id: str,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage)
+            .where(persistence_monitoring.MonitoringMessage.session_id == session_id)
+            .order_by(persistence_monitoring.MonitoringMessage.timestamp.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = [self._row_entity(row) for row in result.all()]
+        messages = [self._serialize_sales_message(message) for message in sorted(rows, key=lambda item: item.timestamp)]
+        return {'messages': messages, 'total': len(messages)}
+
+    async def generate_sales_reply_suggestion_from_session(
+        self,
+        session_id: str,
+        product_uuid: str = '',
+        tone: str = 'consultative',
+    ) -> dict[str, Any]:
+        messages = await self.get_sales_conversation_messages(session_id, limit=20, offset=0)
+        context = '\n'.join(message['preview'] for message in messages['messages'][-8:] if message.get('preview'))
+        products = await self.get_products(enabled_only=True)
+        product = next((item for item in products if item.get('uuid') == product_uuid), None) if product_uuid else None
+        if product is None:
+            product = self.select_best_product(context, products)
+        if product is None:
+            raise ValueError('No product available')
+        llm_suggestion = await self._generate_llm_sales_reply_suggestion(
+            messages['messages'][-12:],
+            product,
+            tone,
+        )
+        if llm_suggestion is not None:
+            return {
+                'suggestion': llm_suggestion['suggestion'],
+                'product': product,
+                'source': 'llm',
+                'model_uuid': llm_suggestion.get('model_uuid', ''),
+                'model_name': llm_suggestion.get('model_name', ''),
+            }
+        pitch = self.generate_pitch(product, customer_profile=context, intent=context, tone=tone)
+        return {'suggestion': pitch, 'product': product, 'source': 'fallback', 'model_uuid': '', 'model_name': ''}
+
+    async def _generate_llm_sales_reply_suggestion(
+        self,
+        messages: list[dict[str, Any]],
+        product: dict[str, Any],
+        tone: str,
+    ) -> dict[str, Any] | None:
+        model_uuid = self._preferred_sales_suggestion_model_uuid()
+        if not model_uuid:
+            return None
+        try:
+            from langbot_plugin.api.entities.builtin.provider import message as provider_message
+
+            runtime_model = await self.ap.model_mgr.get_model_by_uuid(model_uuid)
+            model_entity = getattr(runtime_model, 'model_entity', None)
+            model_name = str(getattr(model_entity, 'name', '') or model_uuid)
+            prompt = self._build_sales_suggestion_prompt(messages, product, tone)
+            response = await runtime_model.provider.invoke_llm(
+                query=None,
+                model=runtime_model,
+                messages=[
+                    provider_message.Message(
+                        role='system',
+                        content=(
+                            '你是SCRM人工接管工作台里的销售助理。'
+                            '请基于真实聊天上下文给人工客服一条可直接发送的中文回复。'
+                            '不要编造不存在的优惠、名额、承诺或链接；如果需要人工确认，就明确说我帮您确认。'
+                        ),
+                    ),
+                    provider_message.Message(role='user', content=prompt),
+                ],
+                funcs=[],
+                extra_args=copy.deepcopy(getattr(model_entity, 'extra_args', {}) or {}),
+                remove_think=True,
+            )
+            text = self._provider_message_content_to_text(getattr(response, 'content', response)).strip()
+            if not text:
+                return None
+            return {
+                'suggestion': {
+                    'tone': tone,
+                    'message': text,
+                    'next_action': 'manual_review',
+                },
+                'model_uuid': model_uuid,
+                'model_name': model_name,
+            }
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning(f'[Sales] LLM reply suggestion failed, falling back to rule pitch: {exc}')
+            return None
+
+    def _preferred_sales_suggestion_model_uuid(self) -> str:
+        model_mgr = getattr(self.ap, 'model_mgr', None)
+        for runtime_model in getattr(model_mgr, 'llm_models', []) or []:
+            provider = getattr(runtime_model, 'provider', None)
+            provider_entity = getattr(provider, 'provider_entity', None)
+            requester = str(getattr(provider_entity, 'requester', '') or '')
+            provider_uuid = str(getattr(provider_entity, 'uuid', '') or '')
+            if requester == 'space-chat-completions' or provider_uuid == '00000000-0000-0000-0000-000000000000':
+                continue
+            if not self._provider_has_api_key(getattr(provider_entity, 'api_keys', None)):
+                continue
+            model_entity = getattr(runtime_model, 'model_entity', None)
+            model_uuid = str(getattr(model_entity, 'uuid', '') or '').strip()
+            if model_uuid:
+                return model_uuid
+        return ''
+
+    def _provider_has_api_key(self, api_keys: Any) -> bool:
+        if isinstance(api_keys, list):
+            return any(str(key or '').strip() for key in api_keys)
+        if isinstance(api_keys, str):
+            text = api_keys.strip()
+            if not text:
+                return False
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    return any(str(key or '').strip() for key in parsed)
+            except json.JSONDecodeError:
+                return bool(text)
+        return False
+
+    def _build_sales_suggestion_prompt(
+        self,
+        messages: list[dict[str, Any]],
+        product: dict[str, Any],
+        tone: str,
+    ) -> str:
+        conversation_lines = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = message.get('role') or message.get('sender_type') or ''
+            sender = message.get('sender_name') or ('客户' if role == 'user' else 'AI')
+            preview = str(message.get('preview') or '').strip()
+            if preview:
+                conversation_lines.append(f'{sender}: {preview}')
+        payload = {
+            'tone': tone,
+            'conversation': conversation_lines[-12:],
+            'product': {
+                'name': product.get('name'),
+                'price': product.get('price'),
+                'link': product.get('link'),
+                'description': product.get('description'),
+                'selling_points': product.get('selling_points') or [],
+                'pain_points': product.get('pain_points') or [],
+                'objections': product.get('objections') or [],
+                'audience': product.get('audience') or [],
+            },
+            'requirements': [
+                '只输出一条人工客服可直接发送的回复，不要输出标题或解释。',
+                '先回应客户刚刚的问题或情绪，再给清晰下一步。',
+                '语气像真实SCRM聊天，短句、可读，不要长篇营销。',
+                '如果客户要求人工或情绪激动，回复应体现人工正在接入处理。',
+            ],
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    def _provider_message_content_to_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                text = getattr(item, 'text', None)
+                if text is None and isinstance(item, dict):
+                    text = item.get('text')
+                if text:
+                    parts.append(str(text))
+            return '\n'.join(parts)
+        return str(content or '')
+
+
     def _query_session_id(self, query: Any) -> str:
         launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
         return f'{launcher_type}_{query.launcher_id}'
@@ -1664,6 +2256,22 @@ class SalesService:
         try:
             return row[0]
         except (KeyError, IndexError, TypeError, AttributeError):
+            return row
+
+    def _row_entity(self, row: Any) -> Any:
+        if isinstance(row, tuple):
+            return row[0]
+        mapping = getattr(row, '_mapping', None)
+        if mapping:
+            mapped_values = list(mapping.values())
+            if len(mapped_values) == 1 and not isinstance(mapped_values[0], (str, int, float, bool, bytes, type(None))):
+                return mapped_values[0]
+            string_keys = {str(key): value for key, value in mapping.items() if isinstance(key, str)}
+            if string_keys:
+                return SimpleNamespace(**string_keys)
+        try:
+            return row[0]
+        except (TypeError, KeyError, IndexError):
             return row
 
     def _stage_for_intent(self, intent: str) -> str:

@@ -25,6 +25,7 @@ import SalesPage from '@/app/home/sales/page';
 import SalesChatPage from '@/app/home/sales-chat/page';
 import ProductsPage from '@/app/home/products/page';
 import AiAgentsPage from '@/app/home/ai-agents/page';
+import AutoTestPage from '@/app/home/auto-test/page';
 
 const Loading = () => <div>加载中...</div>;
 
@@ -111,6 +112,16 @@ export const router = createBrowserRouter([
       <Suspense fallback={<Loading />}>
         <HomeLayout>
           <WorkflowsPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/auto-test',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <AutoTestPage />
         </HomeLayout>
       </Suspense>
     ),

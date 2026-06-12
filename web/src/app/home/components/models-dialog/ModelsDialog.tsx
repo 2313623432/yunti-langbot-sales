@@ -10,6 +10,7 @@ import {
   KeyRound,
   Link2,
   Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { httpClient, systemInfo } from '@/app/infra/http/HttpClient';
 import { EmbeddingModel, LLMModel, ModelProvider } from '@/app/infra/entities/api';
@@ -747,11 +748,22 @@ export default function ModelsDialog({
     }
   }
 
-  function handleFormClose() {
+  async function handleFormClose(
+    providerUuid?: string,
+    options?: { scan?: boolean },
+  ) {
     setProviderFormOpen(false);
-    loadProviders();
-    if (selectedProviderUuid) {
-      loadProviderModels(selectedProviderUuid, true);
+    await loadProviders();
+
+    const targetProviderUuid = providerUuid || selectedProviderUuid;
+    if (targetProviderUuid) {
+      setSelectedProviderUuid(targetProviderUuid);
+      await loadProviderModels(targetProviderUuid, true);
+    }
+
+    if (targetProviderUuid && options?.scan) {
+      setAddModelMode('scan');
+      setAddModelPopoverOpen(targetProviderUuid);
     }
   }
 
@@ -1212,6 +1224,77 @@ export default function ModelsDialog({
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
+                          <AddModelPopover
+                            isOpen={
+                              addModelPopoverOpen === selectedProvider.uuid &&
+                              addModelMode === 'scan'
+                            }
+                            initialMode="scan"
+                            defaultModelType={
+                              modelCategory === 'embedding' ? 'embedding' : 'llm'
+                            }
+                            defaultAbilities={
+                              modelCategory === 'asr'
+                                ? ['asr']
+                                : modelCategory === 'voice'
+                                  ? ['tts']
+                                  : modelCategory === 'pdf'
+                                    ? ['pdf_parse']
+                                    : []
+                            }
+                            lockedModelType={
+                              modelCategory === 'embedding' ? 'embedding' : undefined
+                            }
+                            trigger={
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setAddModelMode('scan')}
+                              >
+                                <RefreshCw className="mr-1 size-4" />
+                                {t('models.scanModels')}
+                              </Button>
+                            }
+                            onOpen={() => {
+                              setAddModelMode('scan');
+                              setAddModelPopoverOpen(selectedProvider.uuid);
+                            }}
+                            onClose={() => setAddModelPopoverOpen(null)}
+                            onAddModel={(modelType, name, abilities, extraArgs) =>
+                              handleAddModel(
+                                selectedProvider.uuid,
+                                modelType,
+                                name,
+                                modelCategory === 'voice'
+                                  ? Array.from(new Set([...abilities, 'tts']))
+                                  : modelCategory === 'asr'
+                                    ? Array.from(new Set([...abilities, 'asr']))
+                                  : modelCategory === 'pdf'
+                                    ? Array.from(new Set([...abilities, 'pdf_parse']))
+                                    : abilities,
+                                extraArgs,
+                              )
+                            }
+                            onScanModels={(modelType) =>
+                              handleScanModels(selectedProvider.uuid, modelType)
+                            }
+                            onAddScannedModels={(modelType, models) =>
+                              handleAddScannedModels(selectedProvider.uuid, modelType, models)
+                            }
+                            onTestModel={(name, modelType, abilities, extraArgs) =>
+                              handleTestModel(
+                                selectedProvider.uuid,
+                                name,
+                                modelType,
+                                abilities,
+                                extraArgs,
+                              )
+                            }
+                            isSubmitting={isSubmitting}
+                            isTesting={isTesting}
+                            testResult={testResult}
+                            onResetTestResult={() => setTestResult(null)}
+                          />
                           <AddModelPopover
                             isOpen={
                               addModelPopoverOpen === selectedProvider.uuid &&

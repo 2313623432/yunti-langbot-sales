@@ -1,4 +1,6 @@
 import datetime
+import json
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -10,6 +12,9 @@ from langbot.pkg.api.http.service.sales import SalesService, YUANFUDAO_CATALOG_P
 from langbot.pkg.entity.persistence.base import Base
 from langbot.pkg.entity.persistence import monitoring as persistence_monitoring
 from langbot.pkg.entity.persistence import sales as persistence_sales
+
+from langbot_plugin.api.entities.builtin.provider import message as provider_message
+
 from langbot_plugin.api.entities.builtin.platform import message as platform_message
 
 
@@ -21,6 +26,48 @@ def test_classify_intent_detects_handoff_request():
     assert result['intent'] == 'handoff'
     assert result['requires_handoff'] is True
     assert result['confidence'] >= 0.8
+
+
+def test_normalize_sales_message_content_preserves_text_image_voice_and_source_metadata():
+    service = SalesService(SimpleNamespace())
+    raw = json.dumps(
+        [
+            {'type': 'Source', 'id': 'source-1', 'timestamp': 1781173324},
+            {'type': 'Plain', 'text': '你好'},
+            {'type': 'Image', 'url': 'https://example.com/a.png', 'name': 'a.png'},
+            {'type': 'Voice', 'base64': 'data:audio/ogg;base64,AAAA', 'length': 3},
+        ],
+        ensure_ascii=False,
+    )
+
+    normalized = service.normalize_sales_message_content(raw)
+
+    assert normalized['preview'] == '你好 [图片] [语音]'
+    assert [part['kind'] for part in normalized['components']] == ['text', 'image', 'voice']
+    assert normalized['components'][1]['url'] == 'https://example.com/a.png'
+    assert normalized['components'][2]['base64'].startswith('data:audio/ogg;base64,')
+    assert normalized['metadata']['source']['id'] == 'source-1'
+
+
+def test_normalize_sales_message_content_keeps_unavailable_media_as_real_attachment():
+    service = SalesService(SimpleNamespace())
+    raw = json.dumps(
+        [
+            {'type': 'Voice', 'voice_id': 'file_v3_001', 'url': '', 'path': '', 'base64': ''},
+            {'type': 'Image', 'image_id': 'img_001'},
+        ],
+        ensure_ascii=False,
+    )
+
+    normalized = service.normalize_sales_message_content(raw)
+
+    assert normalized['preview'] == '[语音] [图片]'
+    assert normalized['components'][0]['kind'] == 'voice'
+    assert normalized['components'][0]['available'] is False
+    assert normalized['components'][0]['raw']['voice_id'] == 'file_v3_001'
+    assert normalized['components'][1]['kind'] == 'image'
+    assert normalized['components'][1]['available'] is False
+    assert normalized['components'][1]['raw']['image_id'] == 'img_001'
 
 
 def test_select_best_product_matches_selling_points_and_pain_points():
@@ -309,6 +356,178 @@ async def test_update_memory_creates_customer_memory_when_session_has_no_existin
     assert memory['profile']['wechat'] == 'parent_zhang'
     assert memory['profile']['child_grade'] == '三年级'
 
+class _ColumnRow:
+    def __init__(self, **values):
+        self._values = values
+        self._mapping = values
+
+    def __getitem__(self, index):
+        return list(self._values.values())[index]
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_uses_latest_real_monitoring_message_not_memory_summary():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=2,
+        start_time=datetime.datetime(2026, 6, 12, 9, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        is_active=True,
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    message = SimpleNamespace(
+        id='msg-2',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        session_id='person_customer-1',
+        role='assistant',
+        message_content=json.dumps([{'type': 'Plain', 'text': '真实AI回复'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    memory = SimpleNamespace(
+        session_id='person_customer-1',
+        customer_name='客户A',
+        summary='这不是聊天记录',
+        stage='new',
+        last_intent='general',
+        profile={},
+        intents=[],
+        last_seen_at=datetime.datetime(2026, 6, 12, 9, 1, 0),
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([memory]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == 'person_customer-1'
+    assert conversations[0]['latest_message_preview'] == '真实AI回复'
+    assert conversations[0]['latest_message_preview'] != '这不是聊天记录'
+    assert conversations[0]['handoff_status'] == 'ai_hosted'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_handles_column_rows_from_connection_execute():
+    session = _ColumnRow(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=2,
+        start_time=datetime.datetime(2026, 6, 12, 9, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        is_active=True,
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    message = _ColumnRow(
+        id='msg-2',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        session_id='person_customer-1',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '刚发的新消息'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == 'person_customer-1'
+    assert conversations[0]['latest_message_preview'] == '刚发的新消息'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversation_messages_returns_ordered_components_and_sender_kind():
+    user_message = SimpleNamespace(
+        id='msg-1',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 1, 0),
+        session_id='person_customer-1',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '用户消息'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    operator_message = SimpleNamespace(
+        **{
+            **user_message.__dict__,
+            'id': 'msg-2',
+            'timestamp': datetime.datetime(2026, 6, 12, 9, 2, 0),
+            'role': 'assistant',
+            'message_content': json.dumps([{'type': 'Plain', 'text': '人工消息'}], ensure_ascii=False),
+            'runner_name': 'sales-admin',
+            'variables': json.dumps({'sales_sender_kind': 'operator'}, ensure_ascii=False),
+        }
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(return_value=_FakeResult([operator_message, user_message])),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    result = await service.get_sales_conversation_messages('person_customer-1')
+
+    assert [message['id'] for message in result['messages']] == ['msg-1', 'msg-2']
+    assert result['messages'][0]['sender_kind'] == 'customer'
+    assert result['messages'][1]['sender_kind'] == 'operator'
+    assert result['messages'][1]['components'][0]['text'] == '人工消息'
+
+
 
 class _SilentLogger:
     def warning(self, *_args, **_kwargs):
@@ -364,6 +583,104 @@ class _CapturePlatformManager:
 
     async def get_bot_by_uuid(self, _bot_uuid):
         return SimpleNamespace(adapter=self.adapter)
+
+
+class _ConversationPersistence:
+    def __init__(self, session=None, handoff=None):
+        self.session = session
+        self.handoff = handoff
+        self.statements = []
+
+    async def execute_async(self, statement):
+        self.statements.append(statement)
+        text = str(statement)
+        if 'monitoring_sessions' in text:
+            return _FakeResult(self.session)
+        if 'sales_handoffs' in text and 'SELECT' in text.upper():
+            return _FakeResult(self.handoff)
+        return _FakeResult(None)
+
+
+@pytest.mark.asyncio
+async def test_send_operator_message_from_session_does_not_create_handoff_when_ai_hosted():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    adapter = _CaptureAdapter()
+    monitoring_service = SimpleNamespace(record_message=AsyncMock(return_value='manual-msg-id'))
+    persistence_mgr = _ConversationPersistence(session=session)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            monitoring_service=monitoring_service,
+        )
+    )
+
+    result = await service.send_operator_message_from_session(
+        'person_customer-1',
+        '人工主动补充一句',
+        assigned_to='sales-admin',
+        pause_ai=False,
+    )
+
+    assert result['sent'] is True
+    assert result['handoff_id'] is None
+    assert adapter.sent[0][0] == 'person'
+    assert adapter.sent[0][1] == 'customer-1'
+    monitoring_service.record_message.assert_awaited_once()
+    assert not any('INSERT INTO sales_handoffs' in str(statement) for statement in persistence_mgr.statements)
+
+
+@pytest.mark.asyncio
+async def test_reply_handoff_keeps_status_open_so_ai_stays_paused():
+    handoff = SimpleNamespace(
+        id=7,
+        session_id='person_customer-1',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        platform='person',
+        user_id='customer-1',
+        status='open',
+    )
+    adapter = _CaptureAdapter()
+    persistence_mgr = SimpleNamespace(execute_async=AsyncMock(side_effect=[_FakeResult(handoff), _FakeResult(None)]))
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            monitoring_service=SimpleNamespace(record_message=AsyncMock(return_value='manual-msg-id')),
+        )
+    )
+
+    await service.reply_handoff(7, '人工处理中回复', 'sales-admin')
+
+    update_statement = persistence_mgr.execute_async.await_args_list[-1].args[0]
+    update_values = dict(update_statement.compile().params)
+    assert update_values['status'] == 'open'
+    assert update_values['operator_reply'] == '人工处理中回复'
+
+
+@pytest.mark.asyncio
+async def test_restore_ai_hosting_closes_open_handoff():
+    handoff = SimpleNamespace(id=7, session_id='person_customer-1', status='open', assigned_to='')
+    persistence_mgr = SimpleNamespace(execute_async=AsyncMock(side_effect=[_FakeResult(handoff), _FakeResult(None)]))
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    result = await service.restore_ai_hosting_from_session('person_customer-1', 'sales-admin')
+
+    assert result == {'restored': True, 'handoff_id': 7}
+    update_statement = persistence_mgr.execute_async.await_args_list[-1].args[0]
+    update_values = dict(update_statement.compile().params)
+    assert update_values['status'] == 'ai_resumed'
 
 
 class _OutreachPersistence:
@@ -709,6 +1026,93 @@ async def test_resolve_resource_issue_replies_to_original_user(sales_service_wit
     assert target_id == 'customer-1'
     assert isinstance(message_chain, platform_message.MessageChain)
     assert '已经处理好了' in message_chain[0].text
+
+async def test_generate_sales_reply_suggestion_uses_configured_llm(monkeypatch):
+    unconfigured_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='space-model',
+            name='space-model',
+            provider_uuid='00000000-0000-0000-0000-000000000000',
+            extra_args={},
+        ),
+        provider=SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                uuid='00000000-0000-0000-0000-000000000000',
+                requester='space-chat-completions',
+                api_keys=[],
+            )
+        ),
+    )
+    runtime_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='model-1',
+            name='real-chat-model',
+            provider_uuid='provider-1',
+            extra_args={},
+        ),
+        provider=SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                uuid='provider-1',
+                requester='openai-chat-completions',
+                api_keys=['sk-test'],
+            ),
+            invoke_llm=AsyncMock(
+                return_value=provider_message.Message(
+                    role='assistant',
+                    content='这是根据真实模型生成的人工推荐回复。',
+                )
+            )
+        ),
+    )
+    ap = SimpleNamespace(
+        model_mgr=SimpleNamespace(
+            llm_models=[unconfigured_model, runtime_model],
+            get_model_by_uuid=AsyncMock(return_value=runtime_model),
+        )
+    )
+    service = SalesService(ap)
+    monkeypatch.setattr(
+        service,
+        'get_sales_conversation_messages',
+        AsyncMock(
+            return_value={
+                'messages': [
+                    {'role': 'user', 'sender_name': 'Customer', 'preview': '价格有点贵，想找人工确认'},
+                    {'role': 'assistant', 'sender_name': 'AI', 'preview': '可以，我帮您看一下。'},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        'get_products',
+        AsyncMock(
+            return_value=[
+                {
+                    'uuid': 'product-1',
+                    'name': '猿辅导体验课',
+                    'price': '9元',
+                    'link': 'https://example.com',
+                    'description': '自然拼读课程',
+                    'selling_points': ['先体验再决定'],
+                    'pain_points': ['价格顾虑'],
+                    'objections': ['担心没效果'],
+                    'audience': ['小学家长'],
+                    'enabled': True,
+                }
+            ]
+        ),
+    )
+
+    result = await service.generate_sales_reply_suggestion_from_session('person_customer-1')
+
+    assert result['suggestion']['message'] == '这是根据真实模型生成的人工推荐回复。'
+    assert result['suggestion']['tone'] == 'consultative'
+    assert result['source'] == 'llm'
+    assert result['model_name'] == 'real-chat-model'
+    ap.model_mgr.get_model_by_uuid.assert_awaited_once_with('model-1')
+    runtime_model.provider.invoke_llm.assert_awaited_once()
+
 
 
 @pytest.mark.asyncio

@@ -2863,11 +2863,11 @@ class TaskAssistantService:
     async def ensure_knowledge_resources(self) -> None:
         await self._ensure_yuanfudao_sales_knowledge_base()
 
-    async def _get_first_configured_text_model_uuid(self) -> str:
+    async def _get_configured_text_model_uuids(self) -> list[str]:
         model_service = getattr(self.ap, 'llm_model_service', None)
         if model_service is None:
             self.ap.logger.warning('[DefaultModel] llm_model_service not available')
-            return ''
+            return []
         try:
             models = await model_service.get_llm_models(
                 include_secret=False,
@@ -2878,12 +2878,26 @@ class TaskAssistantService:
             )
         except Exception as e:
             self.ap.logger.warning('[DefaultModel] Failed to query models: %s', e)
-            return ''
-        if models:
-            uuid = str(models[0].get('uuid') or '')
-            self.ap.logger.info('[DefaultModel] Found %d configured text models, using first: %s', len(models), uuid)
-            return uuid
+            return []
+        model_uuids = [
+            str(model.get('uuid') or '').strip()
+            for model in models
+            if str(model.get('uuid') or '').strip()
+        ]
+        if model_uuids:
+            self.ap.logger.info(
+                '[DefaultModel] Found %d configured text models, using first: %s',
+                len(model_uuids),
+                model_uuids[0],
+            )
+            return model_uuids
         self.ap.logger.info('[DefaultModel] No configured text models found')
+        return []
+
+    async def _get_first_configured_text_model_uuid(self) -> str:
+        model_uuids = await self._get_configured_text_model_uuids()
+        if model_uuids:
+            return model_uuids[0]
         return ''
 
     async def _ensure_builtin_pipeline_default_models(self) -> None:
@@ -2893,6 +2907,7 @@ class TaskAssistantService:
             YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
         ]
         default_model_uuid = ''
+        configured_text_model_uuids: list[str] | None = None
         for pipeline_uuid in pipeline_uuids:
             result = await self.ap.persistence_mgr.execute_async(
                 sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
@@ -2907,10 +2922,25 @@ class TaskAssistantService:
             template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
             current_model = str(template_config.get('model_uuid') or '')
             if current_model:
-                self.ap.logger.debug('[DefaultModel] Pipeline %s already has model %s', pipeline_uuid, current_model)
-                continue
+                if configured_text_model_uuids is None:
+                    configured_text_model_uuids = await self._get_configured_text_model_uuids()
+                if current_model in configured_text_model_uuids:
+                    self.ap.logger.debug(
+                        '[DefaultModel] Pipeline %s already has configured model %s',
+                        pipeline_uuid,
+                        current_model,
+                    )
+                    continue
+                self.ap.logger.info(
+                    '[DefaultModel] Pipeline %s saved model %s is not configured, rebinding',
+                    pipeline_uuid,
+                    current_model,
+                )
             if not default_model_uuid:
-                default_model_uuid = await self._get_first_configured_text_model_uuid()
+                if configured_text_model_uuids is None:
+                    configured_text_model_uuids = await self._get_configured_text_model_uuids()
+                if configured_text_model_uuids:
+                    default_model_uuid = configured_text_model_uuids[0]
             if not default_model_uuid:
                 self.ap.logger.info('[DefaultModel] No default model available, skipping pipeline defaults')
                 return

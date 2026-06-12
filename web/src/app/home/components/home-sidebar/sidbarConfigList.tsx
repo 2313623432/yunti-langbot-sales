@@ -5,6 +5,7 @@ import {
   GitBranch,
   MessagesSquare,
   Package,
+  Sparkles,
   Workflow,
 } from 'lucide-react';
 
@@ -100,6 +101,18 @@ export const sidebarConfigList = [
     icon: <GitBranch className="text-indigo-600" />,
     route: '/home/workflows',
     description: '设计和管理可复用的自动化工作流',
+    helpLink: {
+      en_US: '',
+      zh_Hans: '',
+    },
+    section: 'home',
+  }),
+  new SidebarChildVO({
+    id: 'auto-test',
+    name: '自动测试',
+    icon: <Sparkles className="text-cyan-600" />,
+    route: '/home/auto-test',
+    description: 'AI 自动模拟客户对话并优化数字员工或工作流',
     helpLink: {
       en_US: '',
       zh_Hans: '',

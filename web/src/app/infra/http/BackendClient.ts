@@ -26,9 +26,13 @@ import {
   SalesProduct,
   SalesCustomerMemory,
   SalesHandoff,
+  SalesConversation,
+  SalesConversationMessage,
+  SalesConversationStatus,
   SalesOutreachPlan,
   SalesIntent,
   SalesPitchResp,
+  SalesReplySuggestionResp,
   GetPipelineResponseData,
   GetPipelineMetadataResponseData,
   AsyncTask,
@@ -57,6 +61,10 @@ import {
   RagMigrationStatusResp,
   ApiRespTools,
   ApiRespToolDetail,
+  ApiRespAutoTestTargets,
+  ApiRespAutoTestRuns,
+  ApiRespAutoTestRun,
+  AutoTestTargetType,
 } from '@/app/infra/entities/api';
 import { Plugin } from '@/app/infra/entities/plugin';
 import { GetBotLogsRequest } from '@/app/infra/http/requestParam/bots/GetBotLogsRequest';
@@ -301,6 +309,44 @@ export class BackendClient extends BaseHttpClient {
 
   public copyPipeline(uuid: string): Promise<{ uuid: string }> {
     return this.post(`/api/v1/pipelines/${uuid}/copy`);
+  }
+
+  // ============ Auto Test API ============
+  public getAutoTestTargets(): Promise<ApiRespAutoTestTargets> {
+    return this.get('/api/v1/autotest/targets');
+  }
+
+  public getAutoTestRuns(params?: {
+    target_type?: AutoTestTargetType;
+    target_uuid?: string;
+    limit?: number;
+  }): Promise<ApiRespAutoTestRuns> {
+    return this.get('/api/v1/autotest/runs', params);
+  }
+
+  public startAutoTestRun(data: {
+    target_type: AutoTestTargetType;
+    target_uuid: string;
+    scenario?: string;
+    turns?: number;
+    sop_text?: string;
+    sop_filename?: string;
+  }): Promise<ApiRespAutoTestRun> {
+    return this.post('/api/v1/autotest/runs', data);
+  }
+
+  public submitAutoTestFeedback(
+    runUuid: string,
+    data: {
+      feedback: 'satisfied' | 'unsatisfied';
+      reason?: string;
+    },
+  ): Promise<ApiRespAutoTestRun> {
+    return this.post(`/api/v1/autotest/runs/${runUuid}/feedback`, data);
+  }
+
+  public revertAutoTestRunOptimization(runUuid: string): Promise<ApiRespAutoTestRun> {
+    return this.post(`/api/v1/autotest/runs/${runUuid}/revert`);
   }
 
   // ============ Workflow Library API ============
@@ -1042,6 +1088,87 @@ export class BackendClient extends BaseHttpClient {
     status?: string,
   ): Promise<{ handoffs: SalesHandoff[] }> {
     return this.get('/api/v1/sales/handoffs', status ? { status } : undefined);
+  }
+
+  public getSalesConversations(params?: {
+    status?: SalesConversationStatus | 'all';
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    conversations: SalesConversation[];
+    limit: number;
+    offset: number;
+  }> {
+    return this.get('/api/v1/sales/conversations', params);
+  }
+
+  public getSalesConversationMessages(
+    sessionId: string,
+    limit: number = 200,
+    offset: number = 0,
+  ): Promise<{
+    messages: SalesConversationMessage[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    return this.get(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/messages`,
+      { limit, offset },
+    );
+  }
+
+  public sendSalesConversationManualReply(
+    sessionId: string,
+    reply: string,
+    assignedTo?: string,
+  ): Promise<{ sent: boolean; handoff_id: number | null }> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/manual-reply`,
+      { reply, assigned_to: assignedTo || '' },
+    );
+  }
+
+  public startSalesConversationHandoff(
+    sessionId: string,
+    reason?: string,
+    assignedTo?: string,
+  ): Promise<{ handoff: SalesHandoff }> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/handoff/start`,
+      { reason: reason || '人工主动介入', assigned_to: assignedTo || '' },
+    );
+  }
+
+  public replySalesConversationHandoff(
+    sessionId: string,
+    reply: string,
+    assignedTo?: string,
+  ): Promise<{ sent: boolean; handoff_id: number }> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/handoff/reply`,
+      { reply, assigned_to: assignedTo || '' },
+    );
+  }
+
+  public restoreSalesConversationAiHosting(
+    sessionId: string,
+    assignedTo?: string,
+  ): Promise<{ restored: boolean; handoff_id: number | null }> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/handoff/restore`,
+      { assigned_to: assignedTo || '' },
+    );
+  }
+
+  public generateSalesConversationReplySuggestion(
+    sessionId: string,
+    data?: { product_uuid?: string; tone?: string },
+  ): Promise<SalesReplySuggestionResp> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/ai-suggestion`,
+      data || {},
+    );
   }
 
   public openSalesHandoffFromSession(data: {

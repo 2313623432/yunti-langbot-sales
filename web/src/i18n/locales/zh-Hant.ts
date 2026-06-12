@@ -229,6 +229,7 @@ const zhHant = {
     manualAdd: '手動添加',
     scanAdd: '掃描添加',
     scanModels: '掃描模型',
+    saveAndScanModels: '儲存並拉取模型',
     scanModelsHint: '從目前供應商介面讀取可用模型，然後勾選要添加的模型。',
     scannedModels: '掃描結果',
     scanDebug: '調試資訊',

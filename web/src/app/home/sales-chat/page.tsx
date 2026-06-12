@@ -20,6 +20,9 @@ import {
 import { toast } from 'sonner';
 
 import {
+  SalesConversation,
+  SalesConversationMessage,
+  SalesConversationStatus,
   SalesCustomerMemory,
   SalesHandoff,
   SalesOverview,
@@ -27,8 +30,8 @@ import {
   SalesOutreachPlan,
 } from '@/app/infra/entities/api';
 import { httpClient, initializeUserInfo, userInfo } from '@/app/infra/http';
-import { MessageContentRenderer } from '@/app/home/monitoring/components/MessageContentRenderer';
 import { cn } from '@/lib/utils';
+import { SalesMessageComponents } from './message-components';
 
 type MainView = 'conversation' | 'customers' | 'workbench';
 type RightPanel = 'customer' | 'talk' | 'material' | 'history';
@@ -48,25 +51,6 @@ type MonitoringSession = {
   user_name?: string | null;
 };
 
-type MonitoringMessage = {
-  id: string;
-  timestamp: string;
-  bot_id: string;
-  bot_name: string;
-  pipeline_id: string;
-  pipeline_name: string;
-  message_content: string;
-  session_id: string;
-  status: string;
-  level: string;
-  platform: string | null;
-  user_id: string | null;
-  user_name: string | null;
-  runner_name: string | null;
-  variables: string | null;
-  role: string | null;
-};
-
 type ConversationRow = {
   sessionId: string;
   name: string;
@@ -75,6 +59,8 @@ type ConversationRow = {
   platform: string;
   messageCount: number;
   stage: string;
+  handoffStatus: SalesConversationStatus;
+  latestMessage?: SalesConversationMessage | null;
   handoff?: SalesHandoff;
   memory?: SalesCustomerMemory;
   session?: MonitoringSession;
@@ -94,16 +80,6 @@ type CustomerProfileDraft = {
   child_grade: string;
   needs: string;
   summary: string;
-};
-
-type MessageContentComponent = {
-  type?: string;
-  text?: string;
-  display?: string;
-  target?: string | number;
-  name?: string;
-  length?: number;
-  origin?: MessageContentComponent[];
 };
 
 const profileFields: Array<{
@@ -137,6 +113,22 @@ const intentLabels: Record<string, string> = {
   objection: '异议处理',
   product_interest: '产品兴趣',
   general: '普通咨询',
+};
+
+const conversationTabs: Array<{
+  value: 'all' | SalesConversationStatus;
+  label: string;
+}> = [
+  { value: 'all', label: '全部' },
+  { value: 'ai_hosted', label: 'AI 托管中' },
+  { value: 'pending_manual', label: '待人工介入' },
+  { value: 'manual_handling', label: '人工处理中' },
+];
+
+const handoffStatusLabels: Record<SalesConversationStatus, string> = {
+  ai_hosted: 'AI 托管中',
+  pending_manual: '待人工介入',
+  manual_handling: '人工处理中',
 };
 
 function errorMessage(error: unknown): string {
@@ -188,64 +180,16 @@ function isTechnicalIdentifier(value?: string | null): boolean {
   );
 }
 
-function displayCustomerName(
-  memory?: SalesCustomerMemory,
-  session?: MonitoringSession,
-  handoff?: SalesHandoff,
-): string {
-  const candidates = [
-    memory?.customer_name,
-    session?.user_name,
-    handoff?.user_id,
-    session?.user_id,
-  ];
-  const readable = candidates.find((item) => !isTechnicalIdentifier(item));
-  if (readable) return readable;
-  const source = platformLabel(
-    session?.platform || memory?.platform || handoff?.platform,
-  );
-  if (source === '私聊' || source === '群聊') return `${source}客户`;
-  return '客户';
-}
-
 function compactIdentifier(value?: string | null): string {
   const text = String(value || '').trim();
   if (!text) return '暂无ID';
   return text.length > 28 ? `${text.slice(0, 12)}...${text.slice(-8)}` : text;
 }
 
-function messageContentText(content?: string | null): string {
-  if (!content) return '';
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    if (!Array.isArray(parsed)) return content;
-    return parsed
-      .map((component) => {
-        if (!component || typeof component !== 'object') return '';
-        const item = component as MessageContentComponent;
-        if (item.type === 'Plain') return item.text || '';
-        if (item.type === 'At') return `@${item.display || item.target || ''}`;
-        if (item.type === 'AtAll') return '@All';
-        if (item.type === 'Image') return '[图片]';
-        if (item.type === 'File')
-          return `[文件${item.name ? `: ${item.name}` : ''}]`;
-        if (item.type === 'Voice')
-          return `[语音${item.length ? ` ${item.length}s` : ''}]`;
-        if (item.type === 'Quote')
-          return messageContentText(JSON.stringify(item.origin || []));
-        if (item.type === 'Source') return '';
-        return item.type ? `[${item.type}]` : '';
-      })
-      .join('')
-      .trim();
-  } catch {
-    return content;
-  }
-}
-
 function conversationAccountLabel(conversation: ConversationRow): string {
   return (
     conversation.session?.bot_name ||
+    conversation.latestMessage?.bot_name ||
     conversation.handoff?.assigned_to ||
     '未分配账号'
   );
@@ -260,8 +204,7 @@ function conversationMessageTypeLabel(conversation: ConversationRow): string {
 }
 
 function conversationReplyModeLabel(conversation: ConversationRow): string {
-  if (conversation.handoff) return '待人工';
-  return 'AI自动';
+  return handoffStatusLabels[conversation.handoffStatus];
 }
 
 function uniqueLabels(values: string[]): string[] {
@@ -447,70 +390,44 @@ function EmptyState({
 }
 
 function buildConversations(
-  sessions: MonitoringSession[],
-  memories: SalesCustomerMemory[],
-  handoffs: SalesHandoff[],
+  salesConversations: SalesConversation[],
 ): ConversationRow[] {
-  const sessionMap = new Map(
-    sessions.map((session) => [session.session_id, session]),
-  );
-  const memoryMap = new Map(
-    memories.map((memory) => [memory.session_id, memory]),
-  );
-  const handoffMap = new Map(
-    handoffs.map((handoff) => [handoff.session_id, handoff]),
-  );
-  const ids = new Set<string>([
-    ...sessions.map((session) => session.session_id),
-    ...memories.map((memory) => memory.session_id),
-    ...handoffs.map((handoff) => handoff.session_id),
-  ]);
+  return salesConversations.map((conversation) => {
+    const session: MonitoringSession = {
+      session_id: conversation.session_id,
+      bot_id: conversation.bot_id,
+      bot_name: conversation.bot_name,
+      pipeline_id: '',
+      pipeline_name: '',
+      message_count: conversation.message_count,
+      start_time: conversation.last_activity,
+      last_activity: conversation.last_activity,
+      is_active: true,
+      platform: conversation.platform,
+      user_id: conversation.user_id,
+      user_name: conversation.user_name,
+    };
+    const name =
+      conversation.customer_name ||
+      conversation.user_name ||
+      conversation.user_id ||
+      conversation.session_id;
+    return {
+      sessionId: conversation.session_id,
+      name,
+      preview: conversation.latest_message_preview || '暂无真实消息',
+      time: formatDate(conversation.last_activity),
+      platform: platformLabel(conversation.platform),
+      messageCount: conversation.message_count,
+      stage: conversation.memory?.stage || 'new',
+      handoffStatus: conversation.handoff_status,
+      latestMessage: conversation.latest_message,
+      handoff: conversation.handoff || undefined,
+      memory: conversation.memory || undefined,
+      session,
+    };
+  });
 
-  return [...ids]
-    .map((sessionId) => {
-      const session = sessionMap.get(sessionId);
-      const memory = memoryMap.get(sessionId);
-      const handoff = handoffMap.get(sessionId);
-      const name = displayCustomerName(memory, session, handoff);
-      const preview =
-        messageContentText(handoff?.last_message) ||
-        memory?.summary ||
-        (session ? `${session.message_count} 条真实消息` : '暂无消息摘要');
-      const time = formatDate(
-        handoff?.updated_at || memory?.last_seen_at || session?.last_activity,
-      );
-      return {
-        sessionId,
-        name,
-        preview,
-        time,
-        platform: platformLabel(
-          session?.platform || memory?.platform || handoff?.platform,
-        ),
-        messageCount: session?.message_count || 0,
-        stage: memory?.stage || (handoff ? 'handoff' : 'new'),
-        handoff,
-        memory,
-        session,
-      };
-    })
-    .sort((a, b) => {
-      const aTime =
-        new Date(
-          a.handoff?.updated_at ||
-            a.memory?.last_seen_at ||
-            a.session?.last_activity ||
-            0,
-        ).getTime() || 0;
-      const bTime =
-        new Date(
-          b.handoff?.updated_at ||
-            b.memory?.last_seen_at ||
-            b.session?.last_activity ||
-            0,
-        ).getTime() || 0;
-      return bTime - aTime;
-    });
 }
 
 function ConversationFilterSelect({
@@ -546,6 +463,7 @@ function ConversationFilterSelect({
 function ConversationList({
   conversations,
   selectedSessionId,
+  activeTab,
   query,
   accountFilter,
   messageTypeFilter,
@@ -554,6 +472,7 @@ function ConversationList({
   messageTypeOptions,
   replyModeOptions,
   loading,
+  onTab,
   onQuery,
   onAccountFilter,
   onMessageTypeFilter,
@@ -562,6 +481,7 @@ function ConversationList({
 }: {
   conversations: ConversationRow[];
   selectedSessionId: string;
+  activeTab: 'all' | SalesConversationStatus;
   query: string;
   accountFilter: string;
   messageTypeFilter: string;
@@ -570,6 +490,7 @@ function ConversationList({
   messageTypeOptions: string[];
   replyModeOptions: string[];
   loading: boolean;
+  onTab: (value: 'all' | SalesConversationStatus) => void;
   onQuery: (value: string) => void;
   onAccountFilter: (value: string) => void;
   onMessageTypeFilter: (value: string) => void;
@@ -734,6 +655,21 @@ function ConversationList({
         </div>
       )}
       <div className="space-y-4 border-b border-[#eef0f4] px-5 py-4">
+        <div className="grid grid-cols-4 gap-1 rounded-lg bg-[#f2f4f8] p-1">
+          {conversationTabs.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => onTab(tab.value)}
+              className={cn(
+                'rounded-md px-2 py-2 text-sm font-medium text-[#697287]',
+                activeTab === tab.value && 'bg-white text-[#1f2a44] shadow-sm',
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <label className="flex h-11 items-center gap-2 rounded-lg border border-[#dde2ec] px-3 text-[#97a0b3]">
           <Search className="size-5" />
           <input
@@ -800,11 +736,16 @@ function ConversationList({
                 <span className="rounded bg-[#f2f5f8] px-2 py-0.5 text-xs text-[#697287]">
                   {stageLabel(conversation.stage)}
                 </span>
-                {conversation.handoff && (
-                  <span className="rounded bg-[#fff1f1] px-2 py-0.5 text-xs text-[#d44a4a]">
-                    待人工
-                  </span>
-                )}
+                <span
+                  className={cn(
+                    'rounded px-2 py-0.5 text-xs',
+                    conversation.handoffStatus === 'ai_hosted'
+                      ? 'bg-[#ecfdf3] text-[#12805c]'
+                      : 'bg-[#fff1f1] text-[#d44a4a]',
+                  )}
+                >
+                  {handoffStatusLabels[conversation.handoffStatus]}
+                </span>
               </div>
             </div>
           </button>
@@ -830,9 +771,11 @@ function ChatCenter({
   onSend,
   onRefresh,
   onOpenHandoff,
+  onRestoreAi,
+  onSuggestReply,
 }: {
   conversation?: ConversationRow;
-  messages: MonitoringMessage[];
+  messages: SalesConversationMessage[];
   loading: boolean;
   draft: string;
   sending: boolean;
@@ -840,6 +783,8 @@ function ChatCenter({
   onSend: () => void;
   onRefresh: () => void;
   onOpenHandoff: () => void;
+  onRestoreAi: () => void;
+  onSuggestReply: () => void;
 }) {
   return (
     <main className="flex min-h-0 flex-col bg-[#eef0f6]">
@@ -866,11 +811,22 @@ function ChatCenter({
           </button>
           <button
             type="button"
-            onClick={onOpenHandoff}
+            onClick={
+              conversation?.handoffStatus === 'ai_hosted'
+                ? onOpenHandoff
+                : onRestoreAi
+            }
             disabled={!conversation}
-            className="rounded-lg border border-[#5f58ff] px-4 py-2 text-[#5f58ff] disabled:opacity-50"
+            className={cn(
+              'rounded-lg border px-4 py-2 disabled:opacity-50',
+              conversation?.handoffStatus === 'ai_hosted'
+                ? 'border-[#5f58ff] text-[#5f58ff]'
+                : 'border-emerald-300 text-emerald-700',
+            )}
           >
-            接入人工
+            {conversation?.handoffStatus === 'ai_hosted'
+              ? '接入人工'
+              : '恢复 AI 托管'}
           </button>
         </div>
       </div>
@@ -889,7 +845,15 @@ function ChatCenter({
         ) : messages.length ? (
           <div className="mx-auto max-w-3xl space-y-6">
             {messages.map((message) => {
-              const isAgent = message.role === 'assistant';
+              const isAgent =
+                message.sender_kind === 'assistant' ||
+                message.sender_kind === 'operator';
+              const senderLabel =
+                message.sender_kind === 'operator'
+                  ? '人工销售'
+                  : message.sender_kind === 'assistant'
+                    ? '数字员工'
+                    : message.sender_label || conversation.name;
               return (
                 <div
                   key={message.id}
@@ -900,9 +864,7 @@ function ChatCenter({
                   )}
                   <div className={cn('max-w-[72%]', isAgent && 'text-right')}>
                     <div className="mb-1 text-sm text-[#6b7280]">
-                      {isAgent
-                        ? message.bot_name
-                        : message.user_name || conversation.name}
+                      {senderLabel}
                       <span className="ml-2">
                         {formatDate(message.timestamp)}
                       </span>
@@ -915,13 +877,11 @@ function ChatCenter({
                           : 'bg-white text-[#34415c]',
                       )}
                     >
-                      <MessageContentRenderer
-                        content={message.message_content}
-                        maxLines={0}
-                      />
+                      <SalesMessageComponents components={message.components} />
+
                     </div>
                   </div>
-                  {isAgent && <Avatar name={message.bot_name || 'AI'} />}
+                  {isAgent && <Avatar name={senderLabel || 'AI'} />}
                 </div>
               );
             })}
@@ -937,9 +897,21 @@ function ChatCenter({
       <div className="shrink-0 border-t border-[#dde0e6] bg-white px-6 py-4">
         <div className="mb-2 flex items-center justify-between">
           <div className="text-sm text-[#7c8496]">
-            人工回复会通过真实机器人适配器发送
+            {conversation?.handoffStatus === 'ai_hosted'
+              ? '普通人工消息不会暂停 AI 托管'
+              : '人工介入中，AI 已暂停，需手动恢复托管'}
           </div>
-          <div className="text-sm text-[#7c8496]">{draft.length}/600</div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onSuggestReply}
+              disabled={!conversation || sending}
+              className="rounded-lg border border-[#dde2ec] px-3 py-1.5 text-sm text-[#34415c] disabled:opacity-50"
+            >
+              AI 推荐回复
+            </button>
+            <div className="text-sm text-[#7c8496]">{draft.length}/600</div>
+          </div>
         </div>
         <div className="flex gap-3">
           <textarea
@@ -1744,8 +1716,14 @@ export default function SalesChatPage() {
   const [handoffs, setHandoffs] = useState<SalesHandoff[]>([]);
   const [outreachPlans, setOutreachPlans] = useState<SalesOutreachPlan[]>([]);
   const [sessions, setSessions] = useState<MonitoringSession[]>([]);
-  const [messages, setMessages] = useState<MonitoringMessage[]>([]);
+  const [salesConversations, setSalesConversations] = useState<
+    SalesConversation[]
+  >([]);
+  const [messages, setMessages] = useState<SalesConversationMessage[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState('');
+  const [activeConversationTab, setActiveConversationTab] = useState<
+    'all' | SalesConversationStatus
+  >('all');
   const [conversationQuery, setConversationQuery] = useState('');
   const [customerQuery, setCustomerQuery] = useState('');
   const [accountFilter, setAccountFilter] = useState('all');
@@ -1761,8 +1739,8 @@ export default function SalesChatPage() {
   const [savingMemory, setSavingMemory] = useState(false);
 
   const conversations = useMemo(
-    () => buildConversations(sessions, memories, handoffs),
-    [handoffs, memories, sessions],
+    () => buildConversations(salesConversations),
+    [salesConversations],
   );
 
   const accountOptions = useMemo(
@@ -1806,6 +1784,7 @@ export default function SalesChatPage() {
         memoryResp,
         handoffResp,
         outreachResp,
+        conversationResp,
         monitoringResp,
       ] = await Promise.all([
         httpClient.getSalesOverview(),
@@ -1813,6 +1792,11 @@ export default function SalesChatPage() {
         httpClient.getSalesMemories(),
         httpClient.getSalesHandoffs('open'),
         httpClient.getSalesOutreachPlans(),
+        httpClient.getSalesConversations({
+          status: activeConversationTab,
+          limit: 100,
+          offset: 0,
+        }),
         httpClient.getMonitoringData({
           startTime: monitoringRangeStart,
           endTime: new Date().toISOString(),
@@ -1824,13 +1808,14 @@ export default function SalesChatPage() {
       setMemories(memoryResp.memories || []);
       setHandoffs(handoffResp.handoffs || []);
       setOutreachPlans(outreachResp.plans || []);
+      setSalesConversations(conversationResp.conversations || []);
       setSessions((monitoringResp.sessions || []) as MonitoringSession[]);
     } catch (error) {
       toast.error(errorMessage(error));
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, []);
+  }, [activeConversationTab]);
 
   const loadMessages = useCallback(async (sessionId: string) => {
     if (!sessionId) {
@@ -1839,12 +1824,12 @@ export default function SalesChatPage() {
     }
     setMessageLoading(true);
     try {
-      const resp = await httpClient.getSessionMessages(sessionId, 200, 0);
-      const sorted = [...(resp.messages || [])].sort(
-        (a, b) =>
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      const resp = await httpClient.getSalesConversationMessages(
+        sessionId,
+        200,
+        0,
       );
-      setMessages(sorted as MonitoringMessage[]);
+      setMessages(resp.messages || []);
     } catch (error) {
       setMessages([]);
       toast.error(errorMessage(error));
@@ -1862,7 +1847,16 @@ export default function SalesChatPage() {
   }, [loadDashboard]);
 
   useEffect(() => {
-    if (!selectedSessionId && conversations[0]?.sessionId) {
+    if (!conversations.length) {
+      if (selectedSessionId) setSelectedSessionId('');
+      return;
+    }
+    if (
+      !selectedSessionId ||
+      !conversations.some(
+        (conversation) => conversation.sessionId === selectedSessionId,
+      )
+    ) {
       setSelectedSessionId(conversations[0].sessionId);
     }
   }, [conversations, selectedSessionId]);
@@ -1878,13 +1872,14 @@ export default function SalesChatPage() {
   const openHandoff = async () => {
     if (!selectedConversation) return;
     try {
-      await httpClient.openSalesHandoffFromSession({
-        session_id: selectedConversation.sessionId,
-        reason: '人工主动介入',
-        assigned_to: currentUser,
-      });
+      await httpClient.startSalesConversationHandoff(
+        selectedConversation.sessionId,
+        '人工主动介入',
+        currentUser,
+      );
+      setActiveConversationTab('manual_handling');
       await loadDashboard(false);
-      toast.success('已加入人工接入队列');
+      toast.success('已进入人工处理中');
     } catch (error) {
       toast.error(errorMessage(error));
     }
@@ -1895,21 +1890,57 @@ export default function SalesChatPage() {
     setSending(true);
     try {
       const reply = draft.trim();
-      await httpClient.replySalesHandoffFromSession({
-        session_id: selectedConversation.sessionId,
-        reply,
-        assigned_to: currentUser,
-      });
+      if (selectedConversation.handoffStatus === 'ai_hosted') {
+        await httpClient.sendSalesConversationManualReply(
+          selectedConversation.sessionId,
+          reply,
+          currentUser,
+        );
+      } else {
+        await httpClient.replySalesConversationHandoff(
+          selectedConversation.sessionId,
+          reply,
+          currentUser,
+        );
+      }
       setDraft('');
       await Promise.all([
         loadDashboard(false),
         loadMessages(selectedConversation.sessionId),
       ]);
-      toast.success('人工回复已通过机器人发送');
+      toast.success('消息已发送');
     } catch (error) {
       toast.error(errorMessage(error));
     } finally {
       setSending(false);
+    }
+  };
+
+  const restoreAiHosting = async () => {
+    if (!selectedConversation) return;
+    try {
+      await httpClient.restoreSalesConversationAiHosting(
+        selectedConversation.sessionId,
+        currentUser,
+      );
+      setActiveConversationTab('ai_hosted');
+      await loadDashboard(false);
+      toast.success('已恢复 AI 托管');
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  };
+
+  const generateSuggestedReply = async () => {
+    if (!selectedConversation) return;
+    try {
+      const response = await httpClient.generateSalesConversationReplySuggestion(
+        selectedConversation.sessionId,
+      );
+      setDraft(response.suggestion.message);
+      toast.success('AI 推荐回复已填入草稿');
+    } catch (error) {
+      toast.error(errorMessage(error));
     }
   };
 
@@ -1934,6 +1965,7 @@ export default function SalesChatPage() {
   };
 
   const openConversationFromCustomer = (sessionId: string) => {
+    setActiveConversationTab('all');
     setSelectedSessionId(sessionId);
     setMainView('conversation');
   };
@@ -1992,6 +2024,7 @@ export default function SalesChatPage() {
         <ConversationList
           conversations={conversations}
           selectedSessionId={selectedSessionId}
+          activeTab={activeConversationTab}
           query={conversationQuery}
           accountFilter={accountFilter}
           messageTypeFilter={messageTypeFilter}
@@ -2000,6 +2033,7 @@ export default function SalesChatPage() {
           messageTypeOptions={messageTypeOptions}
           replyModeOptions={replyModeOptions}
           loading={loading}
+          onTab={setActiveConversationTab}
           onQuery={setConversationQuery}
           onAccountFilter={setAccountFilter}
           onMessageTypeFilter={setMessageTypeFilter}
@@ -2019,6 +2053,8 @@ export default function SalesChatPage() {
             void loadMessages(selectedSessionId);
           }}
           onOpenHandoff={() => void openHandoff()}
+          onRestoreAi={() => void restoreAiHosting()}
+          onSuggestReply={() => void generateSuggestedReply()}
         />
         {rightPanelOpen ? (
           <RightPanelContent
