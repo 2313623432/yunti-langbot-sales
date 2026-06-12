@@ -685,6 +685,26 @@ class SalesService:
         )
         return [self._serialize(persistence_sales.SalesOutreachPlan, row) for row in result.all()]
 
+    async def count_outreach_plans_for_target_segments(
+        self,
+        *,
+        bot_uuid: str,
+        target_type: str,
+        target_id: str,
+        segments: list[str],
+    ) -> int:
+        if not bot_uuid or not target_id or not segments:
+            return 0
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(sqlalchemy.func.count())
+            .select_from(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.bot_uuid == bot_uuid)
+            .where(persistence_sales.SalesOutreachPlan.target_type == (target_type or 'person'))
+            .where(persistence_sales.SalesOutreachPlan.target_id == target_id)
+            .where(persistence_sales.SalesOutreachPlan.segment.in_(segments))
+        )
+        return int(result.scalar() or 0)
+
     async def create_outreach_plan(self, data: dict[str, Any]) -> int:
         payload = self._clean_outreach_payload(data)
         dedupe_key = str(payload.get('dedupe_key') or '').strip()
@@ -710,12 +730,43 @@ class SalesService:
         )
         return int(result.inserted_primary_key[0]) if result.inserted_primary_key else 0
 
+    async def _claim_due_outreach_plan(self, plan, now: datetime.datetime) -> bool:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.id == plan.id)
+            .where(persistence_sales.SalesOutreachPlan.enabled.is_(True))
+            .where(persistence_sales.SalesOutreachPlan.scheduled_at <= now)
+            .values(enabled=False, updated_at=now)
+        )
+        return getattr(result, 'rowcount', 1) != 0
+
+    async def _restore_claimed_outreach_plan(self, plan, now: datetime.datetime) -> None:
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.id == plan.id)
+            .values(enabled=True, updated_at=now)
+        )
+
+    async def _mark_outreach_plan_sent(self, plan, now: datetime.datetime) -> None:
+        updates: dict[str, Any] = {'last_sent_at': now, 'updated_at': now}
+        if plan.interval_minutes > 0:
+            updates['scheduled_at'] = now + datetime.timedelta(minutes=plan.interval_minutes)
+            updates['enabled'] = True
+        else:
+            updates['enabled'] = False
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesOutreachPlan)
+            .where(persistence_sales.SalesOutreachPlan.id == plan.id)
+            .values(**updates)
+        )
+
     async def run_due_outreach_once(self) -> int:
         now = datetime.datetime.now()
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesOutreachPlan)
             .where(persistence_sales.SalesOutreachPlan.enabled.is_(True))
             .where(persistence_sales.SalesOutreachPlan.scheduled_at <= now)
+            .order_by(persistence_sales.SalesOutreachPlan.scheduled_at.asc(), persistence_sales.SalesOutreachPlan.id.asc())
         )
         sent = 0
         products = {p['uuid']: p for p in await self.get_products(enabled_only=True)}
@@ -723,6 +774,8 @@ class SalesService:
             if not plan.bot_uuid or not plan.target_id:
                 continue
             product = products.get(plan.product_uuid, {})
+            if not await self._claim_due_outreach_plan(plan, now):
+                continue
             try:
                 runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(plan.bot_uuid)
                 if runtime_bot is None:
@@ -733,19 +786,11 @@ class SalesService:
                     await self._build_outreach_message_chain(plan, product),
                 )
             except Exception as e:
+                await self._restore_claimed_outreach_plan(plan, now)
                 self.ap.logger.warning(f'Sales outreach plan {plan.id} failed: {e}')
                 continue
 
-            updates: dict[str, Any] = {'last_sent_at': now, 'updated_at': now}
-            if plan.interval_minutes > 0:
-                updates['scheduled_at'] = now + datetime.timedelta(minutes=plan.interval_minutes)
-            else:
-                updates['enabled'] = False
-            await self.ap.persistence_mgr.execute_async(
-                sqlalchemy.update(persistence_sales.SalesOutreachPlan)
-                .where(persistence_sales.SalesOutreachPlan.id == plan.id)
-                .values(**updates)
-            )
+            await self._mark_outreach_plan_sent(plan, now)
             sent += 1
         return sent
 
@@ -764,6 +809,7 @@ class SalesService:
             .where(persistence_sales.SalesOutreachPlan.bot_uuid == bot_uuid)
             .where(persistence_sales.SalesOutreachPlan.target_type == (target_type or 'person'))
             .where(persistence_sales.SalesOutreachPlan.target_id == target_id)
+            .order_by(persistence_sales.SalesOutreachPlan.scheduled_at.asc(), persistence_sales.SalesOutreachPlan.id.asc())
         )
         sent = 0
         products = {p['uuid']: p for p in await self.get_products(enabled_only=True)}
@@ -771,29 +817,23 @@ class SalesService:
             if not plan.bot_uuid or not plan.target_id:
                 continue
             product = products.get(plan.product_uuid, {})
+            if not await self._claim_due_outreach_plan(plan, now):
+                continue
             try:
                 runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(plan.bot_uuid)
                 if runtime_bot is None:
-                    continue
+                    raise ValueError(f'Bot {plan.bot_uuid} is not running')
                 await runtime_bot.adapter.send_message(
                     plan.target_type,
                     plan.target_id,
                     await self._build_outreach_message_chain(plan, product),
                 )
             except Exception as e:
+                await self._restore_claimed_outreach_plan(plan, now)
                 self.ap.logger.warning(f'Sales outreach plan {plan.id} failed: {e}')
                 continue
 
-            updates: dict[str, Any] = {'last_sent_at': now, 'updated_at': now}
-            if plan.interval_minutes > 0:
-                updates['scheduled_at'] = now + datetime.timedelta(minutes=plan.interval_minutes)
-            else:
-                updates['enabled'] = False
-            await self.ap.persistence_mgr.execute_async(
-                sqlalchemy.update(persistence_sales.SalesOutreachPlan)
-                .where(persistence_sales.SalesOutreachPlan.id == plan.id)
-                .values(**updates)
-            )
+            await self._mark_outreach_plan_sent(plan, now)
             sent += 1
         return sent
 

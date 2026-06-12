@@ -351,6 +351,7 @@ class RuntimeBot:
                 pipeline_uuid=pipeline_uuid,
                 user_id=user_id,
                 pipeline_config=pipeline_config,
+                source_event=str(contact_info.get('event_type') or ''),
             )
 
         if hasattr(self.adapter, 'set_contact_added_callback'):

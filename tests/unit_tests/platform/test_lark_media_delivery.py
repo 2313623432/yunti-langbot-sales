@@ -1,7 +1,7 @@
 import pytest
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 
-from langbot.pkg.platform.sources.lark import LarkMessageConverter
+from langbot.pkg.platform.sources.lark import LarkAdapter, LarkMessageConverter
 
 
 def test_lark_base64_image_decoder_accepts_data_uri_whitespace_and_missing_padding():
@@ -53,3 +53,37 @@ async def test_lark_voice_delivery_passes_duration_for_opus_audio(monkeypatch):
         'file_name': 'voice.opus',
         'duration': 4000,
     }
+
+
+@pytest.mark.asyncio
+async def test_lark_contact_added_event_reads_nested_operator_id():
+    captured = {}
+
+    async def callback(contact_info):
+        captured.update(contact_info)
+
+    adapter = LarkAdapter.model_construct(contact_added_callback=callback)
+
+    await adapter._handle_contact_added_event(
+        {
+            'event_type': 'im.chat.access_event.bot_p2p_chat_entered_v1',
+            'operator': {
+                'operator_id': {
+                    'open_id': 'ou_new_customer',
+                    'user_id': 'user_new_customer',
+                }
+            }
+        }
+    )
+
+    assert captured == {
+        'user_id': 'ou_new_customer',
+        'platform': 'lark',
+        'event_type': 'im.chat.access_event.bot_p2p_chat_entered_v1',
+    }
+
+
+def test_lark_contact_added_uses_first_created_or_entered_events():
+    assert LarkAdapter._is_contact_added_chat_access_event('im.chat.access_event.bot_p2p_chat_created_v1') is True
+    assert LarkAdapter._is_contact_added_chat_access_event('im.chat.access_event.bot_p2p_chat_entered_v1') is True
+    assert LarkAdapter._is_contact_added_chat_access_event('im.message.receive_v1') is False

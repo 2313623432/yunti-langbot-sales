@@ -725,6 +725,192 @@ class TestSendResponseBackStage:
         pipeline_app.task_assistant_service.synthesize_reply_voice.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_send_response_appends_course_sales_signup_link_for_purchase_intent(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Course sales purchase replies should include the signup link in the same outgoing message."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        signup_link = 'https://m.yuanfudao.com/primary/templates/package?test=1'
+        query = text_query('我要报名')
+        query.adapter = adapter
+        query.pipeline_config = create_minimal_pipeline_config()
+        query.variables['workflow_intent'] = {
+            'intent': 'purchase',
+            'confidence': 0.98,
+            'link_url': signup_link,
+        }
+        query.variables['course_sales_radar_link'] = signup_link
+        query.resp_messages = [Message(role='assistant', content='可以，我现在把链接发给您。')]
+        query.resp_message_chain = [text_chain('可以，我现在把链接发给您。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        text = ''.join(component.text for component in components if component.type == 'Plain')
+        assert signup_link in text
+        assert text.count(signup_link) == 1
+        assert '支付成功后把截图发我' in text
+
+    @pytest.mark.asyncio
+    async def test_send_response_replaces_course_sales_signup_link_placeholder(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Course sales replies must not send the signup link placeholder to users."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        signup_link = 'https://m.yuanfudao.com/primary/templates/package?test=placeholder'
+        query = text_query('好的')
+        query.adapter = adapter
+        query.pipeline_config = create_minimal_pipeline_config()
+        query.variables['workflow_intent'] = {
+            'intent': 'course_content',
+            'confidence': 0.72,
+        }
+        query.variables['course_sales_radar_link'] = signup_link
+        query.resp_messages = [Message(role='assistant', content='太棒了，点击这里报名：[报名链接]')]
+        query.resp_message_chain = [text_chain('太棒了，点击这里报名：[报名链接]')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        text = ''.join(component.text for component in components if component.type == 'Plain')
+        assert signup_link in text
+        assert '[报名链接]' not in text
+
+    @pytest.mark.asyncio
+    async def test_send_response_appends_signup_link_when_schedule_reply_promises_link(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """If the assistant promises a signup page link, the outgoing message must include it."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        signup_link = 'https://m.yuanfudao.com/primary/templates/package?test=schedule'
+        query = text_query('具体的课表发来看看')
+        query.adapter = adapter
+        query.pipeline_config = create_minimal_pipeline_config()
+        query.variables['workflow_intent'] = {
+            'intent': 'course_schedule',
+            'confidence': 0.88,
+            'link_url': signup_link,
+        }
+        query.variables['course_sales_radar_link'] = signup_link
+        query.resp_messages = [Message(role='assistant', content='我这就把详细课表发给您看看。')]
+        query.resp_message_chain = [text_chain('我这就把详细课表发给您看看。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        text = ''.join(component.text for component in components if component.type == 'Plain')
+        assert signup_link in text
+        assert text.count(signup_link) == 1
+
+    @pytest.mark.asyncio
+    async def test_send_response_wraps_signup_link_with_radar_tracking_when_available(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Direct signup links should use the radar tracking URL when the sales service is available."""
+        from types import SimpleNamespace
+
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        signup_link = 'https://m.yuanfudao.com/primary/templates/package?test=tracking'
+        tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
+        pipeline_app.sales_service = SimpleNamespace(build_radar_tracking_url=Mock(return_value=tracking_link))
+        query = text_query('我要报名')
+        query.adapter = adapter
+        query.bot_uuid = 'bot-uuid'
+        query.pipeline_uuid = 'pipeline-uuid'
+        query.launcher_id = 'ou_customer'
+        query.pipeline_config = create_minimal_pipeline_config()
+        query.variables['workflow_intent'] = {
+            'intent': 'purchase',
+            'confidence': 0.98,
+            'link_url': signup_link,
+        }
+        query.variables['course_sales_radar_link'] = signup_link
+        query.resp_messages = [Message(role='assistant', content='可以，我现在把链接发给您。')]
+        query.resp_message_chain = [text_chain('可以，我现在把链接发给您。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        text = ''.join(component.text for component in components if component.type == 'Plain')
+        assert tracking_link in text
+        assert signup_link not in text
+        pipeline_app.sales_service.build_radar_tracking_url.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_response_keeps_signup_link_when_purchase_voice_reply_uses_tts(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Voice replies still need a clickable signup link for purchase actions."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, voice_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        pipeline_app.task_assistant_service = Mock()
+        pipeline_app.task_assistant_service.synthesize_reply_voice = AsyncMock(
+            return_value='data:audio/mpeg;base64,ZmFrZQ=='
+        )
+        signup_link = 'https://m.yuanfudao.com/primary/templates/package?test=voice'
+        query = voice_query('https://example.com/audio.mp3')
+        query.adapter = adapter
+        query.pipeline_config = create_minimal_pipeline_config()
+        query.variables['task_assistant_voice_reply'] = True
+        query.variables['workflow_intent'] = {
+            'intent': 'purchase',
+            'confidence': 0.98,
+            'link_url': signup_link,
+        }
+        query.resp_messages = [Message(role='assistant', content='可以，我现在把链接发给您。')]
+        query.resp_message_chain = [text_chain('可以，我现在把链接发给您。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        assert [component.type for component in components] == ['Voice', 'Plain']
+        assert components[1].text.count(signup_link) == 1
+
+    @pytest.mark.asyncio
     async def test_send_response_sends_one_task_assistant_image_without_caption_tail(self, pipeline_app, fake_platform_adapter):
         """Task assistant sends only the current step image and no caption tail."""
         from langbot.pkg.pipeline import entities

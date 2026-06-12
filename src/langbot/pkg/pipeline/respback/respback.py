@@ -171,6 +171,112 @@ class SendResponseBackStage(stage.PipelineStage):
     def _plain_text_from_chain(self, message_chain: platform_message.MessageChain) -> str:
         return ''.join(component.text for component in message_chain if isinstance(component, platform_message.Plain))
 
+    def _course_sales_signup_link(self, query: pipeline_query.Query, intent_data: dict[str, Any]) -> str:
+        link = str(intent_data.get('link_url') or query.variables.get('course_sales_radar_link') or '').strip()
+        if not link or '/api/v1/sales/radar/click/' in link:
+            return link
+
+        sales_service = getattr(self.ap, 'sales_service', None)
+        if sales_service is None or not hasattr(sales_service, 'build_radar_tracking_url'):
+            return link
+
+        launcher_type = getattr(query, 'launcher_type', None)
+        target_type = str(getattr(launcher_type, 'value', '') or '').strip().lower()
+        if not target_type:
+            launcher_type_text = str(launcher_type or '').lower()
+            target_type = 'group' if 'group' in launcher_type_text else 'person'
+        target_id = str(getattr(query, 'launcher_id', '') or '').strip()
+        workflow = query.pipeline_config.get('workflow') if isinstance(query.pipeline_config, dict) else {}
+        radar = workflow.get('radar') if isinstance(workflow, dict) and isinstance(workflow.get('radar'), dict) else {}
+        try:
+            return str(
+                sales_service.build_radar_tracking_url(
+                    destination_url=link,
+                    bot_uuid=str(getattr(query, 'bot_uuid', '') or ''),
+                    target_type=target_type or 'person',
+                    target_id=target_id,
+                    link_id='phonics_radar_apply',
+                    session_id=str(query.variables.get('session_id') or (f'{target_type}_{target_id}' if target_id else '')),
+                    pipeline_uuid=str(getattr(query, 'pipeline_uuid', '') or ''),
+                    tracking_base_path=str(radar.get('tracking_base_path') or '/api/v1/sales/radar/click'),
+                )
+            ).strip()
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to build course sales radar tracking link: %s', exc)
+            return link
+
+    def _contains_course_sales_link(self, text: str) -> bool:
+        return 'yuanfudao.com/primary/templates/package' in text or '/api/v1/sales/radar/click/' in text
+
+    def _replace_course_sales_link_placeholders(
+        self,
+        message_chain: platform_message.MessageChain,
+        link: str,
+    ) -> bool:
+        replaced = False
+        placeholders = ('[报名链接]', '【报名链接】', '[报名入口]', '【报名入口】')
+        for component in message_chain:
+            if not isinstance(component, platform_message.Plain):
+                continue
+            text = component.text
+            for placeholder in placeholders:
+                if placeholder in text:
+                    text = text.replace(placeholder, link)
+                    replaced = True
+            component.text = text
+        return replaced
+
+    def _promises_course_sales_signup_link(self, text: str) -> bool:
+        return any(
+            marker in text
+            for marker in (
+                '链接发给您',
+                '链接发给你',
+                '把链接发给您',
+                '把链接发给你',
+                '课表发给您',
+                '课表发给你',
+                '详细课表发给您',
+                '详细课表发给你',
+                '报名页面',
+                '报名页',
+                '报名入口',
+            )
+        )
+
+    def _append_course_sales_signup_link(self, query: pipeline_query.Query) -> None:
+        if not query.resp_message_chain:
+            return
+
+        intent_data = self._current_intent_data(query)
+        intent = str(intent_data.get('intent') or '')
+
+        link = self._course_sales_signup_link(query, intent_data)
+        if not link:
+            return
+
+        if self._replace_course_sales_link_placeholders(query.resp_message_chain[-1], link):
+            return
+
+        current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
+        if intent not in {'purchase', 'radar_clicked'} and not self._promises_course_sales_signup_link(current_text):
+            return
+
+        if self._contains_course_sales_link(current_text):
+            return
+
+        query.resp_message_chain[-1].append(
+            platform_message.Plain(
+                text=(
+                    f'\n\n报名入口：{link}\n\n'
+                    '点进去选孩子年级，手机号验证后支付9元就行。'
+                    '支付成功后把截图发我，我帮您登记，后续老师会联系您安排上课和资料。'
+                )
+            )
+        )
+
     def _estimate_voice_length_seconds(self, text: str) -> int:
         visible_chars = sum(1 for char in (text or '') if not char.isspace())
         if visible_chars <= 0:
@@ -195,6 +301,7 @@ class SendResponseBackStage(stage.PipelineStage):
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_workflow_images(query)
         await self._append_task_assistant_voice(query, reply_text)
+        self._append_course_sales_signup_link(query)
 
     async def process(self, query: pipeline_query.Query, stage_inst_name: str) -> entities.StageProcessResult:
         """处理"""

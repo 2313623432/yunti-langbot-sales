@@ -116,8 +116,9 @@ async def test_prepare_query_keeps_existing_open_handoff_in_manual_mode(monkeypa
 
 
 class _FakeResult:
-    def __init__(self, row):
+    def __init__(self, row, rowcount=1):
         self.row = row
+        self.rowcount = rowcount
 
     def first(self):
         return self.row
@@ -187,14 +188,20 @@ class _CapturePlatformManager:
 
 
 class _OutreachPersistence:
-    def __init__(self, plan):
+    def __init__(self, plan, claim_rowcount=1):
         self.plan = plan
-        self.update_values = None
+        self.claim_rowcount = claim_rowcount
+        self.select_statement = None
+        self.update_values = []
 
     async def execute_async(self, statement):
         if getattr(statement, 'is_update', False):
-            self.update_values = dict(statement.compile().params)
-            return _FakeResult(None)
+            values = dict(statement.compile().params)
+            self.update_values.append(values)
+            if len(self.update_values) == 1:
+                return _FakeResult(None, rowcount=self.claim_rowcount)
+            return _FakeResult(None, rowcount=1)
+        self.select_statement = statement
         return _FakeResult([self.plan])
 
 
@@ -227,7 +234,38 @@ async def test_run_due_outreach_once_sends_components_and_marks_one_shot_disable
     assert adapter.sent[0][0] == 'person'
     assert adapter.sent[0][1] == 'customer-1'
     assert any(component.text == 'SOP定时群发内容' for component in adapter.sent[0][2] if isinstance(component, platform_message.Plain))
-    assert persistence_mgr.update_values['enabled'] is False
+    assert persistence_mgr.update_values[-1]['enabled'] is False
+    assert 'ORDER BY' in str(persistence_mgr.select_statement)
+
+
+@pytest.mark.asyncio
+async def test_run_due_outreach_once_skips_plan_when_concurrent_claim_loses(monkeypatch):
+    plan = SimpleNamespace(
+        id=12,
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        product_uuid='',
+        message_template='',
+        message_components=[{'type': 'plain', 'text': 'SOP定时群发内容'}],
+        interval_minutes=0,
+    )
+    adapter = _CaptureAdapter()
+    persistence_mgr = _OutreachPersistence(plan, claim_rowcount=0)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            logger=_SilentLogger(),
+        )
+    )
+    monkeypatch.setattr(service, 'get_products', AsyncMock(return_value=[]))
+
+    sent = await service.run_due_outreach_once()
+
+    assert sent == 0
+    assert adapter.sent == []
+    assert persistence_mgr.update_values[0]['enabled'] is False
 
 
 @pytest.mark.asyncio
@@ -535,10 +573,12 @@ def test_build_radar_tracking_url_wraps_destination_with_token():
 def test_build_radar_tracking_url_uses_public_base_url_when_configured():
     service = SalesService(
         SimpleNamespace(
-            instance_config={
-                'api': {'host': '127.0.0.1', 'port': 5300},
-                'sales': {'radar_public_base_url': 'https://bot.example.com/base/'},
-            },
+            instance_config=SimpleNamespace(
+                data={
+                    'api': {'host': '127.0.0.1', 'port': 5300},
+                    'sales': {'radar_public_base_url': 'https://bot.example.com/base/'},
+                }
+            ),
         )
     )
 
