@@ -340,6 +340,104 @@ class _CapturePlatformManager:
         return SimpleNamespace(adapter=self.adapter)
 
 
+class _ConversationPersistence:
+    def __init__(self, session=None, handoff=None):
+        self.session = session
+        self.handoff = handoff
+        self.statements = []
+
+    async def execute_async(self, statement):
+        self.statements.append(statement)
+        text = str(statement)
+        if 'monitoring_sessions' in text:
+            return _FakeResult(self.session)
+        if 'sales_handoffs' in text and 'SELECT' in text.upper():
+            return _FakeResult(self.handoff)
+        return _FakeResult(None)
+
+
+@pytest.mark.asyncio
+async def test_send_operator_message_from_session_does_not_create_handoff_when_ai_hosted():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    adapter = _CaptureAdapter()
+    monitoring_service = SimpleNamespace(record_message=AsyncMock(return_value='manual-msg-id'))
+    persistence_mgr = _ConversationPersistence(session=session)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            monitoring_service=monitoring_service,
+        )
+    )
+
+    result = await service.send_operator_message_from_session(
+        'person_customer-1',
+        '人工主动补充一句',
+        assigned_to='sales-admin',
+        pause_ai=False,
+    )
+
+    assert result['sent'] is True
+    assert result['handoff_id'] is None
+    assert adapter.sent[0][0] == 'person'
+    assert adapter.sent[0][1] == 'customer-1'
+    monitoring_service.record_message.assert_awaited_once()
+    assert not any('INSERT INTO sales_handoffs' in str(statement) for statement in persistence_mgr.statements)
+
+
+@pytest.mark.asyncio
+async def test_reply_handoff_keeps_status_open_so_ai_stays_paused():
+    handoff = SimpleNamespace(
+        id=7,
+        session_id='person_customer-1',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        platform='person',
+        user_id='customer-1',
+        status='open',
+    )
+    adapter = _CaptureAdapter()
+    persistence_mgr = SimpleNamespace(execute_async=AsyncMock(side_effect=[_FakeResult(handoff), _FakeResult(None)]))
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            monitoring_service=SimpleNamespace(record_message=AsyncMock(return_value='manual-msg-id')),
+        )
+    )
+
+    await service.reply_handoff(7, '人工处理中回复', 'sales-admin')
+
+    update_statement = persistence_mgr.execute_async.await_args_list[-1].args[0]
+    update_values = dict(update_statement.compile().params)
+    assert update_values['status'] == 'open'
+    assert update_values['operator_reply'] == '人工处理中回复'
+
+
+@pytest.mark.asyncio
+async def test_restore_ai_hosting_closes_open_handoff():
+    handoff = SimpleNamespace(id=7, session_id='person_customer-1', status='open', assigned_to='')
+    persistence_mgr = SimpleNamespace(execute_async=AsyncMock(side_effect=[_FakeResult(handoff), _FakeResult(None)]))
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    result = await service.restore_ai_hosting_from_session('person_customer-1', 'sales-admin')
+
+    assert result == {'restored': True, 'handoff_id': 7}
+    update_statement = persistence_mgr.execute_async.await_args_list[-1].args[0]
+    update_values = dict(update_statement.compile().params)
+    assert update_values['status'] == 'ai_resumed'
+
+
 class _OutreachPersistence:
     def __init__(self, plan):
         self.plan = plan

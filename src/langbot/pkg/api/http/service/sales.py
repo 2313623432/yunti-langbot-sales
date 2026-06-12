@@ -109,7 +109,29 @@ class SalesService:
     def classify_intent(self, text: str) -> dict[str, Any]:
         normalized = (text or '').strip().lower()
         rules = [
-            ('handoff', ['转人工', '人工', '真人', '销售联系', '电话联系', '加微信', '报价单', '合同'], 0.9, True),
+            (
+                'handoff',
+                [
+                    '转人工',
+                    '人工',
+                    '真人',
+                    '销售联系',
+                    '电话联系',
+                    '加微信',
+                    '报价单',
+                    '合同',
+                    '投诉',
+                    '生气',
+                    '太差',
+                    '骗人',
+                    '退钱',
+                    '不满意',
+                    '别废话',
+                    '找负责人',
+                ],
+                0.9,
+                True,
+            ),
             ('price', ['价格', '多少钱', '费用', '收费', '报价', '预算', '便宜', '贵'], 0.78, False),
             ('purchase', ['购买', '下单', '开通', '试用', '怎么买', '付款', '成交'], 0.82, False),
             ('comparison', ['对比', '比较', '竞品', '区别', '优势', '为什么选'], 0.72, False),
@@ -641,28 +663,143 @@ class SalesService:
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesHandoff).where(persistence_sales.SalesHandoff.id == handoff_id)
         )
-        handoff = result.first()
+        handoff = self._first_row(result)
         if handoff is None:
             raise ValueError('Handoff not found')
         if not handoff.bot_uuid or not handoff.target_id:
             raise ValueError('Handoff target is missing; cannot send manual reply')
 
-        from langbot_plugin.api.entities.builtin.platform import message as platform_message
-
-        runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(handoff.bot_uuid)
-        if runtime_bot is None:
-            raise ValueError(f'Bot {handoff.bot_uuid} is not running; cannot send manual reply')
-
-        await runtime_bot.adapter.send_message(
-            handoff.target_type,
-            handoff.target_id,
-            platform_message.MessageChain([platform_message.Plain(text=reply)]),
+        await self._send_operator_message(
+            bot_uuid=handoff.bot_uuid,
+            target_type=handoff.target_type,
+            target_id=handoff.target_id,
+            reply=reply,
+        )
+        await self._record_operator_monitoring_message(
+            session_id=handoff.session_id,
+            bot_id=handoff.bot_uuid,
+            bot_name='',
+            pipeline_id='',
+            pipeline_name='',
+            platform=handoff.platform,
+            user_id=handoff.user_id,
+            user_name='',
+            reply=reply,
+            assigned_to=assigned_to,
         )
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.update(persistence_sales.SalesHandoff)
             .where(persistence_sales.SalesHandoff.id == handoff_id)
-            .values(status='handled', operator_reply=reply, assigned_to=assigned_to, updated_at=datetime.datetime.now())
+            .values(status='open', operator_reply=reply, assigned_to=assigned_to, updated_at=datetime.datetime.now())
         )
+
+    async def send_operator_message_from_session(
+        self,
+        session_id: str,
+        reply: str,
+        assigned_to: str = '',
+        pause_ai: bool = False,
+    ) -> dict[str, Any]:
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession).where(
+                persistence_monitoring.MonitoringSession.session_id == session_id
+            )
+        )
+        session = self._first_row(session_result)
+        if session is None:
+            raise ValueError('Session not found')
+
+        handoff_id: int | None = None
+        if pause_ai:
+            handoff = await self.open_handoff_from_session(session_id, '人工接入处理中', assigned_to)
+            handoff_id = int(handoff['id']) if handoff.get('id') else None
+
+        target_type, target_id = self._target_from_session(session)
+        await self._send_operator_message(
+            bot_uuid=getattr(session, 'bot_id', '') or '',
+            target_type=target_type,
+            target_id=target_id,
+            reply=reply,
+        )
+        await self._record_operator_monitoring_message(
+            session_id=getattr(session, 'session_id', '') or '',
+            bot_id=getattr(session, 'bot_id', '') or '',
+            bot_name=getattr(session, 'bot_name', '') or '',
+            pipeline_id=getattr(session, 'pipeline_id', '') or '',
+            pipeline_name=getattr(session, 'pipeline_name', '') or '',
+            platform=getattr(session, 'platform', None),
+            user_id=getattr(session, 'user_id', None),
+            user_name=getattr(session, 'user_name', None),
+            reply=reply,
+            assigned_to=assigned_to,
+        )
+        return {'sent': True, 'handoff_id': handoff_id}
+
+    async def _send_operator_message(self, bot_uuid: str, target_type: str, target_id: str, reply: str) -> None:
+        if not bot_uuid or not target_id:
+            raise ValueError('Handoff target is missing; cannot send manual reply')
+        from langbot_plugin.api.entities.builtin.platform import message as platform_message
+
+        runtime_bot = await self.ap.platform_mgr.get_bot_by_uuid(bot_uuid)
+        if runtime_bot is None:
+            raise ValueError(f'Bot {bot_uuid} is not running; cannot send manual reply')
+        await runtime_bot.adapter.send_message(
+            target_type,
+            target_id,
+            platform_message.MessageChain([platform_message.Plain(text=reply)]),
+        )
+
+    async def _record_operator_monitoring_message(
+        self,
+        *,
+        session_id: str,
+        bot_id: str,
+        bot_name: str,
+        pipeline_id: str,
+        pipeline_name: str,
+        platform: str | None,
+        user_id: str | None,
+        user_name: str | None,
+        reply: str,
+        assigned_to: str,
+    ) -> None:
+        monitoring_service = getattr(self.ap, 'monitoring_service', None)
+        if monitoring_service is None:
+            return
+        message_content = json.dumps([{'type': 'Plain', 'text': reply}], ensure_ascii=False)
+        variables = json.dumps({'sales_sender_kind': 'operator'}, ensure_ascii=False)
+        await monitoring_service.record_message(
+            bot_id=bot_id,
+            bot_name=bot_name,
+            pipeline_id=pipeline_id,
+            pipeline_name=pipeline_name,
+            message_content=message_content,
+            session_id=session_id,
+            status='success',
+            level='info',
+            platform=platform,
+            user_id=user_id,
+            user_name=user_name,
+            runner_name=assigned_to or '人工销售',
+            variables=variables,
+            role='assistant',
+        )
+
+    async def restore_ai_hosting_from_session(self, session_id: str, assigned_to: str = '') -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesHandoff)
+            .where(persistence_sales.SalesHandoff.session_id == session_id)
+            .where(persistence_sales.SalesHandoff.status == 'open')
+        )
+        handoff = self._first_row(result)
+        if handoff is None:
+            return {'restored': True, 'handoff_id': None}
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_sales.SalesHandoff)
+            .where(persistence_sales.SalesHandoff.id == handoff.id)
+            .values(status='ai_resumed', assigned_to=assigned_to or handoff.assigned_to, updated_at=datetime.datetime.now())
+        )
+        return {'restored': True, 'handoff_id': handoff.id}
 
     async def reply_handoff_from_session(
         self,
