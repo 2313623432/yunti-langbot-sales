@@ -1,3 +1,4 @@
+import datetime
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -171,6 +172,116 @@ class _FakeResult:
         if isinstance(self.row, list):
             return self.row
         return [self.row]
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_uses_latest_real_monitoring_message_not_memory_summary():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=2,
+        start_time=datetime.datetime(2026, 6, 12, 9, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        is_active=True,
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    message = SimpleNamespace(
+        id='msg-2',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        session_id='person_customer-1',
+        role='assistant',
+        message_content=json.dumps([{'type': 'Plain', 'text': '真实AI回复'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    memory = SimpleNamespace(
+        session_id='person_customer-1',
+        customer_name='客户A',
+        summary='这不是聊天记录',
+        stage='new',
+        last_intent='general',
+        profile={},
+        intents=[],
+        last_seen_at=datetime.datetime(2026, 6, 12, 9, 1, 0),
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([memory]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == 'person_customer-1'
+    assert conversations[0]['latest_message_preview'] == '真实AI回复'
+    assert conversations[0]['latest_message_preview'] != '这不是聊天记录'
+    assert conversations[0]['handoff_status'] == 'ai_hosted'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversation_messages_returns_ordered_components_and_sender_kind():
+    user_message = SimpleNamespace(
+        id='msg-1',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 1, 0),
+        session_id='person_customer-1',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '用户消息'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    operator_message = SimpleNamespace(
+        **{
+            **user_message.__dict__,
+            'id': 'msg-2',
+            'timestamp': datetime.datetime(2026, 6, 12, 9, 2, 0),
+            'role': 'assistant',
+            'message_content': json.dumps([{'type': 'Plain', 'text': '人工消息'}], ensure_ascii=False),
+            'runner_name': 'sales-admin',
+            'variables': json.dumps({'sales_sender_kind': 'operator'}, ensure_ascii=False),
+        }
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(return_value=_FakeResult([operator_message, user_message])),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    result = await service.get_sales_conversation_messages('person_customer-1')
+
+    assert [message['id'] for message in result['messages']] == ['msg-1', 'msg-2']
+    assert result['messages'][0]['sender_kind'] == 'customer'
+    assert result['messages'][1]['sender_kind'] == 'operator'
+    assert result['messages'][1]['components'][0]['text'] == '人工消息'
 
 
 class _SilentLogger:

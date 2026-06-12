@@ -1276,6 +1276,168 @@ class SalesService:
                 labels.append(str(component.get('label') or '[附件]'))
         return ' '.join(label for label in labels if label).strip()
 
+    def _normalized_handoff_status(self, handoff: Any | None) -> str:
+        if handoff is None or getattr(handoff, 'status', '') != 'open':
+            return 'ai_hosted'
+        if getattr(handoff, 'assigned_to', '') or getattr(handoff, 'operator_reply', ''):
+            return 'manual_handling'
+        return 'pending_manual'
+
+    def _sales_sender_kind(self, message: Any) -> str:
+        role = getattr(message, 'role', None)
+        variables = getattr(message, 'variables', None)
+        if variables:
+            try:
+                parsed = json.loads(variables)
+            except (TypeError, json.JSONDecodeError):
+                parsed = {}
+            if parsed.get('sales_sender_kind') == 'operator':
+                return 'operator'
+        if role == 'assistant':
+            return 'assistant'
+        return 'customer'
+
+    def _serialize_sales_message(self, message: Any) -> dict[str, Any]:
+        normalized = self.normalize_sales_message_content(getattr(message, 'message_content', '') or '')
+        sender_kind = self._sales_sender_kind(message)
+        if sender_kind == 'operator':
+            sender_label = getattr(message, 'runner_name', '') or '人工销售'
+        elif sender_kind == 'assistant':
+            sender_label = getattr(message, 'bot_name', '') or '数字员工'
+        else:
+            sender_label = getattr(message, 'user_name', '') or getattr(message, 'user_id', '') or '客户'
+        return {
+            'id': getattr(message, 'id', ''),
+            'timestamp': self._format_datetime(getattr(message, 'timestamp', None)),
+            'session_id': getattr(message, 'session_id', ''),
+            'role': getattr(message, 'role', None),
+            'sender_kind': sender_kind,
+            'sender_label': sender_label,
+            'bot_id': getattr(message, 'bot_id', ''),
+            'bot_name': getattr(message, 'bot_name', ''),
+            'platform': getattr(message, 'platform', None),
+            'user_id': getattr(message, 'user_id', None),
+            'user_name': getattr(message, 'user_name', None),
+            'runner_name': getattr(message, 'runner_name', None),
+            'status': getattr(message, 'status', ''),
+            'level': getattr(message, 'level', ''),
+            'preview': normalized['preview'],
+            'components': normalized['components'],
+            'metadata': normalized['metadata'],
+            'raw_message_content': getattr(message, 'message_content', ''),
+        }
+
+    def _format_datetime(self, value: Any) -> str:
+        if value is None:
+            return ''
+        if isinstance(value, datetime.datetime):
+            return value.isoformat()
+        return str(value)
+
+    async def get_sales_conversations(
+        self,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        session_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringSession)
+            .order_by(persistence_monitoring.MonitoringSession.last_activity.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        sessions = [self._row_entity(row) for row in session_result.all()]
+        session_ids = [session.session_id for session in sessions]
+        if not session_ids:
+            return []
+
+        message_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage)
+            .where(persistence_monitoring.MonitoringMessage.session_id.in_(session_ids))
+            .order_by(persistence_monitoring.MonitoringMessage.timestamp.desc())
+        )
+        latest_by_session: dict[str, Any] = {}
+        for row in message_result.all():
+            message = self._row_entity(row)
+            latest_by_session.setdefault(message.session_id, message)
+
+        memory_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id.in_(session_ids)
+            )
+        )
+        memories = {}
+        for row in memory_result.all():
+            memory = self._row_entity(row)
+            memories[memory.session_id] = memory
+
+        handoff_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesHandoff).where(
+                persistence_sales.SalesHandoff.session_id.in_(session_ids)
+            )
+        )
+        handoffs: dict[str, Any] = {}
+        for row in handoff_result.all():
+            handoff = self._row_entity(row)
+            current = handoffs.get(handoff.session_id)
+            current_time = getattr(current, 'updated_at', datetime.datetime.min) if current is not None else datetime.datetime.min
+            handoff_time = getattr(handoff, 'updated_at', datetime.datetime.min) or datetime.datetime.min
+            if current is None or handoff_time >= current_time:
+                handoffs[handoff.session_id] = handoff
+
+        conversations: list[dict[str, Any]] = []
+        for session in sessions:
+            handoff = handoffs.get(session.session_id)
+            normalized_status = self._normalized_handoff_status(handoff)
+            if status and status != 'all' and normalized_status != status:
+                continue
+            latest_message = latest_by_session.get(session.session_id)
+            latest = self._serialize_sales_message(latest_message) if latest_message else None
+            memory = memories.get(session.session_id)
+            conversations.append(
+                {
+                    'session_id': session.session_id,
+                    'customer_name': getattr(memory, 'customer_name', '')
+                    or getattr(session, 'user_name', '')
+                    or getattr(session, 'user_id', '')
+                    or session.session_id,
+                    'platform': getattr(session, 'platform', '') or '',
+                    'user_id': getattr(session, 'user_id', '') or '',
+                    'user_name': getattr(session, 'user_name', '') or '',
+                    'bot_id': getattr(session, 'bot_id', '') or '',
+                    'bot_name': getattr(session, 'bot_name', '') or '',
+                    'message_count': getattr(session, 'message_count', 0) or 0,
+                    'last_activity': self._format_datetime(getattr(session, 'last_activity', None)),
+                    'latest_message': latest,
+                    'latest_message_preview': latest['preview'] if latest else '',
+                    'handoff_status': normalized_status,
+                    'handoff': self.ap.persistence_mgr.serialize_model(persistence_sales.SalesHandoff, handoff)
+                    if handoff
+                    else None,
+                    'memory': self.ap.persistence_mgr.serialize_model(persistence_sales.SalesCustomerMemory, memory)
+                    if memory
+                    else None,
+                }
+            )
+        return conversations
+
+    async def get_sales_conversation_messages(
+        self,
+        session_id: str,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage)
+            .where(persistence_monitoring.MonitoringMessage.session_id == session_id)
+            .order_by(persistence_monitoring.MonitoringMessage.timestamp.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = [self._row_entity(row) for row in result.all()]
+        messages = [self._serialize_sales_message(message) for message in sorted(rows, key=lambda item: item.timestamp)]
+        return {'messages': messages, 'total': len(messages)}
+
     def _query_session_id(self, query: Any) -> str:
         launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
         return f'{launcher_type}_{query.launcher_id}'
@@ -1294,6 +1456,14 @@ class SalesService:
         if isinstance(row, tuple):
             return row[0]
         return row
+
+    def _row_entity(self, row: Any) -> Any:
+        if isinstance(row, tuple):
+            return row[0]
+        try:
+            return row[0]
+        except (TypeError, KeyError, IndexError):
+            return row
 
     def _stage_for_intent(self, intent: str) -> str:
         if intent in ('purchase', 'price'):
