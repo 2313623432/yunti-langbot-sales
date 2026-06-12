@@ -249,6 +249,7 @@ const enUS = {
     manualAdd: 'Manual',
     scanAdd: 'Scan',
     scanModels: 'Scan Models',
+    saveAndScanModels: 'Save and Scan',
     scanModelsHint:
       'Read available models from the current provider, then select which ones to add.',
     scannedModels: 'Scanned Models',

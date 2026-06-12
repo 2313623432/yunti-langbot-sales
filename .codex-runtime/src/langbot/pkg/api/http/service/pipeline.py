@@ -1,0 +1,260 @@
+from __future__ import annotations
+
+import uuid
+import json
+import sqlalchemy
+
+from ....core import app
+from ....entity.persistence import pipeline as persistence_pipeline
+from .pipeline_defaults import default_stage_order
+
+
+BUILTIN_DIGITAL_EMPLOYEE_PIPELINE_UUIDS = {
+    'task-assistant-ant-af-template-pipeline',
+    'course-sales-template-pipeline',
+    'yuanfudao-enhanced-sales-template-pipeline',
+}
+
+
+def _merge_dict(base: dict, override: dict) -> dict:
+    merged = base.copy()
+    for key, value in override.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+class PipelineService:
+    ap: app.Application
+
+    def __init__(self, ap: app.Application) -> None:
+        self.ap = ap
+
+    async def get_pipeline_metadata(self) -> list[dict]:
+        return [
+            self.ap.pipeline_config_meta_trigger,
+            self.ap.pipeline_config_meta_safety,
+            self.ap.pipeline_config_meta_ai,
+            self.ap.pipeline_config_meta_output,
+        ]
+
+    async def get_pipelines(self, sort_by: str = 'created_at', sort_order: str = 'DESC') -> list[dict]:
+        query = sqlalchemy.select(persistence_pipeline.LegacyPipeline)
+
+        if sort_by == 'created_at':
+            if sort_order == 'DESC':
+                query = query.order_by(persistence_pipeline.LegacyPipeline.created_at.desc())
+            else:
+                query = query.order_by(persistence_pipeline.LegacyPipeline.created_at.asc())
+        elif sort_by == 'updated_at':
+            if sort_order == 'DESC':
+                query = query.order_by(persistence_pipeline.LegacyPipeline.updated_at.desc())
+            else:
+                query = query.order_by(persistence_pipeline.LegacyPipeline.updated_at.asc())
+
+        result = await self.ap.persistence_mgr.execute_async(query)
+        pipelines = result.all()
+        return [self._serialize_pipeline(pipeline) for pipeline in pipelines]
+
+    async def get_pipeline(self, pipeline_uuid: str) -> dict | None:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
+            )
+        )
+
+        pipeline = result.first()
+
+        if pipeline is None:
+            return None
+
+        return self._serialize_pipeline(pipeline)
+
+    async def create_pipeline(self, pipeline_data: dict, default: bool = False) -> str:
+        from ....utils import paths as path_utils
+
+        # Check limitation
+        limitation = self.ap.instance_config.data.get('system', {}).get('limitation', {})
+        max_pipelines = limitation.get('max_pipelines', -1)
+        if max_pipelines >= 0:
+            existing_pipelines = await self.get_pipelines()
+            if len(existing_pipelines) >= max_pipelines:
+                raise ValueError(f'Maximum number of pipelines ({max_pipelines}) reached')
+
+        pipeline_data['uuid'] = str(uuid.uuid4())
+        pipeline_data['for_version'] = self.ap.ver_mgr.get_current_version()
+        pipeline_data['stages'] = default_stage_order.copy()
+        pipeline_data['is_default'] = default
+
+        requested_config = pipeline_data.get('config')
+        template_path = path_utils.get_resource_path('templates/default-pipeline-config.json')
+        with open(template_path, 'r', encoding='utf-8') as f:
+            default_config = json.load(f)
+        pipeline_data['config'] = (
+            _merge_dict(default_config, requested_config)
+            if isinstance(requested_config, dict)
+            else default_config
+        )
+
+        # Ensure extensions_preferences is set with enable_all_plugins and enable_all_mcp_servers=True by default
+        if 'extensions_preferences' not in pipeline_data:
+            pipeline_data['extensions_preferences'] = {
+                'enable_all_plugins': True,
+                'enable_all_mcp_servers': True,
+                'plugins': [],
+                'mcp_servers': [],
+            }
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_pipeline.LegacyPipeline).values(**pipeline_data)
+        )
+
+        pipeline = await self.get_pipeline(pipeline_data['uuid'])
+
+        await self.ap.pipeline_mgr.load_pipeline(pipeline)
+
+        return pipeline_data['uuid']
+
+    async def update_pipeline(self, pipeline_uuid: str, pipeline_data: dict) -> None:
+        pipeline_data = pipeline_data.copy()
+        for protected_field in ('uuid', 'for_version', 'stages', 'is_default', 'is_builtin', 'created_at', 'updated_at'):
+            pipeline_data.pop(protected_field, None)
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+            .where(persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid)
+            .values(**pipeline_data)
+        )
+
+        pipeline = await self.get_pipeline(pipeline_uuid)
+
+        if 'name' in pipeline_data:
+            from ....entity.persistence import bot as persistence_bot
+
+            result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_bot.Bot).where(persistence_bot.Bot.use_pipeline_uuid == pipeline_uuid)
+            )
+
+            bots = result.all()
+
+            for bot in bots:
+                bot_data = {'use_pipeline_name': pipeline_data['name']}
+                await self.ap.bot_service.update_bot(bot.uuid, bot_data)
+
+        await self.ap.pipeline_mgr.remove_pipeline(pipeline_uuid)
+        await self.ap.pipeline_mgr.load_pipeline(pipeline)
+
+        # update all conversation that use this pipeline
+        for session in self.ap.sess_mgr.session_list:
+            if session.using_conversation is not None and session.using_conversation.pipeline_uuid == pipeline_uuid:
+                session.using_conversation = None
+
+    async def delete_pipeline(self, pipeline_uuid: str) -> None:
+        if pipeline_uuid in BUILTIN_DIGITAL_EMPLOYEE_PIPELINE_UUIDS:
+            raise ValueError('Built-in digital employee cannot be deleted')
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
+            )
+        )
+        await self.ap.pipeline_mgr.remove_pipeline(pipeline_uuid)
+
+    def _serialize_pipeline(self, pipeline: persistence_pipeline.LegacyPipeline) -> dict:
+        data = self.ap.persistence_mgr.serialize_model(persistence_pipeline.LegacyPipeline, pipeline)
+        data['is_builtin'] = pipeline.uuid in BUILTIN_DIGITAL_EMPLOYEE_PIPELINE_UUIDS
+        return data
+
+    async def copy_pipeline(self, pipeline_uuid: str) -> str:
+        """Copy a pipeline with all its configurations"""
+        # Check limitation
+        limitation = self.ap.instance_config.data.get('system', {}).get('limitation', {})
+        max_pipelines = limitation.get('max_pipelines', -1)
+        if max_pipelines >= 0:
+            existing_pipelines = await self.get_pipelines()
+            if len(existing_pipelines) >= max_pipelines:
+                raise ValueError(f'Maximum number of pipelines ({max_pipelines}) reached')
+
+        # Get the original pipeline
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
+            )
+        )
+
+        original_pipeline = result.first()
+        if original_pipeline is None:
+            raise ValueError(f'Pipeline {pipeline_uuid} not found')
+
+        # Create new pipeline data
+        new_uuid = str(uuid.uuid4())
+        new_pipeline_data = {
+            'uuid': new_uuid,
+            'name': f'{original_pipeline.name} (Copy)',
+            'description': original_pipeline.description,
+            'for_version': self.ap.ver_mgr.get_current_version(),
+            'stages': original_pipeline.stages.copy() if original_pipeline.stages else default_stage_order.copy(),
+            'config': original_pipeline.config.copy() if original_pipeline.config else {},
+            'is_default': False,
+            'extensions_preferences': (
+                original_pipeline.extensions_preferences.copy()
+                if original_pipeline.extensions_preferences
+                else {
+                    'enable_all_plugins': True,
+                    'enable_all_mcp_servers': True,
+                    'plugins': [],
+                    'mcp_servers': [],
+                }
+            ),
+        }
+
+        # Insert the new pipeline
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_pipeline.LegacyPipeline).values(**new_pipeline_data)
+        )
+
+        # Load the new pipeline
+        pipeline = await self.get_pipeline(new_uuid)
+        await self.ap.pipeline_mgr.load_pipeline(pipeline)
+
+        return new_uuid
+
+    async def update_pipeline_extensions(
+        self,
+        pipeline_uuid: str,
+        bound_plugins: list[dict],
+        bound_mcp_servers: list[str] = None,
+        enable_all_plugins: bool = True,
+        enable_all_mcp_servers: bool = True,
+    ) -> None:
+        """Update the bound plugins and MCP servers for a pipeline"""
+        # Get current pipeline
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
+            )
+        )
+
+        pipeline = result.first()
+        if pipeline is None:
+            raise ValueError(f'Pipeline {pipeline_uuid} not found')
+
+        # Update extensions_preferences
+        extensions_preferences = pipeline.extensions_preferences or {}
+        extensions_preferences['enable_all_plugins'] = enable_all_plugins
+        extensions_preferences['enable_all_mcp_servers'] = enable_all_mcp_servers
+        extensions_preferences['plugins'] = bound_plugins
+        if bound_mcp_servers is not None:
+            extensions_preferences['mcp_servers'] = bound_mcp_servers
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+            .where(persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid)
+            .values(extensions_preferences=extensions_preferences)
+        )
+
+        # Reload pipeline to apply changes
+        await self.ap.pipeline_mgr.remove_pipeline(pipeline_uuid)
+        pipeline = await self.get_pipeline(pipeline_uuid)
+        await self.ap.pipeline_mgr.load_pipeline(pipeline)

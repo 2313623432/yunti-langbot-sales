@@ -1,0 +1,404 @@
+{
+  "name": "猿辅导销售助手加强版",
+  "scenario": "course_sales_yuanfudao_phonics",
+  "metadata": {
+    "scenario": "course_sales_yuanfudao_phonics",
+    "runtime_engine": "langgraph",
+    "source_mode": "template",
+    "template_name": "猿辅导销售助手加强版",
+    "knowledge_pack": {
+      "path": "templates/course-sales/yuanfudao-knowledge",
+      "freshness_range": "2024-2026",
+      "answering_rule": "价格、排期、权益、赠品、活动有效期以最新活动页、班主任通知、系统后台为准；历史资料用于话术学习和异议处理。"
+    }
+  },
+  "knowledge_base_uuids": [
+    "yuanfudao-sales-knowledge-base"
+  ],
+  "product_uuids": [
+    "yuanfudao-phonics-course",
+    "yuanfudao-reading-thinking-course"
+  ],
+  "model_uuid": "",
+  "tools": {
+    "intent_recognition": true,
+    "knowledge_base": true,
+    "product_database": true,
+    "image_recognition": true,
+    "voice_reply": true,
+    "radar": true,
+    "scheduled_push": true,
+    "handoff": true
+  },
+  "voice": {
+    "provider": "volcengine",
+    "enabled": true,
+    "model_uuid": "lnv-doubao-seed-tts-2-0-standard",
+    "voice_type": "zh_female_vv_uranus_bigtts",
+    "encoding": "mp3"
+  },
+  "asr": {
+    "provider": "volcengine",
+    "model_uuid": "lna-doubao-bigasr-flash",
+    "fallback_text": "用户发来课程咨询语音，请用文字短句回复。"
+  },
+  "screenshot_input": {
+    "model_uuid": "",
+    "target_steps": ["gift_poster", "gift_qr", "link_error"],
+    "image_intents": ["screenshot_help", "purchased", "link_error"]
+  },
+  "source_materials": [
+    "猿辅导销售知识库索引：templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_knowledge_index.md",
+    "猿辅导销售知识库正文语料：templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_markdown_corpus.md",
+    "猿辅导销售知识库表格摘录：templates/course-sales/yuanfudao-knowledge/rag/yuanfudao_spreadsheet_catalog.md",
+    "猿辅导1天2次群发SOP.xlsx",
+    "猿辅导课程问答整理.xlsx",
+    "猿辅导自然拼读常见问题(1).xlsx"
+  ],
+  "opening_message": "您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn",
+  "recommended_questions": [
+    "这个自然拼读课是什么？",
+    "阅读+思维课适合什么孩子？",
+    "什么时候上课，支持回放吗？",
+    "我想报名，怎么操作？",
+    "我发截图你能帮我看吗？"
+  ],
+  "course_profiles": [
+    {
+      "key": "phonics",
+      "product_uuid": "yuanfudao-phonics-course",
+      "name": "猿辅导英语自然拼读体验课/自然拼读集训营",
+      "keywords": ["英语", "自然拼读", "拼读", "发音", "单词", "绘本", "口语", "听音能写", "见词能读"],
+      "facts": {
+        "course_name": "猿辅导英语自然拼读体验课/自然拼读集训营",
+        "price": "9元体验",
+        "lesson_count": "5天10节课",
+        "target_grade": "大班至小学4年级",
+        "schedule": "分两周进行：第一周五、周六；第二周五、周六、周日；晚上19:00-20:00；每天约60分钟。",
+        "replay": "3年内无限次回放，手机和平板都可以学习。",
+        "content": "5次绘本阅读实践、180次开口练习、360分钟配套视频，帮助孩子掌握自然拼读、口语发音和拼读规则。",
+        "selling_point": "见词能拼、听音能写；用拼读方法替代死记硬背；提升英语兴趣和发音基础。",
+        "gifts": "报名/完课活动可赠小猿篮球、护脊书包、小猿手办、宇航员文具盒、铅笔、转笔刀等，完课后随机发货其一。",
+        "after_purchase": "提醒添加指导老师/班主任，留意电话短信，下载猿辅导素养课APP查看课程和开课时间。"
+      }
+    },
+    {
+      "key": "reading_thinking",
+      "product_uuid": "yuanfudao-reading-thinking-course",
+      "name": "猿辅导阅读+思维特训营",
+      "keywords": ["阅读", "作文", "写作", "数学", "思维", "应用题", "粗心", "马虎", "变通", "读写"],
+      "facts": {
+        "course_name": "猿辅导阅读+思维特训营",
+        "price": "9元体验",
+        "lesson_count": "390分钟名师直播精讲",
+        "target_grade": "小学阶段，重点适合阅读写作、数学思维需要提升的孩子",
+        "schedule": "按活动排课节奏上课，支持老师后续安排和提醒。",
+        "replay": "支持回放，孩子没赶上直播也可以补看。",
+        "content": "数学思维体系搭建、阅读写作高频技巧、1次双科测评、150次精练与带练。",
+        "selling_point": "从底层逻辑出发，帮助孩子提升复杂题理解、数学变通和阅读写作表达。",
+        "gifts": "完课达标后可随机赠送小猿单肩包、毛绒笔袋、小猿跳绳、双饮保温杯、宇航员文具盒、活页本等。",
+        "after_purchase": "提醒留意班主任/短信，按老师安排完成测评、上课和资料领取。"
+      }
+    }
+  ],
+  "course_profile": {
+    "course_name": "猿辅导英语自然拼读体验课/自然拼读集训营",
+    "price": "9元体验",
+    "lesson_count": "5天10节课",
+    "target_grade": "大班至小学4年级",
+    "schedule": "分两周进行：第一周五、周六；第二周五、周六、周日；晚上19:00-20:00；每天约60分钟。",
+    "replay": "3年内无限次回放，手机和平板都可以学习。",
+    "content": "5次绘本阅读实践、180次开口练习、360分钟配套视频，帮助孩子掌握自然拼读、口语发音和拼读规则。",
+    "selling_point": "见词能拼、听音能写；用拼读方法替代死记硬背；提升英语兴趣和发音基础。",
+    "gifts": "报名/完课活动可赠小猿篮球、护脊书包、小猿手办、宇航员文具盒、铅笔、转笔刀等，完课后随机发货其一。",
+    "after_purchase": "提醒添加指导老师/班主任，留意电话短信，下载猿辅导素养课APP查看课程和开课时间。"
+  },
+  "course_faqs": [
+    {
+      "intent": "course_schedule",
+      "question": "什么时候上课",
+      "answer": "自然拼读课分两周上课，第一周五六、第二周五六日，晚上19点到20点；每天大概60分钟。没时间可以看回放。",
+      "keywords": ["什么时候", "几点", "上课时间", "回放"]
+    },
+    {
+      "intent": "course_intro",
+      "question": "自然拼读是什么课",
+      "answer": "猿辅导自然拼读课程，9元5天10节，适合大班到小学4年级，主要练自然拼读、绘本阅读和开口表达。",
+      "keywords": ["什么课", "是什么", "自然拼读", "拼读", "学什么", "发音"]
+    },
+    {
+      "intent": "reading_thinking_intro",
+      "question": "阅读+思维是什么课",
+      "answer": "阅读+思维课主要解决阅读没头绪、作文凑字数、数学难变通和常马虎，9元体验，包含思维体系搭建、读写技巧和测评带练。",
+      "keywords": ["阅读", "作文", "写作", "数学", "思维", "应用题", "粗心", "马虎", "变通"]
+    },
+    {
+      "intent": "course_content",
+      "question": "学习内容",
+      "answer": "自然拼读侧重发音、拼读、绘本和开口练习；阅读+思维侧重数学思维、阅读写作技巧和测评带练。可以根据孩子薄弱点选择。",
+      "keywords": ["学习内容", "内容", "学啥", "学什么"]
+    },
+    {
+      "intent": "purchase",
+      "question": "要买/怎么买",
+      "answer": "点开报名链接，选择孩子年级，输入手机号验证，确认支付9元后把截图发我，我这边引导您交给班主任/人工登记开课和资料。",
+      "keywords": ["要买", "怎么买", "报名", "链接", "领取"]
+    },
+    {
+      "intent": "purchased",
+      "question": "买了/已报名",
+      "answer": "谢谢支持，报名后会分配指导老师；您也可以先下载猿辅导素养课APP查看课程和开课时间，完课礼品后续联系班主任领取。",
+      "keywords": ["买了", "已报名", "支付成功", "付了", "报名成功"]
+    },
+    {
+      "intent": "gift",
+      "question": "赠品/资料",
+      "answer": "报名/完课活动有资料和实物礼品，具体礼品以活动页和班主任登记为准，完课达标后随机发货其一。",
+      "keywords": ["赠品", "礼品", "资料", "篮球", "书包", "文具盒", "跳绳", "保温杯"]
+    },
+    {
+      "intent": "link_error",
+      "question": "链接打不开/页面异常",
+      "answer": "我帮您看下，麻烦截一下当前页面；也可以先退出重进，或复制链接到浏览器打开。",
+      "keywords": ["打不开", "白屏", "点不进去", "页面", "卡住"]
+    }
+  ],
+  "sales_links": [
+    {
+      "id": "phonics_resource_card",
+      "title": "图书配套学习资源卡片",
+      "url": "https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347",
+      "description": "首次打招呼发送，用于激活查看图书配套学习资源。",
+      "radar_enabled": false
+    },
+    {
+      "id": "phonics_radar_apply",
+      "title": "猿辅导自然拼读9元体验课报名通道",
+      "url": "https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class",
+      "description": "自然拼读报名链接卡片，支持点击后雷达跟进。",
+      "radar_enabled": true
+    },
+    {
+      "id": "reading_thinking_radar_apply",
+      "title": "猿辅导阅读+思维9元体验课报名通道",
+      "url": "https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class",
+      "description": "阅读+思维报名链接卡片，demo阶段复用同一报名通道，可在前端替换。",
+      "radar_enabled": true
+    }
+  ],
+  "radar": {
+    "enabled": true,
+    "link_title": "猿辅导9元体验课报名通道",
+    "link_url": "https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class",
+    "tracking_base_path": "/api/v1/sales/radar/click",
+    "tracking_fields": ["session_id", "campaign", "clicked_at", "browse_seconds", "clicked_apply_button", "paid"],
+    "rules": [
+      {
+        "event": "link_open",
+        "delay_minutes": 0,
+        "message": "家长，看您进入报名通道了，是年级选择、支付，还是上课时间这块不确定？我可以直接帮您看。"
+      },
+      {
+        "event": "browse_30s",
+        "min_browse_seconds": 30,
+        "delay_minutes": 3,
+        "message": "家长我看到您刚刚看了报名页，如果页面卡住或不确定选哪个课程，您截图发我，我帮您看。"
+      },
+      {
+        "event": "click_apply_button",
+        "delay_minutes": 1,
+        "message": "您已经点到报名按钮了，下一步选择孩子年级并支付9元就行，成功后截图发我，后续由班主任/人工登记。"
+      },
+      {
+        "event": "no_payment_after_click",
+        "delay_minutes": 15,
+        "message": "家长，刚才报名页如果没有支付成功，可能是年级没选对或链接卡住了，您把页面截图发我，我帮您看。"
+      }
+    ]
+  },
+  "followup_sequences": [
+    {
+      "stage": "purchase",
+      "label": "自然拼读要买/怎么买",
+      "messages": [
+        {"delay_minutes": 0, "message": "好的", "link_id": "phonics_radar_apply", "send_link_card": true},
+        {"delay_minutes": 0, "message": "点开上面报名链接，支付9元成功后截图发我，我帮您引导到班主任/人工登记开课和资料。"},
+        {"delay_minutes": 5, "message": "家长领取到了吗？"},
+        {"delay_minutes": 60, "message": "孩子家长，您这边给孩子领取好了吗？如果卡在报名页，截图发我我帮您看。"},
+        {"delay_minutes": 0, "schedule_time": "21:30", "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送名额还给您保留着呢。"}
+      ]
+    },
+    {
+      "stage": "reading_thinking_purchase",
+      "label": "阅读+思维要买/怎么买",
+      "messages": [
+        {"delay_minutes": 0, "message": "这类阅读写作和数学思维问题，可以先让孩子9元体验一下。", "link_id": "reading_thinking_radar_apply", "send_link_card": true},
+        {"delay_minutes": 5, "message": "家长，刚才的阅读+思维体验课报名页能打开吗？如果不确定选哪个年级，截图发我。"},
+        {"delay_minutes": 60, "message": "这个课主要帮孩子打通底层逻辑，阅读写作和数学思维都能练，您可以先让孩子试一轮。"},
+        {"delay_minutes": 0, "schedule_time": "21:30", "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~"}
+      ]
+    },
+    {
+      "stage": "not_buy",
+      "label": "首次明确拒绝",
+      "messages": [
+        {"delay_minutes": 0, "message": "好的家长，我先不催您。这个9元体验主要是低成本看孩子适不适合，如果后面想了解可以随时问我。"}
+      ]
+    },
+    {
+      "stage": "purchased",
+      "label": "买了",
+      "messages": [
+        {"delay_minutes": 0, "message": "谢谢支持，报名后留意指导老师/班主任的电话和短信，也可以先下载猿辅导素养课APP查看课程和开课时间。"},
+        {"delay_minutes": 0, "message": "家长这个是赠送的资料，您可以长按识别关注一下，有空都可以打开学。", "image_key": "course-sales/phonics/gift_qr.jpeg"}
+      ]
+    },
+    {
+      "stage": "silence_revisit",
+      "label": "沉默回访",
+      "messages": [
+        {"delay_minutes": 5, "message": "家长领取到了吗？"},
+        {"delay_minutes": 60, "message": "孩子家长，您这边给孩子领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。"},
+        {"delay_minutes": 0, "schedule_time": "21:30", "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~"}
+      ]
+    },
+    {
+      "stage": "radar_clicked",
+      "label": "点雷达",
+      "messages": [
+        {"delay_minutes": 0, "message": "家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功短信，我帮您引导到班主任/人工登记。"},
+        {"delay_minutes": 0, "message": "预约通道已经发给您了，支付成功以后截图给我哦。", "link_id": "phonics_radar_apply", "send_link_card": true},
+        {"delay_minutes": 5, "message": "家长领取到了吗？"},
+        {"delay_minutes": 60, "message": "孩子家长，您这边给孩子领取好了吗？如果卡住了，截图发我我帮您看。"}
+      ]
+    }
+  ],
+  "long_term_broadcasts": [
+    {
+      "day": 1,
+      "title": "自然拼读第一天上午",
+      "time": "10:20",
+      "message": "感谢您使用我们出版社的图书，我们联合猿辅导申请的9元自然拼读专项课，适合大班-小学4年级。9元包含绘本阅读实践、开口练习、配套视频和老师伴学服务，孩子可以先低成本体验一下。",
+      "image_key": ""
+    },
+    {
+      "day": 1,
+      "title": "自然拼读第一天下午",
+      "time": "15:40",
+      "message": "只需9元，给孩子报一个吧！猿辅导的课程内容依据新课标设计，确保孩子所学知识符合最新教育标准，帮助孩子更好地掌握英语发音与拼读核心！",
+      "image_key": ""
+    },
+    {
+      "day": 2,
+      "title": "自然拼读第二天上午",
+      "time": "10:20",
+      "message": "宝贝家长，自然拼读课支持回放，没赶上直播也可以补看。孩子学一次没掌握，多看几遍就能慢慢形成拼读规律。",
+      "image_key": ""
+    },
+    {
+      "day": 2,
+      "title": "自然拼读第二天晚上",
+      "time": "21:20",
+      "message": "总共就9块钱10节课，9毛钱一回，还能三年无限制看回放，咱们完全可以让孩子试试。我们接触的多了，真的明白自然拼读是孩子学习英语的基础。",
+      "image_key": ""
+    },
+    {
+      "day": 3,
+      "title": "自然拼读第三天上午",
+      "time": "10:20",
+      "message": "在嘛？家长，无论孩子学不学，给我个答复就行。这个体验课不是几百上千的大课，9元先让孩子试试方法，适合再继续，不适合也不耽误。",
+      "image_key": ""
+    },
+    {
+      "day": 3,
+      "title": "自然拼读第三天晚上",
+      "time": "21:20",
+      "message": "孩子也会压力大，作业也会拖拉、对英语也容易有畏难情绪。所以咱们需要的不是做更多的作业，而是找寻一个方法、一个孩子喜欢的方式，来增加孩子学习的兴趣。9块钱买不到吃亏试一试，您觉得呢？",
+      "image_key": ""
+    },
+    {
+      "day": 4,
+      "title": "自然拼读第四天上午",
+      "time": "10:20",
+      "message": "咱们猿辅导【5日自然拼读课】专为5-12岁精心设计，只需9元。如果咱家孩子在单词发音、见词能拼、英语阅读方面需要加强，要不要让孩子试着学一下？您也可以直接回复数字“1”，我先发您了解一下哦！",
+      "image_key": ""
+    },
+    {
+      "day": 4,
+      "title": "自然拼读第四天下午",
+      "time": "15:40",
+      "message": "家长，报名好了么？没时间可以看回放的，猿辅导作为大品牌，没有任何套路，没有其他额外收费了。",
+      "image_key": ""
+    },
+    {
+      "day": 5,
+      "title": "自然拼读第五天上午",
+      "time": "10:20",
+      "message": "咱们这边真心不考虑花9块钱，给孩子学习一些学习方法吗？新教材改版了，难度升级，学习就更不能死记硬背，花9元给孩子提升一下肯定没有错的宝贝家长！",
+      "image_key": ""
+    },
+    {
+      "day": 5,
+      "title": "自然拼读第五天晚上",
+      "time": "21:20",
+      "message": "就9块钱因为划算，也希望咱家孩子也能试一试。",
+      "image_key": ""
+    },
+    {
+      "day": 6,
+      "title": "自然拼读第六天上午",
+      "time": "10:10",
+      "message": "猿辅导自然拼读特训：26个字母巧记法、48个音标拼读规则、5次阅读绘本实践、14天贴心服务、180次开口练习、12课时直播，课程三年有效。以上内容仅需9元！完课随机包邮到家一件实物好礼。",
+      "image_key": ""
+    },
+    {
+      "day": 6,
+      "title": "自然拼读第六天晚上",
+      "time": "21:20",
+      "message": "其实9块钱给孩子买玩具、吃零食也就没有了，但知识是伴随孩子一生的。孩子英语基础能力、学习习惯越早培养越好，您这边给孩子买了，我也好为孩子安排学习。",
+      "image_key": ""
+    },
+    {
+      "day": 7,
+      "title": "自然拼读第七天下午",
+      "time": "15:15",
+      "message": "怕您太忙没看到消息，再跟你说一下9块钱值不值：5次绘本阅读实践、180次开口练习、360分钟配套视频、14天专属辅导老师伴学服务，单词口语双提升，走对英语第一步！您回复1⭐学五天咱们看看效果就知道了。",
+      "image_key": ""
+    },
+    {
+      "day": 7,
+      "title": "自然拼读第七天晚上",
+      "time": "21:20",
+      "message": "总共就9块钱，10节课，不到1块钱一回，咱们完全可以让孩子试试。我们接触的多了，真的明白理解能力是孩子学习的基础。",
+      "image_key": ""
+    }
+  ],
+  "stop_rules": {
+    "stop_keywords": ["不要再发", "别联系", "再发投诉", "投诉", "没有孩子", "没孩子", "打错", "不是目标年级", "我是老师", "已经学过"],
+    "stop_tags": ["已报名", "已下单", "付费", "投诉", "明确拒绝两次", "人工接管", "无孩子", "非目标年级", "老师", "已学过"],
+    "message": "好的家长，收到，不再打扰您了。后面有需要可以随时联系我。"
+  },
+  "stop_policy": {
+    "explicit_rejection_threshold": 2,
+    "explicit_rejection_keywords": ["不需要", "不买", "不要", "不考虑", "没兴趣", "别推了"],
+    "immediate_stop_keywords": ["再发投诉", "投诉", "没有孩子", "没孩子", "打错", "我是老师", "已报名", "已支付"]
+  },
+  "image_text_bindings": [
+    {
+      "step_id": "gift_poster",
+      "title": "完课好礼海报",
+      "text": "用户不买、考虑、问赠品、问完课礼时发送。",
+      "file_key": "course-sales/phonics/gift_poster.jpeg",
+      "trigger_intents": ["gift", "objection", "course_intro", "reading_thinking_intro"],
+      "enabled": true
+    },
+    {
+      "step_id": "gift_qr",
+      "title": "书课通资料二维码",
+      "text": "用户已报名/已支付或发截图后发送。",
+      "file_key": "course-sales/phonics/gift_qr.jpeg",
+      "trigger_intents": ["purchased", "resource_help", "screenshot_help"],
+      "enabled": true
+    }
+  ]
+}

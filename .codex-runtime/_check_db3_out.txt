@@ -1,0 +1,52 @@
+﻿=== Baidu providers ===
+{"uuid": "lne-baidu-aistudio-embedding-provider", "name": "鐧惧害鏄熸渤 Embedding", "requester": "openai-chat-completions", "base_url": "https://aistudio.baidu.com/llm/lmapi/v3", "api_keys_count": 1, "api_keys_set": [true], "api_key_lens": [40]}
+
+=== KB creation_settings ===
+{
+  "uuid": "yuanfudao-sales-knowledge-base",
+  "name": "鐚胯緟瀵奸攢鍞煡璇嗗簱",
+  "creation_settings": {
+    "embedding_model_uuid": "a99c0949-e534-479c-8c6d-cae2d33ce4ae"
+  },
+  "collection_id": "yuanfudao-sales-knowledge-base"
+}
+
+=== processing/pending ===
+{'file_name': '锛堣鏂囷級100棰橀棷鍏冲ぇ鎸戞垬.pdf', 'extension': 'pdf', 'status': 'processing'}
+{'file_name': '锛堣鏂囷級灏忓鐢熷繀鑳屽彜璇楄瘝锛?-6骞寸骇锛?pdf', 'extension': 'pdf', 'status': 'processing'}
+{'file_name': '馃殌25鏂版€濈淮闀挎湡鐝渚嬪簱.md', 'extension': 'md', 'status': 'pending'}
+{'file_name': '锛堣嫳璇級灏忓闃舵鑻辫璇硶姹囨€绘捣鎶1寮?pdf', 'extension': 'pdf', 'status': 'processing'}
+{'file_name': '瀛︾绯荤粺鐝礌鏉?md', 'extension': 'md', 'status': 'processing'}
+
+=== embedding monitoring summary ===
+{'model_name': 'text-embedding-v3', 'status': 'success', 'c': 132}
+{'model_name': 'text-embedding-3-large', 'status': 'error', 'c': 63}
+{'model_name': 'text-embedding-v3', 'status': 'error', 'c': 39}
+{'model_name': 'bge-large-zh', 'status': 'success', 'c': 10}
+{'model_name': 'bge-large-zh', 'status': 'error', 'c': 4}
+{'model_name': 'text-embedding-3-large', 'status': 'success', 'c': 2}
+{'model_name': '闃块噷浜戠櫨鐐?text-embedding-v3', 'status': 'success', 'c': 1}
+
+=== bge recent ===
+{'timestamp': '2026-06-10 06:22:51.569365', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 7}
+{'timestamp': '2026-06-10 06:22:50.980741', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 10}
+{'timestamp': '2026-06-10 06:22:50.699932', 'model_name': 'bge-large-zh', 'status': 'error', 'error_message': '妯″瀷璇锋眰澶辫触: 璇锋眰鍙傛暟閿欒: prompt tokens too long', 'input_count': 8}
+{'timestamp': '2026-06-10 06:22:50.397561', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 10}
+{'timestamp': '2026-06-10 06:22:50.188458', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 10}
+{'timestamp': '2026-06-10 06:22:49.518376', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 6}
+{'timestamp': '2026-06-10 06:22:48.846800', 'model_name': 'bge-large-zh', 'status': 'error', 'error_message': '妯″瀷璇锋眰澶辫触: 璇锋眰鍙傛暟閿欒: prompt tokens too long', 'input_count': 7}
+{'timestamp': '2026-06-10 06:22:48.464252', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 10}
+{'timestamp': '2026-06-10 06:22:48.441551', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 10}
+{'timestamp': '2026-06-10 06:22:48.396045', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 9}
+{'timestamp': '2026-06-10 06:22:48.335723', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 3}
+{'timestamp': '2026-06-10 06:22:39.696626', 'model_name': 'bge-large-zh', 'status': 'error', 'error_message': '妯″瀷璇锋眰澶辫触: 璇锋眰鍙傛暟閿欒: prompt tokens too long', 'input_count': 10}
+{'timestamp': '2026-06-10 06:22:39.695626', 'model_name': 'bge-large-zh', 'status': 'error', 'error_message': '妯″瀷璇锋眰澶辫触: 璇锋眰鍙傛暟閿欒: prompt tokens too long', 'input_count': 10}
+{'timestamp': '2026-06-10 05:04:16.014460', 'model_name': 'bge-large-zh', 'status': 'success', 'error_message': None, 'input_count': 1}
+
+=== monitoring_errors recent ===
+
+=== plugin_settings OCR related ===
+
+=== metadata ===
+{'key': 'database_version', 'value': '25'}
+{'key': 'wizard_progress', 'value': '{"step": 0, "selected_adapter": "lark", "created_bot_uuid": "3f6c3ea3-213f-4f56-b4a7-292dcd6e566b", "bot_saved": false, "selected_runner": null}'}

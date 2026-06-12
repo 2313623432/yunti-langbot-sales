@@ -1,0 +1,202 @@
+import React, { Suspense } from 'react';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
+
+// Layouts
+import LoginLayout from '@/app/login/layout';
+import RegisterLayout from '@/app/register/layout';
+import ResetPasswordLayout from '@/app/reset-password/layout';
+import HomeLayout from '@/app/home/layout';
+
+// Pages
+import LoginPage from '@/app/login/page';
+import RegisterPage from '@/app/register/page';
+import ResetPasswordPage from '@/app/reset-password/page';
+import WizardPage from '@/app/wizard/page';
+import SpaceCallbackPage from '@/app/auth/space/callback/page';
+import MonitoringPage from '@/app/home/monitoring/page';
+import BotsPage from '@/app/home/bots/page';
+import PipelinesPage from '@/app/home/pipelines/page';
+import WorkflowsPage from '@/app/home/workflows/page';
+import PluginsPage from '@/app/home/plugins/page';
+import MCPPage from '@/app/home/mcp/page';
+import KnowledgePage from '@/app/home/knowledge/page';
+import PluginPagesPage from '@/app/home/plugin-pages/page';
+import SalesPage from '@/app/home/sales/page';
+import SalesChatPage from '@/app/home/sales-chat/page';
+import ProductsPage from '@/app/home/products/page';
+import AiAgentsPage from '@/app/home/ai-agents/page';
+
+const Loading = () => <div>加载中...</div>;
+
+export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <Navigate to="/home/sales" replace />,
+  },
+  {
+    path: '/login',
+    element: (
+      <LoginLayout>
+        <LoginPage />
+      </LoginLayout>
+    ),
+  },
+  {
+    path: '/register',
+    element: (
+      <RegisterLayout>
+        <RegisterPage />
+      </RegisterLayout>
+    ),
+  },
+  {
+    path: '/reset-password',
+    element: (
+      <ResetPasswordLayout>
+        <ResetPasswordPage />
+      </ResetPasswordLayout>
+    ),
+  },
+  {
+    path: '/wizard',
+    element: <WizardPage />,
+  },
+  {
+    path: '/auth/space/callback',
+    element: <SpaceCallbackPage />,
+  },
+  {
+    path: '/home',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <SalesPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/sales',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <SalesPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/sales-chat',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <SalesChatPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/ai-agents',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <AiAgentsPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/workflows',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <WorkflowsPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/monitoring',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <MonitoringPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/bots',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <BotsPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/pipelines',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <PipelinesPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/plugins',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <PluginsPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/market',
+    element: <Navigate to="/home/plugins" replace />,
+  },
+  {
+    path: '/home/mcp',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <MCPPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/knowledge',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <KnowledgePage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/products',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <ProductsPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/plugin-pages',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <PluginPagesPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+]);

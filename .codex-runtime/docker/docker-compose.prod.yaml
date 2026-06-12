@@ -1,0 +1,49 @@
+# Production compose file for the customized Yunti AI sales system.
+# Run from this directory:
+#   docker compose -f docker-compose.prod.yaml up -d --build
+
+version: "3.9"
+
+x-langbot-image: &langbot-image
+  image: yunti-langbot:latest
+  build:
+    context: ..
+    dockerfile: Dockerfile
+
+x-common-env: &common-env
+  TZ: Asia/Shanghai
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+
+services:
+  langbot_plugin_runtime:
+    <<: *langbot-image
+    container_name: yunti_langbot_plugin_runtime
+    restart: unless-stopped
+    command: ["uv", "run", "--no-sync", "-m", "langbot_plugin.cli.__init__", "rt"]
+    environment:
+      <<: *common-env
+    volumes:
+      - ../data/plugins:/app/data/plugins
+    networks:
+      - yunti_langbot_network
+
+  langbot:
+    <<: *langbot-image
+    container_name: yunti_langbot
+    restart: unless-stopped
+    depends_on:
+      - langbot_plugin_runtime
+    environment:
+      <<: *common-env
+    volumes:
+      - ../data:/app/data
+    ports:
+      - "5300:5300"
+      - "2280-2285:2280-2285"
+    networks:
+      - yunti_langbot_network
+
+networks:
+  yunti_langbot_network:
+    driver: bridge

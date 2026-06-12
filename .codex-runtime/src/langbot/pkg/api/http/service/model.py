@@ -1,0 +1,709 @@
+from __future__ import annotations
+
+import uuid
+
+import sqlalchemy
+from langbot_plugin.api.entities.builtin.provider import message as provider_message
+
+from ....core import app
+from ....entity.persistence import model as persistence_model
+from ....entity.persistence import pipeline as persistence_pipeline
+from ....provider.modelmgr import asr_invoke
+from ....provider.modelmgr import builtin_registry
+from ....provider.modelmgr import requester as model_requester
+from ....provider.modelmgr import tts_invoke
+
+
+SYSTEM_SEEDED_PROVIDER_UUIDS = {'task-assistant-bailian-provider'}
+SYSTEM_SEEDED_LLM_MODEL_UUIDS = {'task-assistant-qwen-vl-plus'}
+
+
+def _is_voice_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'tts' in abilities and all(ability == 'tts' for ability in abilities)
+
+
+def _is_asr_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'asr' in abilities and all(ability == 'asr' for ability in abilities)
+
+
+def _is_pdf_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'pdf_parse' in abilities and all(ability == 'pdf_parse' for ability in abilities)
+
+
+def _matches_model_category(model_data: dict, model_category: str | None) -> bool:
+    if model_category in (None, '', 'all'):
+        return True
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        abilities = []
+    if model_category == 'voice':
+        return 'tts' in abilities
+    if model_category == 'asr':
+        return 'asr' in abilities
+    if model_category == 'pdf':
+        return 'pdf_parse' in abilities
+    if model_category == 'text':
+        return (
+            not _is_voice_only_model(model_data)
+            and not _is_pdf_only_model(model_data)
+            and not _is_asr_only_model(model_data)
+        )
+    return True
+
+
+def _parse_provider_api_keys(provider_dict: dict) -> dict:
+    """Parse api_keys if it's a JSON string"""
+    if isinstance(provider_dict.get('api_keys'), str):
+        import json
+
+        try:
+            provider_dict['api_keys'] = json.loads(provider_dict['api_keys'])
+        except Exception:
+            provider_dict['api_keys'] = []
+    return provider_dict
+
+
+def _provider_is_configured_for_selection(provider_dict: dict) -> bool:
+    enriched_provider = builtin_registry.enrich_provider_dict(dict(provider_dict))
+    return builtin_registry.is_provider_configured(enriched_provider)
+
+
+def _runtime_model_data(model_uuid: str, model_data: dict) -> dict:
+    """Return model data for rebuilding runtime models after an update.
+
+    Update payloads intentionally omit uuid before writing to the database.
+    Runtime model entities still need the stable uuid so pipeline configs can
+    resolve the in-memory model immediately after an edit, without requiring a
+    process restart.
+    """
+    return {**model_data, 'uuid': model_uuid}
+
+
+class LLMModelsService:
+    ap: app.Application
+
+    def __init__(self, ap: app.Application) -> None:
+        self.ap = ap
+
+    async def get_llm_models(
+        self,
+        include_secret: bool = True,
+        include_space_models: bool = True,
+        include_system_models: bool = True,
+        only_configured_providers: bool = False,
+        model_category: str | None = None,
+    ) -> list[dict]:
+        """Get all LLM models with provider info"""
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.LLMModel))
+        models = result.all()
+
+        # Get all providers for lookup
+        providers_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider)
+        )
+        providers = {p.uuid: p for p in providers_result.all()}
+
+        models_list = []
+        for model in models:
+            if not include_system_models and (
+                model.uuid in SYSTEM_SEEDED_LLM_MODEL_UUIDS or model.provider_uuid in SYSTEM_SEEDED_PROVIDER_UUIDS
+            ):
+                continue
+            model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, model)
+            if not _matches_model_category(model_dict, model_category):
+                continue
+            provider = providers.get(model.provider_uuid)
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
+                if not include_space_models and provider.requester == 'space-chat-completions':
+                    continue
+                provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
+                provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
+                if not include_secret:
+                    provider_dict['api_keys'] = ['***'] * len(provider_dict.get('api_keys', []))
+                model_dict['provider'] = provider_dict
+            models_list.append(model_dict)
+
+        return models_list
+
+    async def get_llm_models_by_provider(self, provider_uuid: str, model_category: str | None = None) -> list[dict]:
+        """Get LLM models by provider UUID"""
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.LLMModel).where(
+                persistence_model.LLMModel.provider_uuid == provider_uuid
+            )
+        )
+        models = result.all()
+        models_list = []
+        for model in models:
+            model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, model)
+            if _matches_model_category(model_dict, model_category):
+                models_list.append(model_dict)
+        return models_list
+
+    async def create_llm_model(
+        self, model_data: dict, preserve_uuid: bool = False, auto_set_to_default_pipeline: bool = True
+    ) -> str:
+        """Create a new LLM model"""
+        if not preserve_uuid:
+            model_data['uuid'] = str(uuid.uuid4())
+
+        # Handle provider creation if needed
+        if 'provider' in model_data:
+            provider_data = model_data.pop('provider')
+            if provider_data.get('uuid'):
+                model_data['provider_uuid'] = provider_data['uuid']
+            else:
+                # Create new provider
+                provider_uuid = await self.ap.provider_service.find_or_create_provider(
+                    requester=provider_data.get('requester', ''),
+                    base_url=provider_data.get('base_url', ''),
+                    api_keys=provider_data.get('api_keys', []),
+                )
+                model_data['provider_uuid'] = provider_uuid
+
+        await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_model.LLMModel).values(**model_data))
+
+        runtime_provider = self.ap.model_mgr.provider_dict.get(model_data['provider_uuid'])
+        if runtime_provider is None:
+            raise Exception('provider not found')
+
+        runtime_llm_model = await self.ap.model_mgr.load_llm_model_with_provider(
+            persistence_model.LLMModel(**model_data),
+            runtime_provider,
+        )
+        self.ap.model_mgr.llm_models.append(runtime_llm_model)
+
+        if auto_set_to_default_pipeline and not _is_voice_only_model(model_data) and not _is_pdf_only_model(
+            model_data
+        ) and not _is_asr_only_model(model_data):
+            # set the default pipeline model to this model
+            result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                    persistence_pipeline.LegacyPipeline.is_default == True
+                )
+            )
+            pipeline = result.first()
+            if pipeline is not None:
+                model_config = pipeline.config.get('ai', {}).get('local-agent', {}).get('model', {})
+                if not model_config.get('primary', ''):
+                    pipeline_config = pipeline.config
+                    pipeline_config['ai']['local-agent']['model'] = {
+                        'primary': model_data['uuid'],
+                        'fallbacks': [],
+                    }
+                    pipeline_data = {'config': pipeline_config}
+                    await self.ap.pipeline_service.update_pipeline(pipeline.uuid, pipeline_data)
+
+        return model_data['uuid']
+
+    async def get_llm_model(self, model_uuid: str) -> dict | None:
+        """Get a single LLM model with provider info"""
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.LLMModel).where(persistence_model.LLMModel.uuid == model_uuid)
+        )
+        model = result.first()
+        if model is None:
+            return None
+
+        model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, model)
+
+        # Get provider
+        provider_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == model.provider_uuid
+            )
+        )
+        provider = provider_result.first()
+        if provider:
+            provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
+            model_dict['provider'] = _parse_provider_api_keys(provider_dict)
+
+        return model_dict
+
+    async def update_llm_model(self, model_uuid: str, model_data: dict) -> None:
+        """Update an existing LLM model"""
+        if 'uuid' in model_data:
+            del model_data['uuid']
+
+        # Handle provider update if needed
+        if 'provider' in model_data:
+            provider_data = model_data.pop('provider')
+            if provider_data.get('uuid'):
+                model_data['provider_uuid'] = provider_data['uuid']
+            else:
+                provider_uuid = await self.ap.provider_service.find_or_create_provider(
+                    requester=provider_data.get('requester', ''),
+                    base_url=provider_data.get('base_url', ''),
+                    api_keys=provider_data.get('api_keys', []),
+                )
+                model_data['provider_uuid'] = provider_uuid
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_model.LLMModel)
+            .where(persistence_model.LLMModel.uuid == model_uuid)
+            .values(**model_data)
+        )
+
+        await self.ap.model_mgr.remove_llm_model(model_uuid)
+
+        runtime_provider = self.ap.model_mgr.provider_dict.get(model_data['provider_uuid'])
+        if runtime_provider is None:
+            raise Exception('provider not found')
+
+        runtime_llm_model = await self.ap.model_mgr.load_llm_model_with_provider(
+            persistence_model.LLMModel(**_runtime_model_data(model_uuid, model_data)),
+            runtime_provider,
+        )
+        self.ap.model_mgr.llm_models.append(runtime_llm_model)
+
+    async def delete_llm_model(self, model_uuid: str) -> None:
+        """Delete an LLM model"""
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_model.LLMModel).where(persistence_model.LLMModel.uuid == model_uuid)
+        )
+        await self.ap.model_mgr.remove_llm_model(model_uuid)
+
+    async def test_llm_model(self, model_uuid: str, model_data: dict) -> dict | None:
+        """Test an LLM model"""
+        runtime_llm_model: model_requester.RuntimeLLMModel | None = None
+
+        if model_uuid != '_':
+            for model in self.ap.model_mgr.llm_models:
+                if model.model_entity.uuid == model_uuid:
+                    runtime_llm_model = model
+                    break
+            if runtime_llm_model is None:
+                raise Exception('model not found')
+        else:
+            runtime_llm_model = await self.ap.model_mgr.init_temporary_runtime_llm_model(model_data)
+
+        abilities = model_data.get('abilities')
+        if not isinstance(abilities, list):
+            abilities = list(runtime_llm_model.model_entity.abilities or [])
+        if _is_voice_only_model({'abilities': abilities}):
+            await self._test_tts_model(runtime_llm_model, model_data)
+            return None
+        if _is_asr_only_model({'abilities': abilities}):
+            text = await self._test_asr_model(runtime_llm_model, model_data)
+            if not text:
+                raise Exception('ASR test failed: no transcription returned')
+            return {'transcription': text}
+
+        extra_args = model_data.get('extra_args', {})
+        await runtime_llm_model.provider.invoke_llm(
+            query=None,
+            model=runtime_llm_model,
+            messages=[provider_message.Message(role='user', content='Hello, world! Please just reply a "Hello".')],
+            funcs=[],
+            extra_args=extra_args,
+        )
+        return None
+
+    async def _test_tts_model(
+        self,
+        runtime_llm_model: model_requester.RuntimeLLMModel,
+        model_data: dict,
+    ) -> None:
+        extra_args = model_data.get('extra_args', {})
+        if not isinstance(extra_args, dict):
+            extra_args = dict(runtime_llm_model.model_entity.extra_args or {})
+
+        provider_entity = runtime_llm_model.provider.provider_entity
+        model_name = str(model_data.get('name') or runtime_llm_model.model_entity.name or '').strip()
+        voice_config = tts_invoke.apply_provider_api_keys(
+            {
+                'requester': provider_entity.requester or '',
+                'provider': extra_args.get('provider') or provider_entity.requester or '',
+                'model': model_name,
+                'base_url': provider_entity.base_url or '',
+                'voice_type': extra_args.get('voice_type') or extra_args.get('default_voice_type') or 'Cherry',
+                'language_type': extra_args.get('language_type') or 'Chinese',
+                'encoding': extra_args.get('encoding') or 'wav',
+                **extra_args,
+            },
+            requester=provider_entity.requester or '',
+            api_keys=runtime_llm_model.provider.token_mgr.tokens,
+        )
+        tts_config = tts_invoke.build_tts_invoke_config(
+            voice_config,
+            '你好，这是一条语音合成测试。',
+        )
+        audio_base64 = await tts_invoke.invoke_tts(tts_config, logger=self.ap.logger)
+        if not audio_base64:
+            raise Exception('TTS test failed: no audio returned')
+
+    async def _test_asr_model(
+        self,
+        runtime_llm_model: model_requester.RuntimeLLMModel,
+        model_data: dict,
+    ) -> str:
+        extra_args = model_data.get('extra_args', {})
+        if not isinstance(extra_args, dict):
+            extra_args = dict(runtime_llm_model.model_entity.extra_args or {})
+
+        provider_entity = runtime_llm_model.provider.provider_entity
+        model_name = str(model_data.get('name') or runtime_llm_model.model_entity.name or '').strip()
+        asr_config = asr_invoke.apply_provider_api_keys(
+            {
+                'requester': provider_entity.requester or '',
+                'provider': extra_args.get('provider') or provider_entity.requester or '',
+                'model': model_name,
+                'base_url': provider_entity.base_url or '',
+                'audio_base64': model_data.get('test_audio_base64') or model_data.get('audio_base64') or '',
+                'audio_url': model_data.get('test_audio_url') or extra_args.get('sample_audio_url') or '',
+                'language_type': extra_args.get('language_type') or 'Chinese',
+                **extra_args,
+            },
+            requester=provider_entity.requester or '',
+            api_keys=runtime_llm_model.provider.token_mgr.tokens,
+        )
+        config = asr_invoke.build_asr_invoke_config(asr_config)
+        text = await asr_invoke.invoke_asr(config, logger=self.ap.logger)
+        if not text:
+            raise Exception('ASR test failed: no transcription returned')
+        return text
+
+
+class EmbeddingModelsService:
+    ap: app.Application
+
+    def __init__(self, ap: app.Application) -> None:
+        self.ap = ap
+
+    async def get_embedding_models(self, only_configured_providers: bool = False) -> list[dict]:
+        """Get all embedding models with provider info"""
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.EmbeddingModel))
+        models = result.all()
+
+        providers_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider)
+        )
+        providers = {p.uuid: p for p in providers_result.all()}
+
+        models_list = []
+        for model in models:
+            model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, model)
+            provider = providers.get(model.provider_uuid)
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
+                provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
+                provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
+                model_dict['provider'] = provider_dict
+            models_list.append(model_dict)
+
+        return models_list
+
+    async def get_embedding_models_by_provider(self, provider_uuid: str) -> list[dict]:
+        """Get embedding models by provider UUID"""
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.EmbeddingModel).where(
+                persistence_model.EmbeddingModel.provider_uuid == provider_uuid
+            )
+        )
+        models = result.all()
+        return [self.ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, m) for m in models]
+
+    async def create_embedding_model(self, model_data: dict, preserve_uuid: bool = False) -> str:
+        """Create a new embedding model"""
+        if not preserve_uuid:
+            model_data['uuid'] = str(uuid.uuid4())
+
+        if 'provider' in model_data:
+            provider_data = model_data.pop('provider')
+            if provider_data.get('uuid'):
+                model_data['provider_uuid'] = provider_data['uuid']
+            else:
+                provider_uuid = await self.ap.provider_service.find_or_create_provider(
+                    requester=provider_data.get('requester', ''),
+                    base_url=provider_data.get('base_url', ''),
+                    api_keys=provider_data.get('api_keys', []),
+                )
+                model_data['provider_uuid'] = provider_uuid
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_model.EmbeddingModel).values(**model_data)
+        )
+
+        runtime_provider = self.ap.model_mgr.provider_dict.get(model_data['provider_uuid'])
+        if runtime_provider is None:
+            raise Exception('provider not found')
+
+        runtime_embedding_model = await self.ap.model_mgr.load_embedding_model_with_provider(
+            persistence_model.EmbeddingModel(**model_data),
+            runtime_provider,
+        )
+        self.ap.model_mgr.embedding_models.append(runtime_embedding_model)
+
+        return model_data['uuid']
+
+    async def get_embedding_model(self, model_uuid: str) -> dict | None:
+        """Get a single embedding model with provider info"""
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.EmbeddingModel).where(
+                persistence_model.EmbeddingModel.uuid == model_uuid
+            )
+        )
+        model = result.first()
+        if model is None:
+            return None
+
+        model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, model)
+
+        provider_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == model.provider_uuid
+            )
+        )
+        provider = provider_result.first()
+        if provider:
+            provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
+            model_dict['provider'] = _parse_provider_api_keys(provider_dict)
+
+        return model_dict
+
+    async def update_embedding_model(self, model_uuid: str, model_data: dict) -> None:
+        """Update an existing embedding model"""
+        if 'uuid' in model_data:
+            del model_data['uuid']
+
+        if 'provider' in model_data:
+            provider_data = model_data.pop('provider')
+            if provider_data.get('uuid'):
+                model_data['provider_uuid'] = provider_data['uuid']
+            else:
+                provider_uuid = await self.ap.provider_service.find_or_create_provider(
+                    requester=provider_data.get('requester', ''),
+                    base_url=provider_data.get('base_url', ''),
+                    api_keys=provider_data.get('api_keys', []),
+                )
+                model_data['provider_uuid'] = provider_uuid
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_model.EmbeddingModel)
+            .where(persistence_model.EmbeddingModel.uuid == model_uuid)
+            .values(**model_data)
+        )
+
+        await self.ap.model_mgr.remove_embedding_model(model_uuid)
+
+        runtime_provider = self.ap.model_mgr.provider_dict.get(model_data['provider_uuid'])
+        if runtime_provider is None:
+            raise Exception('provider not found')
+
+        runtime_embedding_model = await self.ap.model_mgr.load_embedding_model_with_provider(
+            persistence_model.EmbeddingModel(**_runtime_model_data(model_uuid, model_data)),
+            runtime_provider,
+        )
+        self.ap.model_mgr.embedding_models.append(runtime_embedding_model)
+
+    async def delete_embedding_model(self, model_uuid: str) -> None:
+        """Delete an embedding model"""
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_model.EmbeddingModel).where(
+                persistence_model.EmbeddingModel.uuid == model_uuid
+            )
+        )
+        await self.ap.model_mgr.remove_embedding_model(model_uuid)
+
+    async def test_embedding_model(self, model_uuid: str, model_data: dict) -> None:
+        """Test an embedding model"""
+        runtime_embedding_model: model_requester.RuntimeEmbeddingModel | None = None
+
+        if model_uuid != '_':
+            for model in self.ap.model_mgr.embedding_models:
+                if model.model_entity.uuid == model_uuid:
+                    runtime_embedding_model = model
+                    break
+            if runtime_embedding_model is None:
+                raise Exception('model not found')
+        else:
+            runtime_embedding_model = await self.ap.model_mgr.init_temporary_runtime_embedding_model(model_data)
+
+        await runtime_embedding_model.provider.invoke_embedding(
+            model=runtime_embedding_model,
+            input_text=['Hello, world!'],
+            extra_args={},
+        )
+
+
+class RerankModelsService:
+    ap: app.Application
+
+    def __init__(self, ap: app.Application) -> None:
+        self.ap = ap
+
+    async def get_rerank_models(self, only_configured_providers: bool = False) -> list[dict]:
+        """Get all rerank models with provider info"""
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.RerankModel))
+        models = result.all()
+
+        providers_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider)
+        )
+        providers = {p.uuid: p for p in providers_result.all()}
+
+        models_list = []
+        for model in models:
+            model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.RerankModel, model)
+            provider = providers.get(model.provider_uuid)
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
+                provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
+                provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
+                model_dict['provider'] = provider_dict
+            models_list.append(model_dict)
+
+        return models_list
+
+    async def get_rerank_models_by_provider(self, provider_uuid: str) -> list[dict]:
+        """Get rerank models by provider UUID"""
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.RerankModel).where(
+                persistence_model.RerankModel.provider_uuid == provider_uuid
+            )
+        )
+        models = result.all()
+        return [self.ap.persistence_mgr.serialize_model(persistence_model.RerankModel, m) for m in models]
+
+    async def create_rerank_model(self, model_data: dict, preserve_uuid: bool = False) -> str:
+        """Create a new rerank model"""
+        if not preserve_uuid:
+            model_data['uuid'] = str(uuid.uuid4())
+
+        if 'provider' in model_data:
+            provider_data = model_data.pop('provider')
+            if provider_data.get('uuid'):
+                model_data['provider_uuid'] = provider_data['uuid']
+            else:
+                provider_uuid = await self.ap.provider_service.find_or_create_provider(
+                    requester=provider_data.get('requester', ''),
+                    base_url=provider_data.get('base_url', ''),
+                    api_keys=provider_data.get('api_keys', []),
+                )
+                model_data['provider_uuid'] = provider_uuid
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.insert(persistence_model.RerankModel).values(**model_data)
+        )
+
+        runtime_provider = self.ap.model_mgr.provider_dict.get(model_data['provider_uuid'])
+        if runtime_provider is None:
+            raise Exception('provider not found')
+
+        runtime_rerank_model = await self.ap.model_mgr.load_rerank_model_with_provider(
+            persistence_model.RerankModel(**model_data),
+            runtime_provider,
+        )
+        self.ap.model_mgr.rerank_models.append(runtime_rerank_model)
+
+        return model_data['uuid']
+
+    async def get_rerank_model(self, model_uuid: str) -> dict | None:
+        """Get a single rerank model with provider info"""
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.RerankModel).where(persistence_model.RerankModel.uuid == model_uuid)
+        )
+        model = result.first()
+        if model is None:
+            return None
+
+        model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.RerankModel, model)
+
+        provider_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == model.provider_uuid
+            )
+        )
+        provider = provider_result.first()
+        if provider:
+            provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
+            model_dict['provider'] = _parse_provider_api_keys(provider_dict)
+
+        return model_dict
+
+    async def update_rerank_model(self, model_uuid: str, model_data: dict) -> None:
+        """Update an existing rerank model"""
+        if 'uuid' in model_data:
+            del model_data['uuid']
+
+        if 'provider' in model_data:
+            provider_data = model_data.pop('provider')
+            if provider_data.get('uuid'):
+                model_data['provider_uuid'] = provider_data['uuid']
+            else:
+                provider_uuid = await self.ap.provider_service.find_or_create_provider(
+                    requester=provider_data.get('requester', ''),
+                    base_url=provider_data.get('base_url', ''),
+                    api_keys=provider_data.get('api_keys', []),
+                )
+                model_data['provider_uuid'] = provider_uuid
+
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_model.RerankModel)
+            .where(persistence_model.RerankModel.uuid == model_uuid)
+            .values(**model_data)
+        )
+
+        await self.ap.model_mgr.remove_rerank_model(model_uuid)
+
+        runtime_provider = self.ap.model_mgr.provider_dict.get(model_data['provider_uuid'])
+        if runtime_provider is None:
+            raise Exception('provider not found')
+
+        runtime_rerank_model = await self.ap.model_mgr.load_rerank_model_with_provider(
+            persistence_model.RerankModel(**_runtime_model_data(model_uuid, model_data)),
+            runtime_provider,
+        )
+        self.ap.model_mgr.rerank_models.append(runtime_rerank_model)
+
+    async def delete_rerank_model(self, model_uuid: str) -> None:
+        """Delete a rerank model"""
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_model.RerankModel).where(persistence_model.RerankModel.uuid == model_uuid)
+        )
+        await self.ap.model_mgr.remove_rerank_model(model_uuid)
+
+    async def test_rerank_model(self, model_uuid: str, model_data: dict) -> None:
+        """Test a rerank model"""
+        runtime_rerank_model: model_requester.RuntimeRerankModel | None = None
+
+        if model_uuid != '_':
+            for model in self.ap.model_mgr.rerank_models:
+                if model.model_entity.uuid == model_uuid:
+                    runtime_rerank_model = model
+                    break
+            if runtime_rerank_model is None:
+                raise Exception('model not found')
+        else:
+            runtime_rerank_model = await self.ap.model_mgr.init_temporary_runtime_rerank_model(model_data)
+
+        await runtime_rerank_model.provider.invoke_rerank(
+            model=runtime_rerank_model,
+            query='What is artificial intelligence?',
+            documents=[
+                'Artificial intelligence is a branch of computer science.',
+                'The weather is nice today.',
+            ],
+        )

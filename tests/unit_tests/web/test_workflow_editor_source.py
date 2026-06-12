@@ -22,6 +22,9 @@ ROUTER_PATH = Path('web/src/router.tsx')
 ADD_MODEL_POPOVER_PATH = Path('web/src/app/home/components/models-dialog/components/AddModelPopover.tsx')
 MODEL_ITEM_PATH = Path('web/src/app/home/components/models-dialog/components/ModelItem.tsx')
 MODELS_DIALOG_PATH = Path('web/src/app/home/components/models-dialog/ModelsDialog.tsx')
+PROVIDER_FORM_PATH = Path(
+    'web/src/app/home/components/models-dialog/component/provider-form/ProviderForm.tsx'
+)
 
 
 def test_added_workflow_nodes_are_scrolled_into_view():
@@ -214,6 +217,24 @@ def test_model_configuration_supports_asr_models():
     assert re.search(r"abilities\?\.includes\('asr'\)", model_item_source)
     assert "modelCategory === 'asr'" in models_dialog_source
     assert "Array.from(new Set([...abilities, 'asr']))" in models_dialog_source
+
+
+def test_provider_form_can_save_and_scan_models():
+    source = PROVIDER_FORM_PATH.read_text(encoding='utf-8')
+
+    assert 'saveAndScanModels' in source
+    assert 'handleSaveAndScan' in source
+    assert 'scanAfterSave = false' in source
+    assert 'onFormSubmit(savedProviderUuid, { scan: scanAfterSave })' in source
+
+
+def test_models_dialog_can_open_scan_models_for_saved_provider():
+    source = MODELS_DIALOG_PATH.read_text(encoding='utf-8')
+
+    assert "options?.scan" in source
+    assert "addModelMode === 'scan'" in source
+    assert 'initialMode="scan"' in source
+    assert "setAddModelMode('scan')" in source
 
 
 def test_image_file_keys_preserve_path_segments_for_preview_urls():

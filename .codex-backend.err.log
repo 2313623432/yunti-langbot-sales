@@ -1,13 +1,13 @@
-D:\云梯科技\AI-sale\yunti-langbot-sales\.venv\Lib\site-packages\lark_oapi\ws\pb\google\__init__.py:2: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+D:\销售终极最后\.venv\Lib\site-packages\lark_oapi\ws\pb\google\__init__.py:2: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
   __import__('pkg_resources').declare_namespace(__name__)
-[06-10 09:33:51.382] app.py (45) - [INFO] : settings.cloud_service_url: https://space.langbot.app
-[06-10 09:33:51.383] app.py (119) - [INFO] : Ensuring all installed plugins dependencies are installed...
-[06-10 09:33:51.402] server.py (341) - [INFO] : server listening on 0.0.0.0:5400
-[06-10 09:33:51.402] server.py (29) - [INFO] : WebSocket server started on port 5400
-[06-10 09:33:51.403] server.py (341) - [INFO] : server listening on 0.0.0.0:5401
-[06-10 09:33:51.403] server.py (29) - [INFO] : WebSocket server started on port 5401
-[2026-06-10 09:33:51 +0800] [7600] [INFO] Running on http://0.0.0.0:5300 (CTRL + C to quit)
-[06-10 09:33:53.469] server.py (529) - [INFO] : connection open
-[06-10 09:33:53.470] server.py (33) - [INFO] : New connection from ('127.0.0.1', 58334)
-[06-10 09:33:53.472] app.py (78) - [INFO] : Got control connection.
-[06-10 09:33:53.473] mgr.py (118) - [INFO] : launch all plugins: 0
+[06-12 15:05:20.647] app.py (45) - [INFO] : settings.cloud_service_url: https://space.langbot.app
+[06-12 15:05:20.648] app.py (119) - [INFO] : Ensuring all installed plugins dependencies are installed...
+[06-12 15:05:20.665] server.py (341) - [INFO] : server listening on 0.0.0.0:5400
+[06-12 15:05:20.666] server.py (29) - [INFO] : WebSocket server started on port 5400
+[06-12 15:05:20.666] server.py (341) - [INFO] : server listening on 0.0.0.0:5401
+[06-12 15:05:20.666] server.py (29) - [INFO] : WebSocket server started on port 5401
+[06-12 15:05:22.066] server.py (529) - [INFO] : connection open
+[06-12 15:05:22.066] server.py (33) - [INFO] : New connection from ('127.0.0.1', 50272)
+[06-12 15:05:22.068] app.py (78) - [INFO] : Got control connection.
+[06-12 15:05:22.069] mgr.py (118) - [INFO] : launch all plugins: 0
+[2026-06-12 15:05:24 +0800] [23336] [INFO] Running on http://0.0.0.0:5300 (CTRL + C to quit)

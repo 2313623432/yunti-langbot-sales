@@ -60,6 +60,17 @@ class ModelProviderService:
             payload['requester'] = default_requester_for_protocol(validated_protocol)
         return payload
 
+    @staticmethod
+    def _model_provider_payload(provider_data: dict) -> dict:
+        model_provider_fields = {
+            column.name for column in persistence_model.ModelProvider.__table__.columns
+        }
+        return {
+            key: value
+            for key, value in provider_data.items()
+            if key in model_provider_fields
+        }
+
     async def get_providers(self) -> list[dict]:
         """Get all providers"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.ModelProvider))
@@ -225,7 +236,9 @@ class ModelProviderService:
         if provider is None:
             raise ValueError('provider not found')
 
-        runtime_provider = await self.ap.model_mgr.load_provider(provider)
+        runtime_provider = await self.ap.model_mgr.load_provider(
+            self._model_provider_payload(provider)
+        )
 
         try:
             scan_result = await runtime_provider.requester.scan_models(

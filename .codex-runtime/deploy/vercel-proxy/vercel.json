@@ -1,0 +1,16 @@
+{
+    "$schema":  "https://openapi.vercel.sh/vercel.json",
+    "buildCommand":  "pnpm build",
+    "outputDirectory":  "public",
+    "installCommand":  "pnpm install",
+    "rewrites":  [
+                     {
+                         "source":  "/",
+                         "destination":  "https://specialists-wine-acute-genius.trycloudflare.com/"
+                     },
+                     {
+                         "source":  "/:match*",
+                         "destination":  "https://specialists-wine-acute-genius.trycloudflare.com/:match*"
+                     }
+                 ]
+}

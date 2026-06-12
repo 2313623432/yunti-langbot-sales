@@ -240,6 +240,7 @@ const zhHans = {
     manualAdd: '手动添加',
     scanAdd: '扫描添加',
     scanModels: '扫描模型',
+    saveAndScanModels: '保存并拉取模型',
     scanModelsHint: '从当前供应商接口读取可用模型，然后勾选要添加的模型。',
     scannedModels: '扫描结果',
     scanDebug: '调试信息',
