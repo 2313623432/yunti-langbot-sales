@@ -1575,6 +1575,23 @@ class SalesService:
         messages = [self._serialize_sales_message(message) for message in sorted(rows, key=lambda item: item.timestamp)]
         return {'messages': messages, 'total': len(messages)}
 
+    async def generate_sales_reply_suggestion_from_session(
+        self,
+        session_id: str,
+        product_uuid: str = '',
+        tone: str = 'consultative',
+    ) -> dict[str, Any]:
+        messages = await self.get_sales_conversation_messages(session_id, limit=20, offset=0)
+        context = '\n'.join(message['preview'] for message in messages['messages'][-8:] if message.get('preview'))
+        products = await self.get_products(enabled_only=True)
+        product = next((item for item in products if item.get('uuid') == product_uuid), None) if product_uuid else None
+        if product is None:
+            product = self.select_best_product(context, products)
+        if product is None:
+            raise ValueError('No product available')
+        pitch = self.generate_pitch(product, customer_profile=context, intent=context, tone=tone)
+        return {'suggestion': pitch, 'product': product}
+
     def _query_session_id(self, query: Any) -> str:
         launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
         return f'{launcher_type}_{query.launcher_id}'
