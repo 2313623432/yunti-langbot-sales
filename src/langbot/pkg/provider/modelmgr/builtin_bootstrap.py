@@ -123,7 +123,16 @@ async def _ensure_provider(ap: app.Application, provider_spec) -> bool:
     )
     existing_provider = provider_result.first()
     if existing_provider is not None:
-        if provider_spec.uuid in ap.model_mgr.provider_dict:
+        requester_changed = False
+        if existing_provider.requester != provider_spec.requester:
+            await ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_model.ModelProvider)
+                .where(persistence_model.ModelProvider.uuid == provider_spec.uuid)
+                .values(requester=provider_spec.requester)
+            )
+            existing_provider.requester = provider_spec.requester
+            requester_changed = True
+        if provider_spec.uuid in ap.model_mgr.provider_dict and not requester_changed:
             return True
         try:
             runtime_provider = await ap.model_mgr.load_provider(existing_provider)

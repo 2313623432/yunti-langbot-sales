@@ -85,6 +85,7 @@ def enrich_provider_dict(provider_dict: dict, builtin_lookup: dict[str, dict]) -
         return provider_dict
 
     provider_dict['is_builtin'] = True
+    provider_dict['requester'] = spec.get('requester', provider_dict.get('requester'))
     provider_dict['protocol'] = spec.get('protocol', provider_dict.get('protocol'))
     provider_dict['api_key_required'] = spec.get('api_key_required', True)
     provider_dict['required_api_key_count'] = spec.get('required_api_key_count', 1 if spec.get('api_key_required', True) else 0)

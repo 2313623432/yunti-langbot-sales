@@ -113,6 +113,9 @@ class ModelProviderService:
     async def update_provider(self, provider_uuid: str, provider_data: dict) -> None:
         """Update an existing provider"""
         provider_data = self._normalize_provider_payload(provider_data)
+        builtin_requester = builtin_registry.get_builtin_provider_requester(provider_uuid)
+        if builtin_requester is not None:
+            provider_data['requester'] = builtin_requester
         if 'uuid' in provider_data:
             del provider_data['uuid']
         if 'api_keys' in provider_data:

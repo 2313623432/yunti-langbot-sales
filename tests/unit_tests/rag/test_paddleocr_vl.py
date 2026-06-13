@@ -25,6 +25,7 @@ def test_parse_jsonl_markdown_extracts_layout_text():
 
 @pytest.mark.asyncio
 async def test_extract_text_with_paddleocr_vl_returns_parsed_markdown():
+    captured_request = {}
     jsonl_payload = json.dumps(
         {
             'result': {
@@ -65,6 +66,8 @@ async def test_extract_text_with_paddleocr_vl_returns_parsed_markdown():
             return False
 
         def post(self, *args, **kwargs):
+            captured_request['args'] = args
+            captured_request['kwargs'] = kwargs
             return FakeResponse(200, {'data': {'jobId': 'job-1'}})
 
         def get(self, url, **kwargs):
@@ -78,5 +81,9 @@ async def test_extract_text_with_paddleocr_vl_returns_parsed_markdown():
             'scan.pdf',
             b'%PDF-1.4',
             token='test-token',
+            job_url='https://paddleocr.aistudio-app.com/api/v2/ocr/jobs',
         )
     assert text == 'OCR 提取内容'
+    assert captured_request['args'][0] == 'https://paddleocr.aistudio-app.com/api/v2/ocr/jobs'
+    assert captured_request['kwargs']['headers']['Authorization'] == 'bearer test-token'
+    assert 'data' in captured_request['kwargs']
