@@ -75,3 +75,37 @@ async def test_ensure_builtin_asr_providers_skips_missing_requester(monkeypatch)
     assert mock_app.persistence_mgr.execute_async.await_count == 1
     mock_app.llm_model_service.create_llm_model.assert_not_awaited()
     mock_app.logger.warning.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_ensure_provider_reloads_after_repairing_builtin_requester():
+    qwen_spec = builtin_asr_providers.get_builtin_asr_provider_spec('lna-qwen')
+    assert qwen_spec is not None
+
+    class ReadOnlyProvider:
+        def __init__(self, uuid: str, requester: str):
+            object.__setattr__(self, 'uuid', uuid)
+            object.__setattr__(self, 'requester', requester)
+
+        def __setattr__(self, name: str, value: str):
+            raise AttributeError("can't set attribute")
+
+    stale_provider = ReadOnlyProvider(uuid=qwen_spec.uuid, requester='openai-chat-completions')
+    repaired_provider = ReadOnlyProvider(uuid=qwen_spec.uuid, requester=qwen_spec.requester)
+
+    mock_app = Mock()
+    mock_app.logger = Mock()
+    mock_app.persistence_mgr = AsyncMock()
+    mock_app.persistence_mgr.execute_async = AsyncMock(
+        side_effect=[
+            Mock(first=Mock(return_value=stale_provider)),
+            Mock(),
+            Mock(first=Mock(return_value=repaired_provider)),
+        ]
+    )
+    mock_app.model_mgr = SimpleNamespace(load_provider=AsyncMock(return_value=Mock()), provider_dict={})
+
+    await builtin_bootstrap._ensure_provider(mock_app, qwen_spec)
+
+    assert mock_app.persistence_mgr.execute_async.await_count == 3
+    mock_app.model_mgr.load_provider.assert_awaited_once_with(repaired_provider)

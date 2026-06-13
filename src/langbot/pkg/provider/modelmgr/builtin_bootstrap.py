@@ -130,7 +130,12 @@ async def _ensure_provider(ap: app.Application, provider_spec) -> bool:
                 .where(persistence_model.ModelProvider.uuid == provider_spec.uuid)
                 .values(requester=provider_spec.requester)
             )
-            existing_provider.requester = provider_spec.requester
+            refreshed_provider_result = await ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_model.ModelProvider).where(
+                    persistence_model.ModelProvider.uuid == provider_spec.uuid
+                )
+            )
+            existing_provider = refreshed_provider_result.first() or existing_provider
             requester_changed = True
         if provider_spec.uuid in ap.model_mgr.provider_dict and not requester_changed:
             return True
