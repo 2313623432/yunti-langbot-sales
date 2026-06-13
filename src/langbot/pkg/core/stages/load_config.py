@@ -12,6 +12,16 @@ from .. import stage, app
 from ..bootutils import config
 
 
+_SENSITIVE_ENV_KEY_PARTS = ('password', 'secret', 'token', 'key')
+
+
+def _mask_env_value_for_log(env_key: str, env_value: str) -> str:
+    key_parts = env_key.lower().split('__')
+    if any(part in key_part for key_part in key_parts for part in _SENSITIVE_ENV_KEY_PARTS):
+        return '***'
+    return env_value
+
+
 def _apply_env_overrides_to_config(cfg: dict) -> dict:
     """Apply environment variable overrides to data/config.yaml
 
@@ -64,7 +74,8 @@ def _apply_env_overrides_to_config(cfg: dict) -> dict:
         if '__' not in env_key:
             continue
 
-        print(f'apply env overrides to config: env_key: {env_key}, env_value: {env_value}')
+        log_value = _mask_env_value_for_log(env_key, env_value)
+        print(f'apply env overrides to config: env_key: {env_key}, env_value: {log_value}')
 
         # Convert environment variable name to config path
         # e.g., CONCURRENCY__PIPELINE -> ['concurrency', 'pipeline']
