@@ -178,7 +178,7 @@ class TestApplyEnvOverridesToConfig:
         cfg = {'system': {'name': 'default'}}
         env = {'system__name': 'should_not_apply'}
 
-        with patch.dict(os.environ, env, clear=True):
+        with patch.object(load_config.os, 'environ', env):
             result = load_config._apply_env_overrides_to_config(cfg)
 
         assert result['system']['name'] == 'default'
@@ -288,3 +288,19 @@ class TestApplyEnvOverridesToConfig:
             result = load_config._apply_env_overrides_to_config(cfg)
 
         assert result['api']['extra_webhook_prefix'] == 'https://extra.example.com'
+
+    def test_sensitive_env_override_logs_masked_value(self, capsys):
+        """Sensitive environment override values are applied but not printed."""
+        load_config = get_load_config_module()
+
+        cfg = {'database': {'postgresql': {'password': ''}}}
+        env = {'DATABASE__POSTGRESQL__PASSWORD': 'super-secret-password'}
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_env_overrides_to_config(cfg)
+
+        output = capsys.readouterr().out
+        assert result['database']['postgresql']['password'] == 'super-secret-password'
+        assert 'DATABASE__POSTGRESQL__PASSWORD' in output
+        assert 'env_value: ***' in output
+        assert 'super-secret-password' not in output
