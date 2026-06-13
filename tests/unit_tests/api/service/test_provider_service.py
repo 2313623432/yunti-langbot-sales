@@ -328,6 +328,31 @@ class TestModelProviderServiceUpdateProvider:
         # Verify
         ap.model_mgr.reload_provider.assert_called_once()
 
+    async def test_update_builtin_provider_preserves_catalog_requester(self):
+        """Does not let protocol form data overwrite built-in provider requesters."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        ap.model_mgr = SimpleNamespace()
+        ap.model_mgr.reload_provider = AsyncMock()
+        ap.persistence_mgr.execute_async = AsyncMock()
+
+        service = ModelProviderService(ap)
+
+        await service.update_provider(
+            'lno-paddleocr',
+            {
+                'name': 'PaddleOCR-VL',
+                'protocol': 'openai',
+                'requester': 'openai-chat-completions',
+                'base_url': 'https://paddleocr.aistudio-app.com/api/v2/ocr/jobs',
+                'api_keys': ['key'],
+            },
+        )
+
+        update_call = ap.persistence_mgr.execute_async.await_args.args[0]
+        assert update_call.compile().params['requester'] == 'paddleocr-vl'
+        ap.model_mgr.reload_provider.assert_called_once_with('lno-paddleocr')
+
 
 class TestModelProviderServiceDeleteProvider:
     """Tests for delete_provider method."""

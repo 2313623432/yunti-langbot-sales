@@ -159,6 +159,43 @@ async def test_openai_embedding_call_overrides_placeholder_api_key():
 
 
 @pytest.mark.asyncio
+async def test_openai_embedding_call_drops_display_metadata():
+    captured_request = {}
+
+    async def fake_create(**kwargs):
+        captured_request['kwargs'] = kwargs
+        return SimpleNamespace(
+            data=[SimpleNamespace(embedding=[0.1, 0.2])],
+            usage=SimpleNamespace(prompt_tokens=3, total_tokens=3),
+        )
+
+    fake_client = SimpleNamespace(
+        api_key=OpenAIChatCompletions.init_api_key,
+        embeddings=SimpleNamespace(create=fake_create),
+    )
+
+    requester_inst = OpenAIChatCompletions(ap=SimpleNamespace(), config={})
+    requester_inst.client = fake_client
+
+    await requester_inst.invoke_embedding(
+        model=requester.RuntimeEmbeddingModel(
+            model_entity=SimpleNamespace(
+                name='百度星河 bge-large-zh',
+                extra_args={
+                    'display_name': '百度星河 bge-large-zh',
+                    'model': 'bge-large-zh',
+                },
+            ),
+            provider=SimpleNamespace(token_mgr=TokenManager('provider-uuid', ['runtime-key'])),
+        ),
+        input_text=['hello'],
+    )
+
+    assert captured_request['kwargs']['model'] == 'bge-large-zh'
+    assert 'display_name' not in captured_request['kwargs']
+
+
+@pytest.mark.asyncio
 async def test_updated_llm_model_is_immediately_usable_by_local_agent_pipeline():
     from langbot.pkg.api.http.service.model import LLMModelsService
 

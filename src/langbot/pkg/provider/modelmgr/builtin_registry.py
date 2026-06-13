@@ -15,6 +15,7 @@ def _catalog_lookup() -> dict[str, dict]:
     lookup: dict[str, dict] = {}
     for spec in builtin_text_providers.BUILTIN_TEXT_PROVIDER_SPECS:
         lookup[spec.uuid] = {
+            'requester': spec.requester,
             'protocol': spec.protocol,
             'api_key_required': spec.api_key_required,
             'required_api_key_count': 1 if spec.api_key_required else 0,
@@ -23,6 +24,7 @@ def _catalog_lookup() -> dict[str, dict]:
         }
     for spec in builtin_tts_providers.BUILTIN_TTS_PROVIDER_SPECS:
         lookup[spec.uuid] = {
+            'requester': spec.requester,
             'protocol': spec.protocol,
             'api_key_required': spec.api_key_required,
             'required_api_key_count': spec.required_api_key_count,
@@ -31,6 +33,7 @@ def _catalog_lookup() -> dict[str, dict]:
         }
     for spec in builtin_asr_providers.BUILTIN_ASR_PROVIDER_SPECS:
         lookup[spec.uuid] = {
+            'requester': spec.requester,
             'protocol': spec.protocol,
             'api_key_required': spec.api_key_required,
             'required_api_key_count': spec.required_api_key_count,
@@ -39,6 +42,7 @@ def _catalog_lookup() -> dict[str, dict]:
         }
     for spec in builtin_embedding_providers.BUILTIN_EMBEDDING_PROVIDER_SPECS:
         lookup[spec.uuid] = {
+            'requester': spec.requester,
             'protocol': spec.protocol,
             'api_key_required': spec.api_key_required,
             'required_api_key_count': 0 if not spec.api_key_required else 1,
@@ -47,6 +51,7 @@ def _catalog_lookup() -> dict[str, dict]:
         }
     for spec in builtin_pdf_providers.BUILTIN_PDF_PROVIDER_SPECS:
         lookup[spec.uuid] = {
+            'requester': spec.requester,
             'protocol': spec.protocol,
             'api_key_required': spec.api_key_required,
             'required_api_key_count': 0 if not spec.api_key_required else 1,
@@ -72,6 +77,14 @@ def all_builtin_provider_uuids() -> frozenset[str]:
 
 def is_builtin_provider(provider_uuid: str | None) -> bool:
     return provider_uuid in _get_catalog_lookup()
+
+
+def get_builtin_provider_requester(provider_uuid: str | None) -> str | None:
+    spec = _get_catalog_lookup().get(provider_uuid or '')
+    if spec is None:
+        return None
+    requester = spec.get('requester')
+    return requester if isinstance(requester, str) and requester else None
 
 
 def enrich_provider_dict(provider_dict: dict) -> dict:
