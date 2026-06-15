@@ -526,6 +526,23 @@ class SendResponseBackStage(stage.PipelineStage):
             component.text = text
         return replaced
 
+    def _replace_course_sales_direct_links(
+        self,
+        message_chain: platform_message.MessageChain,
+        link: str,
+    ) -> bool:
+        replaced = False
+        pattern = re.compile(r'https?://m\.yuanfudao\.com/primary/templates/package[^\s\]\)】》>"]*')
+        for component in message_chain:
+            if not isinstance(component, platform_message.Plain):
+                continue
+            text = component.text
+            new_text = pattern.sub(link, text)
+            if new_text != text:
+                component.text = new_text
+                replaced = True
+        return replaced
+
     def _promises_course_sales_signup_link(self, text: str) -> bool:
         return any(
             marker in text
@@ -559,10 +576,18 @@ class SendResponseBackStage(stage.PipelineStage):
             return
 
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
-        if intent not in {'purchase', 'radar_clicked'} and not self._promises_course_sales_signup_link(current_text):
+        has_course_sales_link = self._contains_course_sales_link(current_text)
+        if (
+            intent not in {'purchase', 'radar_clicked'}
+            and not self._promises_course_sales_signup_link(current_text)
+            and not has_course_sales_link
+        ):
             return
 
-        if self._contains_course_sales_link(current_text):
+        if self._replace_course_sales_direct_links(query.resp_message_chain[-1], link):
+            return
+
+        if has_course_sales_link:
             return
 
         query.resp_message_chain[-1].append(

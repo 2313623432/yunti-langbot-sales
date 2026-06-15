@@ -2150,8 +2150,13 @@ class _CourseOutreachSalesServiceWithTargetSend(_CourseOutreachSalesService):
 
 
 class _CourseOutreachSalesServiceWithRadarSend(_CourseOutreachSalesService):
+    def __init__(self, user_message_count=0):
+        super().__init__(user_message_count=user_message_count)
+        self.target_sends = []
+
     async def run_due_outreach_for_target(self, **kwargs):
         self.target_send = kwargs
+        self.target_sends.append(kwargs)
         return 1
 
 
@@ -2402,6 +2407,29 @@ async def test_course_sales_radar_event_does_not_resend_signup_link_followup():
         'target_type': 'person',
         'target_id': 'customer-radar',
     }
+
+
+@pytest.mark.asyncio
+async def test_course_sales_radar_event_sends_on_every_click():
+    sales_service = _DedupingCourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    workflow = service.build_course_sales_workflow_config()
+
+    for _ in range(2):
+        await service.handle_course_sales_radar_event(
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='customer-radar',
+            link_id='phonics_radar_apply',
+            session_id='person_customer-radar',
+            pipeline_uuid=COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+            event='link_open',
+            pipeline_config={'workflow': workflow},
+        )
+
+    radar_plans = [plan for plan in sales_service.plans if plan['segment'] == 'course-sales:radar:link_open']
+    assert len(radar_plans) == 2
+    assert all(plan['last_sent_at'] is not None and plan['enabled'] is False for plan in radar_plans)
 
 
 def test_enhanced_template_long_term_broadcasts_cover_excel_sop():

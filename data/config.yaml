@@ -42,7 +42,7 @@ proxy:
     http: ''
     https: ''
 sales:
-    radar_public_base_url: https://bouncy-strobe-kilobyte.ngrok-free.dev
+    radar_public_base_url: http://127.0.0.1:5300
 space:
     disable_models_service: true
     disable_telemetry: false

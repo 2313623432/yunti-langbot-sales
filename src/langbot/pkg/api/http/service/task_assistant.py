@@ -2488,7 +2488,7 @@ class TaskAssistantService:
                 target,
                 name=f'课程销售雷达跟进-{event}',
                 segment=f'course-sales:radar:{event}',
-                dedupe_parts=['radar', event, link_id, target.get('session_id', '')],
+                dedupe_parts=['radar', event, link_id, target.get('session_id', ''), uuid.uuid4().hex],
                 scheduled_at=datetime.datetime.now() + datetime.timedelta(minutes=delay_minutes),
                 components=components,
             )
