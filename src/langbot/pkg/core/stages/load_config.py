@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import unquote, urlparse
 from langbot.pkg.utils import constants
 import yaml
 import importlib.resources as resources
@@ -114,6 +115,27 @@ def _apply_env_overrides_to_config(cfg: dict) -> dict:
     return cfg
 
 
+def _apply_database_url_to_config(cfg: dict) -> dict:
+    database_url = os.environ.get('DATABASE_URL', '').strip()
+    if not database_url:
+        return cfg
+
+    parsed = urlparse(database_url)
+    if parsed.scheme not in ('postgres', 'postgresql', 'postgresql+asyncpg'):
+        return cfg
+
+    database_cfg = cfg.setdefault('database', {})
+    postgresql_cfg = database_cfg.setdefault('postgresql', {})
+    database_cfg['use'] = 'postgresql'
+    postgresql_cfg['host'] = parsed.hostname or postgresql_cfg.get('host', '127.0.0.1')
+    postgresql_cfg['port'] = parsed.port or postgresql_cfg.get('port', 5432)
+    postgresql_cfg['user'] = unquote(parsed.username or postgresql_cfg.get('user', 'postgres'))
+    postgresql_cfg['password'] = unquote(parsed.password or postgresql_cfg.get('password', ''))
+    postgresql_cfg['database'] = unquote(parsed.path.lstrip('/') or postgresql_cfg.get('database', 'postgres'))
+    print('apply DATABASE_URL to config: database.use=postgresql, env_value: ***')
+    return cfg
+
+
 @stage.stage_class('LoadConfigStage')
 class LoadConfigStage(stage.BootingStage):
     """Load config file stage"""
@@ -162,6 +184,7 @@ class LoadConfigStage(stage.BootingStage):
         ap.instance_config = await config.load_yaml_config('data/config.yaml', 'config.yaml', completion=False)
 
         # Apply environment variable overrides to data/config.yaml
+        ap.instance_config.data = _apply_database_url_to_config(ap.instance_config.data)
         ap.instance_config.data = _apply_env_overrides_to_config(ap.instance_config.data)
 
         await ap.instance_config.dump_config()

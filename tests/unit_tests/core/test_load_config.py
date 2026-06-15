@@ -304,3 +304,53 @@ class TestApplyEnvOverridesToConfig:
         assert 'DATABASE__POSTGRESQL__PASSWORD' in output
         assert 'env_value: ***' in output
         assert 'super-secret-password' not in output
+
+    def test_database_url_switches_config_to_postgresql(self):
+        """DATABASE_URL configures PostgreSQL so local and cloud can share one DB."""
+        load_config = get_load_config_module()
+
+        cfg = {
+            'database': {
+                'use': 'sqlite',
+                'sqlite': {'path': 'data/langbot.db'},
+                'postgresql': {
+                    'host': '127.0.0.1',
+                    'port': 5432,
+                    'user': 'postgres',
+                    'password': '',
+                    'database': 'postgres',
+                },
+            }
+        }
+        env = {
+            'DATABASE_URL': 'postgresql://sales%40user:p%40ss%2Fword@db.example.com:6543/yunti_sales',
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_database_url_to_config(cfg)
+
+        assert result['database']['use'] == 'postgresql'
+        assert result['database']['postgresql'] == {
+            'host': 'db.example.com',
+            'port': 6543,
+            'user': 'sales@user',
+            'password': 'p@ss/word',
+            'database': 'yunti_sales',
+        }
+
+    def test_database_url_keeps_explicit_env_overrides_last(self):
+        """Specific DATABASE__POSTGRESQL__ values can override DATABASE_URL pieces."""
+        load_config = get_load_config_module()
+
+        cfg = {'database': {'use': 'sqlite', 'postgresql': {'password': ''}}}
+        env = {
+            'DATABASE_URL': 'postgres://postgres:from-url@localhost:5432/postgres',
+            'DATABASE__POSTGRESQL__PASSWORD': 'from-explicit-env',
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_database_url_to_config(cfg)
+            result = load_config._apply_env_overrides_to_config(result)
+
+        assert result['database']['use'] == 'postgresql'
+        assert result['database']['postgresql']['password'] == 'from-explicit-env'

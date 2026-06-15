@@ -40,4 +40,9 @@ if [ ! -f /app/data/langbot.db ] && [ -d /app/render-seed-data ]; then
   cp -a /app/render-seed-data/. /app/data/
 fi
 
+if [ "${LANGBOT_POSTGRES_SEED_FROM_SQLITE:-0}" = "1" ] && [ -n "${DATABASE_URL:-}" ]; then
+  echo "Seeding PostgreSQL from bundled SQLite database if target is empty..."
+  uv run --no-sync python scripts/sync_sqlite_to_postgres.py --sqlite /app/data/langbot.db
+fi
+
 exec uv run --no-sync main.py

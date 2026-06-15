@@ -68,6 +68,11 @@ PY
     )"
 fi
 
+if [ "${LANGBOT_POSTGRES_SEED_FROM_SQLITE:-0}" = "1" ] && [ -n "${DATABASE_URL:-}" ]; then
+    echo "Seeding PostgreSQL from bundled SQLite database if target is empty..."
+    uv run --no-sync python scripts/sync_sqlite_to_postgres.py --sqlite /app/data/langbot.db
+fi
+
 echo "Starting LangBot plugin runtime..."
 uv run --no-sync -m langbot_plugin.cli.__init__ rt &
 plugin_pid="$!"
