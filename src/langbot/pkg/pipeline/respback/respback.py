@@ -514,6 +514,10 @@ class SendResponseBackStage(stage.PipelineStage):
             if not isinstance(component, platform_message.Plain):
                 continue
             text = component.text
+            new_text = re.sub(r'[\[【]报名(?:链接|入口)[^\]】]*[\]】]', link, text)
+            if new_text != text:
+                text = new_text
+                replaced = True
             for placeholder in placeholders:
                 if placeholder in text:
                     text = text.replace(placeholder, link)
@@ -530,7 +534,7 @@ class SendResponseBackStage(stage.PipelineStage):
         link: str,
     ) -> bool:
         replaced = False
-        raw_link_pattern = re.compile(r'https?://m\.yuanfudao\.com/primary/templates/package[^\s<>"\]]*')
+        raw_link_pattern = re.compile(r'https?://m\.yuanfudao\.com/primary/templates/package[^\s<>"\]\)】》>，。！？、；：]*')
         for component in message_chain:
             if not isinstance(component, platform_message.Plain):
                 continue

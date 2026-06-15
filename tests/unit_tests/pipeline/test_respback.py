@@ -246,7 +246,7 @@ async def test_respback_replaces_raw_course_sales_link_with_radar_tracking_url()
     query.variables['course_sales_radar_link'] = raw_link
     query.resp_message_chain = [
         platform_message.MessageChain(
-            [platform_message.Plain(text=f'好的，链接发您：{raw_link}\n支付成功后截图发我。')]
+            [platform_message.Plain(text=f'好的，链接发您：{raw_link}，支付成功后截图发我。')]
         )
     ]
 
@@ -256,3 +256,4 @@ async def test_respback_replaces_raw_course_sales_link_with_radar_tracking_url()
     sent_text = str(sent_chain)
     assert tracking_link in sent_text
     assert raw_link not in sent_text
+    assert '支付成功后截图发我' in sent_text

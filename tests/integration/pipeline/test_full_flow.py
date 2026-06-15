@@ -780,8 +780,8 @@ class TestSendResponseBackStage:
             'confidence': 0.72,
         }
         query.variables['course_sales_radar_link'] = signup_link
-        query.resp_messages = [Message(role='assistant', content='太棒了，点击这里报名：[报名链接]')]
-        query.resp_message_chain = [text_chain('太棒了，点击这里报名：[报名链接]')]
+        query.resp_messages = [Message(role='assistant', content='太棒了，点击这里报名：[报名链接XXXXXXX]')]
+        query.resp_message_chain = [text_chain('太棒了，点击这里报名：[报名链接XXXXXXX]')]
 
         respback_stage = respback.SendResponseBackStage(pipeline_app)
 
@@ -792,7 +792,7 @@ class TestSendResponseBackStage:
         components = outbound[0]['message']
         text = ''.join(component.text for component in components if component.type == 'Plain')
         assert signup_link in text
-        assert '[报名链接]' not in text
+        assert '[报名链接' not in text
 
     @pytest.mark.asyncio
     async def test_send_response_appends_signup_link_when_schedule_reply_promises_link(
@@ -859,6 +859,50 @@ class TestSendResponseBackStage:
         query.variables['course_sales_radar_link'] = signup_link
         query.resp_messages = [Message(role='assistant', content='可以，我现在把链接发给您。')]
         query.resp_message_chain = [text_chain('可以，我现在把链接发给您。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        text = ''.join(component.text for component in components if component.type == 'Plain')
+        assert tracking_link in text
+        assert signup_link not in text
+        pipeline_app.sales_service.build_radar_tracking_url.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_response_replaces_model_signup_link_with_radar_tracking(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Model-authored signup URLs should be replaced with radar tracking URLs."""
+        from types import SimpleNamespace
+
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        signup_link = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246'
+        tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/model-token'
+        pipeline_app.sales_service = SimpleNamespace(build_radar_tracking_url=Mock(return_value=tracking_link))
+        query = text_query('给我个链接')
+        query.adapter = adapter
+        query.bot_uuid = 'bot-uuid'
+        query.pipeline_uuid = 'pipeline-uuid'
+        query.launcher_id = 'ou_customer'
+        query.pipeline_config = create_minimal_pipeline_config()
+        query.variables['workflow_intent'] = {
+            'intent': 'purchase',
+            'confidence': 0.98,
+            'link_url': signup_link,
+        }
+        query.variables['course_sales_radar_link'] = signup_link
+        reply = f'这就发给您：\n{signup_link}\n\n点开链接选好孩子的年级，支付9元报名成功后截图发我。'
+        query.resp_messages = [Message(role='assistant', content=reply)]
+        query.resp_message_chain = [text_chain(reply)]
 
         respback_stage = respback.SendResponseBackStage(pipeline_app)
 
