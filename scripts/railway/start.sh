@@ -20,6 +20,8 @@ export PORT="${PORT:-5300}"
 export API__PORT="${API__PORT:-$PORT}"
 export PLUGIN__RUNTIME_WS_URL="${PLUGIN__RUNTIME_WS_URL:-ws://127.0.0.1:5400/control/ws}"
 
+mkdir -p /app/data/metadata /app/data/logs /app/data/labels /app/data/storage /app/data/chroma /app/data/temp
+
 if [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ] && [ -z "${API__WEBHOOK_PREFIX:-}" ]; then
     export API__WEBHOOK_PREFIX="https://${RAILWAY_PUBLIC_DOMAIN}"
 fi
@@ -36,6 +38,11 @@ if [ -n "${RAILWAY_VOLUME_MOUNT_PATH:-}" ] && [ "${RAILWAY_VOLUME_MOUNT_PATH}" !
     else
         echo "Railway volume is mounted at ${RAILWAY_VOLUME_MOUNT_PATH}; /app/data already exists, so it was not linked." >&2
     fi
+fi
+
+if [ ! -f /app/data/langbot.db ] && [ -d /app/render-seed-data ]; then
+    cp -a /app/render-seed-data/. /app/data/
+    echo "Seeded /app/data from bundled data package."
 fi
 
 if [ -n "${DATABASE_URL:-}" ] && [ -z "${DATABASE__POSTGRESQL__HOST:-}" ]; then
