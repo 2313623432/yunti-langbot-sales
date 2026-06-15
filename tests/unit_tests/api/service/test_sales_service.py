@@ -71,6 +71,14 @@ def test_normalize_sales_message_content_keeps_unavailable_media_as_real_attachm
     assert normalized['components'][1]['raw']['image_id'] == 'img_001'
 
 
+def test_format_datetime_marks_naive_monitoring_time_as_utc():
+    service = SalesService(SimpleNamespace())
+
+    formatted = service._format_datetime(datetime.datetime(2026, 6, 15, 6, 30, 0))
+
+    assert formatted == '2026-06-15T06:30:00+00:00'
+
+
 def test_select_best_product_matches_selling_points_and_pain_points():
     service = SalesService(SimpleNamespace())
     products = [

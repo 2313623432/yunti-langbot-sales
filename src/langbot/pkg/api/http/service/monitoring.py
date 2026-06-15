@@ -363,6 +363,7 @@ class MonitoringService:
         status: str,
         level: str | None = None,
         variables: str | None = None,
+        message_content: str | None = None,
     ) -> None:
         """Update message status and optionally variables"""
         update_values = {'status': status}
@@ -370,6 +371,8 @@ class MonitoringService:
             update_values['level'] = level
         if variables is not None:
             update_values['variables'] = variables
+        if message_content is not None:
+            update_values['message_content'] = message_content
 
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.update(persistence_monitoring.MonitoringMessage)

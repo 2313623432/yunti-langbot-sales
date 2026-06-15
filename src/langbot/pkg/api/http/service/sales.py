@@ -1958,6 +1958,8 @@ class SalesService:
         if value is None:
             return ''
         if isinstance(value, datetime.datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=datetime.timezone.utc)
             return value.isoformat()
         return str(value)
 

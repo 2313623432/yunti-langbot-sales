@@ -2,6 +2,7 @@ import pytest
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 
 from langbot.pkg.platform.sources.lark import LarkAdapter, LarkMessageConverter
+from lark_oapi.api.im.v1 import EventMessage
 
 
 def test_lark_base64_image_decoder_accepts_data_uri_whitespace_and_missing_padding():
@@ -17,6 +18,38 @@ def test_lark_voice_upload_options_use_audio_message_for_ogg_opus_data_uri():
     voice_options = LarkMessageConverter._voice_upload_options('data:audio/ogg;base64,ZmFrZQ==')
 
     assert voice_options == {'file_type': 'opus', 'file_name': 'voice.opus'}
+
+
+@pytest.mark.asyncio
+async def test_lark_inbound_image_uses_lazy_image_id_without_download():
+    class FailingMessageResource:
+        async def aget(self, request):
+            raise AssertionError('image resources should not be downloaded before aggregation')
+
+    class FakeImV1:
+        message_resource = FailingMessageResource()
+
+    class FakeIm:
+        v1 = FakeImV1()
+
+    class FakeApiClient:
+        im = FakeIm()
+
+    event_message = EventMessage(
+        {
+            'message_id': 'om_message',
+            'message_type': 'image',
+            'content': '{"image_key": "img_key"}',
+            'create_time': '1781504754000',
+            'mentions': [],
+        }
+    )
+
+    chain = await LarkMessageConverter.target2yiri(event_message, FakeApiClient())
+
+    assert isinstance(chain[1], platform_message.Image)
+    assert chain[1].image_id == 'lark:om_message:img_key'
+    assert chain[1].base64 == ''
 
 
 @pytest.mark.asyncio

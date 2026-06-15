@@ -60,6 +60,22 @@ class AESCipher(object):
 
 
 class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
+    _LAZY_IMAGE_ID_PREFIX = 'lark:'
+
+    @staticmethod
+    def _lazy_image_id(message_id: str, image_key: str) -> str:
+        return f'{LarkMessageConverter._LAZY_IMAGE_ID_PREFIX}{message_id}:{image_key}'
+
+    @staticmethod
+    def _parse_lazy_image_id(image_id: str) -> tuple[str, str] | None:
+        if not image_id.startswith(LarkMessageConverter._LAZY_IMAGE_ID_PREFIX):
+            return None
+        payload = image_id[len(LarkMessageConverter._LAZY_IMAGE_ID_PREFIX) :]
+        message_id, separator, image_key = payload.partition(':')
+        if not separator or not message_id or not image_key:
+            return None
+        return message_id, image_key
+
     @staticmethod
     def _decode_base64_media_data(data: str) -> tuple[bytes, str | None]:
         mime_type = None
@@ -112,6 +128,28 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
         if mime_type == 'audio/wav':
             return {'file_type': 'stream', 'file_name': 'voice.wav'}
         return {'file_type': 'opus', 'file_name': 'voice.opus'}
+
+    @staticmethod
+    async def download_image_from_lark(image_id: str, api_client: lark_oapi.Client) -> typing.Optional[str]:
+        parsed = LarkMessageConverter._parse_lazy_image_id(image_id)
+        if parsed is None:
+            return None
+
+        message_id, image_key = parsed
+        request: GetMessageResourceRequest = (
+            GetMessageResourceRequest.builder().message_id(message_id).file_key(image_key).type('image').build()
+        )
+        response: GetMessageResourceResponse = await api_client.im.v1.message_resource.aget(request)
+
+        if not response.success():
+            raise Exception(
+                f'client.im.v1.message_resource.get failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}, resp: \n{json.dumps(json.loads(response.raw.content), indent=4, ensure_ascii=False)}'
+            )
+
+        image_bytes = response.file.read()
+        image_base64 = base64.b64encode(image_bytes).decode()
+        image_format = response.raw.headers.get('content-type', 'image/jpeg')
+        return f'data:{image_format};base64,{image_base64}'
 
     @staticmethod
     async def upload_image_to_lark(msg: platform_message.Image, api_client: lark_oapi.Client) -> typing.Optional[str]:
@@ -498,28 +536,11 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
                 lb_msg_list.append(platform_message.At(target=ele['user_name']))
             elif ele['tag'] == 'img':
                 image_key = ele['image_key']
-
-                request: GetMessageResourceRequest = (
-                    GetMessageResourceRequest.builder()
-                    .message_id(message.message_id)
-                    .file_key(image_key)
-                    .type('image')
-                    .build()
-                )
-
-                response: GetMessageResourceResponse = await api_client.im.v1.message_resource.aget(request)
-
-                if not response.success():
-                    raise Exception(
-                        f'client.im.v1.message_resource.get failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}, resp: \n{json.dumps(json.loads(response.raw.content), indent=4, ensure_ascii=False)}'
+                lb_msg_list.append(
+                    platform_message.Image(
+                        image_id=LarkMessageConverter._lazy_image_id(message.message_id, image_key)
                     )
-
-                image_bytes = response.file.read()
-                image_base64 = base64.b64encode(image_bytes).decode()
-
-                image_format = response.raw.headers['content-type']
-
-                lb_msg_list.append(platform_message.Image(base64=f'data:{image_format};base64,{image_base64}'))
+                )
             elif ele['tag'] == 'audio':
                 file_key = ele['file_key']
                 duration = ele['duration']
@@ -1126,6 +1147,18 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 .build()
             )
         return api_client
+
+    async def resolve_image(
+        self,
+        image: platform_message.Image,
+        message_event: platform_events.MessageEvent | None = None,
+    ) -> platform_message.Image | None:
+        if not image.image_id or image.base64 or image.url or image.path:
+            return image
+        image_base64 = await self.message_converter.download_image_from_lark(image.image_id, self.api_client)
+        if not image_base64:
+            return image
+        return platform_message.Image(image_id=image.image_id, base64=image_base64)
 
     async def send_message(self, target_type: str, target_id: str, message: platform_message.MessageChain):
         text_elements, media_items = await self.message_converter.yiri2target(message, self.api_client)

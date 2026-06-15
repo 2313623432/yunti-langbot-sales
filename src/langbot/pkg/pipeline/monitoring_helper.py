@@ -117,10 +117,15 @@ class MonitoringHelper:
                         except Exception:
                             pass
 
+                message_content = None
+                if query and hasattr(query, 'message_chain') and hasattr(query.message_chain, 'model_dump'):
+                    message_content = json.dumps(query.message_chain.model_dump(), ensure_ascii=False)
+
                 await ap.monitoring_service.update_message_status(
                     message_id=message_id,
                     status='success',
                     variables=query_variables_str,
+                    message_content=message_content,
                 )
         except Exception as e:
             ap.logger.error(f'Failed to record query success: {e}')
