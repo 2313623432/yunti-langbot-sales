@@ -524,6 +524,22 @@ class SendResponseBackStage(stage.PipelineStage):
             component.text = text
         return replaced
 
+    def _replace_raw_course_sales_links(
+        self,
+        message_chain: platform_message.MessageChain,
+        link: str,
+    ) -> bool:
+        replaced = False
+        raw_link_pattern = re.compile(r'https?://m\.yuanfudao\.com/primary/templates/package[^\s<>"\]]*')
+        for component in message_chain:
+            if not isinstance(component, platform_message.Plain):
+                continue
+            text, count = raw_link_pattern.subn(link, component.text)
+            if count:
+                replaced = True
+                component.text = text
+        return replaced
+
     def _promises_course_sales_signup_link(self, text: str) -> bool:
         return any(
             marker in text
@@ -554,6 +570,9 @@ class SendResponseBackStage(stage.PipelineStage):
             return
 
         if self._replace_course_sales_link_placeholders(query.resp_message_chain[-1], link):
+            return
+
+        if self._replace_raw_course_sales_links(query.resp_message_chain[-1], link):
             return
 
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])

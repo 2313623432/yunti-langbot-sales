@@ -224,3 +224,35 @@ async def test_respback_replaces_course_sales_placeholder_signup_link_with_real_
     sent_text = str(sent_chain)
     assert 'XXXX' not in sent_text
     assert 'https://m.yuanfudao.com/primary/templates/package?pageId=6641' in sent_text
+
+
+@pytest.mark.asyncio
+async def test_respback_replaces_raw_course_sales_link_with_radar_tracking_url():
+    tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(build_radar_tracking_url=lambda **_: tracking_link)
+    stage = get_respback_stage_class()(app)
+    raw_link = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641'
+    query = text_query('再给个新链接')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'pipeline-uuid'
+    query.launcher_id = 'ou_customer'
+    query.pipeline_config = _pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'purchase',
+        'confidence': 0.9,
+        'link_url': raw_link,
+    }
+    query.variables['course_sales_radar_link'] = raw_link
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text=f'好的，链接发您：{raw_link}\n支付成功后截图发我。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    sent_text = str(sent_chain)
+    assert tracking_link in sent_text
+    assert raw_link not in sent_text
