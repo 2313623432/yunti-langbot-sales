@@ -51,6 +51,7 @@ export interface PipelineWorkflow {
   scenario: 'sales' | 'support' | 'task' | 'custom';
   metadata?: Record<string, unknown>;
   voice?: Record<string, unknown>;
+  special_cases?: PipelineTemplateSpecialCase[];
   nodes: PipelineWorkflowNode[];
   edges: PipelineWorkflowEdge[];
   variables: Record<string, unknown>;
@@ -151,6 +152,16 @@ export interface PipelineTemplateHumanHandoff {
   notify_message: string;
 }
 
+export interface PipelineTemplateSpecialCase {
+  id: string;
+  enabled: boolean;
+  condition: string;
+  reply: string;
+  ai_rewrite: boolean;
+  file_key?: string;
+  image_url?: string;
+}
+
 export interface PipelineTemplateReplyControls {
   multi_reply_enabled: boolean;
   merge_reply_enabled: boolean;
@@ -211,6 +222,7 @@ export interface PipelineTemplateConfig {
     click_reply: string;
   };
   human_handoff: PipelineTemplateHumanHandoff;
+  special_cases: PipelineTemplateSpecialCase[];
   image_text_bindings: PipelineTemplateImageTextBinding[];
   course_profile?: Record<string, string>;
   course_profiles?: PipelineTemplateCourseProfile[];

@@ -682,6 +682,42 @@ def test_sales_chat_renders_normalized_sales_message_components_and_hides_techni
     assert 'disabled={!conversation || savingMemory}' in source
 
 
+def test_sales_chat_shows_manual_status_badges_from_real_conversation_counts():
+    source = SALES_CHAT_PAGE_PATH.read_text(encoding='utf-8')
+
+    assert 'conversationStatusCounts' in source
+    assert 'countConversationStatuses' in source
+    assert "tab.value === 'pending_manual' || tab.value === 'manual_handling'" in source
+    assert 'bg-[#dc2626]' in source
+    assert "status: 'all'," in source
+
+
+def test_template_config_editor_supports_ai_semantic_special_cases():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    workflow_templates_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    types_source = Path('web/src/app/home/pipelines/components/workflow-editor/types.ts').read_text(
+        encoding='utf-8'
+    )
+
+    assert "'specialCases'" in template_source
+    assert '特殊情况处理' in template_source
+    assert 'AI语义触发' in template_source
+    assert '语义条件' in template_source
+    assert '回复意思' in template_source
+    assert 'AI改写' in template_source
+    assert 'patchSpecialCase' in template_source
+    assert 'addSpecialCase' in template_source
+    assert 'image_url' in template_source
+    assert 'file_key' in template_source
+    assert 'PipelineTemplateSpecialCase' in types_source
+    assert 'special_cases: PipelineTemplateSpecialCase[]' in types_source
+    assert 'special_cases: templateConfig.special_cases || []' in workflow_templates_source
+    task_assistant_source = Path('src/langbot/pkg/api/http/service/task_assistant.py').read_text(encoding='utf-8')
+    assert 'COURSE_SPECIAL_CASES' in task_assistant_source
+    assert "'special_cases': copy.deepcopy(COURSE_SPECIAL_CASES)" in task_assistant_source
+    assert "workflow['special_cases'] = copy.deepcopy(special_cases)" in task_assistant_source
+
+
 def test_pipeline_detail_exposes_auto_test_tab_for_agents_and_workflows():
     detail_source = PIPELINE_DETAIL_PATH.read_text(encoding='utf-8')
     client_source = BACKEND_CLIENT_PATH.read_text(encoding='utf-8')

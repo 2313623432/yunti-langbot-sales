@@ -80,6 +80,21 @@ async def test_prepare_query_sets_verify_intent_and_injects_prompt():
 
 
 @pytest.mark.asyncio
+async def test_prepare_query_marks_generic_task_handoff_request():
+    service = TaskAssistantService(SimpleNamespace())
+    query = _query(text_chain('我要转人工'), '我要转人工')
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert query.variables['workflow_intent']['intent'] == 'handoff'
+    assert query.variables['workflow_intent']['handoff_reason'] == 'manual_request'
+    assert query.variables['workflow_intent']['handoff_config']['enabled'] is True
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '人工介入上下文' in context_text
+
+
+@pytest.mark.asyncio
 async def test_prepare_query_marks_screenshot_and_voice_context():
     service = TaskAssistantService(SimpleNamespace())
     query = voice_query('https://example.com/audio.mp3')
@@ -1894,6 +1909,21 @@ def test_template_mode_active_workflow_uses_template_config_without_mutating_sav
                 'link_url': 'https://example.com/course',
                 'click_reply': '我看到您刚刚点开了课程链接。',
             },
+            'human_handoff': {
+                'enabled': True,
+                'notify_message': '请稍等，我来帮您看一下。',
+            },
+            'special_cases': [
+                {
+                    'id': 'custom-special-case',
+                    'enabled': True,
+                    'condition': '用户在问特殊场景',
+                    'reply': '按特殊场景回复',
+                    'ai_rewrite': False,
+                    'image_url': '',
+                    'file_key': '',
+                }
+            ],
             'image_text_bindings': [
                 {
                     'step_id': 'download_qr',
@@ -1919,6 +1949,10 @@ def test_template_mode_active_workflow_uses_template_config_without_mutating_sav
     assert active_workflow['voice']['app_id'] == 'template-app'
     assert active_workflow['interaction_radar']['link_url'] == 'https://example.com/course'
     assert active_workflow['variables']['interaction_radar']['click_reply'] == '我看到您刚刚点开了课程链接。'
+    assert active_workflow['human_handoff']['notify_message'] == '请稍等，我来帮您看一下。'
+    assert active_workflow['variables']['human_handoff']['enabled'] is True
+    assert active_workflow['special_cases'][0]['id'] == 'custom-special-case'
+    assert active_workflow['variables']['special_cases'][0]['reply'] == '按特殊场景回复'
     image_node = next(node for node in active_workflow['nodes'] if node['id'] == 'image_download_qr')
     assert image_node['config']['file_key'] == 'uploads/custom-step.png'
     assert saved_workflow['nodes'] == []

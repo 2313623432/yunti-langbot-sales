@@ -922,6 +922,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       followup_sequences: courseFollowupSequences,
       long_term_broadcasts: courseLongTermBroadcasts,
       human_handoff: defaultHumanHandoff,
+      special_cases: [],
       stop_rules: courseStopRules,
       stop_policy: courseStopPolicy,
       image_text_bindings: courseImageBindings,
@@ -1025,6 +1026,7 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
       })),
       notify_message: '',
     },
+    special_cases: [],
     image_text_bindings: [],
   };
 }
@@ -1114,6 +1116,17 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       enabled: false,
       notify_message: '我这边帮您记录好了，稍等我看下具体情况~',
     },
+    special_cases: [
+      {
+        id: 'phonics-listening-answer-card',
+        enabled: true,
+        condition: '用户在问书籍二维码里的听力、答案、音频或扫码资源怎么打开、怎么听、在哪里看。',
+        reply: '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片。',
+        ai_rewrite: true,
+        file_key: '',
+        image_url: '',
+      },
+    ],
     image_text_bindings: bindings.map(([step_id, title, text, file_key]) => ({
       step_id,
       title,
@@ -1135,6 +1148,7 @@ export function applyTemplateConfigToWorkflow(
   return {
     ...workflow,
     name: templateConfig.name || workflow.name,
+    special_cases: templateConfig.special_cases || [],
     metadata: {
       ...(workflow.metadata || {}),
       source_mode: 'template',
@@ -1187,6 +1201,7 @@ export function applyTemplateConfigToWorkflow(
       scheduled_push: templateConfig.scheduled_push,
       interaction_radar: templateConfig.interaction_radar,
       human_handoff: templateConfig.human_handoff,
+      special_cases: templateConfig.special_cases || [],
       opening_message: templateConfig.opening_message,
       recommended_questions: templateConfig.recommended_questions,
       sales_links: templateConfig.sales_links || [],

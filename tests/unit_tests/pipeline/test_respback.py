@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from importlib import import_module
-from unittest.mock import call
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, call
 
 import pytest
 
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
+import langbot_plugin.api.entities.builtin.provider.message as provider_message
 
-from tests.factories import FakeApp, text_query
+from tests.factories import FakeApp, FakeProvider, text_query
 
 
 def get_respback_stage_class():
@@ -29,6 +31,32 @@ def _pipeline_config(*, multi_reply_enabled: bool, threshold: int = 20) -> dict:
             },
         },
     }
+
+
+def _pipeline_config_with_special_cases(*, ai_rewrite: bool) -> dict:
+    return {
+        **_pipeline_config(multi_reply_enabled=False),
+        'workflow': {
+            'metadata': {'source_mode': 'template'},
+            'special_cases': [
+                {
+                    'id': 'listen-resource',
+                    'enabled': True,
+                    'condition': '用户在问书籍二维码里的听力/答案怎么打开、怎么听、在哪里看',
+                    'reply': '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片',
+                    'ai_rewrite': ai_rewrite,
+                    'image_url': 'https://example.com/listen.png',
+                }
+            ],
+        },
+    }
+
+
+def _runtime_model(fake_provider: FakeProvider) -> SimpleNamespace:
+    return SimpleNamespace(
+        model_entity=SimpleNamespace(uuid='model-1', name='real-model'),
+        provider=fake_provider,
+    )
 
 
 @pytest.mark.asyncio
@@ -73,3 +101,87 @@ async def test_respback_keeps_plain_text_as_single_message_when_multi_reply_disa
         message=query.resp_message_chain[-1],
         quote_origin=False,
     )
+
+
+@pytest.mark.asyncio
+async def test_respback_uses_ai_semantic_special_case_without_keyword_match():
+    app = FakeApp()
+    fake_provider = FakeProvider().returns('{"matched_id":"listen-resource"}')
+    app.model_mgr.get_model_by_uuid = AsyncMock(return_value=_runtime_model(fake_provider))
+    stage = get_respback_stage_class()(app)
+    query = text_query('我扫书后那个音频入口在哪里播放')
+    query.use_llm_model_uuid = 'model-1'
+    query.pipeline_config = _pipeline_config_with_special_cases(ai_rewrite=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='普通 AI 原回复')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    query.adapter.reply_message.assert_awaited_once()
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert sent_chain[0].text == '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片'
+    assert isinstance(sent_chain[1], platform_message.Image)
+    assert fake_provider.get_captured_requests()[0]['messages'][0].content.startswith('你是语义路由器')
+
+
+@pytest.mark.asyncio
+async def test_respback_rewrites_special_case_reply_when_enabled():
+    app = FakeApp()
+    responses = [
+        provider_message.Message(role='assistant', content='{"matched_id":"listen-resource"}'),
+        provider_message.Message(role='assistant', content='可以点上面的资源卡片，里面能听音频也能看答案。'),
+    ]
+    provider = SimpleNamespace(
+        captured=[],
+        invoke_llm=AsyncMock(side_effect=lambda *args, **kwargs: responses.pop(0)),
+    )
+
+    app.model_mgr.get_model_by_uuid = AsyncMock(
+        return_value=SimpleNamespace(
+            model_entity=SimpleNamespace(uuid='model-1', name='real-model'),
+            provider=provider,
+        )
+    )
+    stage = get_respback_stage_class()(app)
+    query = text_query('二维码里面答案和听力怎么找')
+    query.use_llm_model_uuid = 'model-1'
+    query.pipeline_config = _pipeline_config_with_special_cases(ai_rewrite=True)
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='普通 AI 原回复')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert sent_chain[0].text == '可以点上面的资源卡片，里面能听音频也能看答案。'
+    assert isinstance(sent_chain[1], platform_message.Image)
+    assert provider.invoke_llm.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_respback_opens_handoff_when_workflow_intent_requests_manual_intervention():
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(open_handoff_from_query=AsyncMock(return_value={'id': 7}))
+    stage = get_respback_stage_class()(app)
+    query = text_query('我要转人工')
+    query.pipeline_config = _pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'handoff',
+        'handoff_reason': 'manual_request',
+        'handoff_config': {'notify_message': 'manual notice'},
+    }
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='normal ai reply')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    app.sales_service.open_handoff_from_query.assert_awaited_once_with(
+        query,
+        'manual_request',
+        '我要转人工',
+    )
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert sent_chain[0].text == 'manual notice'
+    assert query.variables['sales_handoff_opened'] is True

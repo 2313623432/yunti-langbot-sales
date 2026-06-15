@@ -43,6 +43,7 @@ import {
   PipelineTemplateConfig,
   PipelineTemplateCourseProfile,
   PipelineTemplateImageTextBinding,
+  PipelineTemplateSpecialCase,
 } from './types';
 import { groupProductsByLine } from '@/app/home/products/utils/productLineUtils';
 import { createBlankAgentTemplateConfig } from './workflowTemplates';
@@ -69,6 +70,7 @@ type TemplateConfigTab =
   | 'knowledge'
   | 'memory'
   | 'radar'
+  | 'specialCases'
   | 'push'
   | 'handoff'
   | 'media';
@@ -85,6 +87,7 @@ const CONFIG_TABS: Array<{
   { id: 'knowledge', label: '知识和数据', icon: Database },
   { id: 'memory', label: '记忆', icon: Bot },
   { id: 'radar', label: '雷达跟进', icon: MousePointerClick },
+  { id: 'specialCases', label: '特殊情况处理', icon: ShieldCheck },
   { id: 'push', label: '定时推送', icon: CalendarClock },
   { id: 'handoff', label: '转人工', icon: UserRoundCheck },
   { id: 'media', label: '图文素材', icon: ImageIcon },
@@ -231,6 +234,7 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
         ? value.human_handoff.semantic_triggers
         : defaults.human_handoff.semantic_triggers,
     },
+    special_cases: value?.special_cases ?? defaults.special_cases ?? [],
     image_text_bindings:
       value?.image_text_bindings?.length ? value.image_text_bindings : defaults.image_text_bindings,
     sales_links: value?.sales_links?.length ? value.sales_links : defaults.sales_links || [],
@@ -364,6 +368,18 @@ function makeCustomImageBinding(): PipelineTemplateImageTextBinding {
   };
 }
 
+function makeSpecialCase(): PipelineTemplateSpecialCase {
+  return {
+    id: `special_${Date.now().toString(36)}`,
+    enabled: true,
+    condition: '用户在表达某一类相似问题或特殊场景',
+    reply: '',
+    ai_rewrite: true,
+    file_key: '',
+    image_url: '',
+  };
+}
+
 function textToList(value: string): string[] {
   return value
     .split(/[\n,，]/)
@@ -481,6 +497,28 @@ export default function PipelineTemplateConfigEditor({
     patchHumanHandoff({
       semantic_triggers: config.human_handoff.semantic_triggers.map((trigger, triggerIndex) =>
         triggerIndex === index ? { ...trigger, ...next } : trigger,
+      ),
+    });
+  }
+
+  function patchSpecialCase(index: number, next: Partial<PipelineTemplateSpecialCase>) {
+    patch({
+      special_cases: (config.special_cases || []).map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...next } : item,
+      ),
+    });
+  }
+
+  function addSpecialCase() {
+    patch({
+      special_cases: [...(config.special_cases || []), makeSpecialCase()],
+    });
+  }
+
+  function removeSpecialCase(index: number) {
+    patch({
+      special_cases: (config.special_cases || []).filter(
+        (_, itemIndex) => itemIndex !== index,
       ),
     });
   }
@@ -1970,6 +2008,135 @@ export default function PipelineTemplateConfigEditor({
     );
   }
 
+  function renderSpecialCaseSettings() {
+    const enabledCount = (config.special_cases || []).filter((item) => item.enabled !== false).length;
+    return (
+      <div className="space-y-4">
+        <Section
+          icon={ShieldCheck}
+          title="特殊情况处理"
+          description="用 AI语义触发识别相似意思，命中后优先按指定意思回复，支持固定回复、AI改写和图片。"
+          right={
+            <SummaryPill active={enabledCount > 0}>
+              {enabledCount} 条启用
+            </SummaryPill>
+          }
+        >
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+            AI语义触发会判断“意思是否相同”，不是关键词触发。用户换一种说法、口语化表达，也可以命中。
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 w-full justify-center rounded-md"
+            onClick={addSpecialCase}
+          >
+            <Plus className="mr-1.5 size-4" />
+            新增特殊情况
+          </Button>
+
+          <div className="grid gap-3">
+            {(config.special_cases || []).map((item, index) => (
+              <div
+                key={item.id || index}
+                className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3"
+              >
+                <div className="flex items-center gap-3">
+                  <Badge variant="outline" className="rounded bg-white">
+                    {String(index + 1).padStart(2, '0')}
+                  </Badge>
+                  <Input
+                    value={item.id}
+                    onChange={(event) => patchSpecialCase(index, { id: event.target.value })}
+                    className="h-10 bg-white"
+                    placeholder="规则 ID"
+                  />
+                  <Switch
+                    checked={item.enabled !== false}
+                    onCheckedChange={(checked) => patchSpecialCase(index, { enabled: checked })}
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="删除特殊情况"
+                    onClick={() => removeSpecialCase(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+
+                <label className="block">
+                  <FieldLabel>语义条件</FieldLabel>
+                  <Textarea
+                    value={item.condition}
+                    onChange={(event) => patchSpecialCase(index, { condition: event.target.value })}
+                    className="min-h-24 resize-none bg-white leading-6"
+                    placeholder="例如：用户在问书籍二维码里的听力、答案、音频或扫码资源怎么打开、怎么听、在哪里看。"
+                  />
+                </label>
+
+                <label className="block">
+                  <FieldLabel>回复意思</FieldLabel>
+                  <Textarea
+                    value={item.reply}
+                    onChange={(event) => patchSpecialCase(index, { reply: event.target.value })}
+                    className="min-h-24 resize-none bg-white leading-6"
+                    placeholder="例如：书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片。"
+                  />
+                </label>
+
+                <ToggleRow
+                  label="AI改写"
+                  description="开启后 AI 按回复意思自然表达，每次略有不同；关闭后每次发送同一条固定回复。"
+                  checked={Boolean(item.ai_rewrite)}
+                  onCheckedChange={(checked) => patchSpecialCase(index, { ai_rewrite: checked })}
+                />
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  <label>
+                    <FieldLabel>图片 URL</FieldLabel>
+                    <Input
+                      value={item.image_url || ''}
+                      onChange={(event) => patchSpecialCase(index, { image_url: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="https://example.com/image.png"
+                    />
+                  </label>
+                  <label>
+                    <FieldLabel>图片 file_key</FieldLabel>
+                    <Input
+                      value={item.file_key || ''}
+                      onChange={(event) => patchSpecialCase(index, { file_key: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="storage/path/image.png"
+                    />
+                  </label>
+                </div>
+
+                {(item.image_url || item.file_key) && (
+                  <div className="overflow-hidden rounded-md border bg-white">
+                    <img
+                      src={item.image_url || imageAssetUrl(item.file_key || '')}
+                      alt={item.id || '特殊情况图片'}
+                      className="max-h-40 w-full object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+            {!(config.special_cases || []).length && (
+              <div className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-muted-foreground">
+                暂无特殊情况。可以新增一条，例如“用户在问听力/答案怎么听”。
+              </div>
+            )}
+          </div>
+        </Section>
+      </div>
+    );
+  }
+
   function renderMediaSettings() {
     return (
       <div className="space-y-4">
@@ -2097,6 +2264,8 @@ export default function PipelineTemplateConfigEditor({
         return renderMemorySettings();
       case 'radar':
         return renderRadarSettings();
+      case 'specialCases':
+        return renderSpecialCaseSettings();
       case 'push':
         return renderPushSettings();
       case 'handoff':
