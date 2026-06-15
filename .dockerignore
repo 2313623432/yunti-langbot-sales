@@ -1,5 +1,7 @@
 .github
 .git
+.codex-runtime
+.codex-*.log
 .venv
 .vscode
 data/logs

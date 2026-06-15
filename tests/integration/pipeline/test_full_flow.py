@@ -795,6 +795,37 @@ class TestSendResponseBackStage:
         assert '[报名链接' not in text
 
     @pytest.mark.asyncio
+    async def test_send_response_replaces_plain_course_sales_signup_link_placeholder(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Course sales replies should replace plain placeholder suffixes, not only bracketed ones."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        signup_link = 'https://m.yuanfudao.com/primary/templates/package?test=plain-placeholder'
+        query = text_query('好的')
+        query.adapter = adapter
+        query.pipeline_config = create_minimal_pipeline_config()
+        query.variables['workflow_intent'] = {
+            'intent': 'course_content',
+            'confidence': 0.72,
+        }
+        query.variables['course_sales_radar_link'] = signup_link
+        query.resp_messages = [Message(role='assistant', content='趁优惠给孩子领一份 👇\n报名链接XXXXXXX')]
+        query.resp_message_chain = [text_chain('趁优惠给孩子领一份 👇\n报名链接XXXXXXX')]
+
+        result = await respback.SendResponseBackStage(pipeline_app).process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        text = ''.join(component.text for component in outbound[0]['message'] if component.type == 'Plain')
+        assert signup_link in text
+        assert '报名链接XXXXXXX' not in text
+
+    @pytest.mark.asyncio
     async def test_send_response_appends_signup_link_when_schedule_reply_promises_link(
         self, pipeline_app, fake_platform_adapter
     ):

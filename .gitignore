@@ -66,4 +66,7 @@ deploy/vercel-proxy/.vercel/
 
 # Local tooling and generated outputs
 .codex/
+.codex-runtime/
+.codex-*.log
+.railway-config-pull-*/
 outputs/

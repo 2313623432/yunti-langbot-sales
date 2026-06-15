@@ -26,6 +26,31 @@ class PreProcessor(stage.PipelineStage):
         - use_funcs
     """
 
+    async def _resolve_image_component(
+        self,
+        image: platform_message.Image,
+        query: pipeline_query.Query,
+    ) -> platform_message.Image:
+        if image.base64 or image.url or image.path or not image.image_id:
+            return image
+
+        resolver = getattr(query.adapter, 'resolve_image', None)
+        if resolver is None:
+            return image
+
+        try:
+            resolved = await resolver(image, query.message_event)
+        except Exception as exc:
+            self.ap.logger.warning(f'Failed to resolve image {image.image_id}: {exc}')
+            return image
+
+        if not isinstance(resolved, platform_message.Image):
+            return image
+        image.base64 = resolved.base64
+        image.url = resolved.url
+        image.path = resolved.path
+        return image
+
     async def process(
         self,
         query: pipeline_query.Query,
@@ -173,6 +198,7 @@ class PreProcessor(stage.PipelineStage):
                 if selected_runner != 'local-agent' or (
                     llm_model and llm_model.model_entity.abilities.__contains__('vision')
                 ):
+                    me = await self._resolve_image_component(me, query)
                     if me.base64 is not None:
                         content_list.append(provider_message.ContentElement.from_image_base64(me.base64))
                     elif me.url:
@@ -196,6 +222,7 @@ class PreProcessor(stage.PipelineStage):
                         if selected_runner != 'local-agent' or (
                             llm_model and llm_model.model_entity.abilities.__contains__('vision')
                         ):
+                            msg = await self._resolve_image_component(msg, query)
                             if msg.base64 is not None:
                                 content_list.append(provider_message.ContentElement.from_image_base64(msg.base64))
                             elif msg.url:

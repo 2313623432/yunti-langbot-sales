@@ -74,6 +74,22 @@ async def _clear_tables(engine: AsyncEngine) -> None:
             await conn.execute(table.delete())
 
 
+async def _reset_postgres_sequences(engine: AsyncEngine) -> None:
+    async with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            integer_pk_columns = [
+                column for column in table.primary_key.columns if isinstance(column.type, sqlalchemy.Integer)
+            ]
+            for column in integer_pk_columns:
+                await conn.execute(
+                    sqlalchemy.text(
+                        "SELECT setval(pg_get_serial_sequence(:table_name, :column_name), "
+                        f"COALESCE((SELECT MAX(\"{column.name}\") FROM \"{table.name}\"), 1), true)"
+                    ),
+                    {'table_name': table.name, 'column_name': column.name},
+                )
+
+
 async def sync_sqlite_to_postgres(sqlite_path: Path, postgres_url: str, replace: bool = False) -> int:
     if not sqlite_path.exists():
         raise FileNotFoundError(f'SQLite database not found: {sqlite_path}')
@@ -110,6 +126,8 @@ async def sync_sqlite_to_postgres(sqlite_path: Path, postgres_url: str, replace:
                     )
                 await conn.execute(table.insert(), converted_rows)
                 inserted += len(converted_rows)
+        if inserted:
+            await _reset_postgres_sequences(engine)
     finally:
         await engine.dispose()
     return inserted

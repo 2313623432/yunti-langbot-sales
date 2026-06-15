@@ -516,6 +516,11 @@ class SendResponseBackStage(stage.PipelineStage):
                 continue
             text = component.text
             new_text = re.sub(r'[\[【]报名(?:链接|入口)[^\]】]*[\]】]', link, text)
+            new_text = re.sub(
+                r'((?:报名|预约|购买|课程)?(?:链接|入口|通道|页面)\s*[：:]?\s*)(?:[xXｘＸ]{2,}|…+|\.{3,})',
+                lambda match: f'{match.group(1)}{link}',
+                new_text,
+            )
             if new_text != text:
                 text = new_text
                 replaced = True

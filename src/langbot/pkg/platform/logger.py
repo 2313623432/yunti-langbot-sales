@@ -8,9 +8,11 @@ import pydantic
 import traceback
 import uuid
 
-from ..core import app
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.definition.abstract.platform.event_logger as abstract_platform_event_logger
+
+if typing.TYPE_CHECKING:
+    from ..core import app
 
 
 class EventLogLevel(enum.Enum):
@@ -145,7 +147,10 @@ class EventLogger(abstract_platform_event_logger.AbstractEventLogger):
                 message_session_id = str(message_session_id)
 
             for img in images:
-                img_bytes, mime_type = await img.get_bytes()
+                try:
+                    img_bytes, mime_type = await img.get_bytes()
+                except ValueError:
+                    continue
                 extension = mimetypes.guess_extension(mime_type)
                 if extension is None:
                     extension = '.jpg'
