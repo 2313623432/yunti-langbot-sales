@@ -145,7 +145,10 @@ class EventLogger(abstract_platform_event_logger.AbstractEventLogger):
                 message_session_id = str(message_session_id)
 
             for img in images:
-                img_bytes, mime_type = await img.get_bytes()
+                try:
+                    img_bytes, mime_type = await img.get_bytes()
+                except ValueError:
+                    continue
                 extension = mimetypes.guess_extension(mime_type)
                 if extension is None:
                     extension = '.jpg'
