@@ -125,11 +125,50 @@ const conversationTabs: Array<{
   { value: 'manual_handling', label: '人工处理中' },
 ];
 
+const emptyConversationStatusCounts: Record<SalesConversationStatus, number> = {
+  ai_hosted: 0,
+  pending_manual: 0,
+  manual_handling: 0,
+};
+
 const handoffStatusLabels: Record<SalesConversationStatus, string> = {
   ai_hosted: 'AI 托管中',
   pending_manual: '待人工介入',
   manual_handling: '人工处理中',
 };
+
+function countConversationStatuses(
+  conversations: SalesConversation[],
+): Record<SalesConversationStatus, number> {
+  return conversations.reduce<Record<SalesConversationStatus, number>>(
+    (counts, conversation) => {
+      counts[conversation.handoff_status] =
+        (counts[conversation.handoff_status] || 0) + 1;
+      return counts;
+    },
+    { ...emptyConversationStatusCounts },
+  );
+}
+
+function ConversationTabBadge({
+  count,
+  active,
+}: {
+  count: number;
+  active: boolean;
+}) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className={cn(
+        'absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#dc2626] px-1 text-[11px] font-semibold leading-none text-white shadow-sm ring-2',
+        active ? 'ring-white' : 'ring-[#f2f4f8]',
+      )}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
 
 function errorMessage(error: unknown): string {
   if (error && typeof error === 'object' && 'msg' in error) {
@@ -471,6 +510,7 @@ function ConversationList({
   accountOptions,
   messageTypeOptions,
   replyModeOptions,
+  statusCounts,
   loading,
   onTab,
   onQuery,
@@ -489,6 +529,7 @@ function ConversationList({
   accountOptions: string[];
   messageTypeOptions: string[];
   replyModeOptions: string[];
+  statusCounts: Record<SalesConversationStatus, number>;
   loading: boolean;
   onTab: (value: 'all' | SalesConversationStatus) => void;
   onQuery: (value: string) => void;
@@ -656,19 +697,29 @@ function ConversationList({
       )}
       <div className="space-y-4 border-b border-[#eef0f4] px-5 py-4">
         <div className="grid grid-cols-4 gap-1 rounded-lg bg-[#f2f4f8] p-1">
-          {conversationTabs.map((tab) => (
-            <button
-              key={tab.value}
-              type="button"
-              onClick={() => onTab(tab.value)}
-              className={cn(
-                'rounded-md px-2 py-2 text-sm font-medium text-[#697287]',
-                activeTab === tab.value && 'bg-white text-[#1f2a44] shadow-sm',
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {conversationTabs.map((tab) => {
+            const badgeCount =
+              tab.value === 'pending_manual' || tab.value === 'manual_handling'
+                ? statusCounts[tab.value]
+                : 0;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => onTab(tab.value)}
+                className={cn(
+                  'relative rounded-md px-2 py-2 text-sm font-medium text-[#697287]',
+                  activeTab === tab.value && 'bg-white text-[#1f2a44] shadow-sm',
+                )}
+              >
+                {tab.label}
+                <ConversationTabBadge
+                  count={badgeCount}
+                  active={activeTab === tab.value}
+                />
+              </button>
+            );
+          })}
         </div>
         <label className="flex h-11 items-center gap-2 rounded-lg border border-[#dde2ec] px-3 text-[#97a0b3]">
           <Search className="size-5" />
@@ -1719,6 +1770,9 @@ export default function SalesChatPage() {
   const [salesConversations, setSalesConversations] = useState<
     SalesConversation[]
   >([]);
+  const [conversationStatusCounts, setConversationStatusCounts] = useState<
+    Record<SalesConversationStatus, number>
+  >(emptyConversationStatusCounts);
   const [messages, setMessages] = useState<SalesConversationMessage[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState('');
   const [activeConversationTab, setActiveConversationTab] = useState<
@@ -1785,6 +1839,7 @@ export default function SalesChatPage() {
         handoffResp,
         outreachResp,
         conversationResp,
+        allConversationResp,
         monitoringResp,
       ] = await Promise.all([
         httpClient.getSalesOverview(),
@@ -1794,6 +1849,11 @@ export default function SalesChatPage() {
         httpClient.getSalesOutreachPlans(),
         httpClient.getSalesConversations({
           status: activeConversationTab,
+          limit: 100,
+          offset: 0,
+        }),
+        httpClient.getSalesConversations({
+          status: 'all',
           limit: 100,
           offset: 0,
         }),
@@ -1809,6 +1869,9 @@ export default function SalesChatPage() {
       setHandoffs(handoffResp.handoffs || []);
       setOutreachPlans(outreachResp.plans || []);
       setSalesConversations(conversationResp.conversations || []);
+      setConversationStatusCounts(
+        countConversationStatuses(allConversationResp.conversations || []),
+      );
       setSessions((monitoringResp.sessions || []) as MonitoringSession[]);
     } catch (error) {
       toast.error(errorMessage(error));
@@ -2032,6 +2095,7 @@ export default function SalesChatPage() {
           accountOptions={accountOptions}
           messageTypeOptions={messageTypeOptions}
           replyModeOptions={replyModeOptions}
+          statusCounts={conversationStatusCounts}
           loading={loading}
           onTab={setActiveConversationTab}
           onQuery={setConversationQuery}

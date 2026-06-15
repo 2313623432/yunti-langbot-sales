@@ -80,6 +80,21 @@ async def test_prepare_query_sets_verify_intent_and_injects_prompt():
 
 
 @pytest.mark.asyncio
+async def test_prepare_query_marks_generic_task_handoff_request():
+    service = TaskAssistantService(SimpleNamespace())
+    query = _query(text_chain('我要转人工'), '我要转人工')
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert query.variables['workflow_intent']['intent'] == 'handoff'
+    assert query.variables['workflow_intent']['handoff_reason'] == 'manual_request'
+    assert query.variables['workflow_intent']['handoff_config']['enabled'] is True
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '人工介入上下文' in context_text
+
+
+@pytest.mark.asyncio
 async def test_prepare_query_marks_screenshot_and_voice_context():
     service = TaskAssistantService(SimpleNamespace())
     query = voice_query('https://example.com/audio.mp3')

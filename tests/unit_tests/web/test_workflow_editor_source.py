@@ -393,6 +393,24 @@ def test_template_config_editor_supports_human_handoff_configuration():
     assert 'human_handoff: templateConfig.human_handoff' in workflow_source
 
 
+def test_template_config_editor_supports_special_case_configuration():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    types_source = Path('web/src/app/home/pipelines/components/workflow-editor/types.ts').read_text(
+        encoding='utf-8'
+    )
+
+    assert "'specialCases'" in template_source
+    assert "label: '特殊情况处理'" in template_source
+    assert 'PipelineTemplateSpecialCase' in types_source
+    assert 'special_cases' in types_source
+    assert 'patchSpecialCase' in template_source
+    assert '用户语义条件' in template_source
+    assert '固定回复意思' in template_source
+    assert '允许 AI 自然改写话术' in template_source
+    assert 'special_cases: templateConfig.special_cases || []' in workflow_source
+
+
 def test_template_config_editor_shows_only_selected_config_tab():
     template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
 

@@ -13,6 +13,7 @@ from langbot.pkg.entity.persistence.base import Base
 from langbot.pkg.entity.persistence import monitoring as persistence_monitoring
 from langbot.pkg.entity.persistence import sales as persistence_sales
 
+from langbot_plugin.api.entities.builtin.provider import session as provider_session
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
 
 from langbot_plugin.api.entities.builtin.platform import message as platform_message
@@ -155,6 +156,25 @@ def test_serialize_keeps_connection_row_with_column_attributes():
     result = service._serialize(persistence_sales.SalesProduct, _ColumnRow())
 
     assert result['uuid'] == 'product-1'
+
+
+def test_first_row_prefers_entity_from_mapped_row_when_id_is_first():
+    handoff = persistence_sales.SalesHandoff(id=7, bot_uuid='bot-uuid')
+
+    class _MappedRow:
+        _mapping = {
+            'id': 7,
+            persistence_sales.SalesHandoff: handoff,
+        }
+
+        def __getitem__(self, _index):
+            return 7
+
+    service = SalesService(SimpleNamespace())
+
+    result = service._first_row(_FakeResult(_MappedRow()))
+
+    assert result is handoff
 
 
 def test_compose_sales_prompt_includes_product_memory_and_handoff_policy():
@@ -481,6 +501,60 @@ async def test_get_sales_conversations_handles_column_rows_from_connection_execu
 
     assert conversations[0]['session_id'] == 'person_customer-1'
     assert conversations[0]['latest_message_preview'] == '刚发的新消息'
+
+
+@pytest.mark.asyncio
+async def test_open_handoff_from_query_uses_monitoring_session_id_for_pending_manual_queue(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    query = SimpleNamespace(
+        variables={'user_message_text': '转人工'},
+        launcher_type=provider_session.LauncherTypes.PERSON,
+        launcher_id='ou_customer',
+        sender_id='ou_customer',
+        bot_uuid='bot-uuid',
+    )
+
+    handoff = await service.open_handoff_from_query(query, 'manual_request', '转人工')
+    conversations = await service.get_sales_conversations(status='pending_manual')
+
+    assert handoff['session_id'] == session_id
+    assert len(conversations) == 1
+    assert conversations[0]['session_id'] == session_id
+    assert conversations[0]['handoff_status'] == 'pending_manual'
+    assert conversations[0]['handoff']['last_message'] == '转人工'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_maps_legacy_handoff_session_id_to_monitoring_session(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesHandoff).values(
+            session_id='person_ou_customer',
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='ou_customer',
+            platform='LarkAdapter',
+            user_id='ou_customer',
+            status='open',
+            reason='manual_request',
+            last_message='转人工',
+        )
+    )
+
+    conversations = await service.get_sales_conversations(status='pending_manual')
+
+    assert len(conversations) == 1
+    assert conversations[0]['session_id'] == session_id
+    assert conversations[0]['handoff_status'] == 'pending_manual'
+    assert conversations[0]['handoff']['session_id'] == 'person_ou_customer'
 
 
 @pytest.mark.asyncio

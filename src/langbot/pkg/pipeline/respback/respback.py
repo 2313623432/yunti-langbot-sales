@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import asyncio
 import base64
+import json
 import mimetypes
 from typing import Any
 
@@ -82,6 +83,211 @@ class SendResponseBackStage(stage.PipelineStage):
 
         workflow = pipeline_config.get('workflow')
         return workflow if isinstance(workflow, dict) else None
+
+    def _workflow_special_cases(self, query: pipeline_query.Query) -> list[dict[str, Any]]:
+        workflow = self._active_workflow(query)
+        if not isinstance(workflow, dict):
+            return []
+        cases = workflow.get('special_cases')
+        if not isinstance(cases, list):
+            cases = workflow.get('variables', {}).get('special_cases') if isinstance(workflow.get('variables'), dict) else []
+        if not isinstance(cases, list):
+            return []
+
+        normalized: list[dict[str, Any]] = []
+        for index, item in enumerate(cases):
+            if not isinstance(item, dict) or item.get('enabled') is False:
+                continue
+            condition = str(item.get('condition') or '').strip()
+            reply = str(item.get('reply') or '').strip()
+            if not condition or not reply:
+                continue
+            case = dict(item)
+            case['id'] = str(case.get('id') or f'special-case-{index + 1}')
+            case['condition'] = condition
+            case['reply'] = reply
+            normalized.append(case)
+        return normalized
+
+    def _message_chain_text(self, message_chain: platform_message.MessageChain | None) -> str:
+        if not message_chain:
+            return ''
+        return ''.join(component.text for component in message_chain if isinstance(component, platform_message.Plain)).strip()
+
+    def _query_user_text(self, query: pipeline_query.Query) -> str:
+        text = self._message_chain_text(getattr(query, 'message_chain', None))
+        if text:
+            return text
+        user_message = getattr(query, 'user_message', None)
+        content = getattr(user_message, 'content', None)
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            return ''.join(str(getattr(item, 'text', '') or '') for item in content).strip()
+        return ''
+
+    def _provider_content_to_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                text = getattr(item, 'text', None)
+                if text is None and isinstance(item, dict):
+                    text = item.get('text')
+                if text:
+                    parts.append(str(text))
+            return '\n'.join(parts).strip()
+        return str(content or '').strip()
+
+    def _provider_message_text(self, message: Any) -> str:
+        if isinstance(message, tuple) and message:
+            message = message[0]
+        return self._provider_content_to_text(getattr(message, 'content', message))
+
+    def _special_case_model_uuid(self, query: pipeline_query.Query) -> str:
+        uuid = str(getattr(query, 'use_llm_model_uuid', '') or '').strip()
+        if uuid:
+            return uuid
+        workflow = self._active_workflow(query) or {}
+        model_uuid = str(workflow.get('model_uuid') or '').strip() if isinstance(workflow, dict) else ''
+        if model_uuid:
+            return model_uuid
+        metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
+        return str(metadata.get('model_uuid') or '').strip()
+
+    async def _invoke_special_case_llm(self, query: pipeline_query.Query, prompt: str) -> str:
+        model_uuid = self._special_case_model_uuid(query)
+        model_mgr = getattr(self.ap, 'model_mgr', None)
+        if not model_uuid or model_mgr is None:
+            return ''
+        try:
+            model = await model_mgr.get_model_by_uuid(model_uuid)
+            result = await model.provider.invoke_llm(
+                query,
+                model,
+                [provider_message.Message(role='user', content=prompt)],
+                funcs=[],
+                extra_args={},
+                remove_think=True,
+            )
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to evaluate workflow special case: %s', exc)
+            return ''
+        return self._provider_message_text(result)
+
+    def _semantic_match_prompt(self, user_text: str, cases: list[dict[str, Any]]) -> str:
+        payload = [{'id': case['id'], 'condition': case['condition']} for case in cases]
+        return (
+            '你是语义路由器，只判断用户这句话是否符合某一条特殊情况的语义条件。\n'
+            '不要按关键词机械匹配，要按意思判断；同义、口语化、换一种说法也可以命中。\n'
+            '如果没有命中，返回 {"matched_id":""}。\n'
+            '只输出 JSON，不要解释。\n\n'
+            f'用户消息：{user_text}\n\n'
+            f'特殊情况：{json.dumps(payload, ensure_ascii=False)}'
+        )
+
+    def _parse_special_case_match(self, text: str, cases: list[dict[str, Any]]) -> dict[str, Any] | None:
+        if not text:
+            return None
+        matched_id = ''
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                matched_id = str(parsed.get('matched_id') or parsed.get('id') or '').strip()
+        except (TypeError, json.JSONDecodeError):
+            for case in cases:
+                if case['id'] in text:
+                    matched_id = case['id']
+                    break
+        if not matched_id:
+            return None
+        return next((case for case in cases if case['id'] == matched_id), None)
+
+    async def _match_special_case(self, query: pipeline_query.Query) -> dict[str, Any] | None:
+        cases = self._workflow_special_cases(query)
+        user_text = self._query_user_text(query)
+        if not cases or not user_text:
+            return None
+        result_text = await self._invoke_special_case_llm(query, self._semantic_match_prompt(user_text, cases))
+        return self._parse_special_case_match(result_text, cases)
+
+    def _special_case_rewrite_prompt(self, user_text: str, case: dict[str, Any]) -> str:
+        return (
+            '你是正在和客户聊天的数字员工。请按“回复意思”自然表达一条可直接发送的短回复。\n'
+            '要求：意思必须一致；不要编造新政策；不要输出标题；每次表达可以略有不同；语气像真人客服。\n\n'
+            f'用户消息：{user_text}\n'
+            f'回复意思：{case["reply"]}'
+        )
+
+    async def _special_case_reply_text(self, query: pipeline_query.Query, case: dict[str, Any]) -> str:
+        if not bool(case.get('ai_rewrite')):
+            return case['reply']
+        rewritten = await self._invoke_special_case_llm(
+            query,
+            self._special_case_rewrite_prompt(self._query_user_text(query), case),
+        )
+        return rewritten or case['reply']
+
+    async def _apply_special_case_response(self, query: pipeline_query.Query) -> bool:
+        case = await self._match_special_case(query)
+        if not case:
+            return False
+        components: list[platform_message.MessageComponent] = [
+            platform_message.Plain(text=await self._special_case_reply_text(query, case))
+        ]
+        image_url = str(case.get('image_url') or '').strip()
+        file_key = str(case.get('file_key') or '').strip()
+        if image_url or file_key:
+            components.append(await self._image_component(file_key, image_url))
+        query.resp_message_chain = [platform_message.MessageChain(components)]
+        query.variables['workflow_special_case'] = {
+            'id': case.get('id'),
+            'condition': case.get('condition'),
+            'ai_rewrite': bool(case.get('ai_rewrite')),
+        }
+        return True
+
+    def _handoff_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
+        intent_data = self._current_intent_data(query)
+        intent = str(intent_data.get('intent') or '').strip()
+        if intent == 'handoff' or intent_data.get('requires_handoff') is True:
+            return intent_data
+        return {}
+
+    def _handoff_reason(self, intent_data: dict[str, Any]) -> str:
+        return str(intent_data.get('handoff_reason') or intent_data.get('reason') or 'handoff')
+
+    def _handoff_notice(self, intent_data: dict[str, Any]) -> str:
+        handoff_config = intent_data.get('handoff_config')
+        if isinstance(handoff_config, dict):
+            notice = str(handoff_config.get('notify_message') or '').strip()
+            if notice:
+                return notice
+        return str(intent_data.get('notify_message') or intent_data.get('notice') or '').strip()
+
+    async def _apply_handoff_response(self, query: pipeline_query.Query) -> bool:
+        intent_data = self._handoff_intent_data(query)
+        if not intent_data:
+            return False
+        sales_service = getattr(self.ap, 'sales_service', None)
+        open_handoff = getattr(sales_service, 'open_handoff_from_query', None)
+        opened = False
+        if callable(open_handoff):
+            try:
+                await open_handoff(query, self._handoff_reason(intent_data), self._query_user_text(query))
+                opened = True
+                query.variables['sales_handoff_opened'] = True
+            except Exception as exc:
+                logger = getattr(self.ap, 'logger', None)
+                if logger is not None:
+                    logger.warning('Failed to open sales handoff from response stage: %s', exc)
+        notice = self._handoff_notice(intent_data)
+        if notice:
+            query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text=notice)])]
+        return opened or bool(notice)
 
     async def _image_component(self, file_key: str, image_url: str) -> platform_message.Image:
         if image_url:
@@ -350,6 +556,10 @@ class SendResponseBackStage(stage.PipelineStage):
 
     async def _append_response_enrichments(self, query: pipeline_query.Query) -> None:
         if not query.resp_message_chain:
+            return
+        if await self._apply_handoff_response(query):
+            return
+        if await self._apply_special_case_response(query):
             return
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_workflow_images(query)

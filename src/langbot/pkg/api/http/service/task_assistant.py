@@ -132,6 +132,17 @@ COURSE_HUMAN_HANDOFF_CONFIG = {
 }
 COURSE_SAFE_HANDOFF_NOTIFY_MESSAGE = '我这边帮您记录好了，稍等我看下具体情况~'
 COURSE_USER_VISIBLE_TECHNICAL_TERMS = ['AI', '机器人', '转人工', '转接', '接管', '人工']
+COURSE_SPECIAL_CASES = [
+    {
+        'id': 'phonics-listening-answer-card',
+        'enabled': True,
+        'condition': '用户在问书籍二维码里的听力、答案、音频或扫码资源怎么打开、怎么听、在哪里看。',
+        'reply': '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片。',
+        'ai_rewrite': True,
+        'file_key': '',
+        'image_url': '',
+    }
+]
 COURSE_REPLY_CONTROLS = {
     'multi_reply_enabled': False,
     'merge_reply_enabled': True,
@@ -1109,7 +1120,7 @@ class TaskAssistantService:
         session_key = self._query_session_key(query)
         progress = self._session_progress.get(session_key, {}) if session_key else {}
         previous_messages = getattr(query, 'messages', []) or []
-        intent = self.classify_intent(text, query.message_chain, previous_messages, progress)
+        intent = self.classify_intent(text, query.message_chain, previous_messages, progress, workflow)
         self._record_progress(session_key, intent)
         query.variables['workflow_intent'] = intent
         query.variables['task_assistant_voice_reply'] = self._has_voice(query.message_chain)
@@ -1138,9 +1149,11 @@ class TaskAssistantService:
         message_chain: platform_message.MessageChain | list[platform_message.MessageComponent],
         previous_messages: list[provider_message.Message] | None = None,
         progress: dict[str, Any] | None = None,
+        workflow: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         normalized = (text or '').strip().lower()
         progress = progress or {}
+        workflow = workflow if isinstance(workflow, dict) else {}
         current_step_id = str(progress.get('current_step_id') or '')
         current_step_index = ANT_AF_STEP_INDEX_BY_ID.get(current_step_id)
         if current_step_index is None:
@@ -1148,6 +1161,21 @@ class TaskAssistantService:
 
         explicit_step_index = self._step_index_from_user_text(normalized)
         overview_sent = bool(progress.get('overview_sent'))
+        handoff_match = self._course_sales_handoff_match(normalized, workflow)
+        if handoff_match:
+            intent = {
+                'intent': 'handoff',
+                'confidence': 0.94,
+                'reason': str(handoff_match.get('label') or '用户要求人工介入'),
+                'step_ids': [],
+                'max_images': 0,
+                'reply_mode': 'handoff',
+                'max_steps_to_describe': 0,
+                'include_full_overview': False,
+            }
+            intent['handoff_reason'] = handoff_match.get('id') or 'handoff'
+            intent['handoff_config'] = self._course_handoff_config(workflow)
+            return intent
 
         if self._has_image(message_chain):
             step_ids = [ANT_AF_STEPS[current_step_index]['id']] if current_step_index is not None else []
@@ -1299,7 +1327,16 @@ class TaskAssistantService:
 
         step = self._step_from_intent(intent)
         reply_mode = intent.get('reply_mode')
-        if reply_mode in {'first_overview', 'full_overview'}:
+        if intent.get('intent') == 'handoff':
+            handoff_config = intent.get('handoff_config') if isinstance(intent.get('handoff_config'), dict) else {}
+            notify_message = self._safe_course_handoff_notify_message(handoff_config.get('notify_message'))
+            control_text = (
+                '\n\n[人工介入上下文]\n'
+                f'用户已触发人工介入，原因：{intent.get("handoff_reason") or "handoff"}。\n'
+                f'本轮只回复安抚话术：“{notify_message}”。\n'
+                '不要继续讲任务步骤，不要解释后台处理方式。'
+            )
+        elif reply_mode in {'first_overview', 'full_overview'}:
             control_text = (
                 '\n\n[任务办理上下文]\n'
                 '可以给一版精简完整流程，每步只写一行；完整流程说完后，立刻聚焦第 1 步。'
@@ -4100,6 +4137,7 @@ class TaskAssistantService:
             ],
             'radar': copy.deepcopy(COURSE_RADAR_CONFIG),
             'human_handoff': copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG),
+            'special_cases': copy.deepcopy(COURSE_SPECIAL_CASES),
             'followup_sequences': copy.deepcopy(COURSE_FOLLOWUP_SEQUENCES),
             'long_term_broadcasts': copy.deepcopy(COURSE_LONG_TERM_BROADCASTS),
             'stop_rules': copy.deepcopy(COURSE_STOP_RULES),
@@ -4164,6 +4202,7 @@ class TaskAssistantService:
                     'resource_faqs',
                     'course_faqs',
                     'course_profiles',
+                    'special_cases',
                 } and isinstance(value, list) and value:
                     template_config[key] = value
                 elif key == 'stop_policy' and isinstance(value, dict):
@@ -4275,6 +4314,11 @@ class TaskAssistantService:
             else copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG)
         )
         human_handoff['notify_message'] = self._safe_course_handoff_notify_message(human_handoff.get('notify_message'))
+        special_cases = (
+            copy.deepcopy(template_config.get('special_cases'))
+            if isinstance(template_config.get('special_cases'), list)
+            else copy.deepcopy(COURSE_SPECIAL_CASES)
+        )
         radar = (
             copy.deepcopy(template_config.get('radar'))
             if isinstance(template_config.get('radar'), dict)
@@ -4673,6 +4717,7 @@ class TaskAssistantService:
             'sales_links': sales_links,
             'radar': radar,
             'human_handoff': human_handoff,
+            'special_cases': special_cases,
             'followup_sequences': followups,
             'long_term_broadcasts': broadcasts,
             'stop_rules': stop_rules,
@@ -4688,6 +4733,7 @@ class TaskAssistantService:
                 'selected_product_uuid': product_uuids[0],
                 'course_profiles': course_profiles,
                 'human_handoff': human_handoff,
+                'special_cases': special_cases,
                 'source_materials': source_materials,
             },
             'voice': voice_config,

@@ -613,7 +613,7 @@ class SalesService:
         handoff = result.first()
         if handoff is None:
             return None
-        return self._serialize(persistence_sales.SalesHandoff, handoff)
+        return self._serialize(persistence_sales.SalesHandoff, self._row_entity(handoff))
 
     async def open_handoff_from_query(self, query: Any, reason: str, message_text: str) -> dict[str, Any]:
         session_id = self._query_session_id(query)
@@ -622,7 +622,7 @@ class SalesService:
             .where(persistence_sales.SalesHandoff.session_id == session_id)
             .where(persistence_sales.SalesHandoff.status == 'open')
         )
-        existing = result.first()
+        existing = self._first_row(result)
         values = {
             'bot_uuid': query.bot_uuid or '',
             'target_type': getattr(query.launcher_type, 'value', str(query.launcher_type)),
@@ -1978,6 +1978,13 @@ class SalesService:
         if not session_ids:
             return []
 
+        handoff_session_aliases: dict[str, str] = {}
+        candidate_handoff_session_ids = set(session_ids)
+        for session in sessions:
+            for alias in self._handoff_session_aliases_for_monitoring_session(session):
+                candidate_handoff_session_ids.add(alias)
+                handoff_session_aliases[alias] = session.session_id
+
         message_result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_monitoring.MonitoringMessage)
             .where(persistence_monitoring.MonitoringMessage.session_id.in_(session_ids))
@@ -2000,17 +2007,18 @@ class SalesService:
 
         handoff_result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesHandoff).where(
-                persistence_sales.SalesHandoff.session_id.in_(session_ids)
+                persistence_sales.SalesHandoff.session_id.in_(candidate_handoff_session_ids)
             )
         )
         handoffs: dict[str, Any] = {}
         for row in handoff_result.all():
             handoff = self._row_entity(row)
-            current = handoffs.get(handoff.session_id)
+            canonical_session_id = handoff_session_aliases.get(handoff.session_id, handoff.session_id)
+            current = handoffs.get(canonical_session_id)
             current_time = getattr(current, 'updated_at', datetime.datetime.min) if current is not None else datetime.datetime.min
             handoff_time = getattr(handoff, 'updated_at', datetime.datetime.min) or datetime.datetime.min
             if current is None or handoff_time >= current_time:
-                handoffs[handoff.session_id] = handoff
+                handoffs[canonical_session_id] = handoff
 
         conversations: list[dict[str, Any]] = []
         for session in sessions:
@@ -2232,8 +2240,26 @@ class SalesService:
 
 
     def _query_session_id(self, query: Any) -> str:
-        launcher_type = getattr(query.launcher_type, 'value', str(query.launcher_type))
-        return f'{launcher_type}_{query.launcher_id}'
+        launcher_type = getattr(query, 'launcher_type', '')
+        launcher_id = getattr(query, 'launcher_id', '')
+        if getattr(launcher_type, 'name', None) and str(launcher_type):
+            return f'{launcher_type}_{launcher_id}'
+        launcher_type_value = getattr(launcher_type, 'value', None)
+        if launcher_type_value:
+            return f'{launcher_type_value}_{launcher_id}'
+        return f'{launcher_type}_{launcher_id}'
+
+    def _handoff_session_aliases_for_monitoring_session(self, session: Any) -> set[str]:
+        session_id = str(getattr(session, 'session_id', '') or '')
+        platform = str(getattr(session, 'platform', '') or '')
+        user_id = str(getattr(session, 'user_id', '') or '')
+        aliases = {session_id} if session_id else set()
+        if platform and user_id:
+            aliases.add(f'{platform}_{user_id}')
+        target_type, target_id = self._target_from_session(session)
+        if target_type and target_id:
+            aliases.add(f'{target_type}_{target_id}')
+        return aliases
 
     def _target_from_session(self, session: Any) -> tuple[str, str]:
         session_id = getattr(session, 'session_id', '') or ''
@@ -2246,7 +2272,7 @@ class SalesService:
 
     def _first_row(self, result: Any) -> Any:
         row = result.first()
-        return self._row_value(row)
+        return self._row_entity(row)
 
     def _row_value(self, row: Any) -> Any:
         if row is None:
@@ -2264,6 +2290,9 @@ class SalesService:
         mapping = getattr(row, '_mapping', None)
         if mapping:
             mapped_values = list(mapping.values())
+            for value in mapped_values:
+                if hasattr(value, '__table__'):
+                    return value
             if len(mapped_values) == 1 and not isinstance(mapped_values[0], (str, int, float, bool, bytes, type(None))):
                 return mapped_values[0]
             string_keys = {str(key): value for key, value in mapping.items() if isinstance(key, str)}
