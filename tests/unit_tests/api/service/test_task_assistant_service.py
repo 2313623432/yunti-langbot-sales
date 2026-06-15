@@ -1574,6 +1574,7 @@ def test_compose_course_sales_prompt_is_compact_persona_only():
 
     assert '不要自称 AI' in prompt
     assert '不要整段塞话术' in prompt
+    assert '不得输出 xxx、XXXX' in prompt
     assert '课程统一口径：' not in prompt
     assert '图书资源FAQ：' not in prompt
     assert '雷达模拟规则：' not in prompt

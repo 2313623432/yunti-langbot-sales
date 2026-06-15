@@ -183,3 +183,25 @@ async def test_respback_opens_handoff_when_workflow_intent_requests_manual_inter
     sent_chain = query.adapter.reply_message.await_args.kwargs['message']
     assert sent_chain[0].text == '请稍等，我来帮您看一下。'
     assert query.variables['sales_handoff_opened'] is True
+
+
+@pytest.mark.asyncio
+async def test_respback_replaces_course_sales_placeholder_signup_link_with_real_url():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('好的 给我发个链接')
+    query.pipeline_config = _pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {'intent': 'purchase', 'confidence': 0.9}
+    query.variables['course_sales_radar_link'] = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641'
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='这个是咱们9元课报名链接XXXXXXX，点开后选年级就行。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    sent_text = str(sent_chain)
+    assert 'XXXX' not in sent_text
+    assert 'https://m.yuanfudao.com/primary/templates/package?pageId=6641' in sent_text

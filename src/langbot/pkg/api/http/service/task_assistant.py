@@ -2241,6 +2241,7 @@ class TaskAssistantService:
                 '\n\n[课程销售上下文]\n'
                 f'本轮要给报名动作和报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
                 '说明支付9元后截图或报名成功短信发来，用于登记开课和资料。'
+                '不得输出 xxx、XXXX、占位符或自编链接。'
             )
         elif intent_name == 'handoff':
             handoff_config = intent.get('handoff_config') if isinstance(intent.get('handoff_config'), dict) else {}
@@ -2792,6 +2793,7 @@ class TaskAssistantService:
 - 不夸大价格、赠品、课时、名额；强时效信息以活动页和班主任通知为准。
 - 用户拒绝、投诉、无孩子、非目标年级、老师身份或人工接管时停止促单和群发。
 - 用户已报名/已支付后停止促单，转交付（截图、班主任、APP、资料）。
+- 涉及报名链接时，只能使用上下文里的真实链接或链接卡片；不得输出 xxx、XXXX、占位符或自编链接。
 - 停发关键词（命中即停止打扰）：{stop_keywords}
 
 回复原则：

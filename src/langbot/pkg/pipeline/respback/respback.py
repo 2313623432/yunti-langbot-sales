@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import mimetypes
+import re
 from typing import Any
 
 
@@ -476,6 +477,9 @@ class SendResponseBackStage(stage.PipelineStage):
     ) -> bool:
         replaced = False
         placeholders = ('[报名链接]', '【报名链接】', '[报名入口]', '【报名入口】')
+        link_placeholder_pattern = re.compile(
+            r'((?:报名|预约|购买|课程)?(?:链接|入口|通道|页面)\s*[：:]?\s*)(?:[xXｘＸ]{2,}|…+|\.{3,})'
+        )
         for component in message_chain:
             if not isinstance(component, platform_message.Plain):
                 continue
@@ -484,6 +488,9 @@ class SendResponseBackStage(stage.PipelineStage):
                 if placeholder in text:
                     text = text.replace(placeholder, link)
                     replaced = True
+            text, count = link_placeholder_pattern.subn(lambda match: f'{match.group(1)}{link}', text)
+            if count:
+                replaced = True
             component.text = text
         return replaced
 

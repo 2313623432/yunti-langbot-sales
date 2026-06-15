@@ -18,6 +18,11 @@ from ....entity.persistence import monitoring as persistence_monitoring
 from ....entity.persistence import sales as persistence_sales
 
 
+YUANFUDAO_SIGNUP_LINK = (
+    'https://m.yuanfudao.com/primary/templates/package?'
+    'pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class'
+)
+
 YUANFUDAO_CATALOG_PRODUCTS = [
     {
         'uuid': 'yuanfudao-phonics-course',
@@ -27,7 +32,7 @@ YUANFUDAO_CATALOG_PRODUCTS = [
         'name': '猿辅导英语自然拼读体验课',
         'category': '自然拼读',
         'price': '9元体验',
-        'link': '',
+        'link': YUANFUDAO_SIGNUP_LINK,
         'description': (
             '猿辅导英语自然拼读体验课/自然拼读集训营，5天10节课，'
             '适合大班至小学4年级，帮助孩子掌握自然拼读、口语发音和拼读规则。'
@@ -51,7 +56,7 @@ YUANFUDAO_CATALOG_PRODUCTS = [
         'name': '猿辅导阅读+思维特训营',
         'category': '阅读+思维',
         'price': '9元体验',
-        'link': '',
+        'link': YUANFUDAO_SIGNUP_LINK,
         'description': (
             '猿辅导阅读+思维特训营，390分钟名师直播精讲，'
             '主要解决阅读没头绪、作文凑字数、数学难变通和常马虎等问题。'
@@ -242,6 +247,7 @@ class SalesService:
 3. 当客户表现出购买、价格、对比或试用意向时，主动给出下一步行动。
 4. 客户明确要求人工、报价单、合同、电话、加微信或复杂定制时，必须转人工，不要继续硬推。
 5. 输出要像真实销售对话，短句、具体、有下一步。
+6. 涉及产品链接时，只能使用“当前推荐产品”里的真实链接；不得输出 xxx、XXXX、占位符或自编链接。
 
 当前推荐产品：
 - 名称：{product.get('name', '未指定产品')}
@@ -292,7 +298,7 @@ class SalesService:
                 continue
             updates = {
                 key: product[key]
-                for key in ('product_line', 'profile_key', 'keywords', 'name', 'category', 'price', 'description')
+                for key in ('product_line', 'profile_key', 'keywords', 'name', 'category', 'price', 'link', 'description')
                 if product.get(key) and getattr(row, key, None) in (None, '', [])
             }
             if updates:

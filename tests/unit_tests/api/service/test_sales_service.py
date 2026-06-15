@@ -202,6 +202,7 @@ def test_compose_sales_prompt_includes_product_memory_and_handoff_policy():
     assert '客户预算明确' in prompt
     assert 'comparison' in prompt
     assert '客户明确要求人工' in prompt
+    assert '不得输出 xxx、XXXX' in prompt
 
 
 @pytest.mark.asyncio
@@ -1285,6 +1286,39 @@ def test_yuanfudao_catalog_products_include_reading_thinking_course():
     }
     assert products_by_uuid['yuanfudao-phonics-course']['product_line'] == '猿辅导'
     assert products_by_uuid['yuanfudao-reading-thinking-course']['profile_key'] == 'reading_thinking'
+    for product in products_by_uuid.values():
+        assert product['link'].startswith('https://m.yuanfudao.com/primary/templates/package?')
+        assert 'xxx' not in product['link'].lower()
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_products_fills_missing_yuanfudao_link(sales_service_with_db):
+    service = sales_service_with_db
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesProduct).values(
+            {
+                'uuid': 'yuanfudao-reading-thinking-course',
+                'product_line': '猿辅导',
+                'profile_key': 'reading_thinking',
+                'keywords': ['阅读', '思维'],
+                'name': '猿辅导阅读+思维特训营',
+                'category': '阅读+思维',
+                'price': '9元体验',
+                'link': '',
+                'description': '旧产品行',
+                'selling_points': [],
+                'pain_points': [],
+                'objections': [],
+                'audience': [],
+                'enabled': True,
+            }
+        )
+    )
+
+    await service.ensure_catalog_products()
+
+    product = await service.get_product('yuanfudao-reading-thinking-course')
+    assert product['link'].startswith('https://m.yuanfudao.com/primary/templates/package?')
 
 
 def test_build_radar_tracking_url_wraps_destination_with_token():
