@@ -44,6 +44,14 @@ def make_aggregator_app():
     return app
 
 
+def attach_monitoring_service(app):
+    app.monitoring_service = AsyncMock()
+    app.monitoring_service.record_message = AsyncMock(return_value='raw-monitoring-message-id')
+    app.monitoring_service.update_session_activity = AsyncMock(return_value=True)
+    app.monitoring_service.record_session_start = AsyncMock()
+    return app.monitoring_service
+
+
 class TestPendingMessage:
     """Tests for PendingMessage dataclass."""
 
@@ -330,6 +338,39 @@ class TestMessageAggregatorAddMessage:
         assert app.query_pool.add_query.called
 
     @pytest.mark.asyncio
+    async def test_records_each_raw_message_before_queueing(self):
+        """Each platform message should be visible in monitoring even when later aggregation happens."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        monitoring_service = attach_monitoring_service(app)
+        agg = aggregator.MessageAggregator(app)
+
+        chain = text_chain('first raw user message')
+        event = friend_message_event(chain)
+        adapter = mock_adapter()
+
+        await agg.add_message(
+            bot_uuid='test-bot',
+            launcher_type=provider_session.LauncherTypes.PERSON,
+            launcher_id='customer-1',
+            sender_id='customer-1',
+            message_event=event,
+            message_chain=chain,
+            adapter=adapter,
+            pipeline_uuid=None,
+        )
+
+        monitoring_service.record_message.assert_awaited_once()
+        record_kwargs = monitoring_service.record_message.await_args.kwargs
+        assert record_kwargs['session_id'] == 'LauncherTypes.PERSON_customer-1'
+        assert record_kwargs['role'] == 'user'
+        assert 'first raw user message' in record_kwargs['message_content']
+        assert app.query_pool.add_query.await_args.kwargs['raw_monitoring_message_ids'] == [
+            'raw-monitoring-message-id'
+        ]
+
+    @pytest.mark.asyncio
     async def test_drops_duplicate_source_message_id_before_queueing(self):
         """Webhook retries with the same Source id should not create duplicate queries."""
         aggregator = get_aggregator_module()
@@ -357,6 +398,33 @@ class TestMessageAggregatorAddMessage:
             )
 
         assert app.query_pool.add_query.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_same_source_id_with_different_content_is_not_dropped(self):
+        """Different message content must still be queued even if a platform reuses Source id."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        agg = aggregator.MessageAggregator(app)
+        adapter = mock_adapter()
+
+        for text in ['first message', 'second message']:
+            chain = platform_message.MessageChain([
+                platform_message.Source(id='msg-reused', time=0),
+                platform_message.Plain(text=text),
+            ])
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id=12345,
+                sender_id=12345,
+                message_event=friend_message_event(chain),
+                message_chain=chain,
+                adapter=adapter,
+                pipeline_uuid=None,
+            )
+
+        assert app.query_pool.add_query.call_count == 2
 
     @pytest.mark.asyncio
     async def test_enabled_buffers_message(self):

@@ -1,7 +1,9 @@
 import pytest
+from types import SimpleNamespace
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
+import langbot_plugin.api.entities.builtin.platform.events as platform_events
 
-from langbot.pkg.platform.sources.lark import LarkAdapter, LarkMessageConverter
+from langbot.pkg.platform.sources.lark import LarkAdapter, LarkEventConverter, LarkMessageConverter
 
 
 def test_lark_base64_image_decoder_accepts_data_uri_whitespace_and_missing_padding():
@@ -87,3 +89,74 @@ def test_lark_contact_added_uses_first_created_or_entered_events():
     assert LarkAdapter._is_contact_added_chat_access_event('im.chat.access_event.bot_p2p_chat_created_v1') is True
     assert LarkAdapter._is_contact_added_chat_access_event('im.chat.access_event.bot_p2p_chat_entered_v1') is True
     assert LarkAdapter._is_contact_added_chat_access_event('im.message.receive_v1') is False
+
+
+@pytest.mark.asyncio
+async def test_lark_friend_message_uses_contact_display_name():
+    class FakeUserClient:
+        async def aget(self, request):
+            assert request.user_id == 'ou_customer'
+            return SimpleNamespace(
+                success=lambda: True,
+                data=SimpleNamespace(user=SimpleNamespace(name='张三', nickname='小张')),
+            )
+
+    api_client = SimpleNamespace(contact=SimpleNamespace(v3=SimpleNamespace(user=FakeUserClient())))
+    event = SimpleNamespace(
+        event=SimpleNamespace(
+            sender=SimpleNamespace(
+                sender_id=SimpleNamespace(open_id='ou_customer', union_id='on_technical_identifier_123456')
+            ),
+            message=SimpleNamespace(
+                message_id='om_message',
+                message_type='text',
+                content='{"text":"你好"}',
+                create_time='1710000000000',
+                mentions=[],
+                chat_type='p2p',
+                chat_id='oc_chat',
+                parent_id=None,
+                thread_id=None,
+            ),
+        )
+    )
+
+    converted = await LarkEventConverter.target2yiri(event, api_client)
+
+    assert isinstance(converted, platform_events.FriendMessage)
+    assert converted.sender.id == 'ou_customer'
+    assert converted.sender.nickname == '张三'
+
+
+@pytest.mark.asyncio
+async def test_lark_friend_message_uses_sender_display_name_when_contact_lookup_fails():
+    class FakeUserClient:
+        async def aget(self, request):
+            return SimpleNamespace(success=lambda: False, code=403, msg='forbidden')
+
+    api_client = SimpleNamespace(contact=SimpleNamespace(v3=SimpleNamespace(user=FakeUserClient())))
+    event = SimpleNamespace(
+        event=SimpleNamespace(
+            sender=SimpleNamespace(
+                sender_id=SimpleNamespace(open_id='ou_customer', union_id='on_technical_identifier_123456'),
+                name='Customer Name',
+                display_name='Display Name',
+            ),
+            message=SimpleNamespace(
+                message_id='om_message',
+                message_type='text',
+                content='{"text":"hello"}',
+                create_time='1710000000000',
+                mentions=[],
+                chat_type='p2p',
+                chat_id='oc_chat',
+                parent_id=None,
+                thread_id=None,
+            ),
+        )
+    )
+
+    converted = await LarkEventConverter.target2yiri(event, api_client)
+
+    assert isinstance(converted, platform_events.FriendMessage)
+    assert converted.sender.nickname == 'Customer Name'

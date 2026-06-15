@@ -246,6 +246,25 @@ function conversationReplyModeLabel(conversation: ConversationRow): string {
   return handoffStatusLabels[conversation.handoffStatus];
 }
 
+function nestedText(value: unknown, path: string[]): string {
+  let cursor: unknown = value;
+  for (const key of path) {
+    if (!cursor || typeof cursor !== 'object') return '';
+    cursor = (cursor as Record<string, unknown>)[key];
+  }
+  return typeof cursor === 'string' ? cursor.trim() : '';
+}
+
+function extractSalesSuggestionMessage(response: unknown): string {
+  if (typeof response === 'string') return response.trim();
+  return (
+    nestedText(response, ['suggestion', 'message']) ||
+    nestedText(response, ['suggestion']) ||
+    nestedText(response, ['message']) ||
+    nestedText(response, ['data', 'suggestion', 'message'])
+  );
+}
+
 function uniqueLabels(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -785,6 +804,9 @@ function ConversationList({
                 <span className="rounded bg-[#eff2ff] px-2 py-0.5 text-xs text-[#5f58ff]">
                   {conversation.platform}
                 </span>
+                <span className="rounded bg-[#eef8f2] px-2 py-0.5 text-xs text-[#247a4d]">
+                  机器人-{conversationAccountLabel(conversation)}
+                </span>
                 <span className="rounded bg-[#f2f5f8] px-2 py-0.5 text-xs text-[#697287]">
                   {stageLabel(conversation.stage)}
                 </span>
@@ -819,6 +841,7 @@ function ChatCenter({
   loading,
   draft,
   sending,
+  suggesting,
   onDraft,
   onSend,
   onRefresh,
@@ -831,6 +854,7 @@ function ChatCenter({
   loading: boolean;
   draft: string;
   sending: boolean;
+  suggesting: boolean;
   onDraft: (value: string) => void;
   onSend: () => void;
   onRefresh: () => void;
@@ -848,7 +872,7 @@ function ChatCenter({
             </h2>
             {conversation && (
               <span className="text-base text-[#687086]">
-                来源-{conversation.platform}
+                来源-{conversation.platform} · 机器人-{conversationAccountLabel(conversation)}
               </span>
             )}
           </div>
@@ -902,9 +926,12 @@ function ChatCenter({
                 message.sender_kind === 'operator';
               const senderLabel =
                 message.sender_kind === 'operator'
-                  ? '人工销售'
+                  ? message.runner_name || message.sender_label || '人工销售'
                   : message.sender_kind === 'assistant'
-                    ? '数字员工'
+                    ? message.bot_name ||
+                      conversationAccountLabel(conversation) ||
+                      message.sender_label ||
+                      '机器人'
                     : message.sender_label || conversation.name;
               return (
                 <div
@@ -912,7 +939,13 @@ function ChatCenter({
                   className={cn('flex gap-3', isAgent && 'justify-end')}
                 >
                   {!isAgent && (
-                    <Avatar name={message.user_name || conversation.name} />
+                    <Avatar
+                      name={
+                        message.sender_label ||
+                        message.user_name ||
+                        conversation.name
+                      }
+                    />
                   )}
                   <div className={cn('max-w-[72%]', isAgent && 'text-right')}>
                     <div className="mb-1 text-sm text-[#6b7280]">
@@ -957,9 +990,10 @@ function ChatCenter({
             <button
               type="button"
               onClick={onSuggestReply}
-              disabled={!conversation || sending}
-              className="rounded-lg border border-[#dde2ec] px-3 py-1.5 text-sm text-[#34415c] disabled:opacity-50"
+              disabled={!conversation || sending || suggesting}
+              className="inline-flex items-center gap-2 rounded-lg border border-[#dde2ec] px-3 py-1.5 text-sm text-[#34415c] disabled:opacity-50"
             >
+              {suggesting && <Loader2 className="size-4 animate-spin" />}
               AI 推荐回复
             </button>
             <div className="text-sm text-[#7c8496]">{draft.length}/600</div>
@@ -1112,7 +1146,7 @@ function RightPanelContent({
                 />
                 <div className="mt-1 text-sm text-[#6b7280]">
                   {conversation
-                    ? `${conversation.platform} · ${compactIdentifier(
+                    ? `${conversation.platform} · ${conversationAccountLabel(conversation)} · ${compactIdentifier(
                         conversation.session?.user_id ||
                           conversation.handoff?.user_id ||
                           conversation.sessionId,
@@ -1788,6 +1822,7 @@ export default function SalesChatPage() {
   const [messageLoading, setMessageLoading] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [memoryDraft, setMemoryDraft] = useState<CustomerProfileDraft>(
     makeProfileDraft(undefined),
   );
@@ -1881,12 +1916,12 @@ export default function SalesChatPage() {
     }
   }, [activeConversationTab]);
 
-  const loadMessages = useCallback(async (sessionId: string) => {
+  const loadMessages = useCallback(async (sessionId: string, showLoading = true) => {
     if (!sessionId) {
       setMessages([]);
       return;
     }
-    setMessageLoading(true);
+    if (showLoading) setMessageLoading(true);
     try {
       const resp = await httpClient.getSalesConversationMessages(
         sessionId,
@@ -1898,7 +1933,7 @@ export default function SalesChatPage() {
       setMessages([]);
       toast.error(errorMessage(error));
     } finally {
-      setMessageLoading(false);
+      if (showLoading) setMessageLoading(false);
     }
   }, []);
 
@@ -1927,6 +1962,14 @@ export default function SalesChatPage() {
 
   useEffect(() => {
     void loadMessages(selectedSessionId);
+  }, [loadMessages, selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    const timer = window.setInterval(() => {
+      void loadMessages(selectedSessionId, false);
+    }, 3000);
+    return () => window.clearInterval(timer);
   }, [loadMessages, selectedSessionId]);
 
   useEffect(() => {
@@ -1996,15 +2039,23 @@ export default function SalesChatPage() {
   };
 
   const generateSuggestedReply = async () => {
-    if (!selectedConversation) return;
+    if (!selectedConversation || suggesting) return;
+    setSuggesting(true);
     try {
       const response = await httpClient.generateSalesConversationReplySuggestion(
         selectedConversation.sessionId,
       );
-      setDraft(response.suggestion.message);
+      const message = extractSalesSuggestionMessage(response);
+      if (!message) {
+        toast.error('AI 推荐回复为空，请稍后再试');
+        return;
+      }
+      setDraft(message.slice(0, 600));
       toast.success('AI 推荐回复已填入草稿');
     } catch (error) {
       toast.error(errorMessage(error));
+    } finally {
+      setSuggesting(false);
     }
   };
 
@@ -2111,6 +2162,7 @@ export default function SalesChatPage() {
           loading={messageLoading}
           draft={draft}
           sending={sending}
+          suggesting={suggesting}
           onDraft={setDraft}
           onSend={() => void sendReply()}
           onRefresh={() => {

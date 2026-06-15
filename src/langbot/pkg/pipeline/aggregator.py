@@ -9,6 +9,7 @@ before processing.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import typing
 from dataclasses import dataclass, field
@@ -38,6 +39,7 @@ class PendingMessage:
     adapter: abstract_platform_adapter.AbstractMessagePlatformAdapter
     pipeline_uuid: typing.Optional[str]
     routed_by_rule: bool = False
+    raw_monitoring_message_id: str = ''
     timestamp: float = field(default_factory=time.time)
 
 
@@ -65,8 +67,8 @@ class MessageAggregator:
     buffers: dict[str, SessionBuffer]
     """Session ID -> SessionBuffer mapping"""
 
-    recent_message_ids: dict[str, dict[str, float]]
-    """Session ID -> recently seen platform message IDs and expiry timestamps"""
+    recent_message_ids: dict[str, dict[str, tuple[float, str]]]
+    """Session ID -> recently seen platform message IDs with expiry and content fingerprint"""
 
     lock: asyncio.Lock
     """Lock for thread-safe buffer operations"""
@@ -93,20 +95,103 @@ class MessageAggregator:
                 return str(component.id or '').strip()
         return ''
 
-    def _is_recent_duplicate(self, session_id: str, source_id: str, now: float) -> bool:
+    def _is_recent_duplicate(self, session_id: str, source_id: str, fingerprint: str, now: float) -> bool:
         if not source_id:
             return False
 
         recent_ids = self.recent_message_ids.setdefault(session_id, {})
-        expired_ids = [msg_id for msg_id, expires_at in recent_ids.items() if expires_at <= now]
+        expired_ids = [msg_id for msg_id, (expires_at, _fingerprint) in recent_ids.items() if expires_at <= now]
         for msg_id in expired_ids:
             recent_ids.pop(msg_id, None)
 
-        if source_id in recent_ids:
+        existing = recent_ids.get(source_id)
+        if existing is not None and existing[1] == fingerprint:
             return True
 
-        recent_ids[source_id] = now + 60
+        recent_ids[source_id] = (now + 60, fingerprint)
         return False
+
+    def _sender_name(self, message_event: platform_events.MessageEvent) -> str | None:
+        sender = getattr(message_event, 'sender', None)
+        if sender is None:
+            return None
+        return getattr(sender, 'nickname', None) or getattr(sender, 'member_name', None)
+
+    def _message_content(self, message_chain: platform_message.MessageChain) -> str:
+        if hasattr(message_chain, 'model_dump'):
+            return json.dumps(message_chain.model_dump(), ensure_ascii=False)
+        return str(message_chain)
+
+    async def _pipeline_name(self, pipeline_uuid: typing.Optional[str]) -> str:
+        if not pipeline_uuid:
+            return ''
+        try:
+            pipeline = await self.ap.pipeline_mgr.get_pipeline_by_uuid(pipeline_uuid)
+            return getattr(getattr(pipeline, 'pipeline_entity', None), 'name', '') or pipeline_uuid
+        except Exception:
+            return pipeline_uuid
+
+    async def _bot_name(self, bot_uuid: str) -> str:
+        platform_mgr = getattr(self.ap, 'platform_mgr', None)
+        if platform_mgr is not None:
+            try:
+                runtime_bot = await platform_mgr.get_bot_by_uuid(bot_uuid)
+                bot_entity = getattr(runtime_bot, 'bot_entity', None)
+                return getattr(bot_entity, 'name', '') or bot_uuid
+            except Exception:
+                pass
+        return bot_uuid
+
+    async def _record_raw_monitoring_message(
+        self,
+        bot_uuid: str,
+        launcher_type: provider_session.LauncherTypes,
+        launcher_id: typing.Union[int, str],
+        sender_id: typing.Union[int, str],
+        message_event: platform_events.MessageEvent,
+        message_chain: platform_message.MessageChain,
+        pipeline_uuid: typing.Optional[str],
+    ) -> str:
+        monitoring_service = getattr(self.ap, 'monitoring_service', None)
+        if monitoring_service is None:
+            return ''
+
+        session_id = f'{launcher_type}_{launcher_id}'
+        platform = launcher_type.value if hasattr(launcher_type, 'value') else str(launcher_type)
+        bot_name = await self._bot_name(bot_uuid)
+        pipeline_name = await self._pipeline_name(pipeline_uuid)
+        message_id = await monitoring_service.record_message(
+            bot_id=bot_uuid,
+            bot_name=bot_name,
+            pipeline_id=pipeline_uuid or '',
+            pipeline_name=pipeline_name,
+            message_content=self._message_content(message_chain),
+            session_id=session_id,
+            status='success',
+            level='info',
+            platform=platform,
+            user_id=str(sender_id),
+            user_name=self._sender_name(message_event),
+            variables=json.dumps({'monitoring_source': 'raw_platform_message'}, ensure_ascii=False),
+            role='user',
+        )
+        session_updated = await monitoring_service.update_session_activity(
+            session_id,
+            pipeline_id=pipeline_uuid or '',
+            pipeline_name=pipeline_name,
+        )
+        if not session_updated:
+            await monitoring_service.record_session_start(
+                session_id=session_id,
+                bot_id=bot_uuid,
+                bot_name=bot_name,
+                pipeline_id=pipeline_uuid or '',
+                pipeline_name=pipeline_name,
+                platform=platform,
+                user_id=str(sender_id),
+                user_name=self._sender_name(message_event),
+            )
+        return message_id or ''
 
     async def _get_aggregation_config(self, pipeline_uuid: typing.Optional[str]) -> tuple[bool, float]:
         """Get aggregation configuration for a pipeline
@@ -129,7 +214,7 @@ class MessageAggregator:
         trigger_config = config.get('trigger', {})
         aggregation_config = trigger_config.get('message-aggregation', {})
 
-        enabled = aggregation_config.get('enabled', default_enabled)
+        enabled = aggregation_config.get('enabled', True)
 
         delay_raw = aggregation_config.get('delay', default_delay)
         try:
@@ -163,8 +248,18 @@ class MessageAggregator:
         enabled, delay = await self._get_aggregation_config(pipeline_uuid)
         session_id = self._get_session_id(bot_uuid, launcher_type, launcher_id)
         source_id = self._message_source_id(message_chain)
-        if self._is_recent_duplicate(session_id, source_id, time.time()):
+        message_fingerprint = self._message_content(message_chain)
+        if self._is_recent_duplicate(session_id, source_id, message_fingerprint, time.time()):
             return
+        raw_monitoring_message_id = await self._record_raw_monitoring_message(
+            bot_uuid,
+            launcher_type,
+            launcher_id,
+            sender_id,
+            message_event,
+            message_chain,
+            pipeline_uuid,
+        )
 
         if not enabled:
             # Aggregation disabled, send directly to query pool
@@ -178,6 +273,7 @@ class MessageAggregator:
                 adapter=adapter,
                 pipeline_uuid=pipeline_uuid,
                 routed_by_rule=routed_by_rule,
+                raw_monitoring_message_ids=[raw_monitoring_message_id] if raw_monitoring_message_id else None,
             )
             return
 
@@ -191,6 +287,7 @@ class MessageAggregator:
             adapter=adapter,
             pipeline_uuid=pipeline_uuid,
             routed_by_rule=routed_by_rule,
+            raw_monitoring_message_id=raw_monitoring_message_id,
         )
 
         force_flush = False
@@ -250,11 +347,15 @@ class MessageAggregator:
                 adapter=msg.adapter,
                 pipeline_uuid=msg.pipeline_uuid,
                 routed_by_rule=msg.routed_by_rule,
+                raw_monitoring_message_ids=[msg.raw_monitoring_message_id] if msg.raw_monitoring_message_id else None,
             )
             return
 
         # Merge multiple messages
         merged_msg = self._merge_messages(buffer.messages)
+        raw_monitoring_message_ids = [
+            msg.raw_monitoring_message_id for msg in buffer.messages if msg.raw_monitoring_message_id
+        ]
         await self.ap.query_pool.add_query(
             bot_uuid=merged_msg.bot_uuid,
             launcher_type=merged_msg.launcher_type,
@@ -265,6 +366,7 @@ class MessageAggregator:
             adapter=merged_msg.adapter,
             pipeline_uuid=merged_msg.pipeline_uuid,
             routed_by_rule=merged_msg.routed_by_rule,
+            raw_monitoring_message_ids=raw_monitoring_message_ids or None,
         )
 
     def _merge_messages(self, messages: list[PendingMessage]) -> PendingMessage:
@@ -304,6 +406,7 @@ class MessageAggregator:
             adapter=base_msg.adapter,
             pipeline_uuid=base_msg.pipeline_uuid,
             routed_by_rule=any(msg.routed_by_rule for msg in messages),
+            raw_monitoring_message_id=base_msg.raw_monitoring_message_id,
         )
 
     async def flush_all(self) -> None:

@@ -668,10 +668,21 @@ def test_sales_chat_renders_normalized_sales_message_components_and_hides_techni
     assert "component.kind === 'file'" in component_source
     assert "component.kind === 'link'" in component_source
     assert "component.kind === 'quote'" in component_source
+    assert 'function browserSafeMediaSource' in component_source
+    assert "startsWith('file://')" in component_source
+    assert "'image_url'" in component_source
+    assert "'voice_url'" in component_source
+    assert "'audio_base64'" in component_source
     assert 'isTechnicalIdentifier' in source
     assert 'LauncherTypes.' in source
     assert 'compactIdentifier' in source
-    assert 'conversation.platform} · ${compactIdentifier' in source
+    assert '机器人-{conversationAccountLabel(conversation)}' in source
+    assert '${conversation.platform} · ${conversationAccountLabel(conversation)} · ${compactIdentifier' in source
+    assert "? '数字员工'" not in source
+    assert 'message.bot_name ||' in source
+    assert 'void loadMessages(selectedSessionId)' in source
+    assert 'extractSalesSuggestionMessage' in source
+    assert 'setSuggesting(true)' in source
     assert "'wechat_id'" in source
     assert "'手机号'" in source
     assert 'child_grade' in source

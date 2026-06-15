@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import mimetypes
+import re
 from typing import Any
 
 
@@ -514,6 +515,10 @@ class SendResponseBackStage(stage.PipelineStage):
             if not isinstance(component, platform_message.Plain):
                 continue
             text = component.text
+            new_text = re.sub(r'[\[【]报名(?:链接|入口)[^\]】]*[\]】]', link, text)
+            if new_text != text:
+                text = new_text
+                replaced = True
             for placeholder in placeholders:
                 if placeholder in text:
                     text = text.replace(placeholder, link)

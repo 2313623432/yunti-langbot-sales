@@ -31,6 +31,12 @@ class MonitoringHelper:
     ) -> str:
         """Record the start of query processing, returns message_id"""
         try:
+            raw_monitoring_message_ids = []
+            if query and hasattr(query, 'variables'):
+                raw_monitoring_message_ids = query.variables.get('_raw_monitoring_message_ids') or []
+            if raw_monitoring_message_ids:
+                return str(raw_monitoring_message_ids[0])
+
             # Check if session exists, if not, record session start
             session_id = f'{query.launcher_type}_{query.launcher_id}'
 

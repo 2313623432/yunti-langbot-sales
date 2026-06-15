@@ -780,8 +780,8 @@ class TestSendResponseBackStage:
             'confidence': 0.72,
         }
         query.variables['course_sales_radar_link'] = signup_link
-        query.resp_messages = [Message(role='assistant', content='太棒了，点击这里报名：[报名链接]')]
-        query.resp_message_chain = [text_chain('太棒了，点击这里报名：[报名链接]')]
+        query.resp_messages = [Message(role='assistant', content='太棒了，点击这里报名：[报名链接XXXXXXX]')]
+        query.resp_message_chain = [text_chain('太棒了，点击这里报名：[报名链接XXXXXXX]')]
 
         respback_stage = respback.SendResponseBackStage(pipeline_app)
 
@@ -792,7 +792,7 @@ class TestSendResponseBackStage:
         components = outbound[0]['message']
         text = ''.join(component.text for component in components if component.type == 'Plain')
         assert signup_link in text
-        assert '[报名链接]' not in text
+        assert '[报名链接' not in text
 
     @pytest.mark.asyncio
     async def test_send_response_appends_signup_link_when_schedule_reply_promises_link(
