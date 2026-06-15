@@ -613,7 +613,7 @@ class SalesService:
         handoff = result.first()
         if handoff is None:
             return None
-        return self._serialize(persistence_sales.SalesHandoff, handoff)
+        return self._serialize(persistence_sales.SalesHandoff, self._row_entity(handoff))
 
     async def open_handoff_from_query(self, query: Any, reason: str, message_text: str) -> dict[str, Any]:
         session_id = self._query_session_id(query)
@@ -622,7 +622,7 @@ class SalesService:
             .where(persistence_sales.SalesHandoff.session_id == session_id)
             .where(persistence_sales.SalesHandoff.status == 'open')
         )
-        existing = result.first()
+        existing = self._first_row(result)
         values = {
             'bot_uuid': query.bot_uuid or '',
             'target_type': getattr(query.launcher_type, 'value', str(query.launcher_type)),
