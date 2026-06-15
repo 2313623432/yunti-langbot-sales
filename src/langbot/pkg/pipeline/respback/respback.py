@@ -207,10 +207,40 @@ class SendResponseBackStage(stage.PipelineStage):
             return None
         return next((case for case in cases if case['id'] == matched_id), None)
 
+    def _special_case_keywords(self, case: dict[str, Any]) -> set[str]:
+        configured = case.get('keywords')
+        if isinstance(configured, str):
+            return {item.strip() for item in re.split(r'[,，、/\\s]+', configured) if item.strip()}
+        if isinstance(configured, (list, tuple, set)):
+            return {str(item).strip() for item in configured if str(item).strip()}
+
+        source = ' '.join(str(case.get(key) or '') for key in ('id', 'condition', 'reply'))
+        candidates = {
+            '二维码',
+            '听力',
+            '答案',
+            '音频',
+            '扫码',
+            '扫书',
+            '资源',
+        }
+        return {keyword for keyword in candidates if keyword in source}
+
+    def _should_check_special_cases(self, user_text: str, cases: list[dict[str, Any]]) -> bool:
+        for case in cases:
+            keywords = self._special_case_keywords(case)
+            if not keywords:
+                return True
+            if any(keyword in user_text for keyword in keywords):
+                return True
+        return False
+
     async def _match_special_case(self, query: pipeline_query.Query) -> dict[str, Any] | None:
         cases = self._workflow_special_cases(query)
         user_text = self._query_user_text(query)
         if not cases or not user_text:
+            return None
+        if not self._should_check_special_cases(user_text, cases):
             return None
         result_text = await self._invoke_special_case_llm(query, self._semantic_match_prompt(user_text, cases))
         return self._parse_special_case_match(result_text, cases)

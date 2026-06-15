@@ -38,6 +38,13 @@ if [ -n "${RAILWAY_VOLUME_MOUNT_PATH:-}" ] && [ "${RAILWAY_VOLUME_MOUNT_PATH}" !
     fi
 fi
 
+mkdir -p /app/data/metadata /app/data/logs /app/data/labels /app/data/storage /app/data/chroma /app/data/temp
+
+if [ ! -f /app/data/langbot.db ] && [ -d /app/render-seed-data ]; then
+    cp -a /app/render-seed-data/. /app/data/
+    echo "Seeded /app/data from bundled data package."
+fi
+
 if [ -n "${DATABASE_URL:-}" ] && [ -z "${DATABASE__POSTGRESQL__HOST:-}" ]; then
     eval "$(
         python - <<'PY'
@@ -59,6 +66,15 @@ for key, value in values.items():
     print(f"export {key}={shlex.quote(value)}")
 PY
     )"
+fi
+
+if [ "${LANGBOT_POSTGRES_SEED_FROM_SQLITE:-0}" = "1" ] && [ -n "${DATABASE_URL:-}" ]; then
+    if [ -f /app/data/langbot.db ]; then
+        echo "Seeding PostgreSQL from SQLite database if target is empty..."
+        uv run --no-sync python scripts/sync_sqlite_to_postgres.py --sqlite /app/data/langbot.db
+    else
+        echo "LANGBOT_POSTGRES_SEED_FROM_SQLITE=1 but /app/data/langbot.db was not found; skipping seed." >&2
+    fi
 fi
 
 echo "Starting LangBot plugin runtime..."

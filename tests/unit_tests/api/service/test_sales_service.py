@@ -71,6 +71,31 @@ def test_normalize_sales_message_content_keeps_unavailable_media_as_real_attachm
     assert normalized['components'][1]['raw']['image_id'] == 'img_001'
 
 
+def test_normalize_sales_message_content_accepts_platform_media_alias_fields():
+    service = SalesService(SimpleNamespace())
+    raw = json.dumps(
+        [
+            {'type': 'Image', 'image_url': 'https://cdn.example.com/a.jpg', 'file_name': 'a.jpg'},
+            {'type': 'Voice', 'file_url': 'https://cdn.example.com/a.ogg', 'duration': 5},
+            {'type': 'Image', 'data': 'data:image/png;base64,AAAA'},
+            {'type': 'Voice', 'audio_base64': 'data:audio/ogg;base64,BBBB'},
+        ],
+        ensure_ascii=False,
+    )
+
+    normalized = service.normalize_sales_message_content(raw)
+
+    assert normalized['components'][0]['kind'] == 'image'
+    assert normalized['components'][0]['url'] == 'https://cdn.example.com/a.jpg'
+    assert normalized['components'][0]['available'] is True
+    assert normalized['components'][1]['kind'] == 'voice'
+    assert normalized['components'][1]['url'] == 'https://cdn.example.com/a.ogg'
+    assert normalized['components'][1]['length'] == 5
+    assert normalized['components'][1]['available'] is True
+    assert normalized['components'][2]['base64'] == 'data:image/png;base64,AAAA'
+    assert normalized['components'][3]['base64'] == 'data:audio/ogg;base64,BBBB'
+
+
 def test_format_datetime_marks_naive_monitoring_time_as_utc():
     service = SalesService(SimpleNamespace())
 
@@ -510,6 +535,62 @@ async def test_get_sales_conversations_handles_column_rows_from_connection_execu
 
     assert conversations[0]['session_id'] == 'person_customer-1'
     assert conversations[0]['latest_message_preview'] == '刚发的新消息'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_hides_technical_user_name_and_keeps_bot_name():
+    session = SimpleNamespace(
+        session_id='LauncherTypes.PERSON_ou_customer',
+        bot_id='bot-uuid',
+        bot_name='夏般的智能助手',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=2,
+        start_time=datetime.datetime(2026, 6, 15, 10, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 15, 10, 1, 0),
+        is_active=True,
+        platform='person',
+        user_id='ou_customer',
+        user_name='on_9a88cdb7b2b5b7df0f9700f591bddda8',
+    )
+    message = SimpleNamespace(
+        id='msg-1',
+        timestamp=datetime.datetime(2026, 6, 15, 10, 1, 0),
+        session_id='LauncherTypes.PERSON_ou_customer',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '你好'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='夏般的智能助手',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='ou_customer',
+        user_name='on_9a88cdb7b2b5b7df0f9700f591bddda8',
+        runner_name='',
+        variables=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    conversations = await service.get_sales_conversations()
+    serialized_message = service._serialize_sales_message(message)
+
+    assert conversations[0]['customer_name'] != 'on_9a88cdb7b2b5b7df0f9700f591bddda8'
+    assert conversations[0]['customer_name'] == '私聊客户'
+    assert conversations[0]['bot_name'] == '夏般的智能助手'
+    assert serialized_message['sender_label'] == '私聊客户'
 
 
 @pytest.mark.asyncio

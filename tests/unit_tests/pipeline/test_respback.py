@@ -42,7 +42,7 @@ def _pipeline_config_with_special_cases(*, ai_rewrite: bool) -> dict:
                 {
                     'id': 'listen-resource',
                     'enabled': True,
-                    'condition': '用户在问书籍二维码里的听力/答案怎么打开、怎么听、在哪里看',
+                    'condition': '用户在问书籍二维码里的听力/答案/音频怎么打开、怎么听、在哪里看',
                     'reply': '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片',
                     'ai_rewrite': ai_rewrite,
                     'image_url': 'https://example.com/listen.png',
@@ -123,6 +123,25 @@ async def test_respback_uses_ai_semantic_special_case_without_keyword_match():
     assert sent_chain[0].text == '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片'
     assert isinstance(sent_chain[1], platform_message.Image)
     assert fake_provider.get_captured_requests()[0]['messages'][0].content.startswith('你是语义路由器')
+
+
+@pytest.mark.asyncio
+async def test_respback_skips_special_case_llm_for_irrelevant_message():
+    app = FakeApp()
+    app.model_mgr.get_model_by_uuid = AsyncMock()
+    stage = get_respback_stage_class()(app)
+    query = text_query('怎么样')
+    query.use_llm_model_uuid = 'model-1'
+    query.pipeline_config = _pipeline_config_with_special_cases(ai_rewrite=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='普通 AI 原回复')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    app.model_mgr.get_model_by_uuid.assert_not_awaited()
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert sent_chain[0].text == '普通 AI 原回复'
 
 
 @pytest.mark.asyncio

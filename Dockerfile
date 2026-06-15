@@ -13,11 +13,13 @@ WORKDIR /app
 COPY . .
 
 COPY --from=node /app/web/dist ./web/dist
+COPY deploy/render/start.sh /app/deploy/render/start.sh
 
 RUN apt update \
-    && apt install gcc -y \
+    && apt install gcc curl unzip -y \
     && python -m pip install --no-cache-dir uv \
     && uv sync \
+    && chmod +x /app/deploy/render/start.sh \
     && touch /.dockerenv
 
-CMD [ "uv", "run", "--no-sync", "main.py" ]
+CMD [ "/app/deploy/render/start.sh" ]

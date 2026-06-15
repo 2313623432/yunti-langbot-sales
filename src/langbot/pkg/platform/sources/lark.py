@@ -24,6 +24,7 @@ from lark_oapi.api.im.v1 import *
 import pydantic
 from lark_oapi.api.cardkit.v1 import *
 from lark_oapi.api.auth.v3 import *
+from lark_oapi.api.contact.v3 import GetUserRequest
 from lark_oapi.core.model import *
 
 import langbot_plugin.api.definition.abstract.platform.adapter as abstract_platform_adapter
@@ -774,6 +775,66 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
         return quote_chain
 
     @staticmethod
+    def _first_display_name(*values: typing.Any) -> str:
+        for value in values:
+            text = str(value or '').strip()
+            if not text:
+                continue
+            if re.match(r'^(on|om|ou|oc|of)_[A-Za-z0-9_-]{12,}$', text):
+                continue
+            return text
+        return ''
+
+    @staticmethod
+    def _sender_display_name(sender: typing.Any) -> str:
+        def read_value(source: typing.Any, key: str) -> typing.Any:
+            if isinstance(source, dict):
+                return source.get(key)
+            return getattr(source, key, None)
+
+        candidates: list[typing.Any] = []
+        for key in ('name', 'display_name', 'nickname', 'sender_name', 'user_name'):
+            candidates.append(read_value(sender, key))
+
+        user = read_value(sender, 'user')
+        if user is not None:
+            for key in ('name', 'display_name', 'nickname', 'en_name', 'user_name'):
+                candidates.append(read_value(user, key))
+
+        sender_id = read_value(sender, 'sender_id')
+        if sender_id is not None:
+            for key in ('name', 'display_name', 'nickname', 'union_id'):
+                candidates.append(read_value(sender_id, key))
+
+        return LarkEventConverter._first_display_name(*candidates)
+
+    @staticmethod
+    async def _fetch_user_display_name(
+        api_client: lark_oapi.Client,
+        open_id: str | None,
+        union_id: str | None = None,
+    ) -> str:
+        if not api_client or not open_id:
+            return LarkEventConverter._first_display_name(union_id) or '飞书用户'
+        try:
+            request = GetUserRequest.builder().user_id(open_id).user_id_type('open_id').build()
+            response = await api_client.contact.v3.user.aget(request)
+            if response.success():
+                user = getattr(getattr(response, 'data', None), 'user', None)
+                display_name = LarkEventConverter._first_display_name(
+                    getattr(user, 'name', None),
+                    getattr(user, 'nickname', None),
+                    getattr(user, 'en_name', None),
+                    getattr(user, 'user_id', None),
+                    union_id,
+                )
+                if display_name:
+                    return display_name
+        except Exception:
+            pass
+        return LarkEventConverter._first_display_name(union_id) or '飞书用户'
+
+    @staticmethod
     async def yiri2target(
         event: platform_events.MessageEvent,
     ) -> lark_oapi.im.v1.P2ImMessageReceiveV1:
@@ -784,6 +845,15 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
         event: lark_oapi.im.v1.P2ImMessageReceiveV1, api_client: lark_oapi.Client
     ) -> platform_events.Event:
         message_chain = await LarkMessageConverter.target2yiri(event.event.message, api_client)
+        sender_id = event.event.sender.sender_id
+        sender_open_id = getattr(sender_id, 'open_id', None)
+        sender_union_id = getattr(sender_id, 'union_id', None)
+        sender_event_display_name = LarkEventConverter._sender_display_name(event.event.sender)
+        sender_display_name = await LarkEventConverter._fetch_user_display_name(
+            api_client,
+            sender_open_id,
+            sender_event_display_name or sender_union_id,
+        )
 
         # Check for quote/reply message
         # Extract files/images/voice from quote and add them as top-level components
@@ -813,8 +883,8 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
         if event.event.message.chat_type == 'p2p':
             return platform_events.FriendMessage(
                 sender=platform_entities.Friend(
-                    id=event.event.sender.sender_id.open_id,
-                    nickname=event.event.sender.sender_id.union_id,
+                    id=sender_open_id,
+                    nickname=sender_display_name,
                     remark='',
                 ),
                 message_chain=message_chain,
@@ -824,8 +894,8 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
         elif event.event.message.chat_type == 'group':
             return platform_events.GroupMessage(
                 sender=platform_entities.GroupMember(
-                    id=event.event.sender.sender_id.open_id,
-                    member_name=event.event.sender.sender_id.union_id,
+                    id=sender_open_id,
+                    member_name=sender_display_name,
                     permission=platform_entities.Permission.Member,
                     group=platform_entities.Group(
                         id=event.event.message.chat_id,

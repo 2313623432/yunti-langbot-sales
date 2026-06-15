@@ -4,14 +4,6 @@ import { FileText, ImageIcon, Link2, Volume2 } from 'lucide-react';
 import type { SalesMessageComponent } from '@/app/infra/entities/api';
 import { cn } from '@/lib/utils';
 
-function mediaSource(component: {
-  url?: string;
-  base64?: string;
-  path?: string;
-}): string {
-  return component.url || component.base64 || component.path || '';
-}
-
 function rawValue(
   raw: Record<string, unknown> | undefined,
   keys: string[],
@@ -21,6 +13,50 @@ function rawValue(
     if (value !== undefined && value !== null && value !== '') {
       return String(value);
     }
+  }
+  return '';
+}
+
+function browserSafeMediaSource(value?: unknown): string {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  if (source.startsWith('file://')) return '';
+  if (/^[A-Za-z]:[\\/]/.test(source)) return '';
+  if (source.startsWith('\\\\')) return '';
+  return source;
+}
+
+function mediaSource(component: {
+  url?: string;
+  base64?: string;
+  path?: string;
+  raw?: Record<string, unknown>;
+}): string {
+  const candidates = [
+    component.url,
+    component.base64,
+    rawValue(component.raw, [
+      'image_url',
+      'voice_url',
+      'audio_url',
+      'file_url',
+      'download_url',
+      'url',
+    ]),
+    rawValue(component.raw, [
+      'base64',
+      'data',
+      'image_base64',
+      'voice_base64',
+      'audio_base64',
+      'file_base64',
+    ]),
+    component.path,
+    rawValue(component.raw, ['path']),
+  ];
+  for (const candidate of candidates) {
+    const source = browserSafeMediaSource(candidate);
+    if (source) return source;
   }
   return '';
 }
@@ -64,7 +100,7 @@ function SalesMessageComponentView({
 
   if (component.kind === 'image') {
     const src = mediaSource(component);
-    if (component.available && src) {
+    if (src) {
       return (
         <a href={src} target="_blank" rel="noreferrer" className="block">
           <img
@@ -93,12 +129,14 @@ function SalesMessageComponentView({
 
   if (component.kind === 'voice') {
     const src = mediaSource(component);
-    if (component.available && src) {
+    if (src) {
       return (
         <div className="min-w-[220px] rounded-md bg-black/5 px-3 py-2">
           <div className="mb-2 flex items-center gap-2 text-sm">
             <Volume2 className="size-4" />
-            <span>{component.length ? `${component.length}s` : '语音消息'}</span>
+            <span>
+              {component.length ? `${component.length}s` : '语音消息'}
+            </span>
           </div>
           <audio controls src={src} className="h-9 w-full" />
         </div>
@@ -125,7 +163,7 @@ function SalesMessageComponentView({
         detail={component.available ? '点击打开文件' : '文件资源不可直接打开'}
       />
     );
-    return component.available && src ? (
+    return src ? (
       <a href={src} target="_blank" rel="noreferrer">
         {card}
       </a>

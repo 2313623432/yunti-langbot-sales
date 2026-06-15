@@ -1777,6 +1777,17 @@ class SalesService:
             return '私聊客户'
         return '客户'
 
+    def _customer_name_from_message(self, message: Any) -> str:
+        user_name = getattr(message, 'user_name', '') or ''
+        if user_name and not self._is_technical_identifier(user_name):
+            return user_name
+        platform = getattr(message, 'platform', '') or ''
+        if platform == 'group':
+            return '群聊客户'
+        if platform == 'person':
+            return '私聊客户'
+        return '客户'
+
     def _is_technical_identifier(self, value: str) -> bool:
         text = str(value or '').strip()
         if not text:
@@ -1830,8 +1841,19 @@ class SalesService:
             label = component.get('display') or component.get('target') or 'All'
             return {'kind': 'text', 'text': f'@{label}', 'raw': component}
         if component_type == 'Image':
-            url = str(component.get('url') or '')
-            base64_data = str(component.get('base64') or '')
+            url = str(
+                component.get('url')
+                or component.get('image_url')
+                or component.get('file_url')
+                or component.get('download_url')
+                or ''
+            )
+            base64_data = str(
+                component.get('base64')
+                or component.get('data')
+                or component.get('image_base64')
+                or ''
+            )
             path = str(component.get('path') or '')
             return {
                 'kind': 'image',
@@ -1843,8 +1865,21 @@ class SalesService:
                 'raw': component,
             }
         if component_type == 'Voice':
-            url = str(component.get('url') or '')
-            base64_data = str(component.get('base64') or '')
+            url = str(
+                component.get('url')
+                or component.get('voice_url')
+                or component.get('audio_url')
+                or component.get('file_url')
+                or component.get('download_url')
+                or ''
+            )
+            base64_data = str(
+                component.get('base64')
+                or component.get('data')
+                or component.get('audio_base64')
+                or component.get('voice_base64')
+                or ''
+            )
             path = str(component.get('path') or '')
             return {
                 'kind': 'voice',
@@ -1938,7 +1973,7 @@ class SalesService:
         elif sender_kind == 'assistant':
             sender_label = getattr(message, 'bot_name', '') or '数字员工'
         else:
-            sender_label = getattr(message, 'user_name', '') or getattr(message, 'user_id', '') or '客户'
+            sender_label = self._customer_name_from_message(message)
         return {
             'id': getattr(message, 'id', ''),
             'timestamp': self._format_datetime(getattr(message, 'timestamp', None)),
@@ -2040,10 +2075,7 @@ class SalesService:
             conversations.append(
                 {
                     'session_id': session.session_id,
-                    'customer_name': getattr(memory, 'customer_name', '')
-                    or getattr(session, 'user_name', '')
-                    or getattr(session, 'user_id', '')
-                    or session.session_id,
+                    'customer_name': getattr(memory, 'customer_name', '') or self._customer_name_from_session(session),
                     'platform': getattr(session, 'platform', '') or '',
                     'user_id': getattr(session, 'user_id', '') or '',
                     'user_name': getattr(session, 'user_name', '') or '',

@@ -304,3 +304,33 @@ class TestApplyEnvOverridesToConfig:
         assert 'DATABASE__POSTGRESQL__PASSWORD' in output
         assert 'env_value: ***' in output
         assert 'super-secret-password' not in output
+
+    def test_database_url_applies_postgresql_config(self, capsys):
+        """DATABASE_URL can configure PostgreSQL without exposing credentials in logs."""
+        load_config = get_load_config_module()
+        cfg = {'database': {'use': 'sqlite', 'postgresql': {}}}
+        env = {'DATABASE_URL': 'postgres://user:pass%40123@example.com:5433/sales_db'}
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_database_url_to_config(cfg)
+
+        output = capsys.readouterr().out
+        assert result['database']['use'] == 'postgresql'
+        assert result['database']['postgresql']['host'] == 'example.com'
+        assert result['database']['postgresql']['port'] == 5433
+        assert result['database']['postgresql']['user'] == 'user'
+        assert result['database']['postgresql']['password'] == 'pass@123'
+        assert result['database']['postgresql']['database'] == 'sales_db'
+        assert 'DATABASE_URL' in output
+        assert 'pass@123' not in output
+
+    def test_database_url_ignores_non_postgres_urls(self):
+        """Non-PostgreSQL URLs should not mutate database config."""
+        load_config = get_load_config_module()
+        cfg = {'database': {'use': 'sqlite'}}
+        env = {'DATABASE_URL': 'sqlite:///data/langbot.db'}
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_database_url_to_config(cfg)
+
+        assert result == {'database': {'use': 'sqlite'}}

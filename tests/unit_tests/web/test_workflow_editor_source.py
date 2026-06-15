@@ -705,10 +705,21 @@ def test_sales_chat_renders_normalized_sales_message_components_and_hides_techni
     assert "component.kind === 'file'" in component_source
     assert "component.kind === 'link'" in component_source
     assert "component.kind === 'quote'" in component_source
+    assert 'function browserSafeMediaSource' in component_source
+    assert "startsWith('file://')" in component_source
+    assert "'image_url'" in component_source
+    assert "'voice_url'" in component_source
+    assert "'audio_base64'" in component_source
     assert 'isTechnicalIdentifier' in source
     assert 'LauncherTypes.' in source
     assert 'compactIdentifier' in source
-    assert 'conversation.platform} · ${compactIdentifier' in source
+    assert '机器人-{conversationAccountLabel(conversation)}' in source
+    assert '${conversation.platform} · ${conversationAccountLabel(conversation)} · ${compactIdentifier' in source
+    assert "? '数字员工'" not in source
+    assert 'message.bot_name ||' in source
+    assert 'void loadMessages(selectedSessionId)' in source
+    assert 'extractSalesSuggestionMessage' in source
+    assert 'setSuggesting(true)' in source
     assert "'wechat_id'" in source
     assert "'手机号'" in source
     assert 'child_grade' in source
@@ -717,6 +728,16 @@ def test_sales_chat_renders_normalized_sales_message_components_and_hides_techni
     assert '关注需求' in source
     assert 'if (!selectedConversation) return;' in source
     assert 'disabled={!conversation || savingMemory}' in source
+
+
+def test_sales_chat_shows_manual_status_badges_from_real_conversation_counts():
+    source = SALES_CHAT_PAGE_PATH.read_text(encoding='utf-8')
+
+    assert 'conversationStatusCounts' in source
+    assert 'countConversationStatuses' in source
+    assert "tab.value === 'pending_manual' || tab.value === 'manual_handling'" in source
+    assert 'bg-[#dc2626]' in source
+    assert "status: 'all'," in source
 
 
 def test_pipeline_detail_exposes_auto_test_tab_for_agents_and_workflows():
