@@ -42,6 +42,7 @@ import { agentAvatarUrl } from '@/app/home/pipelines/components/agent-avatar/age
 import {
   PipelineTemplateConfig,
   PipelineTemplateCourseProfile,
+  PipelineTemplateFollowupMessage,
   PipelineTemplateImageTextBinding,
   PipelineTemplateSpecialCase,
 } from './types';
@@ -98,6 +99,14 @@ const RADAR_EVENT_OPTIONS = [
   { value: 'browse_30s', label: '客户浏览了一会儿', description: '客户停留一段时间后，主动询问卡点。' },
   { value: 'click_apply_button', label: '客户点击报名按钮', description: '客户进入报名动作后，提醒完成支付并发截图。' },
   { value: 'no_payment_after_click', label: '点击后暂未支付', description: '客户点了报名但没有支付时，提醒截图或帮看页面。' },
+];
+
+const FOLLOWUP_TIMING_OPTIONS = [
+  { value: 'immediate', label: '立即发送' },
+  { value: 'after_5', label: '5 分钟后发送' },
+  { value: 'after_60', label: '1 小时后发送' },
+  { value: 'evening', label: '今晚固定时间发送' },
+  { value: 'custom', label: '自定义几分钟后发送' },
 ];
 
 type VoiceToneOption = {
@@ -366,6 +375,22 @@ function makeCustomImageBinding(): PipelineTemplateImageTextBinding {
     trigger_intents: [],
     enabled: true,
   };
+}
+
+function followupTimingValue(message: PipelineTemplateFollowupMessage) {
+  if (message.schedule_time) return 'evening';
+  if (message.delay_minutes === 0) return 'immediate';
+  if (message.delay_minutes === 5) return 'after_5';
+  if (message.delay_minutes === 60) return 'after_60';
+  return 'custom';
+}
+
+function timingPatch(value: string): Partial<PipelineTemplateFollowupMessage> {
+  if (value === 'immediate') return { delay_minutes: 0, schedule_time: undefined };
+  if (value === 'after_5') return { delay_minutes: 5, schedule_time: undefined };
+  if (value === 'after_60') return { delay_minutes: 60, schedule_time: undefined };
+  if (value === 'evening') return { delay_minutes: 0, schedule_time: '21:30' };
+  return { delay_minutes: 10, schedule_time: undefined };
 }
 
 function makeSpecialCase(): PipelineTemplateSpecialCase {
@@ -724,6 +749,54 @@ export default function PipelineTemplateConfigEditor({
     patch({
       followup_sequences: (config.followup_sequences || []).map((sequence, sequenceIndex) =>
         sequenceIndex === index ? { ...sequence, ...next } : sequence,
+      ),
+    });
+  }
+
+  function addFollowupMessage(sequenceIndex: number) {
+    patch({
+      followup_sequences: (config.followup_sequences || []).map((sequence, index) =>
+        index === sequenceIndex
+          ? {
+              ...sequence,
+              messages: [
+                ...(sequence.messages || []),
+                { delay_minutes: 5, message: '家长领取到了吗？' },
+              ],
+            }
+          : sequence,
+      ),
+    });
+  }
+
+  function patchFollowupMessage(
+    sequenceIndex: number,
+    messageIndex: number,
+    next: Partial<PipelineTemplateFollowupMessage>,
+  ) {
+    patch({
+      followup_sequences: (config.followup_sequences || []).map((sequence, index) =>
+        index === sequenceIndex
+          ? {
+              ...sequence,
+              messages: (sequence.messages || []).map((message, itemIndex) =>
+                itemIndex === messageIndex ? { ...message, ...next } : message,
+              ),
+            }
+          : sequence,
+      ),
+    });
+  }
+
+  function removeFollowupMessage(sequenceIndex: number, messageIndex: number) {
+    patch({
+      followup_sequences: (config.followup_sequences || []).map((sequence, index) =>
+        index === sequenceIndex
+          ? {
+              ...sequence,
+              messages: (sequence.messages || []).filter((_, itemIndex) => itemIndex !== messageIndex),
+            }
+          : sequence,
       ),
     });
   }
@@ -1658,6 +1731,10 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderPushSettings() {
+    const salesLinks = config.sales_links || [];
+    const defaultSalesLinkId =
+      salesLinks.find((link) => link.radar_enabled !== false)?.id || salesLinks[0]?.id || '';
+
     return (
       <div className="space-y-4">
         <Section
@@ -1726,7 +1803,16 @@ export default function PipelineTemplateConfigEditor({
           </label>
         </Section>
 
-        <Section icon={MessageSquareText} title="主动跟进话术矩阵">
+        <Section
+          icon={MessageSquareText}
+          title="主动跟进话术矩阵"
+          description="把不同客户状态下要发的提醒拆成可编辑步骤，保存后仍由后台按原规则执行。"
+          right={
+            <Badge variant="outline" className="rounded-md">
+              {(config.followup_sequences || []).length} 个场景
+            </Badge>
+          }
+        >
           <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addFollowupSequence}>
             <Plus className="mr-1.5 size-4" />
             新增跟进场景
@@ -1734,42 +1820,204 @@ export default function PipelineTemplateConfigEditor({
           <div className="grid gap-3">
             {(config.followup_sequences || []).map((sequence, index) => (
               <div key={`${sequence.stage}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                  <Input
-                    value={sequence.label}
-                    onChange={(event) => patchFollowupSequence(index, { label: event.target.value })}
-                    className="h-10 bg-white"
-                    placeholder="场景名称"
-                  />
-                  <Input
-                    value={sequence.stage}
-                    onChange={(event) => patchFollowupSequence(index, { stage: event.target.value })}
-                    className="h-10 bg-white"
-                    placeholder="阶段标识"
-                  />
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="block">
+                    <FieldLabel>跟进场景</FieldLabel>
+                    <Input
+                      value={sequence.label}
+                      onChange={(event) => patchFollowupSequence(index, { label: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="例如：客户想购买、客户点击报名后未支付"
+                    />
+                  </label>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
                     title="删除跟进场景"
                     onClick={() => removeFollowupSequence(index)}
                   >
                     <Trash2 className="size-4" />
                   </Button>
                 </div>
-                <Textarea
-                  value={JSON.stringify(sequence.messages, null, 2)}
-                  onChange={(event) => {
-                    try {
-                      patchFollowupSequence(index, { messages: JSON.parse(event.target.value) });
-                    } catch {
-                      patchFollowupSequence(index, { messages_text: event.target.value });
-                    }
-                  }}
-                  className="min-h-28 font-mono text-xs leading-5"
-                  placeholder="跟进消息 JSON"
-                />
+                <div className="space-y-3">
+                  {(sequence.messages || []).map((message, messageIndex) => {
+                    const linkEnabled = Boolean(message.link_id || message.send_link_card);
+                    return (
+                      <div
+                        key={`${sequence.stage}-${messageIndex}`}
+                        className="space-y-3 rounded-md border border-slate-200 bg-white p-3"
+                      >
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_auto]">
+                          <label className="block">
+                            <FieldLabel>发送节奏</FieldLabel>
+                            <Select
+                              value={followupTimingValue(message)}
+                              onValueChange={(value) =>
+                                patchFollowupMessage(index, messageIndex, timingPatch(value))
+                              }
+                            >
+                              <SelectTrigger className="h-10 bg-white">
+                                <SelectValue placeholder="选择什么时候发送" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FOLLOWUP_TIMING_OPTIONS.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </label>
+                          {followupTimingValue(message) === 'custom' ? (
+                            <label className="block">
+                              <FieldLabel>几分钟后发送</FieldLabel>
+                              <Input
+                                type="number"
+                                min={0}
+                                value={message.delay_minutes}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    delay_minutes: Number(event.target.value || 0),
+                                    schedule_time: undefined,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                                placeholder="例如：15"
+                              />
+                            </label>
+                          ) : followupTimingValue(message) === 'evening' ? (
+                            <label className="block">
+                              <FieldLabel>固定发送时间</FieldLabel>
+                              <Input
+                                type="time"
+                                value={message.schedule_time || '21:30'}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    schedule_time: event.target.value,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                              />
+                            </label>
+                          ) : (
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                              系统会按所选节奏自动安排发送
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="删除这条话术"
+                            onClick={() => removeFollowupMessage(index, messageIndex)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                        <label className="block">
+                          <FieldLabel>发送内容</FieldLabel>
+                          <Textarea
+                            value={message.message}
+                            onChange={(event) =>
+                              patchFollowupMessage(index, messageIndex, { message: event.target.value })
+                            }
+                            className="min-h-24 resize-none bg-white leading-6"
+                            placeholder="输入这一步要发送给客户的话术"
+                          />
+                        </label>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-slate-900">带报名链接</p>
+                                <p className="text-xs leading-5 text-muted-foreground">
+                                  需要时自动附上客户可点击的报名页或资料页。
+                                </p>
+                              </div>
+                              <Switch
+                                checked={linkEnabled}
+                                onCheckedChange={(checked) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    link_id: checked ? message.link_id || defaultSalesLinkId || undefined : undefined,
+                                    send_link_card: checked && Boolean(message.link_id || defaultSalesLinkId),
+                                  })
+                                }
+                              />
+                            </div>
+                            {linkEnabled && salesLinks.length > 0 && (
+                              <Select
+                                value={message.link_id || defaultSalesLinkId}
+                                onValueChange={(value) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    link_id: value,
+                                    send_link_card: true,
+                                  })
+                                }
+                              >
+                                <SelectTrigger className="h-10 bg-white">
+                                  <SelectValue placeholder="选择要发送的链接" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {salesLinks.map((link) => (
+                                    <SelectItem key={link.id} value={link.id}>
+                                      {link.title || link.id}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                            {linkEnabled && salesLinks.length === 0 && (
+                              <p className="text-xs leading-5 text-amber-700">
+                                还没有客户链接，请先在“雷达跟进”里添加报名页或资料页。
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                            <label className="block">
+                              <FieldLabel>发送图片素材</FieldLabel>
+                              <Input
+                                value={message.image_key || ''}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    image_key: event.target.value,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                                placeholder="如需附图，填写素材名称或编号"
+                              />
+                            </label>
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-slate-900">语音可选</p>
+                                <p className="text-xs leading-5 text-muted-foreground">
+                                  后台可按策略把这条话术转成语音发送。
+                                </p>
+                              </div>
+                              <Switch
+                                checked={Boolean(message.voice_optional)}
+                                onCheckedChange={(checked) =>
+                                  patchFollowupMessage(index, messageIndex, { voice_optional: checked })
+                                }
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 w-full justify-center rounded-md bg-white"
+                  onClick={() => addFollowupMessage(index)}
+                >
+                  <Plus className="mr-1.5 size-4" />
+                  新增一条发送步骤
+                </Button>
               </div>
             ))}
           </div>

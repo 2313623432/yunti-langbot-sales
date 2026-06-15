@@ -371,6 +371,25 @@ def test_agent_radar_tab_removes_duplicate_interaction_radar_controls():
     assert radar_settings.index('客户可点击的链接') < radar_settings.index('点击后的自动跟进')
 
 
+def test_agent_push_tab_uses_business_friendly_followup_editor():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    push_settings = re.search(
+        r'function renderPushSettings\(\) \{([\s\S]+?)\n  function renderHandoffSettings',
+        template_source,
+    ).group(1)
+
+    assert '跟进消息 JSON' not in push_settings
+    assert 'JSON.stringify(sequence.messages' not in push_settings
+    assert 'JSON.parse(event.target.value)' not in push_settings
+    assert 'font-mono' not in push_settings
+    assert '发送节奏' in push_settings
+    assert '发送内容' in push_settings
+    assert '带报名链接' in push_settings
+    assert '发送图片素材' in push_settings
+    assert '语音可选' in push_settings
+    assert '阶段标识' not in push_settings
+
+
 def test_template_config_editor_supports_human_handoff_configuration():
     template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
     workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
