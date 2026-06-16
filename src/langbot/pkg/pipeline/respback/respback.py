@@ -348,7 +348,17 @@ class SendResponseBackStage(stage.PipelineStage):
 
         return platform_message.Image(path=file_key)
 
-    async def _matched_image_components(self, query: pipeline_query.Query) -> list[platform_message.MessageComponent]:
+    def _course_sales_signup_link_sent(self, query: pipeline_query.Query) -> bool:
+        if not query.resp_message_chain:
+            return False
+        return any(self._contains_course_sales_link(self._plain_text_from_chain(chain)) for chain in query.resp_message_chain)
+
+    async def _matched_image_components(
+        self,
+        query: pipeline_query.Query,
+        *,
+        link_bound_only: bool | None = None,
+    ) -> list[platform_message.MessageComponent]:
         workflow = self._active_workflow(query)
         if not isinstance(workflow, dict):
             return []
@@ -387,6 +397,11 @@ class SendResponseBackStage(stage.PipelineStage):
                 node_step_id = self._node_step_id(node, node_config)
                 if node_step_id not in selected_step_ids:
                     continue
+            requires_signup_link = node_config.get('requires_course_sales_signup_link') is True
+            if link_bound_only is not None and requires_signup_link is not link_bound_only:
+                continue
+            if requires_signup_link and not self._course_sales_signup_link_sent(query):
+                continue
 
             file_key = str(node_config.get('file_key') or '').strip()
             image_url = str(node_config.get('image_url') or '').strip()
@@ -408,10 +423,10 @@ class SendResponseBackStage(stage.PipelineStage):
 
         return components
 
-    async def _append_workflow_images(self, query: pipeline_query.Query) -> None:
+    async def _append_workflow_images(self, query: pipeline_query.Query, *, link_bound_only: bool | None = None) -> None:
         if not query.resp_message_chain:
             return
-        for component in await self._matched_image_components(query):
+        for component in await self._matched_image_components(query, link_bound_only=link_bound_only):
             query.resp_message_chain[-1].append(component)
 
     def _plain_text_from_chain(self, message_chain: platform_message.MessageChain) -> str:
@@ -787,9 +802,10 @@ class SendResponseBackStage(stage.PipelineStage):
             self._append_course_sales_open_question(query)
             return
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
-        await self._append_workflow_images(query)
+        await self._append_workflow_images(query, link_bound_only=False)
         await self._append_task_assistant_voice(query, reply_text)
         self._append_course_sales_signup_link(query)
+        await self._append_workflow_images(query, link_bound_only=True)
         self._normalize_course_sales_text(query)
         self._prepend_course_sales_first_reply_emoji(query)
         self._append_course_sales_open_question(query)

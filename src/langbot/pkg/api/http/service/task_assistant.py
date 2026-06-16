@@ -910,6 +910,7 @@ COURSE_IMAGE_BINDINGS = [
         'text': '表格内置素材：用户不买、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
         'trigger_intents': ['gift', 'objection', 'course_intro'],
+        'requires_course_sales_signup_link': True,
         'enabled': True,
     },
     {
@@ -3353,6 +3354,9 @@ class TaskAssistantService:
                     config['image_url'] = str(binding.get('image_url') or config.get('image_url') or '')
                     config['caption'] = str(binding.get('title') or config.get('caption') or '')
                     config['enabled'] = binding.get('enabled', True)
+                    config['requires_course_sales_signup_link'] = (
+                        binding.get('requires_course_sales_signup_link') is True
+                    )
                     if isinstance(binding.get('trigger_intents'), list):
                         config['trigger_intents'] = binding['trigger_intents']
 
@@ -4912,6 +4916,7 @@ class TaskAssistantService:
                         'image_url': str(binding.get('image_url') or ''),
                         'caption': str(binding.get('title') or ''),
                         'trigger_intents': binding.get('trigger_intents') or [],
+                        'requires_course_sales_signup_link': binding.get('requires_course_sales_signup_link') is True,
                         'append_caption': False,
                         'enabled': binding.get('enabled', True),
                     },

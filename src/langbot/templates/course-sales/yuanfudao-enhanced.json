@@ -975,6 +975,7 @@
         "course_intro",
         "reading_thinking_intro"
       ],
+      "requires_course_sales_signup_link": true,
       "enabled": true
     },
     {
