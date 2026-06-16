@@ -67,6 +67,7 @@ def test_ai_reply_node_can_select_real_model_and_sync_to_pipeline():
     assert 'syncTemplateModelIntoAIConfig' in form_source
     assert "['local-agent']" in form_source
     assert 'primary: selectedModelUuid' in form_source
+    assert form_source.count('ai: syncTemplateModelIntoAIConfig(templateConfig, values.ai)') == 3
 
 
 def test_pipeline_editor_keeps_only_agent_template_config():
