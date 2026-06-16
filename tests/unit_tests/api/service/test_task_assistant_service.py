@@ -80,6 +80,22 @@ async def test_prepare_query_sets_verify_intent_and_injects_prompt():
 
 
 @pytest.mark.asyncio
+async def test_prepare_query_resets_task_assistant_progress_on_new_command():
+    sales_service = SimpleNamespace(reset_sales_session_context=AsyncMock(return_value={'reset': True}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service))
+    service._session_progress['person_user-1'] = {'current_step_id': 'verify_identity'}
+    query = _query(text_chain('/new'), '/new')
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert result['interrupted'] is True
+    assert '已重置' in result['notice']
+    assert 'person_user-1' not in service._session_progress
+    sales_service.reset_sales_session_context.assert_awaited_once_with(query)
+
+
+@pytest.mark.asyncio
 async def test_prepare_query_marks_generic_task_handoff_request():
     service = TaskAssistantService(SimpleNamespace())
     query = _query(text_chain('我要转人工'), '我要转人工')
@@ -1522,6 +1538,36 @@ async def test_ensure_yuanfudao_sales_knowledge_base_inserts_record():
     assert params['uuid'] == YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
     assert params['name'] == '猿辅导销售知识库'
     assert params['knowledge_engine_plugin_id'] == 'langbot/BuiltinRAG'
+
+
+@pytest.mark.asyncio
+async def test_delete_retired_yuanfudao_seed_documents_removes_only_retired_pdf():
+    knowledge_service = SimpleNamespace(
+        get_files_by_knowledge_base=AsyncMock(
+            return_value=[
+                {
+                    'uuid': 'retired-file-id',
+                    'file_name': '猿辅导介绍0317.pdf',
+                },
+                {
+                    'uuid': 'active-file-id',
+                    'file_name': '猿辅导课程问答整理.xlsx',
+                },
+            ]
+        ),
+        delete_file=AsyncMock(),
+    )
+    logger = SimpleNamespace(info=Mock(), warning=Mock())
+    service = TaskAssistantService(SimpleNamespace())
+
+    await service._delete_retired_yuanfudao_seed_documents(knowledge_service, logger)
+
+    knowledge_service.delete_file.assert_awaited_once_with(
+        YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID,
+        'retired-file-id',
+    )
+    logger.info.assert_called_once()
+    logger.warning.assert_not_called()
 
 
 @pytest.mark.asyncio

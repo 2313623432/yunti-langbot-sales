@@ -45,6 +45,7 @@ YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID = 'yuanfudao-enhanced-sales-template-p
 YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID = 'yuanfudao-sales-knowledge-base'
 BUILTIN_KNOWLEDGE_ENGINE_ID = builtin_engine.BUILTIN_KNOWLEDGE_ENGINE_ID
 YUANFUDAO_KNOWLEDGE_PACK_DIR = 'templates/course-sales/yuanfudao-knowledge'
+RETIRED_YUANFUDAO_SEED_DOCUMENTS = {'猿辅导介绍0317.pdf'}
 COURSE_SALES_PRODUCT_UUID = 'yuanfudao-phonics-course'
 COURSE_SALES_TTS_MODEL_UUID = 'lnv-doubao-seed-tts-2-0-standard'
 COURSE_SALES_TTS_VOICE_TYPE = 'zh_female_vv_uranus_bigtts'
@@ -1118,6 +1119,10 @@ class TaskAssistantService:
 
         text = query.variables.get('user_message_text', '')
         session_key = self._query_session_key(query)
+        reset_result = await self._reset_sales_context_if_requested(query, text, session_key)
+        if reset_result is not None:
+            return reset_result
+
         progress = self._session_progress.get(session_key, {}) if session_key else {}
         previous_messages = getattr(query, 'messages', []) or []
         intent = self.classify_intent(text, query.message_chain, previous_messages, progress, workflow)
@@ -1528,6 +1533,10 @@ class TaskAssistantService:
 
         text = query.variables.get('user_message_text', '')
         session_key = self._query_session_key(query)
+        reset_result = await self._reset_sales_context_if_requested(query, text, session_key)
+        if reset_result is not None:
+            return reset_result
+
         voice_config = workflow.get('voice') if isinstance(workflow.get('voice'), dict) else {}
         course_voice_enabled = voice_config.get('enabled') is True
         query.variables['task_assistant_voice_reply'] = self._has_voice(query.message_chain) and course_voice_enabled
@@ -1556,6 +1565,32 @@ class TaskAssistantService:
         self._append_course_sales_control_context(query, intent)
 
         return {'handled': True, 'intent': intent}
+
+    async def _reset_sales_context_if_requested(
+        self,
+        query: pipeline_query.Query,
+        text: str,
+        session_key: str,
+    ) -> dict[str, Any] | None:
+        sales_service = getattr(self.ap, 'sales_service', None)
+        is_reset_command = getattr(sales_service, 'is_reset_command', None)
+        reset_requested = (
+            is_reset_command(text)
+            if callable(is_reset_command)
+            else (text or '').strip().lower() in {'/new', '／new'}
+        )
+        if not reset_requested:
+            return None
+
+        if session_key:
+            self._session_progress.pop(session_key, None)
+        if sales_service is not None and hasattr(sales_service, 'reset_sales_session_context'):
+            await sales_service.reset_sales_session_context(query)
+        return {
+            'handled': True,
+            'interrupted': True,
+            'notice': '已重置当前会话，之前的聊天上下文和客户记忆已清空。请直接发送新的问题继续咨询。',
+        }
 
     async def _record_course_resource_issue_for_query(
         self,
@@ -3918,6 +3953,7 @@ class TaskAssistantService:
                 )
             return
 
+        await self._delete_retired_yuanfudao_seed_documents(knowledge_service, logger)
         await self._retry_failed_yuanfudao_seed_documents(knowledge_service, logger)
 
         existing_files = await knowledge_service.get_files_by_knowledge_base(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
@@ -3953,6 +3989,31 @@ class TaskAssistantService:
                 len(import_targets),
                 len(existing_names),
             )
+
+    async def _delete_retired_yuanfudao_seed_documents(
+        self,
+        knowledge_service: Any,
+        logger: Any,
+    ) -> None:
+        existing_files = await knowledge_service.get_files_by_knowledge_base(
+            YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
+        )
+        removed_count = 0
+        for file in existing_files:
+            raw_name = str(file.get('file_name') or '')
+            if raw_name not in RETIRED_YUANFUDAO_SEED_DOCUMENTS and Path(raw_name).name not in RETIRED_YUANFUDAO_SEED_DOCUMENTS:
+                continue
+            file_uuid = str(file.get('uuid') or '').strip()
+            if not file_uuid:
+                continue
+            try:
+                await knowledge_service.delete_file(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID, file_uuid)
+                removed_count += 1
+            except Exception as exc:
+                if logger is not None:
+                    logger.warning('Failed to delete retired Yuanfudao seed document %s: %s', raw_name, exc)
+        if logger is not None and removed_count > 0:
+            logger.info('Deleted %s retired Yuanfudao seed documents', removed_count)
 
     async def _retry_failed_yuanfudao_seed_documents(
         self,

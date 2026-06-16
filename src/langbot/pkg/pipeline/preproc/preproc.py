@@ -275,6 +275,12 @@ class PreProcessor(stage.PipelineStage):
         task_assistant_handled = False
         if getattr(self.ap, 'task_assistant_service', None) is not None:
             task_result = await self.ap.task_assistant_service.prepare_query(query)
+            if task_result.get('interrupted'):
+                return entities.StageProcessResult(
+                    result_type=entities.ResultType.INTERRUPT,
+                    new_query=query,
+                    user_notice=task_result.get('notice', ''),
+                )
             task_assistant_handled = task_result.get('handled', False)
 
         if not task_assistant_handled and getattr(self.ap, 'sales_service', None) is not None:

@@ -105,6 +105,7 @@ DEFAULT_SALES_PRODUCTS = [
 
 
 COURSE_SALES_EXPLICIT_REJECTION_COUNT_KEY = 'course_sales_explicit_rejection_count'
+SALES_RESET_COMMANDS = {'/new', '／new'}
 
 
 class SalesService:
@@ -225,6 +226,9 @@ class SalesService:
             'message': message,
             'next_action': 'send_product_link' if link else 'ask_qualifying_question',
         }
+
+    def is_reset_command(self, text: str) -> bool:
+        return (text or '').strip().lower() in SALES_RESET_COMMANDS
 
     def compose_sales_prompt(
         self,
@@ -364,6 +368,9 @@ class SalesService:
         if not text:
             return {'interrupted': False}
 
+        if self.is_reset_command(text):
+            return await self.reset_sales_session_context(query)
+
         existing_handoff = await self.get_open_handoff_for_query(query)
         if existing_handoff:
             reason = existing_handoff.get('reason') or '客户正在等待人工接入'
@@ -398,6 +405,76 @@ class SalesService:
             self.ap.logger.warning('Failed to inject sales prompt into query')
 
         return {'interrupted': False, 'intent': intent, 'product': product, 'memory': memory}
+
+    async def reset_sales_session_context(self, query: Any) -> dict[str, Any]:
+        session_ids = self._query_session_aliases(query)
+        target_aliases = self._query_target_aliases(query)
+        self._clear_runtime_conversation(query)
+
+        if session_ids:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringFeedback).where(
+                    persistence_monitoring.MonitoringFeedback.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringEmbeddingCall).where(
+                    persistence_monitoring.MonitoringEmbeddingCall.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringLLMCall).where(
+                    persistence_monitoring.MonitoringLLMCall.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringError).where(
+                    persistence_monitoring.MonitoringError.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringMessage).where(
+                    persistence_monitoring.MonitoringMessage.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringSession).where(
+                    persistence_monitoring.MonitoringSession.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesCustomerMemory).where(
+                    persistence_sales.SalesCustomerMemory.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesHandoff).where(
+                    persistence_sales.SalesHandoff.session_id.in_(session_ids)
+                )
+            )
+
+        for target_type, target_id in target_aliases:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesOutreachPlan)
+                .where(persistence_sales.SalesOutreachPlan.target_type == target_type)
+                .where(persistence_sales.SalesOutreachPlan.target_id == target_id)
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesResourceIssue)
+                .where(persistence_sales.SalesResourceIssue.target_type == target_type)
+                .where(persistence_sales.SalesResourceIssue.target_id == target_id)
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesHandoff)
+                .where(persistence_sales.SalesHandoff.target_type == target_type)
+                .where(persistence_sales.SalesHandoff.target_id == target_id)
+            )
+
+        return {
+            'reset': True,
+            'interrupted': True,
+            'notice': '已重置当前会话，之前的聊天上下文和客户记忆已清空。请直接发送新的问题继续咨询。',
+        }
 
     async def upsert_memory_from_query(
         self,
@@ -2288,6 +2365,50 @@ class SalesService:
         if launcher_type_value:
             return f'{launcher_type_value}_{launcher_id}'
         return f'{launcher_type}_{launcher_id}'
+
+    def _query_session_aliases(self, query: Any) -> list[str]:
+        aliases: set[str] = set()
+        variables = getattr(query, 'variables', None)
+        if isinstance(variables, dict):
+            session_id = str(variables.get('session_id') or '').strip()
+            if session_id:
+                aliases.add(session_id)
+
+        session = getattr(query, 'session', None)
+        for source in (query, session):
+            if source is None:
+                continue
+            launcher_type = getattr(source, 'launcher_type', '')
+            launcher_id = str(getattr(source, 'launcher_id', '') or '').strip()
+            if not launcher_id:
+                continue
+            raw_type = str(launcher_type or '').strip()
+            value_type = str(getattr(launcher_type, 'value', '') or '').strip()
+            if raw_type:
+                aliases.add(f'{raw_type}_{launcher_id}')
+            if value_type:
+                aliases.add(f'{value_type}_{launcher_id}')
+
+        return sorted(aliases)
+
+    def _query_target_aliases(self, query: Any) -> list[tuple[str, str]]:
+        aliases: set[tuple[str, str]] = set()
+        launcher_type = getattr(getattr(query, 'launcher_type', None), 'value', None) or getattr(query, 'launcher_type', '')
+        target_type = str(launcher_type or 'person')
+        if target_type not in ('person', 'group'):
+            target_type = 'person'
+        for value in (getattr(query, 'launcher_id', ''), getattr(query, 'sender_id', '')):
+            target_id = str(value or '').strip()
+            if target_id:
+                aliases.add((target_type, target_id))
+        return sorted(aliases)
+
+    def _clear_runtime_conversation(self, query: Any) -> None:
+        session = getattr(query, 'session', None)
+        conversation = getattr(session, 'using_conversation', None)
+        messages = getattr(conversation, 'messages', None)
+        if hasattr(messages, 'clear'):
+            messages.clear()
 
     def _handoff_session_aliases_for_monitoring_session(self, session: Any) -> set[str]:
         session_id = str(getattr(session, 'session_id', '') or '')

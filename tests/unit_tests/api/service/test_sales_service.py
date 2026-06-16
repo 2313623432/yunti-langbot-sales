@@ -369,6 +369,66 @@ async def _insert_monitoring_session_with_messages(service, session_id='person_c
 
 
 @pytest.mark.asyncio
+async def test_reset_sales_session_context_clears_chat_state_for_current_session(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'person_customer-1'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id=session_id,
+            platform='person',
+            user_id='ou_customer',
+            summary='旧对话摘要',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesHandoff).values(
+            session_id=session_id,
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='ou_customer',
+            status='open',
+            reason='等待人工',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(
+            name='跟进计划',
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='ou_customer',
+            segment='course-sales:followup',
+            dedupe_key='followup-key',
+            enabled=True,
+        )
+    )
+    conversation = SimpleNamespace(messages=[provider_message.Message(role='user', content='旧消息')])
+    query = SimpleNamespace(
+        launcher_type=SimpleNamespace(value='person'),
+        launcher_id='customer-1',
+        sender_id='ou_customer',
+        bot_uuid='bot-uuid',
+        session=SimpleNamespace(using_conversation=conversation),
+    )
+
+    result = await service.reset_sales_session_context(query)
+
+    assert result['reset'] is True
+    assert conversation.messages == []
+    for model in (
+        persistence_monitoring.MonitoringMessage,
+        persistence_monitoring.MonitoringSession,
+        persistence_sales.SalesCustomerMemory,
+        persistence_sales.SalesHandoff,
+        persistence_sales.SalesOutreachPlan,
+    ):
+        count = await service.ap.persistence_mgr.execute_async(sqlalchemy.select(sqlalchemy.func.count()).select_from(model))
+        assert count.scalar() == 0
+
+
+@pytest.mark.asyncio
 async def test_get_memories_builds_customer_memory_from_monitoring_session_without_plugin(
     sales_service_with_db,
 ):
