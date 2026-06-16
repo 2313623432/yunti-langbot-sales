@@ -958,7 +958,14 @@ COURSE_STOP_RULES = {
     'stop_keywords': [
         '不需要',
         '不买',
+        '不想买',
+        '不想报',
+        '不想报名',
+        '不想领取',
+        '不领取',
         '不要再发',
+        '不感兴趣',
+        '没兴趣',
         '别来烦',
         '别联系',
         '滚',
@@ -1728,7 +1735,7 @@ class TaskAssistantService:
                 selected_profile=selected_profile,
             )
         rejection_keywords = explicit_rejection_keywords or self._lower_keywords(stop_rules.get('stop_keywords'))
-        if any(keyword in normalized for keyword in rejection_keywords):
+        if self._mentions_course_sales_explicit_rejection(normalized, rejection_keywords):
             return self._course_intent(
                 'explicit_rejection',
                 0.9,
@@ -1982,6 +1989,34 @@ class TaskAssistantService:
             keyword for keyword in immediate_stop_keywords if keyword and keyword not in protected_purchase_keywords
         ]
         return any(keyword in normalized for keyword in [*COURSE_ABUSIVE_STOP_KEYWORDS, *configured_keywords])
+
+    def _mentions_course_sales_explicit_rejection(self, normalized: str, rejection_keywords: list[str]) -> bool:
+        if any(keyword in normalized for keyword in rejection_keywords):
+            return True
+        direct_rejections = (
+            '不想领取',
+            '不领取',
+            '不想报',
+            '不想报名',
+            '不报名',
+            '不想报课',
+            '不报课',
+            '不想买',
+            '不买课',
+            '不想了解',
+            '不感兴趣',
+            '没兴趣',
+            '暂时不需要',
+            '暂时不想',
+            '先不领',
+            '先不领取',
+            '先不报名',
+        )
+        if any(phrase in normalized for phrase in direct_rejections):
+            return True
+        rejection_prefixes = ('不想', '不打算', '不考虑', '不需要', '不要', '不用', '先不', '暂时不')
+        signup_words = ('领取', '报名', '报课', '买课', '购买', '了解')
+        return any(f'{prefix}{word}' in normalized for prefix in rejection_prefixes for word in signup_words)
 
     def _mentions_payment_screenshot_confirmation(self, normalized: str) -> bool:
         return self._mentions_purchase_confirmation(normalized) or any(
@@ -2388,7 +2423,9 @@ class TaskAssistantService:
         elif intent_name == 'objection' and intent.get('explicit_rejection_count'):
             control_text = (
                 '\n\n[课程销售上下文]\n'
-                '用户明确拒绝。本轮只轻量确认收到，不要发报名链接、不要推课、不要安排购买动作。'
+                '用户第一次明确拒绝或不想领取。本轮不要发报名链接、不要推课、不要安排购买动作。'
+                '只追问拒绝原因：是孩子没时间、觉得不值得、已经学过、年级/基础不合适，还是暂时不想了解？'
+                '语气轻，不压迫，不要说“之后想领取随时找我”这种结束式话术。'
             )
         elif intent_name == 'screenshot_help':
             control_text = (
@@ -4613,7 +4650,7 @@ class TaskAssistantService:
             copy.deepcopy(template_config.get('stop_policy'))
             if isinstance(template_config.get('stop_policy'), dict)
             else {
-                'explicit_rejection_threshold': 1,
+                'explicit_rejection_threshold': 2,
                 'explicit_rejection_keywords': COURSE_STOP_RULES['stop_keywords'],
                 'immediate_stop_keywords': [
                     '投诉',

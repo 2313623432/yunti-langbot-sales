@@ -638,6 +638,9 @@ class SendResponseBackStage(stage.PipelineStage):
         workflow = self._active_workflow(query)
         if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
             return
+        intent_data = self._current_intent_data(query)
+        if str(intent_data.get('intent') or '') in {'explicit_rejection', 'objection', 'stop', 'handoff'}:
+            return
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         if self._course_sales_user_confirmed_open(query):
             return
@@ -778,6 +781,8 @@ class SendResponseBackStage(stage.PipelineStage):
 
         intent_data = self._current_intent_data(query)
         intent = str(intent_data.get('intent') or '')
+        if intent in {'explicit_rejection', 'objection', 'stop', 'handoff'}:
+            return
 
         link = self._course_sales_signup_link(query, intent_data)
         if not link:

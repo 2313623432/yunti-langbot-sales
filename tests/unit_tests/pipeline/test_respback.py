@@ -589,3 +589,36 @@ async def test_respback_sends_course_sales_signup_link_as_separate_plain_reply()
     ]
     assert '报名链接' not in sent_texts[1]
     assert '报名入口' not in sent_texts[1]
+
+
+@pytest.mark.asyncio
+async def test_respback_does_not_append_signup_link_after_explicit_rejection():
+    tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(build_radar_tracking_url=lambda **_: tracking_link)
+    stage = get_respback_stage_class()(app)
+    raw_link = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641'
+    query = text_query('不想领取')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'pipeline-uuid'
+    query.launcher_id = 'ou_customer'
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'objection',
+        'confidence': 0.9,
+        'explicit_rejection_count': 1,
+        'link_url': raw_link,
+    }
+    query.variables['course_sales_radar_link'] = raw_link
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='没关系啦，家长，之后想了解的话我再把链接发给您')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == ['没关系啦，家长，之后想了解的话我再把链接发给您']
+    assert all(tracking_link not in text for text in sent_texts)

@@ -2009,6 +2009,35 @@ async def test_course_sales_explicit_rejection_does_not_push_purchase_link_this_
     assert '本轮要给报名动作和报名链接卡片' not in context_text
 
 
+@pytest.mark.parametrize('message_text', ['不想领取', '没兴趣', '不想报名', '不感兴趣'])
+@pytest.mark.asyncio
+async def test_course_sales_first_rejection_probes_reason_without_signup_link(message_text):
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(
+        SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None))
+    )
+    query = _query(text_chain(message_text), message_text, session_id=f'customer-reject-{message_text}')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    await service.prepare_query(query)
+
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'objection'
+    assert intent['explicit_rejection_count'] == 1
+    assert 'link_url' not in intent
+    assert sales_service.plans == []
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '不要发报名链接' in context_text
+    assert '追问拒绝原因' in context_text
+    assert '孩子没时间' in context_text
+    assert '觉得不值得' in context_text
+    assert '已经学过' in context_text
+    assert '本轮要给报名动作和报名链接卡片' not in context_text
+
+
 @pytest.mark.asyncio
 async def test_course_sales_already_registered_moves_to_delivery_support_not_resale():
     sales_service = _CourseOutreachSalesService(user_message_count=2)

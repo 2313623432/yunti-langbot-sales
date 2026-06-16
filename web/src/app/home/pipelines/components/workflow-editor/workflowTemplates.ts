@@ -713,8 +713,20 @@ const courseStopRules = {
   message: '好的家长，收到，不再打扰您了。后面有需要可以随时联系我。',
 };
 const courseStopPolicy = {
-  explicit_rejection_threshold: 1,
-  explicit_rejection_keywords: ['不需要', '不买', '不要', '不考虑', '没兴趣'],
+  explicit_rejection_threshold: 2,
+  explicit_rejection_keywords: [
+    '不需要',
+    '不买',
+    '不想买',
+    '不想报',
+    '不想报名',
+    '不想领取',
+    '不领取',
+    '不要',
+    '不考虑',
+    '不感兴趣',
+    '没兴趣',
+  ],
   immediate_stop_keywords: ['投诉', '没有孩子', '没孩子', '打错', '我是老师'],
 };
 const courseImageBindings = [
