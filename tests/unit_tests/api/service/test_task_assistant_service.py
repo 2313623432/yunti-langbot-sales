@@ -1300,6 +1300,7 @@ class _CourseOutreachSalesService:
         self.plans = []
         self.disabled = []
         self.handoffs = []
+        self.due_runs = []
 
     async def count_user_messages_for_session(self, _session_id):
         return self.user_message_count
@@ -1335,6 +1336,7 @@ class _CourseOutreachSalesService:
         return 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
 
     async def run_due_outreach_for_target(self, **kwargs):
+        self.due_runs.append(kwargs)
         return 0
 
 
@@ -1363,8 +1365,19 @@ async def test_course_sales_first_contact_schedules_opening_resource_card_and_so
     query.prompt = SimpleNamespace(messages=[])
 
     result = await service.prepare_query(query)
+    after = datetime.datetime.now()
 
     assert result['handled'] is True
+    opening_plans = [plan for plan in sales_service.plans if plan['segment'].startswith('course-sales:opening')]
+    assert len(opening_plans) == 3
+    assert all(plan['scheduled_at'] <= after for plan in opening_plans)
+    assert sales_service.due_runs == [
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'customer-1',
+        }
+    ]
     assert any(
         plan['segment'] == 'course-sales:opening:text'
         and plan['message_components'] == [{'type': 'plain', 'text': COURSE_OPENING_MESSAGE}]

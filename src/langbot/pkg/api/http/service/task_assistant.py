@@ -2474,7 +2474,13 @@ class TaskAssistantService:
                         > 0
                     )
                 if not has_existing_opening:
-                    await self._schedule_course_sales_opening_for_target(target, workflow)
+                    await self._schedule_course_sales_opening_for_target(target, workflow, card_delay_seconds=0)
+                    if hasattr(sales_service, 'run_due_outreach_for_target'):
+                        await sales_service.run_due_outreach_for_target(
+                            bot_uuid=target['bot_uuid'],
+                            target_type=target['target_type'],
+                            target_id=target['target_id'],
+                        )
                     await self._schedule_course_sales_broadcasts_for_target(target, workflow)
 
             followup_stage = self._course_followup_stage_for_intent(intent, text)
