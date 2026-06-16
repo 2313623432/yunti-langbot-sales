@@ -536,6 +536,56 @@ class TestMessageAggregatorAddMessage:
         assert session_id not in agg.buffers or len(agg.buffers[session_id].messages) == 0
 
     @pytest.mark.asyncio
+    async def test_course_sales_spam_opens_handoff_without_queueing_query(self):
+        """Rapid child-like spam should open a manual handoff and avoid model invocation."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        app.sales_service = Mock()
+        app.sales_service.open_handoff_from_aggregated_messages = AsyncMock(return_value={'id': 9})
+
+        mock_pipeline = Mock()
+        mock_pipeline.pipeline_entity = Mock()
+        mock_pipeline.pipeline_entity.config = {
+            'workflow': {
+                'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+            },
+            'trigger': {
+                'message-aggregation': {
+                    'enabled': True,
+                    'delay': 10.0,
+                    'spam_handoff_enabled': True,
+                    'spam_message_limit': 4,
+                }
+            },
+        }
+        app.pipeline_mgr.get_pipeline_by_uuid = AsyncMock(return_value=mock_pipeline)
+
+        agg = aggregator.MessageAggregator(app)
+        event = friend_message_event(text_chain('unused'))
+        adapter = mock_adapter()
+
+        for text in ['111', '222', '333', '444']:
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id='customer-1',
+                sender_id='customer-1',
+                message_event=event,
+                message_chain=text_chain(text),
+                adapter=adapter,
+                pipeline_uuid='test-pipeline',
+            )
+
+        assert app.query_pool.add_query.await_count == 0
+        app.sales_service.open_handoff_from_aggregated_messages.assert_awaited_once()
+        handoff_kwargs = app.sales_service.open_handoff_from_aggregated_messages.await_args.kwargs
+        assert handoff_kwargs['reason'] == 'spam_flood'
+        assert [str(message.message_chain) for message in handoff_kwargs['messages']] == ['111', '222', '333', '444']
+        session_id = agg._get_session_id('test-bot', provider_session.LauncherTypes.PERSON, 'customer-1')
+        assert session_id not in agg.buffers
+
+    @pytest.mark.asyncio
     async def test_enabled_debounces_three_consecutive_text_messages_into_one_query(self):
         """Consecutive user messages should become one merged query after the idle window."""
         aggregator = get_aggregator_module()

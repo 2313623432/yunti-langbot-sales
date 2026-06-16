@@ -24,6 +24,7 @@ if typing.TYPE_CHECKING:
 
 # Maximum number of messages to buffer before forcing a flush
 MAX_BUFFER_MESSAGES = 10
+DEFAULT_SPAM_HANDOFF_MESSAGES = 8
 
 
 @dataclass
@@ -231,6 +232,49 @@ class MessageAggregator:
 
         return enabled, delay
 
+    async def _pipeline_config(self, pipeline_uuid: typing.Optional[str]) -> dict:
+        if pipeline_uuid is None:
+            return {}
+        pipeline = await self.ap.pipeline_mgr.get_pipeline_by_uuid(pipeline_uuid)
+        if pipeline is None:
+            return {}
+        config = getattr(getattr(pipeline, 'pipeline_entity', None), 'config', None)
+        return config if isinstance(config, dict) else {}
+
+    def _is_course_sales_config(self, config: dict) -> bool:
+        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
+        metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
+        return metadata.get('scenario') == 'course_sales_yuanfudao_phonics' or workflow.get('scenario') == 'course_sales_yuanfudao_phonics'
+
+    def _spam_handoff_limit(self, config: dict) -> int | None:
+        if not self._is_course_sales_config(config):
+            return None
+        trigger_config = config.get('trigger') if isinstance(config.get('trigger'), dict) else {}
+        aggregation_config = (
+            trigger_config.get('message-aggregation')
+            if isinstance(trigger_config.get('message-aggregation'), dict)
+            else {}
+        )
+        if aggregation_config.get('spam_handoff_enabled') is False:
+            return None
+        try:
+            limit = int(aggregation_config.get('spam_message_limit') or DEFAULT_SPAM_HANDOFF_MESSAGES)
+        except (TypeError, ValueError):
+            limit = DEFAULT_SPAM_HANDOFF_MESSAGES
+        return max(2, min(MAX_BUFFER_MESSAGES, limit))
+
+    async def _open_spam_handoff(self, messages: list[PendingMessage]) -> None:
+        if not messages:
+            return
+        sales_service = getattr(self.ap, 'sales_service', None)
+        open_handoff = getattr(sales_service, 'open_handoff_from_aggregated_messages', None)
+        if not callable(open_handoff):
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Spam handoff triggered but sales_service does not support aggregated handoff')
+            return
+        await open_handoff(messages=messages, reason='spam_flood')
+
     async def add_message(
         self,
         bot_uuid: str,
@@ -250,6 +294,8 @@ class MessageAggregator:
         merged with other messages from the same session.
         """
         enabled, delay = await self._get_aggregation_config(pipeline_uuid)
+        pipeline_config = await self._pipeline_config(pipeline_uuid) if enabled else {}
+        spam_handoff_limit = self._spam_handoff_limit(pipeline_config)
         session_id = self._get_session_id(bot_uuid, launcher_type, launcher_id)
         source_id = self._message_source_id(message_chain)
         message_fingerprint = self._message_content(message_chain)
@@ -295,6 +341,7 @@ class MessageAggregator:
         )
 
         force_flush = False
+        spam_handoff_messages: list[PendingMessage] | None = None
         async with self.lock:
             if session_id in self.buffers:
                 buffer = self.buffers[session_id]
@@ -311,12 +358,21 @@ class MessageAggregator:
 
             buffer.last_message_time = time.time()
 
+            if spam_handoff_limit is not None and len(buffer.messages) >= spam_handoff_limit:
+                if buffer.timer_task and not buffer.timer_task.done():
+                    buffer.timer_task.cancel()
+                spam_handoff_messages = list(buffer.messages)
+                self.buffers.pop(session_id, None)
             # Check if buffer reached max capacity
-            if len(buffer.messages) >= MAX_BUFFER_MESSAGES:
+            elif len(buffer.messages) >= MAX_BUFFER_MESSAGES:
                 force_flush = True
             else:
                 # Start new timer
                 buffer.timer_task = asyncio.create_task(self._delayed_flush(session_id, delay))
+
+        if spam_handoff_messages is not None:
+            await self._open_spam_handoff(spam_handoff_messages)
+            return
 
         if force_flush:
             await self._flush_buffer(session_id)

@@ -64,6 +64,21 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
     _LAZY_IMAGE_ID_PREFIX = 'lark:'
 
     @staticmethod
+    def supports_lark_sticker_file_key_components() -> bool:
+        """Return whether the shared platform message layer exposes Lark sticker file_key messages."""
+        return False
+
+    @staticmethod
+    def lark_sticker_file_key_from_component(msg: platform_message.MessageComponent) -> str | None:
+        """Return a Lark sticker file_key only when a shared sticker component exists.
+
+        Feishu/Lark only accepts sticker file_key values for stickers the bot has
+        received. The current shared message entities do not expose such a
+        component, so course-sales first replies must keep using text emoji.
+        """
+        return None
+
+    @staticmethod
     def _lazy_image_id(message_id: str, image_key: str) -> str:
         return f'{LarkMessageConverter._LAZY_IMAGE_ID_PREFIX}{message_id}:{image_key}'
 

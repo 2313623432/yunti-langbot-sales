@@ -22,6 +22,24 @@ def test_lark_voice_upload_options_use_audio_message_for_ogg_opus_data_uri():
     assert voice_options == {'file_type': 'opus', 'file_name': 'voice.opus'}
 
 
+def test_lark_sticker_file_key_support_requires_shared_message_component():
+    assert LarkMessageConverter.supports_lark_sticker_file_key_components() is False
+    assert LarkMessageConverter.lark_sticker_file_key_from_component(platform_message.Plain(text='😊')) is None
+    assert LarkMessageConverter.lark_sticker_file_key_from_component(
+        platform_message.Face(face_type='face', face_id=1, face_name='smile')
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_lark_text_emoji_fallback_remains_plain_post_content():
+    message_chain = platform_message.MessageChain([platform_message.Plain(text='😊 家长您好')])
+
+    text_elements, media_items = await LarkMessageConverter.yiri2target(message_chain, api_client=None)
+
+    assert text_elements == [[{'tag': 'md', 'text': '😊 家长您好'}]]
+    assert media_items == []
+
+
 @pytest.mark.asyncio
 async def test_lark_inbound_image_uses_lazy_image_id_without_download():
     class FailingMessageResource:

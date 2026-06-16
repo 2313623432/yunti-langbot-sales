@@ -33,6 +33,14 @@ def _pipeline_config(*, multi_reply_enabled: bool, threshold: int = 20) -> dict:
     }
 
 
+def _course_pipeline_config(*, multi_reply_enabled: bool = True, threshold: int = 200) -> dict:
+    config = _pipeline_config(multi_reply_enabled=multi_reply_enabled, threshold=threshold)
+    config['workflow'] = {
+        'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+    }
+    return config
+
+
 def _pipeline_config_with_special_cases(*, ai_rewrite: bool) -> dict:
     return {
         **_pipeline_config(multi_reply_enabled=False),
@@ -50,6 +58,21 @@ def _pipeline_config_with_special_cases(*, ai_rewrite: bool) -> dict:
             ],
         },
     }
+
+
+def _course_pipeline_config_with_special_cases(*, ai_rewrite: bool) -> dict:
+    config = _course_pipeline_config(multi_reply_enabled=False)
+    config['workflow']['metadata']['source_mode'] = 'template'
+    config['workflow']['special_cases'] = [
+        {
+            'id': 'listen-resource',
+            'enabled': True,
+            'condition': '用户在问书籍二维码里的听力/答案/音频怎么打开、怎么听、在哪里看',
+            'reply': '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片。',
+            'ai_rewrite': ai_rewrite,
+        }
+    ]
+    return config
 
 
 def _runtime_model(fake_provider: FakeProvider) -> SimpleNamespace:
@@ -80,6 +103,179 @@ async def test_respback_splits_long_plain_text_when_multi_reply_enabled():
         for _, kwargs in query.adapter.reply_message.await_args_list
     ]
     assert sent_texts == ['第一段内容很长。', '第二段内容也很长。']
+
+
+@pytest.mark.asyncio
+async def test_respback_splits_course_sales_short_natural_sentences_by_default():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('帮我写完这篇作文')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=True, threshold=200)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(
+                    text='老师看到这题也得深思熟虑一下呢，这可是咱们高中的大作文题目呀！我这边主要负责小学阶段阅读和写作指导的。'
+                ),
+            ]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == [
+        '老师看到这题也得深思熟虑一下呢，这可是咱们高中的大作文题目呀！',
+        '我这边主要负责小学阶段阅读和写作指导的',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_respback_appends_parent_open_question_for_course_sales_link_reply():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('链接在哪里')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='图书配套学习资源卡片：https://example.com/resource。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '图书配套学习资源卡片：https://example.com/resource\n家长，您这边能打开吗？'
+
+
+@pytest.mark.asyncio
+async def test_respback_prefixes_first_course_sales_reply_with_light_emoji():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('你好')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['course_sales_first_contact'] = True
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='家长您好，孩子现在几年级呀。')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '😊 家长您好，孩子现在几年级呀'
+
+
+@pytest.mark.asyncio
+async def test_respback_does_not_duplicate_parent_open_question():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('链接在哪里')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='我把资源链接发您了，家长，您这边能打开吗？')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '我把资源链接发您了，家长，您这边能打开吗？'
+
+
+@pytest.mark.asyncio
+async def test_respback_does_not_add_open_question_for_negated_link_context():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('不用发链接')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='好的，不给您发链接了。')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '好的，不给您发链接了'
+
+
+@pytest.mark.asyncio
+async def test_respback_appends_child_grade_question_for_course_sales_intro_reply():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('课程怎么上')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='我们这个自然拼读课主要帮孩子打好拼读基础，课后也会有老师跟进。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '我们这个自然拼读课主要帮孩子打好拼读基础，课后也会有老师跟进\n孩子现在几年级呀？'
+
+
+@pytest.mark.asyncio
+async def test_respback_does_not_duplicate_child_grade_question():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('课程怎么上')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='这个课适合小学阶段孩子，孩子现在几年级呀？')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '这个课适合小学阶段孩子，孩子现在几年级呀？'
+
+
+@pytest.mark.asyncio
+async def test_respback_appends_screenshot_question_for_course_sales_help_reply():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('打不开')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='如果页面一直报错，我这边可以帮您看一下。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '如果页面一直报错，我这边可以帮您看一下\n方便发我一张截图吗？'
+
+
+@pytest.mark.asyncio
+async def test_respback_does_not_add_course_sales_question_to_handoff_notice():
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(open_handoff_from_query=AsyncMock(return_value={'id': 7}))
+    stage = get_respback_stage_class()(app)
+    query = text_query('我要转人工')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'handoff',
+        'handoff_reason': 'manual_request',
+        'handoff_config': {'notify_message': '请稍等，我帮您转给老师看一下。'},
+    }
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='课程价格是9元。')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '请稍等，我帮您转给老师看一下'
 
 
 @pytest.mark.asyncio
@@ -123,6 +319,25 @@ async def test_respback_uses_ai_semantic_special_case_without_keyword_match():
     assert sent_chain[0].text == '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片'
     assert isinstance(sent_chain[1], platform_message.Image)
     assert fake_provider.get_captured_requests()[0]['messages'][0].content.startswith('你是语义路由器')
+
+
+@pytest.mark.asyncio
+async def test_respback_formats_course_sales_special_case_reply():
+    app = FakeApp()
+    fake_provider = FakeProvider().returns('{"matched_id":"listen-resource"}')
+    app.model_mgr.get_model_by_uuid = AsyncMock(return_value=_runtime_model(fake_provider))
+    stage = get_respback_stage_class()(app)
+    query = text_query('二维码里面答案和听力怎么找')
+    query.use_llm_model_uuid = 'model-1'
+    query.pipeline_config = _course_pipeline_config_with_special_cases(ai_rewrite=False)
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='普通 AI 原回复')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片\n家长，您这边能打开吗？'
 
 
 @pytest.mark.asyncio

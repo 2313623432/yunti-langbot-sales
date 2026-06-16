@@ -596,7 +596,7 @@ const courseSalesSignupLink =
 const courseResourceCardLink =
   'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347';
 const courseOpeningMessage =
-  '您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn';
+  '😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn\n\n家长，您这边能打开吗？';
 const defaultHumanHandoff = {
   enabled: true,
   keywords: [

@@ -106,6 +106,14 @@ DEFAULT_SALES_PRODUCTS = [
 
 COURSE_SALES_EXPLICIT_REJECTION_COUNT_KEY = 'course_sales_explicit_rejection_count'
 SALES_RESET_COMMANDS = {'/new', '／new'}
+HANDOFF_REASON_KEYWORDS = {
+    'child_spam': ['child_spam', 'spam_flood', '刷屏', '无意义消息', '乱发', '骚扰'],
+    'parent_complaint': ['parent_complaint', '投诉', '不满意', '生气', '骗人', '找负责人'],
+    'payment_issue': ['payment_issue', '付款', '支付', '扣款', '退款', '退钱', '没有开通'],
+    'resource_missing': ['resource_missing', '资源缺失', '资源为空', '资源没有', '没有资源', '缺资源', '补传'],
+    'needs_teacher': ['needs_teacher', '老师', '讲解', '讲题', '答疑', '不会做'],
+    'non_target_grade': ['non_target_grade', '非目标年级', '不是目标年级', '初中', '高中', '不适合年级'],
+}
 
 
 class SalesService:
@@ -229,6 +237,18 @@ class SalesService:
 
     def is_reset_command(self, text: str) -> bool:
         return (text or '').strip().lower() in SALES_RESET_COMMANDS
+
+    def normalize_handoff_reason(self, reason: str) -> str:
+        text = str(reason or '').strip()
+        if not text:
+            return ''
+        normalized = text.lower()
+        for label, keywords in HANDOFF_REASON_KEYWORDS.items():
+            if normalized == label:
+                return label
+            if any(keyword.lower() in normalized for keyword in keywords):
+                return label
+        return text
 
     def compose_sales_prompt(
         self,
@@ -696,7 +716,7 @@ class SalesService:
         handoff = result.first()
         if handoff is None:
             return None
-        return self._serialize(persistence_sales.SalesHandoff, self._row_entity(handoff))
+        return self._serialize_handoff(self._row_entity(handoff))
 
     async def open_handoff_from_query(self, query: Any, reason: str, message_text: str) -> dict[str, Any]:
         session_id = self._query_session_id(query)
@@ -706,13 +726,14 @@ class SalesService:
             .where(persistence_sales.SalesHandoff.status == 'open')
         )
         existing = self._first_row(result)
+        reason_label = self.normalize_handoff_reason(reason)
         values = {
             'bot_uuid': query.bot_uuid or '',
             'target_type': getattr(query.launcher_type, 'value', str(query.launcher_type)),
             'target_id': str(query.launcher_id),
             'platform': query.adapter.__class__.__name__ if getattr(query, 'adapter', None) else '',
             'user_id': str(query.sender_id),
-            'reason': reason,
+            'reason': reason_label or reason,
             'last_message': message_text,
             'updated_at': datetime.datetime.now(),
         }
@@ -722,10 +743,47 @@ class SalesService:
                 .where(persistence_sales.SalesHandoff.id == existing.id)
                 .values(**values)
             )
-            return {'id': existing.id, 'session_id': session_id, **values}
+            return self._with_handoff_reason_label({'id': existing.id, 'session_id': session_id, **values})
         values['session_id'] = session_id
         await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_sales.SalesHandoff).values(**values))
-        return {'session_id': session_id, **values}
+        return self._with_handoff_reason_label({'session_id': session_id, **values})
+
+    async def open_handoff_from_aggregated_messages(self, messages: list[Any], reason: str) -> dict[str, Any]:
+        if not messages:
+            raise ValueError('No messages to open handoff')
+        first = messages[0]
+        last_message = '\n'.join(str(getattr(message, 'message_chain', '') or '') for message in messages).strip()
+        launcher_type = getattr(first, 'launcher_type', '')
+        target_type = getattr(launcher_type, 'value', str(launcher_type))
+        target_id = str(getattr(first, 'launcher_id', '') or '')
+        session_id = f'{target_type}_{target_id}'
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesHandoff)
+            .where(persistence_sales.SalesHandoff.session_id == session_id)
+            .where(persistence_sales.SalesHandoff.status == 'open')
+        )
+        existing = self._first_row(result)
+        reason_label = self.normalize_handoff_reason(reason)
+        values = {
+            'bot_uuid': str(getattr(first, 'bot_uuid', '') or ''),
+            'target_type': target_type,
+            'target_id': target_id,
+            'platform': first.adapter.__class__.__name__ if getattr(first, 'adapter', None) else '',
+            'user_id': str(getattr(first, 'sender_id', '') or ''),
+            'reason': reason_label or reason,
+            'last_message': last_message,
+            'updated_at': datetime.datetime.now(),
+        }
+        if existing:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_sales.SalesHandoff)
+                .where(persistence_sales.SalesHandoff.id == existing.id)
+                .values(**values)
+            )
+            return self._with_handoff_reason_label({'id': existing.id, 'session_id': session_id, **values})
+        values['session_id'] = session_id
+        await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_sales.SalesHandoff).values(**values))
+        return self._with_handoff_reason_label({'session_id': session_id, **values})
 
     async def open_handoff_from_session(
         self,
@@ -762,7 +820,7 @@ class SalesService:
             'target_id': target_id,
             'platform': getattr(session, 'platform', '') or '',
             'user_id': getattr(session, 'user_id', '') or target_id,
-            'reason': reason or '人工主动介入',
+            'reason': self.normalize_handoff_reason(reason or '人工主动介入') or '人工主动介入',
             'last_message': getattr(latest_message, 'message_content', '') if latest_message else '',
             'assigned_to': assigned_to,
             'updated_at': datetime.datetime.now(),
@@ -780,7 +838,7 @@ class SalesService:
                 .where(persistence_sales.SalesHandoff.id == existing.id)
                 .values(**values)
             )
-            return {'id': existing.id, 'session_id': session_id, 'status': 'open', **values}
+            return self._with_handoff_reason_label({'id': existing.id, 'session_id': session_id, 'status': 'open', **values})
 
         values['status'] = 'open'
         values['session_id'] = session_id
@@ -790,14 +848,14 @@ class SalesService:
         inserted_primary_key = getattr(insert_result, 'inserted_primary_key', None)
         if inserted_primary_key:
             values['id'] = int(inserted_primary_key[0])
-        return values
+        return self._with_handoff_reason_label(values)
 
     async def get_handoffs(self, status: str | None = None) -> list[dict[str, Any]]:
         query = sqlalchemy.select(persistence_sales.SalesHandoff).order_by(persistence_sales.SalesHandoff.updated_at.desc())
         if status:
             query = query.where(persistence_sales.SalesHandoff.status == status)
         result = await self.ap.persistence_mgr.execute_async(query)
-        return [self._serialize(persistence_sales.SalesHandoff, row) for row in result.all()]
+        return [self._serialize_handoff(row) for row in result.all()]
 
     async def reply_handoff(self, handoff_id: int, reply: str, assigned_to: str = '') -> None:
         result = await self.ap.persistence_mgr.execute_async(
@@ -1429,6 +1487,14 @@ class SalesService:
             return self.ap.persistence_mgr.serialize_model(model, row)
         except (AttributeError, KeyError):
             return self.ap.persistence_mgr.serialize_model(model, self._row_value(row))
+
+    def _serialize_handoff(self, row: Any) -> dict[str, Any]:
+        return self._with_handoff_reason_label(self._serialize(persistence_sales.SalesHandoff, row))
+
+    def _with_handoff_reason_label(self, handoff: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(handoff)
+        payload['reason_label'] = self.normalize_handoff_reason(payload.get('reason', ''))
+        return payload
 
     def _clean_product_payload(self, data: dict[str, Any], partial: bool = False) -> dict[str, Any]:
         fields = {
@@ -2163,9 +2229,7 @@ class SalesService:
                     'latest_message': latest,
                     'latest_message_preview': latest['preview'] if latest else '',
                     'handoff_status': normalized_status,
-                    'handoff': self.ap.persistence_mgr.serialize_model(persistence_sales.SalesHandoff, handoff)
-                    if handoff
-                    else None,
+                    'handoff': self._serialize_handoff(handoff) if handoff else None,
                     'memory': self.ap.persistence_mgr.serialize_model(persistence_sales.SalesCustomerMemory, memory)
                     if memory
                     else None,

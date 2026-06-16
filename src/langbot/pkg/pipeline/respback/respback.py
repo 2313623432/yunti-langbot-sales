@@ -52,6 +52,12 @@ class SendResponseBackStage(stage.PipelineStage):
         metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
         return metadata.get('scenario') == 'task_assistant_ant_af'
 
+    def _is_course_sales_workflow(self, workflow: dict[str, Any] | None) -> bool:
+        if not isinstance(workflow, dict):
+            return False
+        metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
+        return metadata.get('scenario') == 'course_sales_yuanfudao_phonics' or workflow.get('scenario') == 'course_sales_yuanfudao_phonics'
+
     def _node_step_id(self, node: dict[str, Any], node_config: dict[str, Any]) -> str:
         if node_config.get('step_id'):
             return str(node_config['step_id'])
@@ -419,15 +425,33 @@ class SendResponseBackStage(stage.PipelineStage):
             threshold = 200
         return bool(config.get('enabled')), max(1, threshold)
 
-    def _split_plain_text(self, text: str, threshold: int) -> list[str]:
+    def _strip_course_sales_final_periods(self, text: str) -> str:
+        return re.sub(r'[。．.]+$', '', text.rstrip())
+
+    def _split_natural_sentences(self, text: str) -> list[str]:
+        chunks: list[str] = []
+        for raw_line in text.strip().replace('\r\n', '\n').split('\n'):
+            line = raw_line.strip()
+            if not line:
+                continue
+            parts = re.findall(r'.+?(?:[。！？!?]+|$)', line)
+            chunks.extend(part.strip() for part in parts if part.strip())
+        return chunks
+
+    def _split_plain_text(self, text: str, threshold: int, *, natural_sentences: bool = False) -> list[str]:
         stripped = text.strip()
         if not stripped or len(stripped) <= threshold:
+            if natural_sentences:
+                chunks = self._split_natural_sentences(stripped)
+                if len(chunks) > 1:
+                    return [self._strip_course_sales_final_periods(chunk) for chunk in chunks]
             return [text]
 
         chunks: list[str] = []
         current = ''
-        for raw_part in stripped.replace('\r\n', '\n').split('\n'):
-            part = raw_part.strip()
+        raw_parts = self._split_natural_sentences(stripped) if natural_sentences else stripped.replace('\r\n', '\n').split('\n')
+        for raw_part in raw_parts:
+            part = self._strip_course_sales_final_periods(raw_part.strip()) if natural_sentences else raw_part.strip()
             if not part:
                 continue
             if current and len(current) + len(part) + 1 > threshold:
@@ -444,6 +468,8 @@ class SendResponseBackStage(stage.PipelineStage):
             return []
 
         enabled, threshold = self._multi_reply_config(query)
+        workflow = self._active_workflow(query)
+        is_course_sales = self._is_course_sales_workflow(workflow)
         message_chain = query.resp_message_chain[-1]
         if not enabled:
             return [message_chain]
@@ -454,12 +480,114 @@ class SendResponseBackStage(stage.PipelineStage):
 
         text = self._plain_text_from_chain(message_chain)
         if 'http://' in text or 'https://' in text or len(text.strip()) <= threshold:
-            return [message_chain]
+            if not is_course_sales or 'http://' in text or 'https://' in text:
+                return [message_chain]
+            chunks = self._split_plain_text(text, threshold, natural_sentences=True)
+            if len(chunks) <= 1:
+                return [platform_message.MessageChain([platform_message.Plain(text=self._strip_course_sales_final_periods(text))])]
+            return [platform_message.MessageChain([platform_message.Plain(text=chunk)]) for chunk in chunks]
 
-        chunks = self._split_plain_text(text, threshold)
+        chunks = self._split_plain_text(text, threshold, natural_sentences=is_course_sales)
         if len(chunks) <= 1:
             return [message_chain]
         return [platform_message.MessageChain([platform_message.Plain(text=chunk)]) for chunk in chunks]
+
+    def _normalize_course_sales_text(self, query: pipeline_query.Query) -> None:
+        workflow = self._active_workflow(query)
+        if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
+            return
+        for component in query.resp_message_chain[-1]:
+            if isinstance(component, platform_message.Plain):
+                component.text = self._strip_course_sales_final_periods(component.text)
+
+    def _course_sales_link_question_needed(self, text: str) -> bool:
+        if not text:
+            return False
+        if '能打开吗' in text or '能否打开' in text or '可以打开吗' in text:
+            return False
+        if 'http://' in text or 'https://' in text or '#小程序://' in text:
+            return True
+        negated_link_markers = (
+            '不发链接',
+            '不用发链接',
+            '不要链接',
+            '不需要链接',
+            '不给您发链接',
+            '先不发链接',
+            '没有链接',
+        )
+        if any(marker in text for marker in negated_link_markers):
+            return False
+        return any(marker in text for marker in ('链接', '入口', '卡片', '资源', '扫码记录', '小程序'))
+
+    def _course_sales_screenshot_question_needed(self, text: str) -> bool:
+        if not text:
+            return False
+        if '截图' in text and any(marker in text for marker in ('吗', '发我', '发一下', '发张', '发一张')):
+            return False
+        return any(marker in text for marker in ('报错', '打不开', '进不去', '无法打开', '不能打开', '页面异常', '白屏'))
+
+    def _course_sales_grade_question_needed(self, text: str) -> bool:
+        if not text:
+            return False
+        if any(marker in text for marker in ('几年级', '年级呀', '年级呢', '孩子多大')):
+            return False
+        return any(
+            marker in text
+            for marker in (
+                '自然拼读',
+                '课程',
+                '课表',
+                '上课',
+                '课后',
+                '老师跟进',
+                '价格',
+                '费用',
+                '学费',
+                '9元',
+            )
+        )
+
+    def _course_sales_open_question(self, text: str) -> str:
+        if self._course_sales_link_question_needed(text):
+            return '家长，您这边能打开吗？'
+        if self._course_sales_screenshot_question_needed(text):
+            return '方便发我一张截图吗？'
+        if self._course_sales_grade_question_needed(text):
+            return '孩子现在几年级呀？'
+        return ''
+
+    def _append_course_sales_open_question(self, query: pipeline_query.Query) -> None:
+        workflow = self._active_workflow(query)
+        if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
+            return
+        current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
+        question = self._course_sales_open_question(current_text)
+        if not question:
+            return
+        last_plain = None
+        for component in query.resp_message_chain[-1]:
+            if isinstance(component, platform_message.Plain):
+                last_plain = component
+        if last_plain is not None:
+            last_plain.text = f'{self._strip_course_sales_final_periods(last_plain.text)}\n{question}'
+            return
+        query.resp_message_chain[-1].append(platform_message.Plain(text=question))
+
+    def _prepend_course_sales_first_reply_emoji(self, query: pipeline_query.Query) -> None:
+        workflow = self._active_workflow(query)
+        if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
+            return
+        if query.variables.get('course_sales_first_contact') is not True:
+            return
+        for component in query.resp_message_chain[-1]:
+            if not isinstance(component, platform_message.Plain):
+                continue
+            text = component.text.lstrip()
+            if text.startswith(('😊', '😄', '😂', '👍', '👌', '🙏', '❤️')):
+                return
+            component.text = f'😊 {text}'
+            return
 
     def _course_sales_signup_link(self, query: pipeline_query.Query, intent_data: dict[str, Any]) -> str:
         link = str(intent_data.get('link_url') or query.variables.get('course_sales_radar_link') or '').strip()
@@ -618,13 +746,20 @@ class SendResponseBackStage(stage.PipelineStage):
         if not query.resp_message_chain:
             return
         if await self._apply_handoff_response(query):
+            self._normalize_course_sales_text(query)
             return
         if await self._apply_special_case_response(query):
+            self._normalize_course_sales_text(query)
+            self._prepend_course_sales_first_reply_emoji(query)
+            self._append_course_sales_open_question(query)
             return
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_workflow_images(query)
         await self._append_task_assistant_voice(query, reply_text)
         self._append_course_sales_signup_link(query)
+        self._normalize_course_sales_text(query)
+        self._prepend_course_sales_first_reply_emoji(query)
+        self._append_course_sales_open_question(query)
 
     async def process(self, query: pipeline_query.Query, stage_inst_name: str) -> entities.StageProcessResult:
         """处理"""

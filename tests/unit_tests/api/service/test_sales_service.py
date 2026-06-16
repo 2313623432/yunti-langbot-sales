@@ -29,6 +29,19 @@ def test_classify_intent_detects_handoff_request():
     assert result['confidence'] >= 0.8
 
 
+def test_normalize_handoff_reason_labels_known_manual_reasons():
+    service = SalesService(SimpleNamespace())
+
+    assert service.normalize_handoff_reason('child_spam') == 'child_spam'
+    assert service.normalize_handoff_reason('孩子刷屏发无意义消息') == 'child_spam'
+    assert service.normalize_handoff_reason('家长投诉课程体验') == 'parent_complaint'
+    assert service.normalize_handoff_reason('付款后没有开通') == 'payment_issue'
+    assert service.normalize_handoff_reason('图书扫码资源缺失') == 'resource_missing'
+    assert service.normalize_handoff_reason('需要老师讲解一下这道题') == 'needs_teacher'
+    assert service.normalize_handoff_reason('孩子是初中，不是目标年级') == 'non_target_grade'
+    assert service.normalize_handoff_reason('Manual takeover') == 'Manual takeover'
+
+
 def test_normalize_sales_message_content_preserves_text_image_voice_and_source_metadata():
     service = SalesService(SimpleNamespace())
     raw = json.dumps(
@@ -672,10 +685,14 @@ async def test_open_handoff_from_query_uses_monitoring_session_id_for_pending_ma
     conversations = await service.get_sales_conversations(status='pending_manual')
 
     assert handoff['session_id'] == session_id
+    assert handoff['reason'] == 'manual_request'
+    assert handoff['reason_label'] == 'manual_request'
     assert len(conversations) == 1
     assert conversations[0]['session_id'] == session_id
     assert conversations[0]['handoff_status'] == 'pending_manual'
     assert conversations[0]['handoff']['last_message'] == '转人工'
+    assert conversations[0]['handoff']['reason'] == 'manual_request'
+    assert conversations[0]['handoff']['reason_label'] == 'manual_request'
 
 
 @pytest.mark.asyncio
@@ -705,6 +722,7 @@ async def test_get_sales_conversations_maps_legacy_handoff_session_id_to_monitor
     assert conversations[0]['session_id'] == session_id
     assert conversations[0]['handoff_status'] == 'pending_manual'
     assert conversations[0]['handoff']['session_id'] == 'person_ou_customer'
+    assert conversations[0]['handoff']['reason_label'] == 'manual_request'
 
 
 @pytest.mark.asyncio
@@ -1136,6 +1154,26 @@ async def test_open_handoff_from_monitoring_session_creates_open_handoff():
     assert handoff['last_message'] == 'I need help from sales'
     assert handoff['assigned_to'] == 'sales-admin'
     assert persistence_mgr.insert_values['status'] == 'open'
+
+
+@pytest.mark.asyncio
+async def test_open_handoff_from_monitoring_session_stores_normalized_granular_reason():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        platform='person',
+        user_id='customer-1',
+        user_name='Alice',
+    )
+    message = SimpleNamespace(message_content='付款后还没有开通')
+    persistence_mgr = _SessionHandoffPersistence(session, message)
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    handoff = await service.open_handoff_from_session('person_customer-1', '付款后没有开通', 'sales-admin')
+
+    assert handoff['reason'] == 'payment_issue'
+    assert handoff['reason_label'] == 'payment_issue'
+    assert persistence_mgr.insert_values['reason'] == 'payment_issue'
 
 
 @pytest.mark.asyncio

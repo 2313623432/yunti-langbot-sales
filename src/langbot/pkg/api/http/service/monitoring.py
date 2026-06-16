@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 import datetime
+import json
+import re
 import sqlalchemy
 
 from ....core import app
@@ -152,6 +154,7 @@ class MonitoringService:
     ) -> str:
         """Record a message"""
         message_id = str(uuid.uuid4())
+        variables = self._with_sales_reply_quality_metrics(message_content, variables, role)
         message_data = {
             'id': message_id,
             'timestamp': datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
@@ -176,6 +179,55 @@ class MonitoringService:
         )
 
         return message_id
+
+    def _with_sales_reply_quality_metrics(
+        self,
+        message_content: str,
+        variables: str | None,
+        role: str,
+    ) -> str | None:
+        if role != 'assistant':
+            return variables
+
+        parsed_variables = {}
+        if variables:
+            try:
+                parsed = json.loads(variables)
+                if isinstance(parsed, dict):
+                    parsed_variables = parsed
+            except json.JSONDecodeError:
+                return variables
+
+        text = self._extract_message_text(message_content)
+        parsed_variables['sales_reply_quality'] = self._build_sales_reply_quality_metrics(text)
+        return json.dumps(parsed_variables, ensure_ascii=False)
+
+    def _build_sales_reply_quality_metrics(self, text: str) -> dict:
+        stripped = text.strip()
+        lines = text.splitlines() or ['']
+        markers = []
+        for marker in (
+            '作为AI助手',
+            '作为一个AI',
+            'language model',
+            '我是一个AI',
+            '人工智能',
+            'AI助手',
+            '作为AI',
+            'as an ai',
+        ):
+            if marker in text or marker.lower() in text.lower():
+                if not any(marker in existing for existing in markers):
+                    markers.append(marker)
+
+        return {
+            'text_length': len(text),
+            'max_line_length': max(len(line) for line in lines),
+            'ends_with_question': stripped.endswith(('?', '？')),
+            'contains_link': re.search(r'https?://|www\.', text) is not None,
+            'has_ai_like_phrasing': bool(markers),
+            'ai_like_markers': markers,
+        }
 
     async def record_llm_call(
         self,

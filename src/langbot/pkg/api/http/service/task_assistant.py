@@ -51,6 +51,7 @@ COURSE_SALES_TTS_VOICE_TYPE = 'zh_female_vv_uranus_bigtts'
 COURSE_SALES_ASR_MODEL_UUID = 'lna-doubao-bigasr-flash'
 COURSE_PURCHASE_CONFIRMATION_KEYWORDS = [
     '买了',
+    '报名了',
     '已报名',
     '支付了',
     '付了',
@@ -144,7 +145,7 @@ COURSE_SPECIAL_CASES = [
     }
 ]
 COURSE_REPLY_CONTROLS = {
-    'multi_reply_enabled': False,
+    'multi_reply_enabled': True,
     'merge_reply_enabled': True,
     'merge_delay_seconds': 10.0,
 }
@@ -184,10 +185,11 @@ COURSE_RESOURCE_MINI_PROGRAM = '#小程序://教辅好帮手/la0KWwjPCx8S26C'
 COURSE_RESOURCE_GOODS_GROUP_LINK = 'https://d.codeup.cn/d/UVruQn'
 
 COURSE_OPENING_MESSAGE = (
-    '您的图书配套学习资源点击👇️下方卡片激活查看；\n'
+    '😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n'
     f'也可点击➡️查看扫码记录  {COURSE_RESOURCE_HISTORY_LINK}\n\n'
     f'✅ 搜本页答案，点击👉{COURSE_RESOURCE_MINI_PROGRAM}\n\n'
-    f'✅ 出版社内购好物群：{COURSE_RESOURCE_GOODS_GROUP_LINK}'
+    f'✅ 出版社内购好物群：{COURSE_RESOURCE_GOODS_GROUP_LINK}\n\n'
+    '家长，您这边能打开吗？'
 )
 
 COURSE_SALES_PROFILE = {
@@ -1121,6 +1123,7 @@ class TaskAssistantService:
         reset_result = await self._reset_sales_context_if_requested(query, text, session_key)
         if reset_result is not None:
             return reset_result
+        query.variables['course_sales_first_contact'] = await self._is_course_sales_first_contact(query)
 
         progress = self._session_progress.get(session_key, {}) if session_key else {}
         previous_messages = getattr(query, 'messages', []) or []
@@ -1774,6 +1777,14 @@ class TaskAssistantService:
                 step_ids=[],
                 selected_profile={'key': '', 'product_uuid': '', 'facts': {}},
             )
+        if self._is_low_signal_course_sales_text(normalized):
+            return self._course_intent(
+                'clarification',
+                0.58,
+                '用户表达较短或不明确，先低压力澄清需求，不主动推课',
+                step_ids=[],
+                selected_profile={'key': '', 'product_uuid': '', 'facts': {}},
+            )
         if selected_profile.get('key') == 'reading_thinking':
             return self._course_intent(
                 'reading_thinking_intro',
@@ -2001,6 +2012,12 @@ class TaskAssistantService:
             return False
         return any(keyword in normalized for keyword in COURSE_SMALLTALK_KEYWORDS)
 
+    def _is_low_signal_course_sales_text(self, normalized: str) -> bool:
+        text = (normalized or '').strip()
+        if not text:
+            return True
+        return text in {'嗯', '哦', '噢', '额', '呃', '啊', '好', '行', '?', '？'}
+
     async def _get_course_sales_explicit_rejection_count(self, session_key: str, query: pipeline_query.Query) -> int:
         sales_service = getattr(self.ap, 'sales_service', None)
         if sales_service is not None and hasattr(sales_service, 'get_course_sales_explicit_rejection_count'):
@@ -2071,7 +2088,7 @@ class TaskAssistantService:
         profile_facts = selected_profile.get('facts') if isinstance(selected_profile.get('facts'), dict) else COURSE_SALES_PROFILE
         product_key = str(selected_profile.get('key') or 'phonics')
         selected_product_uuid = str(selected_profile.get('product_uuid') or COURSE_SALES_PRODUCT_UUID)
-        if intent == 'smalltalk':
+        if intent in {'smalltalk', 'clarification'}:
             profile_facts = {}
             product_key = ''
             selected_product_uuid = ''
@@ -2323,6 +2340,11 @@ class TaskAssistantService:
                 '\n\n[课程销售上下文]\n'
                 '用户疑似已报名或支付成功。本轮转成交后交付：要截图、提示班主任/短信/猿辅导素养课APP，不要继续促单。'
             )
+        elif intent_name == 'objection' and intent.get('explicit_rejection_count'):
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户明确拒绝。本轮只轻量确认收到，不要发报名链接、不要推课、不要安排购买动作。'
+            )
         elif intent_name == 'screenshot_help':
             control_text = (
                 '\n\n[课程销售上下文]\n'
@@ -2331,7 +2353,14 @@ class TaskAssistantService:
         elif intent_name == 'smalltalk':
             control_text = (
                 '\n\n[课程销售上下文]\n'
-                '用户在闲聊或寒暄。先自然回应当前话题，最多一句轻轻带回学习或课程，不要发链接、不要塞话术。'
+                '用户在闲聊或寒暄。先自然回应当前话题，最多问一个低压力澄清问题：'
+                '家长是想看图书资源，还是了解课程信息？不要发链接、不要塞话术。'
+            )
+        elif intent_name == 'clarification':
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户表达不明确。只问一个低压力澄清问题：'
+                '家长是想看图书资源，还是了解课程信息？不要发链接、不要推课、不要塞话术。'
             )
         else:
             control_text = (
@@ -2350,7 +2379,7 @@ class TaskAssistantService:
         course_profile = intent.get('course_profile') if isinstance(intent.get('course_profile'), dict) else {}
         product_key = str(intent.get('product_key') or '')
         course_name = str(course_profile.get('course_name') or '').strip()
-        if course_name and intent_name != 'smalltalk':
+        if course_name and intent_name not in {'smalltalk', 'clarification'}:
             facts = [
                 str(course_profile.get('price') or '').strip(),
                 str(course_profile.get('duration') or '').strip(),
@@ -2362,7 +2391,7 @@ class TaskAssistantService:
             if fact_text:
                 control_text += f'；关键信息：{fact_text}'
 
-        if not faq_short_answer and intent_name != 'smalltalk':
+        if not faq_short_answer and intent_name not in {'smalltalk', 'clarification'}:
             user_text = str(query.variables.get('user_message_text') or '')
             snippets = self._select_yuanfudao_knowledge_snippets(user_text)
             if snippets:
@@ -2865,9 +2894,14 @@ class TaskAssistantService:
 
 回复原则：
 1. 只答用户当前问题，不要整段塞话术或主动背书未问到的内容。
-2. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
-3. 需要报名时再发链接；不需要时不硬推。
-4. 需要图片时由工作流追加素材，不要口头描述图片内容。
+2. 最多 2 条短消息，必要时 3 条；每条 15-35 字左右，避免一大段。
+3. 不用“作为AI/建议您/希望能帮到您/如有其他问题”等机器腔；不要总结、不要讲大道理。
+4. 回复最后不要用句号结尾，也不要用“还有什么问题随时问我”收尾。
+5. 首次自然回复可以带一个轻松表情符号，不要堆表情。
+6. 涉及链接、卡片、资料、页面、扫码记录、小程序时，最后追问“家长，您这边能打开吗？”
+7. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
+8. 需要报名时再发链接；不需要时不硬推。
+9. 需要图片时由工作流追加素材，不要口头描述图片内容。
 """.strip()
 
     async def synthesize_reply_voice(self, query: pipeline_query.Query, text: str) -> str | None:
@@ -3775,6 +3809,124 @@ class TaskAssistantService:
             normalized['link_title'] = COURSE_RADAR_CONFIG['link_title']
         return normalized
 
+    def _course_sales_template_safety_issues(self, template_config: dict[str, Any]) -> list[dict[str, str]]:
+        issues: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        placeholder_pattern = re.compile(r'(\[报名链接\]|\bxxxx?\b)', re.IGNORECASE)
+
+        def path_text(path: list[str | int]) -> str:
+            text = ''
+            for part in path:
+                if isinstance(part, int):
+                    text += f'[{part}]'
+                elif text:
+                    text += f'.{part}'
+                else:
+                    text = part
+            return text
+
+        def add_issue(code: str, path: list[str | int], message: str) -> None:
+            issue_path = path_text(path)
+            key = (code, issue_path)
+            if key in seen:
+                return
+            seen.add(key)
+            issues.append({'code': code, 'path': issue_path, 'message': message})
+
+        def is_link_or_material_path(path: list[str | int]) -> bool:
+            names = {str(part) for part in path if isinstance(part, str)}
+            leaf = str(path[-1]) if path else ''
+            return bool(
+                names & {'sales_links', 'radar', 'source_materials'}
+                and leaf in {'url', 'link_url', 'href'}
+            )
+
+        def walk(value: Any, path: list[str | int]) -> None:
+            if isinstance(value, dict):
+                if path and path[0] == 'sales_links':
+                    url = str(value.get('url') or '')
+                    if 'zhizhuma.com' in url and (
+                        value.get('id') != 'phonics_resource_card' or value.get('radar_enabled') is not False
+                    ):
+                        add_issue(
+                            'resource_link_used_as_radar',
+                            [*path, 'url'],
+                            'Resource card links must not be used as radar/sign-up links.',
+                        )
+                for key, child in value.items():
+                    walk(child, [*path, str(key)])
+                return
+            if isinstance(value, list):
+                for index, child in enumerate(value):
+                    walk(child, [*path, index])
+                return
+            if not isinstance(value, str) or not is_link_or_material_path(path):
+                return
+
+            if placeholder_pattern.search(value):
+                add_issue('placeholder_link', path, 'Configured course-sales links must not contain placeholders.')
+            if 'radar.yunti.local' in value:
+                add_issue('legacy_radar_link', path, 'Legacy radar.yunti.local links must be normalized offline.')
+            if path[:2] == ['radar', 'link_url'] and 'zhizhuma.com' in value:
+                add_issue(
+                    'resource_link_used_as_radar',
+                    path,
+                    'Resource card links must not be used as radar/sign-up links.',
+                )
+
+        if isinstance(template_config, dict):
+            walk(template_config, [])
+        return issues
+
+    def _compact_course_outreach_message(
+        self,
+        message: dict[str, Any],
+        *,
+        stage: str = '',
+        broadcast: bool = False,
+    ) -> str:
+        text = re.sub(r'\s+', ' ', str(message.get('message') or '')).strip()
+        text = re.sub(r'[。．.]+$', '', text)
+        pressure_markers = (
+            '名额不多',
+            '一直等您',
+            '恳求',
+            '不忍心',
+            '不能再耽搁',
+            '最后3个',
+            '打扰你千千万万遍',
+        )
+        has_low_pressure_question = any(marker in text for marker in ('吗', '呀', '呢', '能打开吗'))
+        if text and len(text) <= 90 and has_low_pressure_question and not any(marker in text for marker in pressure_markers):
+            return text
+
+        if message.get('send_link_card') or message.get('link_id'):
+            return '报名入口我发您，方便时点开看看\n家长，您这边能打开吗？'
+        if message.get('image_key'):
+            return '礼品说明我发您一张图，方便时看看\n孩子现在几年级呀？'
+        if stage == 'radar_clicked':
+            return '看到您打开报名入口了\n家长，您这边能打开吗？'
+        if stage == 'purchased':
+            return '报名后留意班主任短信或电话\n需要我帮您看下截图吗？'
+        if broadcast:
+            return '9元自然拼读专项课可以回放，含180次开口练习\n孩子现在几年级呀？'
+        return '我这边简单跟您确认一下\n孩子现在几年级呀？'
+
+    def _normalize_course_outreach_messages(self, template_config: dict[str, Any]) -> None:
+        for sequence in template_config.get('followup_sequences', []):
+            if not isinstance(sequence, dict):
+                continue
+            stage = str(sequence.get('stage') or '')
+            for message in sequence.get('messages', []):
+                if not isinstance(message, dict) or message.get('action') == 'continue_long_term_broadcasts':
+                    continue
+                if 'message' in message:
+                    message['message'] = self._compact_course_outreach_message(message, stage=stage)
+
+        for broadcast in template_config.get('long_term_broadcasts', []):
+            if isinstance(broadcast, dict) and 'message' in broadcast:
+                broadcast['message'] = self._compact_course_outreach_message(broadcast, broadcast=True)
+
     def _normalize_course_reply_controls(self, value: Any) -> dict[str, Any]:
         source = value if isinstance(value, dict) else {}
         normalized = {**copy.deepcopy(COURSE_REPLY_CONTROLS), **copy.deepcopy(source)}
@@ -4313,6 +4465,7 @@ class TaskAssistantService:
             )
         template_config['reply_controls'] = self._normalize_course_reply_controls(template_config.get('reply_controls'))
         self._normalize_course_template_media_keys(template_config)
+        self._normalize_course_outreach_messages(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
         for sequence in template_config.get('followup_sequences', []):
             if not isinstance(sequence, dict):

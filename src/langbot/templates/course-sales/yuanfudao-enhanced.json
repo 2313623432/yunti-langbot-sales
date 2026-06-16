@@ -31,7 +31,7 @@
     "handoff": true
   },
   "reply_controls": {
-    "multi_reply_enabled": false,
+    "multi_reply_enabled": true,
     "merge_reply_enabled": true,
     "merge_delay_seconds": 10.0
   },
@@ -68,7 +68,7 @@
     "猿辅导课程问答整理.xlsx",
     "猿辅导自然拼读常见问题(1).xlsx"
   ],
-  "opening_message": "您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn",
+  "opening_message": "😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn\n\n家长，您这边能打开吗？",
   "recommended_questions": [
     "这个自然拼读课是什么？",
     "阅读+思维课适合什么孩子？",

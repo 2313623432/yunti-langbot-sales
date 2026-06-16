@@ -465,15 +465,35 @@ class AutoTestService:
         return f'重点是「{point}」。我会用短句说明价值、确认您当前情况，并给出一个明确下一步。'
 
     def _evaluate_conversation(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        assistant_text = '\n'.join(
+        assistant_replies = [
             str(message.get('content') or '')
             for message in messages
             if message.get('role') == 'assistant'
+        ]
+        assistant_text = '\n'.join(assistant_replies)
+        ai_phrases = [
+            '作为一个AI',
+            '作为AI',
+            'AI语言模型',
+            '人工智能助手',
+            '我无法',
+            '我不能',
+        ]
+        placeholder_link_pattern = re.compile(
+            r'(example\.com|localhost|127\.0\.0\.1|待补充|占位|TODO|TBD|https?://\s*$|https?://[#\s])',
+            flags=re.I,
         )
         checks = {
             'responds_to_objection': any(keyword in assistant_text for keyword in ['顾虑', '担心', '不确定']),
             'has_next_action': any(keyword in assistant_text for keyword in ['下一步', '资料', '链接', '转人工']),
             'handoff_ready': '转人工' in assistant_text or '人工' in assistant_text,
+            'keeps_readable_reply': bool(assistant_replies)
+            and all(len(reply.strip()) <= 160 for reply in assistant_replies),
+            'asks_opening_or_next_question': any(
+                keyword in assistant_text for keyword in ['?', '？', '吗', '呢', '几岁', '几年级', '方便']
+            ),
+            'avoids_ai_phrasing': not any(phrase in assistant_text for phrase in ai_phrases),
+            'avoids_placeholder_links': placeholder_link_pattern.search(assistant_text) is None,
         }
         score = sum(1 for passed in checks.values() if passed)
         suggestions = []
@@ -483,6 +503,14 @@ class AutoTestService:
             suggestions.append('每轮回复要给出下一步动作。')
         if not checks['handoff_ready']:
             suggestions.append('增加转人工触发和人工接管说明。')
+        if not checks['keeps_readable_reply']:
+            suggestions.append('课程销售回复要更短')
+        if not checks['asks_opening_or_next_question']:
+            suggestions.append('补一个自然的开场/下一步问题')
+        if not checks['avoids_ai_phrasing']:
+            suggestions.append('去掉 AI 自称或模板化措辞')
+        if not checks['avoids_placeholder_links']:
+            suggestions.append('不要输出 example.com、待补充等占位链接或占位文案')
         return {
             'score': score,
             'max_score': len(checks),
