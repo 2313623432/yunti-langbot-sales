@@ -2291,6 +2291,30 @@ async def test_handle_course_sales_contact_added_makes_opening_text_and_card_due
 
 
 @pytest.mark.asyncio
+async def test_handle_course_sales_contact_added_sends_opening_before_broadcasts(monkeypatch):
+    sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    observed = {}
+
+    async def capture_broadcasts(_target, _workflow):
+        observed['sent_before_broadcasts'] = getattr(sales_service, 'target_send', None) is not None
+
+    monkeypatch.setattr(service, '_schedule_course_sales_broadcasts_for_target', capture_broadcasts)
+
+    await service.handle_course_sales_contact_added(
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='ou_customer',
+        pipeline_uuid='yuanfudao-enhanced-template-pipeline',
+        user_id='ou_customer',
+        pipeline_config=config,
+    )
+
+    assert observed == {'sent_before_broadcasts': True}
+
+
+@pytest.mark.asyncio
 async def test_handle_course_sales_contact_added_sends_welcome_only_once_per_target():
     sales_service = _DedupingCourseOutreachSalesService(user_message_count=0)
     service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
@@ -2344,11 +2368,7 @@ async def test_handle_course_sales_contact_added_skips_entered_event_after_user_
 
 
 @pytest.mark.asyncio
-async def test_handle_course_sales_contact_added_skips_entered_event_after_existing_opening_plan(monkeypatch):
-    async def no_sleep(_seconds):
-        return None
-
-    monkeypatch.setattr('langbot.pkg.api.http.service.task_assistant.asyncio.sleep', no_sleep)
+async def test_handle_course_sales_contact_added_skips_entered_event_after_existing_opening_plan():
     sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
     sales_service.plans.append(
         {

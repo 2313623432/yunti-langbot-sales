@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import copy
 import datetime
-import asyncio
 import json
 import os
 import re
@@ -2495,7 +2494,6 @@ class TaskAssistantService:
                 user_message_count = await sales_service.count_user_messages_for_session(session_id)
                 if user_message_count > 0:
                     return {'handled': True, 'scheduled': False, 'reason': 'entered event ignored after user messages'}
-                await asyncio.sleep(1)
                 if hasattr(sales_service, 'count_outreach_plans_for_target_segments'):
                     existing_opening_count = await sales_service.count_outreach_plans_for_target_segments(
                         bot_uuid=bot_uuid,
@@ -2506,12 +2504,12 @@ class TaskAssistantService:
                     if existing_opening_count > 0:
                         return {'handled': True, 'scheduled': False, 'reason': 'entered event ignored after existing welcome plan'}
             await self._schedule_course_sales_opening_for_target(target, workflow, card_delay_seconds=0)
-            await self._schedule_course_sales_broadcasts_for_target(target, workflow)
             sent = await sales_service.run_due_outreach_for_target(
                 bot_uuid=bot_uuid,
                 target_type=target_type or 'person',
                 target_id=target_id,
             )
+            await self._schedule_course_sales_broadcasts_for_target(target, workflow)
             return {'handled': True, 'scheduled': True, 'sent_immediately': sent}
         except Exception as exc:
             logger = getattr(self.ap, 'logger', None)
