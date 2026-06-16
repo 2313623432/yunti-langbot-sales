@@ -23,6 +23,7 @@ class SendResponseBackStage(stage.PipelineStage):
 
     _EXTRA_REPLY_CHAINS_KEY = '_respback_extra_reply_chains'
     _COURSE_SALES_LINK_OPEN_QUESTION = '家长，您这边能打开吗？'
+    _COURSE_SALES_SIGNUP_LINK_QUEUED_KEY = '_course_sales_signup_link_queued'
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
         intent_data = query.variables.get('sales_intent') or query.variables.get('workflow_intent') or {}
@@ -349,6 +350,8 @@ class SendResponseBackStage(stage.PipelineStage):
         return platform_message.Image(path=file_key)
 
     def _course_sales_signup_link_sent(self, query: pipeline_query.Query) -> bool:
+        if query.variables.get(self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY) is True:
+            return True
         if not query.resp_message_chain:
             return False
         return any(self._contains_course_sales_link(self._plain_text_from_chain(chain)) for chain in query.resp_message_chain)
@@ -536,6 +539,8 @@ class SendResponseBackStage(stage.PipelineStage):
             return False
         if '能打开吗' in text or '能否打开' in text or '可以打开吗' in text:
             return False
+        if '猿辅导英语自然拼读9元体验课点这里' in text or 'yuanfudao.com/primary/templates/package' in text:
+            return False
         if 'http://' in text or 'https://' in text or '#小程序://' in text:
             return True
         negated_link_markers = (
@@ -550,6 +555,33 @@ class SendResponseBackStage(stage.PipelineStage):
         if any(marker in text for marker in negated_link_markers):
             return False
         return any(marker in text for marker in ('链接', '入口', '卡片', '资源', '扫码记录', '小程序'))
+
+    def _course_sales_user_confirmed_open(self, query: pipeline_query.Query) -> bool:
+        intent_data = self._current_intent_data(query)
+        if intent_data.get('intent') == 'resource_confirmed':
+            return True
+        text = str(query.variables.get('user_message_text') or '').strip().lower()
+        if not text:
+            return False
+        if any(marker in text for marker in ('打不开', '不能打开', '无法打开', '没打开', '没有打开', '点不开')):
+            return False
+        return any(
+            marker in text
+            for marker in (
+                '能打开',
+                '可以打开',
+                '能点开',
+                '可以点开',
+                '打开了',
+                '点开了',
+                '看到了',
+                '可以的',
+                '可以',
+                '好的',
+                '好哒',
+                '没问题',
+            )
+        )
 
     def _course_sales_screenshot_question_needed(self, text: str) -> bool:
         if not text:
@@ -607,6 +639,8 @@ class SendResponseBackStage(stage.PipelineStage):
         if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
             return
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
+        if self._course_sales_user_confirmed_open(query):
+            return
         question = self._course_sales_open_question(current_text)
         if not question:
             return
@@ -762,15 +796,11 @@ class SendResponseBackStage(stage.PipelineStage):
         if self._contains_course_sales_link(current_text):
             return
 
-        query.resp_message_chain[-1].append(
-            platform_message.Plain(
-                text=(
-                    f'\n\n报名入口：{link}\n\n'
-                    '点进去选孩子年级，手机号验证后支付9元就行。'
-                    '支付成功后把截图发我，我帮您登记，后续老师会联系您安排上课和资料。'
-                )
-            )
+        self._queue_extra_reply_chain(
+            query,
+            f'猿辅导英语自然拼读9元体验课点这里👉：{link}',
         )
+        query.variables[self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY] = True
 
     def _estimate_voice_length_seconds(self, text: str) -> int:
         visible_chars = sum(1 for char in (text or '') if not char.isspace())

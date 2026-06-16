@@ -907,9 +907,9 @@ COURSE_IMAGE_BINDINGS = [
     {
         'step_id': 'gift_poster',
         'title': '完课好礼海报',
-        'text': '表格内置素材：用户不买、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
+        'text': '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
-        'trigger_intents': ['gift', 'objection', 'course_intro'],
+        'trigger_intents': ['gift', 'objection', 'course_intro', 'purchase'],
         'requires_course_sales_signup_link': True,
         'enabled': True,
     },
@@ -1745,6 +1745,14 @@ class TaskAssistantService:
                 include_link=True,
                 selected_profile=selected_profile,
             )
+        if self._mentions_resource_open_confirmation(normalized):
+            return self._course_intent(
+                'resource_confirmed',
+                0.82,
+                '用户确认图书资源或卡片可以打开，按SOP先问年级再承接课程',
+                step_ids=[],
+                selected_profile=selected_profile,
+            )
         resource_faqs = workflow.get('resource_faqs') if isinstance(workflow.get('resource_faqs'), list) else COURSE_RESOURCE_FAQS
         resource_keywords = {keyword for faq in resource_faqs for keyword in faq.get('keywords', [])}
         if any(keyword.lower() in normalized for keyword in resource_keywords):
@@ -1820,7 +1828,7 @@ class TaskAssistantService:
             return 'gift_poster'
         if intent in {'resource_help'}:
             return 'gift_qr'
-        if intent in {'no_reply'}:
+        if intent in {'no_reply', 'resource_confirmed'}:
             return ''
         return 'gift_poster'
 
@@ -1982,6 +1990,34 @@ class TaskAssistantService:
 
     def _mentions_screenshot_text(self, normalized: str) -> bool:
         return any(keyword in normalized for keyword in COURSE_SCREENSHOT_TEXT_KEYWORDS)
+
+    def _mentions_resource_open_confirmation(self, normalized: str) -> bool:
+        text = (normalized or '').strip()
+        if not text or len(text) > 40:
+            return False
+        if any(keyword in text for keyword in ['打不开', '不能打开', '无法打开', '没打开', '没有打开', '点不开']):
+            return False
+        if any(keyword in text for keyword in ['报名', '购买', '支付', '付款', '课程', '上课']):
+            return False
+        confirmations = {
+            '好的',
+            '好哒',
+            '可以',
+            '可以的',
+            '没问题',
+            'ok',
+            '能打开',
+            '可以打开',
+            '我能打开',
+            '能点开',
+            '可以点开',
+            '打开了',
+            '点开了',
+            '看到了',
+        }
+        if text in confirmations:
+            return True
+        return any(marker in text for marker in ['能打开', '可以打开', '打开了', '点开了', '看到了'])
 
     def _is_course_sales_smalltalk(self, normalized: str) -> bool:
         if not normalized or len(normalized) > 40:
@@ -2319,6 +2355,14 @@ class TaskAssistantService:
             control_text = (
                 '\n\n[课程销售上下文]\n'
                 '先解决图书资源问题，不急着推课。只在资源问题解决后，用一句话自然承接自然拼读体验课。'
+            )
+        elif intent_name == 'resource_confirmed':
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户已确认图书资源或卡片能打开。不要重复问能打开吗，不要直接说“我给您安排课程”，'
+                '不要发报名链接、不要催支付。按SOP循序渐进：先问孩子几年级；确认年级和基础后，'
+                '再轻量介绍自然拼读适配情况；用户表达想了解/想报名后，再问要不要报课；'
+                '用户明确要报时，先说明完课好礼，再发送报名链接。'
             )
         elif intent_name in {'purchase', 'radar_clicked'}:
             control_text = (
@@ -2921,10 +2965,11 @@ class TaskAssistantService:
 3. 不用“作为AI/建议您/希望能帮到您/如有其他问题”等机器腔；不要总结、不要讲大道理。
 4. 回复最后不要用句号结尾，也不要用“还有什么问题随时问我”收尾。
 5. 首次自然回复可以带一个轻松表情符号，不要堆表情。
-6. 涉及链接、卡片、资料、页面、扫码记录、小程序时，最后用单独短消息追问“家长，您这边能打开吗？”
-7. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
-8. 需要报名时再发链接；不需要时不硬推。
-9. 需要图片时由工作流追加素材，不要口头描述图片内容。
+6. 涉及图书资源链接、资源卡片、扫码记录或小程序时，最后用单独短消息追问“家长，您这边能打开吗？”
+7. 用户确认资源能打开后，不要重复问能打开吗；先问孩子几年级，再按年级和基础承接。
+8. 需要报名时，先确认报名意愿和完课好礼，再发链接；不需要时不硬推。
+9. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
+10. 需要图片时由工作流追加素材，不要口头描述图片内容。
 """.strip()
 
     async def synthesize_reply_voice(self, query: pipeline_query.Query, text: str) -> str | None:
@@ -4759,6 +4804,7 @@ class TaskAssistantService:
                 'config': {
                     'intents': [
                         'resource_help',
+                        'resource_confirmed',
                         'course_intro',
                         'course_schedule',
                         'course_replay',

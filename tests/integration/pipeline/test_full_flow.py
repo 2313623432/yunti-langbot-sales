@@ -770,9 +770,11 @@ class TestSendResponseBackStage:
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
         components = outbound[0]['message']
-        assert [component.type for component in components] == ['Plain', 'Plain', 'Image']
-        assert signup_link in components[1].text
-        assert str(components[2].path) == 'course-sales/phonics/gift_poster.jpeg'
+        assert [component.type for component in components] == ['Plain', 'Image']
+        assert str(components[1].path) == 'course-sales/phonics/gift_poster.jpeg'
+        link_components = outbound[1]['message']
+        assert [component.type for component in link_components] == ['Plain']
+        assert signup_link in link_components[0].text
 
     @pytest.mark.asyncio
     async def test_send_response_appends_task_assistant_tts_for_voice_query(self, pipeline_app, fake_platform_adapter):
@@ -816,7 +818,7 @@ class TestSendResponseBackStage:
     async def test_send_response_appends_course_sales_signup_link_for_purchase_intent(
         self, pipeline_app, fake_platform_adapter
     ):
-        """Course sales purchase replies should include the signup link in the same outgoing message."""
+        """Course sales purchase replies should send the signup link as a separate outgoing message."""
         from langbot.pkg.pipeline import entities
         from langbot.pkg.pipeline.respback import respback
         from tests.factories.message import text_chain, text_query
@@ -842,11 +844,11 @@ class TestSendResponseBackStage:
 
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
-        components = outbound[0]['message']
+        components = outbound[1]['message']
         text = ''.join(component.text for component in components if component.type == 'Plain')
         assert signup_link in text
         assert text.count(signup_link) == 1
-        assert '支付成功后把截图发我' in text
+        assert '猿辅导英语自然拼读9元体验课点这里' in text
 
     @pytest.mark.asyncio
     async def test_send_response_replaces_course_sales_signup_link_placeholder(
@@ -886,7 +888,7 @@ class TestSendResponseBackStage:
     async def test_send_response_appends_signup_link_when_schedule_reply_promises_link(
         self, pipeline_app, fake_platform_adapter
     ):
-        """If the assistant promises a signup page link, the outgoing message must include it."""
+        """If the assistant promises a signup page link, send it as a separate message."""
         from langbot.pkg.pipeline import entities
         from langbot.pkg.pipeline.respback import respback
         from tests.factories.message import text_chain, text_query
@@ -912,7 +914,7 @@ class TestSendResponseBackStage:
 
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
-        components = outbound[0]['message']
+        components = outbound[1]['message']
         text = ''.join(component.text for component in components if component.type == 'Plain')
         assert signup_link in text
         assert text.count(signup_link) == 1
@@ -954,7 +956,7 @@ class TestSendResponseBackStage:
 
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
-        components = outbound[0]['message']
+        components = outbound[1]['message']
         text = ''.join(component.text for component in components if component.type == 'Plain')
         assert tracking_link in text
         assert signup_link not in text
@@ -1039,8 +1041,10 @@ class TestSendResponseBackStage:
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
         components = outbound[0]['message']
-        assert [component.type for component in components] == ['Voice', 'Plain']
-        assert components[1].text.count(signup_link) == 1
+        assert [component.type for component in components] == ['Voice']
+        link_components = outbound[1]['message']
+        assert [component.type for component in link_components] == ['Plain']
+        assert link_components[0].text.count(signup_link) == 1
 
     @pytest.mark.asyncio
     async def test_send_response_sends_one_task_assistant_image_without_caption_tail(self, pipeline_app, fake_platform_adapter):

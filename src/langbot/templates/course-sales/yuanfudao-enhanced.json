@@ -385,13 +385,13 @@
       "messages": [
         {
           "delay_minutes": 0,
-          "message": "好的",
-          "link_id": "phonics_radar_apply",
-          "send_link_card": true
+          "message": "好哒"
         },
         {
           "delay_minutes": 0,
-          "message": "点开上面报名链接，支付9元成功后截图发我，我帮您引导到班主任/人工登记开课和资料。"
+          "message": "猿辅导英语自然拼读9元体验课点这里👉：",
+          "link_id": "phonics_radar_apply",
+          "send_link_card": true
         },
         {
           "delay_minutes": 5,
@@ -967,13 +967,14 @@
     {
       "step_id": "gift_poster",
       "title": "完课好礼海报",
-      "text": "用户不买、考虑、问赠品、问完课礼时发送。",
+      "text": "用户明确要报名、考虑、问赠品、问完课礼时发送。",
       "file_key": "course-sales/phonics/gift_poster.jpeg",
       "trigger_intents": [
         "gift",
         "objection",
         "course_intro",
-        "reading_thinking_intro"
+        "reading_thinking_intro",
+        "purchase"
       ],
       "requires_course_sales_signup_link": true,
       "enabled": true

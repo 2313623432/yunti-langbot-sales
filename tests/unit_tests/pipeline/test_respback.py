@@ -158,6 +158,29 @@ async def test_respback_sends_parent_open_question_as_separate_course_sales_repl
 
 
 @pytest.mark.asyncio
+async def test_respback_does_not_repeat_open_question_after_user_confirmed_resource_opens():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('我能打开')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {'intent': 'resource_confirmed', 'confidence': 0.82}
+    query.variables['user_message_text'] = '我能打开'
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='好的，孩子现在几年级呀？')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == ['好的，孩子现在几年级呀？']
+
+
+@pytest.mark.asyncio
 async def test_respback_prefixes_first_course_sales_reply_with_light_emoji():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
@@ -530,3 +553,39 @@ async def test_respback_replaces_raw_course_sales_link_with_radar_tracking_url()
     assert tracking_link in sent_text
     assert raw_link not in sent_text
     assert '支付成功后截图发我' in sent_text
+
+
+@pytest.mark.asyncio
+async def test_respback_sends_course_sales_signup_link_as_separate_plain_reply():
+    tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(build_radar_tracking_url=lambda **_: tracking_link)
+    stage = get_respback_stage_class()(app)
+    raw_link = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641'
+    query = text_query('我想报名')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'pipeline-uuid'
+    query.launcher_id = 'ou_customer'
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'purchase',
+        'confidence': 0.9,
+        'link_url': raw_link,
+    }
+    query.variables['course_sales_radar_link'] = raw_link
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='好哒')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == [
+        '好哒',
+        f'猿辅导英语自然拼读9元体验课点这里👉：{tracking_link}',
+    ]
+    assert '报名链接' not in sent_texts[1]
+    assert '报名入口' not in sent_texts[1]

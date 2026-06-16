@@ -1354,6 +1354,31 @@ class _PersistingRejectionSalesService(_CourseOutreachSalesService):
         return count
 
 
+@pytest.mark.parametrize('confirmation_text', ['好的', '可以的', '我能打开'])
+@pytest.mark.asyncio
+async def test_course_sales_resource_open_confirmation_asks_grade_before_pitching_course(confirmation_text):
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain(confirmation_text), confirmation_text, session_id='customer-opened')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'resource_confirmed'
+    assert 'link_url' not in intent
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '不要重复问能打开吗' in context_text
+    assert '先问孩子几年级' in context_text
+    assert '要不要报课' in context_text
+    assert '本轮要给报名动作和报名链接卡片' not in context_text
+    assert not any(plan['segment'] == 'course-sales:followup:purchase' for plan in sales_service.plans)
+
+
 @pytest.mark.asyncio
 async def test_course_sales_first_contact_schedules_opening_resource_card_and_sop_text_only():
     sales_service = _CourseOutreachSalesService(user_message_count=1)
