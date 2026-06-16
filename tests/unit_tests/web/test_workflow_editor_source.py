@@ -392,6 +392,10 @@ def test_agent_push_tab_uses_business_friendly_followup_editor():
 
 def test_template_config_editor_supports_human_handoff_configuration():
     template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    handoff_settings = re.search(
+        r'function renderHandoffSettings\(\) \{([\s\S]+?)\n  function renderSpecialCaseSettings',
+        template_source,
+    ).group(1)
     workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
     types_source = Path('web/src/app/home/pipelines/components/workflow-editor/types.ts').read_text(
         encoding='utf-8'
@@ -401,8 +405,9 @@ def test_template_config_editor_supports_human_handoff_configuration():
     assert "label: '转人工'" in template_source
     assert 'human_handoff' in template_source
     assert 'patchHumanHandoff' in template_source
-    assert '触发关键词' in template_source
-    assert '语义意图边界' in template_source
+    assert '触发关键词' not in handoff_settings
+    assert '意图识别场景' in handoff_settings
+    assert '关键词兜底' in handoff_settings
     assert '命中后停止 AI 自动回复' in template_source
     assert '命中后停止主动触达' in template_source
     assert '用户可见安抚话术' in template_source

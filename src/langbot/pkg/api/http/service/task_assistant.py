@@ -1846,6 +1846,39 @@ class TaskAssistantService:
             return COURSE_SAFE_HANDOFF_NOTIFY_MESSAGE
         return message
 
+    def _looks_like_manual_handoff_request(self, normalized: str) -> bool:
+        if not normalized:
+            return False
+        direct_phrases = [
+            '转人工',
+            '转真人',
+            '找人工',
+            '找真人',
+            '找客服',
+            '要人工',
+            '要真人',
+            '人工客服',
+            '真人客服',
+            '联系客服',
+            '客服介入',
+            '人工介入',
+            '人工处理',
+            '人工帮',
+            '班主任联系',
+            '联系班主任',
+            '老师联系',
+            '电话联系',
+            '打电话',
+            '回电话',
+            '给我回电',
+            '联系我',
+        ]
+        if any(phrase in normalized for phrase in direct_phrases):
+            return True
+        request_words = ['找', '转', '要', '需要', '叫', '让', '换', '联系', '电话']
+        target_words = ['人工', '真人', '客服', '班主任']
+        return any(word in normalized for word in request_words) and any(word in normalized for word in target_words)
+
     def _course_sales_handoff_match(self, normalized: str, workflow: dict[str, Any]) -> dict[str, str] | None:
         if not normalized:
             return None
@@ -1853,26 +1886,12 @@ class TaskAssistantService:
         if config.get('enabled') is False:
             return None
 
-        keywords = self._lower_keywords(config.get('keywords'))
-        for keyword in keywords:
-            if keyword and keyword in normalized:
-                if keyword in {'转人工', '人工', '真人', '真人客服', '人工客服', '客服', '班主任', '老师联系', '电话联系'}:
-                    return {'id': 'manual_request', 'label': f'命中转人工关键词：{keyword}'}
-                if keyword in {'退费', '退款', '订单异常', '支付异常', '看不到课', '没收到课'}:
-                    return {'id': 'payment_issue', 'label': f'命中订单异常关键词：{keyword}'}
-                if keyword in {'投诉', '举报', '诈骗', '骗子', '维权'}:
-                    return {'id': 'high_risk_complaint', 'label': f'命中高风险关键词：{keyword}'}
-                return {'id': 'keyword', 'label': f'命中转人工关键词：{keyword}'}
-
         enabled_triggers = {
             str(trigger.get('id') or '')
             for trigger in config.get('semantic_triggers', [])
             if isinstance(trigger, dict) and trigger.get('enabled') is not False
         }
-        if 'manual_request' in enabled_triggers and any(
-            keyword in normalized
-            for keyword in ['转人工', '人工', '真人', '人工客服', '真人客服', '客服', '班主任', '电话联系', '联系我']
-        ):
+        if 'manual_request' in enabled_triggers and self._looks_like_manual_handoff_request(normalized):
             return {'id': 'manual_request', 'label': '客户明确要求人工介入'}
         if 'payment_issue' in enabled_triggers and any(
             keyword in normalized
@@ -1888,6 +1907,19 @@ class TaskAssistantService:
             for keyword in ['投诉', '举报', '诈骗', '骗子', '欺骗', '维权', '12315', '黑猫', '315', '垃圾', 'cnm', '滚']
         ):
             return {'id': 'high_risk_complaint', 'label': '客户表达投诉或高风险负面情绪'}
+
+        keywords = self._lower_keywords(config.get('keywords'))
+        for keyword in keywords:
+            if keyword and keyword in normalized:
+                if keyword in {'转人工', '人工', '真人', '真人客服', '人工客服', '客服', '班主任', '老师联系', '电话联系'}:
+                    if self._looks_like_manual_handoff_request(normalized):
+                        return {'id': 'manual_request', 'label': f'命中转人工兜底词：{keyword}'}
+                    continue
+                if keyword in {'退费', '退款', '订单异常', '支付异常', '看不到课', '没收到课'}:
+                    return {'id': 'payment_issue', 'label': f'命中订单异常兜底词：{keyword}'}
+                if keyword in {'投诉', '举报', '诈骗', '骗子', '维权'}:
+                    return {'id': 'high_risk_complaint', 'label': f'命中高风险兜底词：{keyword}'}
+                return {'id': 'keyword', 'label': f'命中转人工兜底词：{keyword}'}
         return None
 
     def _course_sales_profiles(self, workflow: dict[str, Any]) -> list[dict[str, Any]]:

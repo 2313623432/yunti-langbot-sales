@@ -454,6 +454,7 @@ export default function PipelineTemplateConfigEditor({
   const [uploadingBindingId, setUploadingBindingId] = useState('');
   const [showAdvancedRadar, setShowAdvancedRadar] = useState(false);
   const [showAdvancedStopRules, setShowAdvancedStopRules] = useState(false);
+  const [showAdvancedHandoffKeywords, setShowAdvancedHandoffKeywords] = useState(false);
 
   useEffect(() => {
     httpClient
@@ -2174,7 +2175,7 @@ export default function PipelineTemplateConfigEditor({
         <Section
           icon={UserRoundCheck}
           title="转人工"
-          description="配置客户在什么关键词或语义意图下需要申请人工介入。"
+          description="配置客户在哪些意图场景下需要申请人工介入。"
           right={
             <SummaryPill active={config.human_handoff.enabled}>
               {config.human_handoff.enabled ? '已启用' : '未启用'}
@@ -2187,20 +2188,13 @@ export default function PipelineTemplateConfigEditor({
             checked={config.human_handoff.enabled}
             onCheckedChange={(checked) => patchHumanHandoff({ enabled: checked })}
           />
-          <label className="block">
-            <FieldLabel>触发关键词</FieldLabel>
-            <Textarea
-              value={(config.human_handoff.keywords || []).join('\n')}
-              onChange={(event) => patchHumanHandoff({ keywords: textToList(event.target.value) })}
-              className="min-h-32 resize-none leading-6"
-              placeholder="转人工&#10;人工客服&#10;投诉&#10;退款&#10;看不到课"
-            />
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              每行一个关键词。客户消息包含这些词时，会优先申请人工介入。
-            </p>
-          </label>
           <div className="space-y-3">
-            <FieldLabel>语义意图边界</FieldLabel>
+            <div>
+              <FieldLabel>意图识别场景</FieldLabel>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                数字员工优先按客户表达的诉求判断是否需要人工介入，避免只因为出现“客服”“老师”等词就误触发。
+              </p>
+            </div>
             {(config.human_handoff.semantic_triggers || []).map((trigger, index) => (
               <div key={trigger.id || index} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -2222,6 +2216,28 @@ export default function PipelineTemplateConfigEditor({
               </div>
             ))}
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 px-2 text-sm text-muted-foreground"
+            onClick={() => setShowAdvancedHandoffKeywords((visible) => !visible)}
+          >
+            {showAdvancedHandoffKeywords ? '收起关键词兜底' : '展开关键词兜底'}
+          </Button>
+          {showAdvancedHandoffKeywords && (
+            <label className="block">
+              <FieldLabel>关键词兜底</FieldLabel>
+              <Textarea
+                value={(config.human_handoff.keywords || []).join('\n')}
+                onChange={(event) => patchHumanHandoff({ keywords: textToList(event.target.value) })}
+                className="min-h-32 resize-none leading-6"
+                placeholder="转人工&#10;人工客服&#10;投诉&#10;退款&#10;看不到课"
+              />
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                仅作为意图识别之外的兜底规则。宽泛词仍需表达“找人工、转人工、联系我”等诉求才会触发。
+              </p>
+            </label>
+          )}
         </Section>
 
         <Section icon={ShieldCheck} title="命中后的动作边界">

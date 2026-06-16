@@ -1362,6 +1362,23 @@ async def test_course_sales_handoff_keyword_opens_handoff_and_stops_outreach():
 
 
 @pytest.mark.asyncio
+async def test_course_sales_handoff_does_not_trigger_on_ambiguous_service_word():
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain('客服发的链接在哪里打开'), '客服发的链接在哪里打开', session_id='customer-service-word')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    await service.prepare_query(query)
+
+    assert query.variables['workflow_intent']['intent'] != 'handoff'
+    assert sales_service.handoffs == []
+    assert sales_service.disabled == []
+
+
+@pytest.mark.asyncio
 async def test_course_sales_handoff_semantic_payment_issue_uses_configured_boundary():
     sales_service = _CourseOutreachSalesService(user_message_count=2)
     service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
