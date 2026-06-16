@@ -29,6 +29,12 @@ Respond in the same language as the user's input.
 class LocalAgentRunner(runner.RequestRunner):
     """Local agent request runner"""
 
+    @staticmethod
+    def _resolve_remove_think(pipeline_config: dict) -> bool:
+        """Customer-facing agent replies should never expose model reasoning."""
+        _ = pipeline_config
+        return True
+
     async def _get_model_candidates(
         self,
         query: pipeline_query.Query,
@@ -243,7 +249,7 @@ class LocalAgentRunner(runner.RequestRunner):
         except AttributeError:
             is_stream = False
 
-        remove_think = query.pipeline_config['output'].get('misc', '').get('remove-think')
+        remove_think = self._resolve_remove_think(query.pipeline_config)
 
         # Build ordered candidate list (primary + fallbacks)
         candidates = await self._get_model_candidates(query)

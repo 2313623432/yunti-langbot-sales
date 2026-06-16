@@ -414,6 +414,19 @@ class SendResponseBackStage(stage.PipelineStage):
     def _plain_text_from_chain(self, message_chain: platform_message.MessageChain) -> str:
         return ''.join(component.text for component in message_chain if isinstance(component, platform_message.Plain))
 
+    def _strip_thinking_text(self, text: str) -> str:
+        return re.sub(r'<think>.*?(?:</think>|$)', '', text or '', flags=re.DOTALL).strip()
+
+    def _strip_thinking_from_response(self, query: pipeline_query.Query) -> None:
+        for message_chain in query.resp_message_chain or []:
+            for component in message_chain:
+                if isinstance(component, platform_message.Plain):
+                    component.text = self._strip_thinking_text(component.text)
+        for message in query.resp_messages or []:
+            content = getattr(message, 'content', None)
+            if isinstance(content, str):
+                message.content = self._strip_thinking_text(content)
+
     def _multi_reply_config(self, query: pipeline_query.Query) -> tuple[bool, int]:
         pipeline_config = query.pipeline_config if isinstance(query.pipeline_config, dict) else {}
         output_config = pipeline_config.get('output') if isinstance(pipeline_config.get('output'), dict) else {}
@@ -786,8 +799,10 @@ class SendResponseBackStage(stage.PipelineStage):
         # TODO 命令与流式的兼容性问题
         if await query.adapter.is_stream_output_supported() and has_chunks:
             is_final = [msg.is_final for msg in query.resp_messages][0]
+            self._strip_thinking_from_response(query)
             if is_final:
                 await self._append_response_enrichments(query)
+                self._strip_thinking_from_response(query)
             await query.adapter.reply_message_chunk(
                 message_source=query.message_event,
                 bot_message=query.resp_messages[-1],
@@ -796,7 +811,9 @@ class SendResponseBackStage(stage.PipelineStage):
                 is_final=is_final,
             )
         else:
+            self._strip_thinking_from_response(query)
             await self._append_response_enrichments(query)
+            self._strip_thinking_from_response(query)
             for index, message_chain in enumerate(self._multi_reply_chains(query)):
                 await query.adapter.reply_message(
                     message_source=query.message_event,

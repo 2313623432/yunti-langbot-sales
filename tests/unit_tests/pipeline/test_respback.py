@@ -300,6 +300,52 @@ async def test_respback_keeps_plain_text_as_single_message_when_multi_reply_disa
 
 
 @pytest.mark.asyncio
+async def test_respback_strips_thinking_tags_before_customer_reply():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('打不开')
+    query.pipeline_config = _pipeline_config(multi_reply_enabled=False)
+    query.resp_messages = [
+        provider_message.Message(role='assistant', content='<think>hidden reasoning</think>\n我帮您看看。')
+    ]
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='<think>hidden reasoning</think>\n我帮您看看。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
+    assert str(sent_chain) == '我帮您看看。'
+    assert query.resp_messages[-1].content == '我帮您看看。'
+
+
+@pytest.mark.asyncio
+async def test_respback_strips_unclosed_thinking_tags_from_stream_chunk():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('打不开')
+    query.adapter.is_stream_output_supported = AsyncMock(return_value=True)
+    query.pipeline_config = _pipeline_config(multi_reply_enabled=False)
+    query.resp_messages = [
+        provider_message.MessageChunk(role='assistant', content='收到<think>hidden reasoning', is_final=False)
+    ]
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='收到<think>hidden reasoning')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message_chunk.await_args.kwargs['message']
+    sent_chunk = query.adapter.reply_message_chunk.await_args.kwargs['bot_message']
+    assert str(sent_chain) == '收到'
+    assert sent_chunk.content == '收到'
+
+
+@pytest.mark.asyncio
 async def test_respback_uses_ai_semantic_special_case_without_keyword_match():
     app = FakeApp()
     fake_provider = FakeProvider().returns('{"matched_id":"listen-resource"}')
