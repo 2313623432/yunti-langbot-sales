@@ -211,3 +211,65 @@ async def test_lark_friend_message_uses_sender_display_name_when_contact_lookup_
 
     assert isinstance(converted, platform_events.FriendMessage)
     assert converted.sender.nickname == 'Customer Name'
+
+
+@pytest.mark.asyncio
+async def test_lark_friend_message_uses_contact_display_name_from_dict_response():
+    class FakeUserClient:
+        async def aget(self, request):
+            assert request.user_id == 'ou_customer'
+            return SimpleNamespace(
+                success=lambda: True,
+                data={'user': {'name': '少华', 'nickname': '少华昵称'}},
+            )
+
+    api_client = SimpleNamespace(contact=SimpleNamespace(v3=SimpleNamespace(user=FakeUserClient())))
+    event = SimpleNamespace(
+        event=SimpleNamespace(
+            sender=SimpleNamespace(sender_id=SimpleNamespace(open_id='ou_customer', union_id='on_technical_id_123456')),
+            message=SimpleNamespace(
+                message_id='om_message',
+                message_type='text',
+                content='{"text":"hello"}',
+                create_time='1710000000000',
+                mentions=[],
+                chat_type='p2p',
+                chat_id='oc_chat',
+                parent_id=None,
+                thread_id=None,
+            ),
+        )
+    )
+
+    converted = await LarkEventConverter.target2yiri(event, api_client)
+
+    assert isinstance(converted, platform_events.FriendMessage)
+    assert converted.sender.nickname == '少华'
+
+
+@pytest.mark.asyncio
+async def test_lark_contact_lookup_failure_logs_warning_and_uses_fallback_name():
+    class FakeUserClient:
+        async def aget(self, request):
+            return SimpleNamespace(success=lambda: False, code=99991663, msg='no user authority')
+
+    class FakeLogger:
+        def __init__(self):
+            self.warnings = []
+
+        async def warning(self, text, images=None, message_session_id=None, no_throw=True):
+            self.warnings.append(text)
+
+    api_client = SimpleNamespace(contact=SimpleNamespace(v3=SimpleNamespace(user=FakeUserClient())))
+    logger = FakeLogger()
+
+    display_name = await LarkEventConverter._fetch_user_display_name(
+        api_client,
+        'ou_customer_abcdefghijklmnopqrstuvwxyz',
+        '事件显示名',
+        logger,
+    )
+
+    assert display_name == '事件显示名'
+    assert logger.warnings
+    assert 'no user authority' in logger.warnings[0]
