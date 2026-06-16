@@ -1735,6 +1735,7 @@ async def test_enhanced_runtime_stops_after_second_explicit_rejection():
     assert sales_service.disabled == []
     assert first_query.variables['workflow_intent']['intent'] == 'objection'
     assert first_query.variables['workflow_intent']['explicit_rejection_count'] == 1
+    assert not any(plan['segment'] == 'course-sales:followup:not_buy' for plan in sales_service.plans)
 
     second_query = _query(text_chain('不要再发了'), '不要再发了', session_id='customer-reject')
     second_query.pipeline_config = config

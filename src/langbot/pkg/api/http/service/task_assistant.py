@@ -2600,6 +2600,8 @@ class TaskAssistantService:
         if intent_name in {'purchase', 'radar_clicked', 'no_reply'}:
             return intent_name
         if intent_name == 'objection':
+            if intent.get('explicit_rejection_count'):
+                return ''
             return 'considering' if '考虑' in text else 'not_buy'
         return ''
 
