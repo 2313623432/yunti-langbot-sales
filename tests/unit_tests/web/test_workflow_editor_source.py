@@ -309,6 +309,7 @@ def test_template_config_editor_supports_course_sales_radar_and_link_fields():
     assert 'addLongTermBroadcast' in template_source
     assert '首次开场白' in template_source
     assert 'patch({ opening_message: event.target.value })' in template_source
+    assert '家长，您这边能打开吗？' not in workflow_source.split('const courseOpeningMessage =', 1)[1].split('const defaultHumanHandoff', 1)[0]
     assert 'SOP定时群发' in template_source
     assert '主动跟进话术矩阵' in template_source
     assert '语音回复' in template_source

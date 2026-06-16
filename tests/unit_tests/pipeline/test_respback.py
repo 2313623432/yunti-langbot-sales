@@ -134,7 +134,7 @@ async def test_respback_splits_course_sales_short_natural_sentences_by_default()
 
 
 @pytest.mark.asyncio
-async def test_respback_appends_parent_open_question_for_course_sales_link_reply():
+async def test_respback_sends_parent_open_question_as_separate_course_sales_reply():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
     query = text_query('链接在哪里')
@@ -147,8 +147,14 @@ async def test_respback_appends_parent_open_question_for_course_sales_link_reply
 
     await stage.process(query, 'SendResponseBackStage')
 
-    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
-    assert str(sent_chain) == '图书配套学习资源卡片：https://example.com/resource\n家长，您这边能打开吗？'
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == [
+        '图书配套学习资源卡片：https://example.com/resource',
+        '家长，您这边能打开吗？',
+    ]
 
 
 @pytest.mark.asyncio
@@ -382,8 +388,14 @@ async def test_respback_formats_course_sales_special_case_reply():
 
     await stage.process(query, 'SendResponseBackStage')
 
-    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
-    assert str(sent_chain) == '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片\n家长，您这边能打开吗？'
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == [
+        '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片',
+        '家长，您这边能打开吗？',
+    ]
 
 
 @pytest.mark.asyncio

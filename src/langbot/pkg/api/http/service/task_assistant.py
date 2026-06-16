@@ -183,13 +183,13 @@ COURSE_RESOURCE_CARD_LINK = (
 COURSE_RESOURCE_HISTORY_LINK = 'https://mp.bookln.cn/user/history/moment.htm'
 COURSE_RESOURCE_MINI_PROGRAM = '#小程序://教辅好帮手/la0KWwjPCx8S26C'
 COURSE_RESOURCE_GOODS_GROUP_LINK = 'https://d.codeup.cn/d/UVruQn'
+COURSE_RESOURCE_OPEN_CHECK_MESSAGE = '家长，您这边能打开吗？'
 
 COURSE_OPENING_MESSAGE = (
     '😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n'
     f'也可点击➡️查看扫码记录  {COURSE_RESOURCE_HISTORY_LINK}\n\n'
     f'✅ 搜本页答案，点击👉{COURSE_RESOURCE_MINI_PROGRAM}\n\n'
-    f'✅ 出版社内购好物群：{COURSE_RESOURCE_GOODS_GROUP_LINK}\n\n'
-    '家长，您这边能打开吗？'
+    f'✅ 出版社内购好物群：{COURSE_RESOURCE_GOODS_GROUP_LINK}'
 )
 
 COURSE_SALES_PROFILE = {
@@ -2465,7 +2465,11 @@ class TaskAssistantService:
                             bot_uuid=target['bot_uuid'],
                             target_type=target['target_type'],
                             target_id=target['target_id'],
-                            segments=['course-sales:opening:text', 'course-sales:opening:resource-card'],
+                            segments=[
+                                'course-sales:opening:text',
+                                'course-sales:opening:resource-card',
+                                'course-sales:opening:open-check',
+                            ],
                         )
                         > 0
                     )
@@ -2528,7 +2532,11 @@ class TaskAssistantService:
                         bot_uuid=bot_uuid,
                         target_type=target_type or 'person',
                         target_id=target_id,
-                        segments=['course-sales:opening:text', 'course-sales:opening:resource-card'],
+                        segments=[
+                            'course-sales:opening:text',
+                            'course-sales:opening:resource-card',
+                            'course-sales:opening:open-check',
+                        ],
                     )
                     if existing_opening_count > 0:
                         return {'handled': True, 'scheduled': False, 'reason': 'entered event ignored after existing welcome plan'}
@@ -2693,6 +2701,14 @@ class TaskAssistantService:
             dedupe_parts=['opening', 'resource-card', target.get('session_id', '')],
             scheduled_at=now + datetime.timedelta(seconds=max(0, card_delay_seconds)),
             components=[self._course_link_component(resource_link, target=target, workflow=workflow)],
+        )
+        await self._create_course_sales_outreach_plan(
+            target,
+            name='课程销售首次打开确认',
+            segment='course-sales:opening:open-check',
+            dedupe_parts=['opening', 'open-check', target.get('session_id', '')],
+            scheduled_at=now + datetime.timedelta(seconds=max(0, card_delay_seconds)),
+            components=[{'type': 'plain', 'text': COURSE_RESOURCE_OPEN_CHECK_MESSAGE}],
         )
 
     async def _schedule_course_sales_broadcasts_for_target(self, target: dict[str, str], workflow: dict[str, Any]) -> None:
@@ -2898,7 +2914,7 @@ class TaskAssistantService:
 3. 不用“作为AI/建议您/希望能帮到您/如有其他问题”等机器腔；不要总结、不要讲大道理。
 4. 回复最后不要用句号结尾，也不要用“还有什么问题随时问我”收尾。
 5. 首次自然回复可以带一个轻松表情符号，不要堆表情。
-6. 涉及链接、卡片、资料、页面、扫码记录、小程序时，最后追问“家长，您这边能打开吗？”
+6. 涉及链接、卡片、资料、页面、扫码记录、小程序时，最后用单独短消息追问“家长，您这边能打开吗？”
 7. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
 8. 需要报名时再发链接；不需要时不硬推。
 9. 需要图片时由工作流追加素材，不要口头描述图片内容。

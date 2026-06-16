@@ -1163,6 +1163,7 @@ def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
     assert ('course_product', 'sales_link') in edges
     assert workflow['voice']['enabled'] is True
     assert '您的图书配套学习资源点击' in workflow['opening_message']
+    assert '家长，您这边能打开吗？' not in workflow['opening_message']
     opening_node = next(node for node in workflow['nodes'] if node['id'] == 'opening_message')
     assert opening_node['title'] == '首次开场白与资源卡片'
     assert opening_node['config']['link_id'] == 'phonics_resource_card'
@@ -1373,6 +1374,11 @@ async def test_course_sales_first_contact_schedules_opening_resource_card_and_so
         plan['segment'] == 'course-sales:opening:resource-card'
         and plan['message_components'][0]['type'] == 'link'
         and plan['message_components'][0]['url'] == COURSE_RESOURCE_CARD_LINK
+        for plan in sales_service.plans
+    )
+    assert any(
+        plan['segment'] == 'course-sales:opening:open-check'
+        and plan['message_components'] == [{'type': 'plain', 'text': '家长，您这边能打开吗？'}]
         for plan in sales_service.plans
     )
     broadcast_plans = [plan for plan in sales_service.plans if plan['segment'] == 'course-sales:broadcast']
@@ -2367,7 +2373,7 @@ def test_parse_volcengine_tts_ws_audio_message_returns_audio_and_final_state():
 class _CourseOutreachSalesServiceWithTargetSend(_CourseOutreachSalesService):
     async def run_due_outreach_for_target(self, **kwargs):
         self.target_send = kwargs
-        return 2
+        return 3
 
 
 class _CourseOutreachSalesServiceWithRadarSend(_CourseOutreachSalesService):
@@ -2434,9 +2440,10 @@ async def test_handle_course_sales_contact_added_schedules_opening_and_broadcast
 
     assert result['handled'] is True
     assert result['scheduled'] is True
-    assert result['sent_immediately'] == 2
+    assert result['sent_immediately'] == 3
     assert any(plan['segment'] == 'course-sales:opening:text' for plan in sales_service.plans)
     assert any(plan['segment'] == 'course-sales:opening:resource-card' for plan in sales_service.plans)
+    assert any(plan['segment'] == 'course-sales:opening:open-check' for plan in sales_service.plans)
     assert len([plan for plan in sales_service.plans if plan['segment'] == 'course-sales:broadcast']) == len(
         config['workflow']['long_term_broadcasts']
     )
@@ -2458,11 +2465,16 @@ async def test_handle_course_sales_contact_added_makes_opening_text_and_card_due
     )
 
     after = datetime.datetime.now()
-    opening_plans = [
-        plan for plan in sales_service.plans if plan['segment'] in {'course-sales:opening:text', 'course-sales:opening:resource-card'}
-    ]
-    assert len(opening_plans) == 2
+    opening_segments = {
+        'course-sales:opening:text',
+        'course-sales:opening:resource-card',
+        'course-sales:opening:open-check',
+    }
+    opening_plans = [plan for plan in sales_service.plans if plan['segment'] in opening_segments]
+    assert len(opening_plans) == 3
     assert all(plan['scheduled_at'] <= after for plan in opening_plans)
+    open_check = next(plan for plan in opening_plans if plan['segment'] == 'course-sales:opening:open-check')
+    assert open_check['message_components'] == [{'type': 'plain', 'text': '家长，您这边能打开吗？'}]
 
 
 @pytest.mark.asyncio
@@ -2512,12 +2524,15 @@ async def test_handle_course_sales_contact_added_sends_welcome_only_once_per_tar
         pipeline_config=config,
     )
 
-    assert first['sent_immediately'] == 2
+    assert first['sent_immediately'] == 3
     assert second['sent_immediately'] == 0
-    opening_plans = [
-        plan for plan in sales_service.plans if plan['segment'] in {'course-sales:opening:text', 'course-sales:opening:resource-card'}
-    ]
-    assert len(opening_plans) == 2
+    opening_segments = {
+        'course-sales:opening:text',
+        'course-sales:opening:resource-card',
+        'course-sales:opening:open-check',
+    }
+    opening_plans = [plan for plan in sales_service.plans if plan['segment'] in opening_segments]
+    assert len(opening_plans) == 3
     assert all(plan['last_sent_at'] is not None and plan['enabled'] is False for plan in opening_plans)
 
 

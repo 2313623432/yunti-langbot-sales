@@ -21,6 +21,9 @@ import langbot_plugin.api.entities.builtin.pipeline.query as pipeline_query
 class SendResponseBackStage(stage.PipelineStage):
     """发送响应消息"""
 
+    _EXTRA_REPLY_CHAINS_KEY = '_respback_extra_reply_chains'
+    _COURSE_SALES_LINK_OPEN_QUESTION = '家长，您这边能打开吗？'
+
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
         intent_data = query.variables.get('sales_intent') or query.variables.get('workflow_intent') or {}
         if isinstance(intent_data, dict):
@@ -563,12 +566,26 @@ class SendResponseBackStage(stage.PipelineStage):
 
     def _course_sales_open_question(self, text: str) -> str:
         if self._course_sales_link_question_needed(text):
-            return '家长，您这边能打开吗？'
+            return self._COURSE_SALES_LINK_OPEN_QUESTION
         if self._course_sales_screenshot_question_needed(text):
             return '方便发我一张截图吗？'
         if self._course_sales_grade_question_needed(text):
             return '孩子现在几年级呀？'
         return ''
+
+    def _queue_extra_reply_chain(self, query: pipeline_query.Query, text: str) -> None:
+        chain = platform_message.MessageChain([platform_message.Plain(text=text)])
+        extra_chains = query.variables.get(self._EXTRA_REPLY_CHAINS_KEY)
+        if not isinstance(extra_chains, list):
+            extra_chains = []
+            query.variables[self._EXTRA_REPLY_CHAINS_KEY] = extra_chains
+        extra_chains.append(chain)
+
+    def _pop_extra_reply_chains(self, query: pipeline_query.Query) -> list[platform_message.MessageChain]:
+        extra_chains = query.variables.pop(self._EXTRA_REPLY_CHAINS_KEY, [])
+        if not isinstance(extra_chains, list):
+            return []
+        return [chain for chain in extra_chains if isinstance(chain, platform_message.MessageChain)]
 
     def _append_course_sales_open_question(self, query: pipeline_query.Query) -> None:
         workflow = self._active_workflow(query)
@@ -577,6 +594,9 @@ class SendResponseBackStage(stage.PipelineStage):
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         question = self._course_sales_open_question(current_text)
         if not question:
+            return
+        if question == self._COURSE_SALES_LINK_OPEN_QUESTION:
+            self._queue_extra_reply_chain(query, question)
             return
         last_plain = None
         for component in query.resp_message_chain[-1]:
@@ -810,11 +830,22 @@ class SendResponseBackStage(stage.PipelineStage):
                 quote_origin=quote_origin,
                 is_final=is_final,
             )
+            if is_final:
+                for message_chain in self._pop_extra_reply_chains(query):
+                    await query.adapter.reply_message(
+                        message_source=query.message_event,
+                        message=message_chain,
+                        quote_origin=False,
+                    )
         else:
             self._strip_thinking_from_response(query)
             await self._append_response_enrichments(query)
             self._strip_thinking_from_response(query)
-            for index, message_chain in enumerate(self._multi_reply_chains(query)):
+            reply_chains = [
+                *self._multi_reply_chains(query),
+                *self._pop_extra_reply_chains(query),
+            ]
+            for index, message_chain in enumerate(reply_chains):
                 await query.adapter.reply_message(
                     message_source=query.message_event,
                     message=message_chain,
