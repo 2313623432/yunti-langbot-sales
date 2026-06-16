@@ -39,6 +39,21 @@ def test_openai_catalog_models_include_gpt_4o():
     assert 'gpt-5.4' in model_ids
 
 
+def test_doubao_catalog_excludes_removed_placeholder_models():
+    from langbot.pkg.provider.modelmgr import llm_bootstrap
+
+    spec = builtin_text_providers.get_builtin_text_provider_spec('lnp-doubao')
+    assert spec is not None
+
+    catalog_model_uuids = {model.uuid for model in spec.models}
+    assert catalog_model_uuids.isdisjoint(
+        llm_bootstrap.REMOVED_DOUBAO_TEXT_MODEL_UUIDS
+    )
+    assert builtin_text_providers.BUILTIN_TEXT_MODEL_UUIDS.isdisjoint(
+        llm_bootstrap.REMOVED_DOUBAO_TEXT_MODEL_UUIDS
+    )
+
+
 def test_is_provider_configured_requires_base_url_api_key_and_models():
     provider = {
         'uuid': 'lnp-openai',
