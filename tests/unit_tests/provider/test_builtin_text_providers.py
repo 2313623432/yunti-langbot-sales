@@ -54,6 +54,17 @@ def test_doubao_catalog_excludes_removed_placeholder_models():
     )
 
 
+def test_doubao_catalog_includes_seed_2_models_with_thinking_settings():
+    spec = builtin_text_providers.get_builtin_text_provider_spec('lnp-doubao')
+    assert spec is not None
+
+    models = {model.model_id: model for model in spec.models}
+    assert 'doubao-seed-2-0-mini-260215' in models
+    assert 'doubao-seed-2-0-pro-260215' in models
+    assert models['doubao-seed-2-0-mini-260215'].to_extra_args()['thinking'] == {'type': 'disabled'}
+    assert models['doubao-seed-2-0-pro-260215'].to_extra_args()['reasoning_effort'] == 'low'
+
+
 def test_is_provider_configured_requires_base_url_api_key_and_models():
     provider = {
         'uuid': 'lnp-openai',

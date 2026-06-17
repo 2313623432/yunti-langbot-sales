@@ -399,6 +399,7 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_yuanfudao_enhanced_template_pipeline = AsyncMock()
     service._ensure_course_sales_outreach_for_chatted_users = AsyncMock()
     service._ensure_builtin_pipeline_default_models = AsyncMock()
+    service._ensure_course_sales_doubao_model_defaults = AsyncMock()
 
     await service.ensure_default_resources()
 
@@ -408,6 +409,7 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_template_pipeline.assert_awaited_once()
     service._ensure_course_sales_template_pipeline.assert_awaited_once()
     service._ensure_yuanfudao_enhanced_template_pipeline.assert_awaited_once()
+    service._ensure_course_sales_doubao_model_defaults.assert_awaited_once()
     removed_pipeline_uuids = [call.args[0] for call in ap.pipeline_mgr.remove_pipeline.await_args_list]
     assert removed_pipeline_uuids == [
         TASK_ASSISTANT_PIPELINE_UUID,
@@ -708,6 +710,73 @@ def test_task_assistant_pipeline_uses_frontend_configured_model_only():
     assert voice_node['config']['encoding'] == 'ogg_opus'
 
 
+def test_course_sales_template_defaults_to_doubao_reply_and_intent_models():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    template = config['template_config']
+
+    assert template['model_uuid'] == 'lnp-doubao-doubao-seed-2-0-pro-260215'
+    assert template['intent_model_uuid'] == 'lnp-doubao-doubao-seed-2-0-mini-260215'
+    assert template['model_extra_args']['reasoning_effort'] == 'low'
+    assert template['intent_model_extra_args']['thinking'] == {'type': 'disabled'}
+    assert '不要输出思考过程' in template['role_prompt']
+
+
+@pytest.mark.asyncio
+async def test_course_sales_prepare_query_uses_configured_intent_model(monkeypatch):
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            return_value=(
+                provider_message.Message(
+                    role='assistant',
+                    content='{"intent":"purchase","confidence":0.91,"reason":"模型判断用户要报名","step_ids":[],"include_link":true}',
+                ),
+                {},
+            )
+        )
+    )
+    runtime_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='lnp-doubao-doubao-seed-2-0-mini-260215',
+            name='doubao-seed-2-0-mini-260215',
+            abilities=[],
+            extra_args={'thinking': {'type': 'disabled'}},
+        ),
+        provider=provider,
+    )
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(return_value=runtime_model)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    query = _query(text_chain('我随便问问'), '我随便问问')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        model_uuid='lnp-doubao-doubao-seed-2-0-pro-260215',
+        template_slug='yuanfudao-enhanced',
+        existing_config={
+            'template_config': {
+                'intent_model_uuid': 'lnp-doubao-doubao-seed-2-0-mini-260215',
+                'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+            }
+        },
+    )
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert query.variables['workflow_intent']['intent'] == 'purchase'
+    assert query.variables['workflow_intent']['source'] == 'model'
+    service.ap.model_mgr.get_model_by_uuid.assert_awaited_once_with('lnp-doubao-doubao-seed-2-0-mini-260215')
+    provider.invoke_llm.assert_awaited_once()
+    invoke_kwargs = provider.invoke_llm.await_args.kwargs
+    assert invoke_kwargs['extra_args'] == {'thinking': {'type': 'disabled'}}
+    assert invoke_kwargs['remove_think'] is True
+
+
 @pytest.mark.asyncio
 async def test_builtin_pipeline_default_model_replaces_unconfigured_saved_model():
     saved_config = TaskAssistantService(SimpleNamespace()).build_course_sales_template_pipeline_config(
@@ -758,6 +827,37 @@ async def test_builtin_pipeline_default_model_replaces_unconfigured_saved_model(
     )
 
 
+@pytest.mark.asyncio
+async def test_course_sales_doubao_defaults_rebind_saved_course_pipeline_models():
+    saved_config = TaskAssistantService(SimpleNamespace()).build_course_sales_template_pipeline_config(
+        model_uuid='old-gemini-model',
+        template_slug='yuanfudao-enhanced',
+    )
+    pipeline = SimpleNamespace(config=saved_config)
+    ap = SimpleNamespace(
+        logger=SimpleNamespace(info=Mock(), warning=Mock(), debug=Mock()),
+        persistence_mgr=SimpleNamespace(
+            execute_async=AsyncMock(
+                side_effect=[
+                    _FirstResult(pipeline),
+                    None,
+                    _FirstResult(None),
+                ]
+            )
+        ),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_doubao_model_defaults()
+
+    update_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
+    params = update_statement.compile().params
+    updated_config = params['config']
+    assert updated_config['template_config']['model_uuid'] == 'lnp-doubao-doubao-seed-2-0-pro-260215'
+    assert updated_config['template_config']['intent_model_uuid'] == 'lnp-doubao-doubao-seed-2-0-mini-260215'
+    assert updated_config['ai']['local-agent']['model']['primary'] == 'lnp-doubao-doubao-seed-2-0-pro-260215'
+
+
 def test_task_assistant_template_pipeline_config_matches_workflow_capabilities():
     service = TaskAssistantService(SimpleNamespace())
 
@@ -793,8 +893,9 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert config['config_mode'] == 'template'
     assert config['workflow']['metadata']['scenario'] == COURSE_SALES_SCENARIO
     assert config['ai']['runner']['runner'] == 'local-agent'
-    assert config['ai']['local-agent']['model']['primary'] == ''
+    assert config['ai']['local-agent']['model']['primary'] == 'lnp-doubao-doubao-seed-2-0-pro-260215'
     template = config['template_config']
+    assert template['intent_model_uuid'] == 'lnp-doubao-doubao-seed-2-0-mini-260215'
     assert template['name'] == '课程销售模板'
     assert template['course_profile']['course_name'] == '猿辅导英语自然拼读体验课/自然拼读集训营'
     assert template['course_profile']['price'] == '9元体验'

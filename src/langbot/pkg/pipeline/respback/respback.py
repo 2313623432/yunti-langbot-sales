@@ -469,9 +469,37 @@ class SendResponseBackStage(stage.PipelineStage):
             line = raw_line.strip()
             if not line:
                 continue
-            parts = re.findall(r'.+?(?:[。！？!?]+|$)', line)
+            parts = re.findall(r'.+?(?:[。！？!?；;]+|$)', line)
             chunks.extend(part.strip() for part in parts if part.strip())
         return chunks
+
+    def _split_course_sales_reply_text(self, text: str) -> list[str]:
+        chunks: list[str] = []
+        url_pattern = re.compile(r'https?://[^\s<>"\]\)】》>，。！？、；：]*')
+        for raw_line in text.strip().replace('\r\n', '\n').split('\n'):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            cursor = 0
+            for match in url_pattern.finditer(line):
+                before = line[cursor:match.start()].strip().rstrip('：:，,、；; ')
+                chunks.extend(self._split_natural_sentences(before))
+                chunks.append(match.group(0).strip())
+                cursor = match.end()
+
+            after = re.sub(r'^[，,、；;：:\s]+', '', line[cursor:].strip())
+            chunks.extend(self._split_natural_sentences(after))
+
+        normalized: list[str] = []
+        for chunk in chunks:
+            if chunk.startswith(('http://', 'https://')):
+                normalized.append(chunk)
+            else:
+                stripped = self._strip_course_sales_final_periods(chunk)
+                if stripped:
+                    normalized.append(stripped)
+        return normalized
 
     def _split_plain_text(self, text: str, threshold: int, *, natural_sentences: bool = False) -> list[str]:
         stripped = text.strip()
@@ -510,23 +538,25 @@ class SendResponseBackStage(stage.PipelineStage):
         workflow = self._active_workflow(query)
         is_course_sales = self._is_course_sales_workflow(workflow)
         message_chain = query.resp_message_chain[-1]
-        if not enabled:
-            return [message_chain]
 
         components = list(message_chain)
         if not components or any(not isinstance(component, platform_message.Plain) for component in components):
             return [message_chain]
 
         text = self._plain_text_from_chain(message_chain)
-        if 'http://' in text or 'https://' in text or len(text.strip()) <= threshold:
-            if not is_course_sales or 'http://' in text or 'https://' in text:
-                return [message_chain]
-            chunks = self._split_plain_text(text, threshold, natural_sentences=True)
+        if is_course_sales:
+            chunks = self._split_course_sales_reply_text(text)
             if len(chunks) <= 1:
                 return [platform_message.MessageChain([platform_message.Plain(text=self._strip_course_sales_final_periods(text))])]
             return [platform_message.MessageChain([platform_message.Plain(text=chunk)]) for chunk in chunks]
 
-        chunks = self._split_plain_text(text, threshold, natural_sentences=is_course_sales)
+        if not enabled:
+            return [message_chain]
+
+        if 'http://' in text or 'https://' in text or len(text.strip()) <= threshold:
+            return [message_chain]
+
+        chunks = self._split_plain_text(text, threshold)
         if len(chunks) <= 1:
             return [message_chain]
         return [platform_message.MessageChain([platform_message.Plain(text=chunk)]) for chunk in chunks]
@@ -660,17 +690,7 @@ class SendResponseBackStage(stage.PipelineStage):
         question = self._course_sales_open_question(current_text)
         if not question:
             return
-        if question == self._COURSE_SALES_LINK_OPEN_QUESTION:
-            self._queue_extra_reply_chain(query, question)
-            return
-        last_plain = None
-        for component in query.resp_message_chain[-1]:
-            if isinstance(component, platform_message.Plain):
-                last_plain = component
-        if last_plain is not None:
-            last_plain.text = f'{self._strip_course_sales_final_periods(last_plain.text)}\n{question}'
-            return
-        query.resp_message_chain[-1].append(platform_message.Plain(text=question))
+        self._queue_extra_reply_chain(query, question)
 
     def _remove_course_sales_open_question_after_resource_failure(self, query: pipeline_query.Query) -> None:
         intent_data = self._current_intent_data(query)
@@ -728,7 +748,7 @@ class SendResponseBackStage(stage.PipelineStage):
         title, url = self._course_sales_resource_link(query)
         if not url or url in current_text:
             return
-        self._queue_extra_reply_chain(query, f'{title}\n{url}')
+        self._queue_extra_reply_chain(query, f'{title}：{url}')
         query.variables[self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY] = True
 
     def _prepend_course_sales_first_reply_emoji(self, query: pipeline_query.Query) -> None:

@@ -6,6 +6,17 @@ import {
   WorkflowNodeType,
 } from './types';
 
+const COURSE_SALES_REPLY_MODEL_UUID = 'lnp-doubao-doubao-seed-2-0-pro-260215';
+const COURSE_SALES_INTENT_MODEL_UUID = 'lnp-doubao-doubao-seed-2-0-mini-260215';
+const COURSE_SALES_REPLY_MODEL_EXTRA_ARGS = {
+  thinking: { type: 'enabled' },
+  reasoning_effort: 'low',
+};
+const COURSE_SALES_INTENT_MODEL_EXTRA_ARGS = {
+  thinking: { type: 'disabled' },
+  reasoning_effort: 'minimal',
+};
+
 const nodeDefaults: Record<
   WorkflowNodeType,
   Pick<PipelineWorkflowNode, 'title' | 'description' | 'config'>
@@ -789,7 +800,8 @@ const courseLongTermBroadcasts = [
 ];
 
 export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
-  const modelUuid = '';
+  const modelUuid = COURSE_SALES_REPLY_MODEL_UUID;
+  const intentModelUuid = COURSE_SALES_INTENT_MODEL_UUID;
   const nodes: PipelineWorkflowNode[] = [
     workflowNode('start', 'start', '用户进线', '用户扫码、添加微信/企微或在网页咨询课程与图书资源', { x: 80, y: 320 }, { trigger: 'message' }),
     workflowNode('opening_message', 'custom', '首次开场白与资源卡片', '用户加好友/首次进线时先发开场白，再单独发送图书配套学习资源卡片', { x: 340, y: 320 }, {
@@ -812,6 +824,8 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
     workflowNode('voice_asr', 'asr', '语音输入处理', '用户发语音时先理解课程咨询内容，语音回复开关开启时可用语音回复', { x: 1160, y: 320 }, { provider: 'volcengine', model_uuid: 'lna-doubao-bigasr-flash', fallback_text: '用户发来课程咨询语音，请用文字短句回复。' }),
     workflowNode('screenshot_input', 'vision', '截图识别', '识别支付成功页、报名页、白屏、资源页或二维码页', { x: 1160, y: 520 }, { model_uuid: modelUuid, target_steps: ['gift_poster', 'gift_qr', 'link_error'] }),
     workflowNode('intent', 'intent', '意图识别', '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态', { x: 1460, y: 320 }, {
+      model_uuid: intentModelUuid,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
       intents: ['resource_help', 'resource_confirmed', 'course_intro', 'course_schedule', 'course_replay', 'course_content', 'purchase', 'purchased', 'objection', 'gift', 'radar_clicked', 'handoff', 'stop', 'screenshot_help'],
       confidence_threshold: 0.55,
       image_intents: ['screenshot_help', 'purchased', 'link_error'],
@@ -827,6 +841,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
     workflowNode('handoff', 'handoff', '转人工', '投诉、高风险、订单纠纷或人工主动介入后停止AI和群发', { x: 2040, y: 700 }, defaultHumanHandoff),
     workflowNode('reply', 'llm', '真人客服回复', '按SOP生成短句、明确、有下一步的课程客服/销售回复', { x: 3240, y: 320 }, {
       model_uuid: modelUuid,
+      model_extra_args: COURSE_SALES_REPLY_MODEL_EXTRA_ARGS,
       tone: '真人客服、短句、先服务后转化',
       prompt: '你是真人课程客服，先处理图书资源问题。用户确认资源能打开后，先问孩子几年级，不要直接安排课程或发链接；用户明确要报名时，先给完课好礼，再单独发报名链接。',
     }),
@@ -962,6 +977,9 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
     opening_message: '',
     recommended_questions: [],
     model_uuid: '',
+    model_extra_args: {},
+    intent_model_uuid: '',
+    intent_model_extra_args: {},
     max_reasoning_steps: 0,
     reference_rounds: 0,
     response_diversity: 0.3,
@@ -1064,6 +1082,9 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
     opening_message: '我带你一步步完成实名认证。先用支付宝扫码下载蚂蚁阿福 App，完成后跟我说“下一步”。',
     recommended_questions: ['我应该怎么完成这个任务？', '我卡在这一步了怎么办？', '下一步怎么做？'],
     model_uuid: '',
+    model_extra_args: {},
+    intent_model_uuid: '',
+    intent_model_extra_args: {},
     max_reasoning_steps: 2,
     reference_rounds: 2,
     response_diversity: 0.3,
@@ -1182,6 +1203,13 @@ export function applyTemplateConfigToWorkflow(
       };
       if (node.type === 'llm' || node.type === 'vision') {
         nextNode.config.model_uuid = templateConfig.model_uuid;
+      }
+      if (node.type === 'llm') {
+        nextNode.config.model_extra_args = templateConfig.model_extra_args || {};
+      }
+      if (node.type === 'intent') {
+        nextNode.config.model_uuid = templateConfig.intent_model_uuid || '';
+        nextNode.config.model_extra_args = templateConfig.intent_model_extra_args || {};
       }
       if (node.type === 'voice') {
         nextNode.config = { ...nextNode.config, ...templateConfig.voice };

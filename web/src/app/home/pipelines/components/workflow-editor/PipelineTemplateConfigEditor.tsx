@@ -966,6 +966,9 @@ export default function PipelineTemplateConfigEditor({
     const selectedModel = chatLlmModels.find(
       (model) => model.uuid === config.model_uuid,
     );
+    const selectedIntentModel = chatLlmModels.find(
+      (model) => model.uuid === config.intent_model_uuid,
+    );
     const selectedVoiceModel = visibleVoiceModels.find(
       (model) => model.uuid === config.voice.model_uuid,
     );
@@ -1028,16 +1031,55 @@ export default function PipelineTemplateConfigEditor({
           description="控制模型、上下文语义识别和回复表达变化。"
         >
           <label className="block">
-            <FieldLabel required>选择模型</FieldLabel>
+            <FieldLabel required>回复模型</FieldLabel>
             <Select
               value={selectedModel?.uuid}
-              onValueChange={(modelUuid) => patch({ model_uuid: modelUuid })}
+              onValueChange={(modelUuid) => {
+                const nextModel = chatLlmModels.find((model) => model.uuid === modelUuid);
+                patch({
+                  model_uuid: modelUuid,
+                  model_extra_args: modelExtraArgs(nextModel),
+                });
+              }}
               disabled={!chatLlmModels.length}
             >
               <SelectTrigger className="h-11 w-full bg-white">
                 <SelectValue
                   placeholder={
                     chatLlmModels.length ? '请选择模型' : '请先在模型配置中添加模型'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {chatLlmModels.map((model) => (
+                  <SelectItem
+                    key={model.uuid}
+                    value={model.uuid}
+                    description={model.provider?.name}
+                  >
+                    {model.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <label className="block">
+            <FieldLabel>意图识别模型</FieldLabel>
+            <Select
+              value={selectedIntentModel?.uuid}
+              onValueChange={(modelUuid) => {
+                const nextModel = chatLlmModels.find((model) => model.uuid === modelUuid);
+                patch({
+                  intent_model_uuid: modelUuid,
+                  intent_model_extra_args: modelExtraArgs(nextModel),
+                });
+              }}
+              disabled={!chatLlmModels.length}
+            >
+              <SelectTrigger className="h-11 w-full bg-white">
+                <SelectValue
+                  placeholder={
+                    chatLlmModels.length ? '请选择意图识别模型' : '请先在模型配置中添加模型'
                   }
                 />
               </SelectTrigger>

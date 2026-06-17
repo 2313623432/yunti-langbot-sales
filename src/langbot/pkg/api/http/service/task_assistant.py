@@ -36,6 +36,16 @@ TASK_ASSISTANT_SCENARIO = 'task_assistant_ant_af'
 TASK_ASSISTANT_PIPELINE_UUID = 'task-assistant-ant-af-pipeline'
 TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID = 'task-assistant-ant-af-template-pipeline'
 DEFAULT_ASSISTANT_MODEL_UUID = ''
+COURSE_SALES_REPLY_MODEL_UUID = 'lnp-doubao-doubao-seed-2-0-pro-260215'
+COURSE_SALES_INTENT_MODEL_UUID = 'lnp-doubao-doubao-seed-2-0-mini-260215'
+COURSE_SALES_REPLY_MODEL_EXTRA_ARGS = {
+    'thinking': {'type': 'enabled'},
+    'reasoning_effort': 'low',
+}
+COURSE_SALES_INTENT_MODEL_EXTRA_ARGS = {
+    'thinking': {'type': 'disabled'},
+    'reasoning_effort': 'minimal',
+}
 TASK_ASSISTANT_TTS_VOICE_TYPE = 'zh_female_yuanqinvyou_moon_bigtts'
 COURSE_SALES_SCENARIO = 'course_sales_yuanfudao_phonics'
 COURSE_SALES_WORKFLOW_PIPELINE_UUID = 'course-sales-workflow-pipeline'
@@ -1564,7 +1574,9 @@ class TaskAssistantService:
                 query.variables['user_message_text'] = asr_text
                 text = asr_text
 
-        intent = self.classify_course_sales_intent(text, query.message_chain, workflow)
+        intent = await self._classify_course_sales_intent(text, query.message_chain, workflow, query)
+        if intent is None:
+            intent = self.classify_course_sales_intent(text, query.message_chain, workflow)
         intent = await self._apply_course_sales_rejection_policy(intent, text, workflow, session_key, query)
         await self._record_course_resource_issue_for_query(query, intent, text)
         query.variables['course_sales_radar_link'] = intent.get('link_url') or COURSE_SALES_RADAR_LINK
@@ -1575,6 +1587,229 @@ class TaskAssistantService:
         self._append_course_sales_control_context(query, intent)
 
         return {'handled': True, 'intent': intent}
+
+    async def _classify_course_sales_intent(
+        self,
+        text: str,
+        message_chain: platform_message.MessageChain | list[platform_message.MessageComponent],
+        workflow: dict[str, Any],
+        query: pipeline_query.Query,
+    ) -> dict[str, Any] | None:
+        model_uuid = self._resolve_course_sales_intent_model_uuid(query, workflow)
+        if not model_uuid:
+            return None
+
+        model_mgr = getattr(self.ap, 'model_mgr', None)
+        if model_mgr is None or not hasattr(model_mgr, 'get_model_by_uuid'):
+            return None
+
+        try:
+            runtime_model = await model_mgr.get_model_by_uuid(model_uuid)
+        except Exception as exc:
+            self._warn_course_intent_model_failure('resolve', exc)
+            return None
+        if runtime_model is None:
+            return None
+
+        messages = [
+            provider_message.Message(role='system', content=self._course_sales_intent_prompt(workflow)),
+            provider_message.Message(role='user', content=self._course_sales_intent_user_text(text, message_chain)),
+        ]
+        extra_args = self._resolve_course_sales_intent_model_extra_args(query, runtime_model)
+        try:
+            response, _usage = await runtime_model.provider.invoke_llm(
+                query=query,
+                model=runtime_model,
+                messages=messages,
+                funcs=[],
+                extra_args=extra_args,
+                remove_think=True,
+            )
+        except Exception as exc:
+            self._warn_course_intent_model_failure('invoke', exc)
+            return None
+
+        parsed = self._parse_course_sales_model_intent(self._message_text(response), workflow, text)
+        if parsed is None:
+            return None
+        parsed['source'] = 'model'
+        parsed['model_uuid'] = model_uuid
+        return parsed
+
+    def _resolve_course_sales_intent_model_uuid(
+        self,
+        query: pipeline_query.Query,
+        workflow: dict[str, Any] | None = None,
+    ) -> str:
+        pipeline_config = getattr(query, 'pipeline_config', None)
+        if isinstance(pipeline_config, dict):
+            template_config = pipeline_config.get('template_config')
+            if isinstance(template_config, dict):
+                model_uuid = str(template_config.get('intent_model_uuid') or '').strip()
+                if model_uuid:
+                    return model_uuid
+
+        workflow = workflow if isinstance(workflow, dict) else {}
+        for node in workflow.get('nodes', []):
+            if not isinstance(node, dict) or node.get('type') != 'intent':
+                continue
+            config = node.get('config') if isinstance(node.get('config'), dict) else {}
+            model_uuid = str(config.get('model_uuid') or '').strip()
+            if model_uuid:
+                return model_uuid
+        return ''
+
+    def _resolve_course_sales_intent_model_extra_args(self, query: pipeline_query.Query, runtime_model: Any) -> dict[str, Any]:
+        extra_args = copy.deepcopy(getattr(getattr(runtime_model, 'model_entity', None), 'extra_args', {}) or {})
+        pipeline_config = getattr(query, 'pipeline_config', None)
+        if isinstance(pipeline_config, dict):
+            template_config = pipeline_config.get('template_config')
+            if isinstance(template_config, dict) and isinstance(template_config.get('intent_model_extra_args'), dict):
+                extra_args.update(copy.deepcopy(template_config['intent_model_extra_args']))
+        return extra_args
+
+    def _course_sales_intent_prompt(self, workflow: dict[str, Any]) -> str:
+        course_faqs = workflow.get('course_faqs') if isinstance(workflow.get('course_faqs'), list) else COURSE_FAQS
+        faq_intents = [str(faq.get('intent')) for faq in course_faqs if isinstance(faq, dict) and faq.get('intent')]
+        allowed_intents = [
+            'resource_help',
+            'resource_confirmed',
+            'course_intro',
+            'course_schedule',
+            'course_replay',
+            'course_content',
+            'reading_thinking_intro',
+            'purchase',
+            'purchased',
+            'objection',
+            'explicit_rejection',
+            'gift',
+            'grade',
+            'link_error',
+            'radar_clicked',
+            'handoff',
+            'stop',
+            'screenshot_help',
+            'no_reply',
+            'smalltalk',
+            'clarification',
+            *faq_intents,
+        ]
+        unique_intents = []
+        for intent in allowed_intents:
+            if intent and intent not in unique_intents:
+                unique_intents.append(intent)
+        return (
+            '你是课程销售客服的意图识别器，只做分类，不回复用户。\n'
+            '不要输出思考过程，不要输出解释段落，只输出一个 JSON 对象。\n'
+            f'可选 intent：{", ".join(unique_intents)}。\n'
+            'JSON 字段：intent, confidence, reason, step_ids, include_link。\n'
+            'confidence 为 0 到 1；step_ids 只能用 gift_poster 或 gift_qr，没有则空数组；'
+            '用户明确报名/要链接时 include_link 为 true。'
+        )
+
+    def _course_sales_intent_user_text(
+        self,
+        text: str,
+        message_chain: platform_message.MessageChain | list[platform_message.MessageComponent],
+    ) -> str:
+        media_hints = []
+        if self._has_image(message_chain):
+            media_hints.append('用户本轮包含图片/截图')
+        if self._has_voice(message_chain):
+            media_hints.append('用户本轮包含语音')
+        media_text = f"\n媒体：{'，'.join(media_hints)}" if media_hints else ''
+        return f'用户消息：{text or ""}{media_text}'
+
+    def _parse_course_sales_model_intent(
+        self,
+        raw_text: str,
+        workflow: dict[str, Any],
+        user_text: str,
+    ) -> dict[str, Any] | None:
+        payload = self._extract_json_object(raw_text)
+        if not isinstance(payload, dict):
+            return None
+
+        intent_name = str(payload.get('intent') or '').strip()
+        allowed_intents = {
+            'resource_help',
+            'resource_confirmed',
+            'course_intro',
+            'course_schedule',
+            'course_replay',
+            'course_content',
+            'reading_thinking_intro',
+            'purchase',
+            'purchased',
+            'objection',
+            'explicit_rejection',
+            'gift',
+            'grade',
+            'link_error',
+            'radar_clicked',
+            'handoff',
+            'stop',
+            'screenshot_help',
+            'no_reply',
+            'smalltalk',
+            'clarification',
+        }
+        if intent_name not in allowed_intents:
+            return None
+
+        try:
+            confidence = float(payload.get('confidence', 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(confidence, 1.0))
+        if confidence < 0.55:
+            return None
+
+        normalized = (user_text or '').strip().lower()
+        selected_profile = self._select_course_sales_profile(workflow, normalized)
+        step_ids = payload.get('step_ids') if isinstance(payload.get('step_ids'), list) else []
+        step_ids = [str(step_id) for step_id in step_ids if str(step_id) in {'gift_poster', 'gift_qr'}]
+        if not step_ids:
+            step_id = self._course_step_for_intent(intent_name)
+            step_ids = [step_id] if step_id else []
+        include_link = payload.get('include_link') is True or intent_name in {'purchase', 'radar_clicked'}
+        intent = self._course_intent(
+            intent_name,
+            confidence,
+            str(payload.get('reason') or '模型识别课程销售意图'),
+            step_ids=step_ids,
+            include_link=include_link,
+            selected_profile=selected_profile,
+        )
+        for key in ('resource_issue_type', 'handoff_reason'):
+            if payload.get(key):
+                intent[key] = str(payload[key])
+        if intent_name == 'handoff':
+            intent['handoff_config'] = self._course_handoff_config(workflow)
+        return intent
+
+    def _extract_json_object(self, raw_text: str) -> dict[str, Any] | None:
+        text = (raw_text or '').strip()
+        if not text:
+            return None
+        if text.startswith('```'):
+            text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE)
+            text = re.sub(r'\s*```$', '', text)
+        start = text.find('{')
+        end = text.rfind('}')
+        if start == -1 or end == -1 or end < start:
+            return None
+        try:
+            payload = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _warn_course_intent_model_failure(self, stage: str, exc: Exception) -> None:
+        logger = getattr(self.ap, 'logger', None)
+        if logger is not None and hasattr(logger, 'warning'):
+            logger.warning('Course sales intent model %s failed: %s', stage, exc)
 
     async def _reset_sales_context_if_requested(
         self,
@@ -3006,6 +3241,7 @@ class TaskAssistantService:
 - 停发关键词（命中即停止打扰）：{stop_keywords}
 
 回复原则：
+0. 不要输出思考过程、推理过程、草稿、分析步骤或 <think> 标签；只输出给家长看的最终回复。
 1. 只答用户当前问题，不要整段塞话术或主动背书未问到的内容。
 2. 最多 2 条短消息，必要时 3 条；每条 15-35 字左右，避免一大段。
 3. 不用“作为AI/建议您/希望能帮到您/如有其他问题”等机器腔；不要总结、不要讲大道理。
@@ -3111,6 +3347,7 @@ class TaskAssistantService:
         await self._ensure_course_sales_template_pipeline()
         await self._ensure_yuanfudao_enhanced_template_pipeline()
         await self._ensure_builtin_pipeline_default_models()
+        await self._ensure_course_sales_doubao_model_defaults()
         await self._ensure_course_sales_product()
         await self._ensure_course_sales_outreach_for_chatted_users()
 
@@ -3211,6 +3448,68 @@ class TaskAssistantService:
                 .where(persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid)
                 .values(config=config)
             )
+
+    async def _ensure_course_sales_doubao_model_defaults(self) -> None:
+        for pipeline_uuid in [
+            COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+            YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
+        ]:
+            result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                    persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
+                )
+            )
+            pipeline = result.first()
+            if pipeline is None:
+                logger = getattr(self.ap, 'logger', None)
+                if logger is not None:
+                    logger.debug('[CourseSalesModelDefaults] Pipeline %s not found, skipping', pipeline_uuid)
+                continue
+            config = copy.deepcopy(pipeline.config) if isinstance(pipeline.config, dict) else {}
+            if not self._apply_course_sales_doubao_model_defaults(config):
+                continue
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+                .where(persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid)
+                .values(config=config)
+            )
+
+    def _apply_course_sales_doubao_model_defaults(self, config: dict[str, Any]) -> bool:
+        before = copy.deepcopy(config)
+        template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
+        template_config['model_uuid'] = COURSE_SALES_REPLY_MODEL_UUID
+        template_config['model_extra_args'] = copy.deepcopy(COURSE_SALES_REPLY_MODEL_EXTRA_ARGS)
+        template_config['intent_model_uuid'] = COURSE_SALES_INTENT_MODEL_UUID
+        template_config['intent_model_extra_args'] = copy.deepcopy(COURSE_SALES_INTENT_MODEL_EXTRA_ARGS)
+        template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
+        config['template_config'] = template_config
+
+        ai_config = config.get('ai') if isinstance(config.get('ai'), dict) else {}
+        local_agent = ai_config.get('local-agent') if isinstance(ai_config.get('local-agent'), dict) else {}
+        local_agent['model'] = {'primary': COURSE_SALES_REPLY_MODEL_UUID, 'fallbacks': []}
+        local_agent['prompt'] = [{'role': 'system', 'content': template_config['role_prompt']}]
+        ai_config['local-agent'] = local_agent
+        config['ai'] = ai_config
+
+        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
+        for node in workflow.get('nodes', []):
+            if not isinstance(node, dict):
+                continue
+            node_config = node.get('config') if isinstance(node.get('config'), dict) else {}
+            node_type = node.get('type')
+            if node_type == 'intent':
+                node_config['model_uuid'] = COURSE_SALES_INTENT_MODEL_UUID
+                node_config['model_extra_args'] = copy.deepcopy(COURSE_SALES_INTENT_MODEL_EXTRA_ARGS)
+            elif node_type in {'llm', 'vision'}:
+                node_config['model_uuid'] = COURSE_SALES_REPLY_MODEL_UUID
+                if node_type == 'llm':
+                    node_config['model_extra_args'] = copy.deepcopy(COURSE_SALES_REPLY_MODEL_EXTRA_ARGS)
+                    node_config['prompt'] = template_config['role_prompt']
+            node['config'] = node_config
+        if workflow:
+            config['workflow'] = workflow
+
+        return config != before
 
     async def _remove_seeded_workflow_mode_pipelines(self) -> None:
         pipeline_uuids = [
@@ -3739,6 +4038,8 @@ class TaskAssistantService:
     def _merge_course_template_data(self, base: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
         merged = copy.deepcopy(base)
         for key, value in loaded.items():
+            if key in {'model_uuid', 'intent_model_uuid'} and not str(value or '').strip():
+                continue
             if key == 'voice' and isinstance(value, dict):
                 current = merged.get('voice') if isinstance(merged.get('voice'), dict) else {}
                 merged['voice'] = {**current, **copy.deepcopy(value)}
@@ -4456,7 +4757,10 @@ class TaskAssistantService:
                 '我想报名，怎么操作？',
                 '我点了链接但卡住了怎么办？',
             ],
-            'model_uuid': DEFAULT_ASSISTANT_MODEL_UUID,
+            'model_uuid': COURSE_SALES_REPLY_MODEL_UUID,
+            'model_extra_args': copy.deepcopy(COURSE_SALES_REPLY_MODEL_EXTRA_ARGS),
+            'intent_model_uuid': COURSE_SALES_INTENT_MODEL_UUID,
+            'intent_model_extra_args': copy.deepcopy(COURSE_SALES_INTENT_MODEL_EXTRA_ARGS),
             'max_reasoning_steps': 3,
             'reference_rounds': 4,
             'knowledge_base_uuids': [],
@@ -4725,6 +5029,7 @@ class TaskAssistantService:
                     message['image_key'] = self._normalize_course_media_key(message.get('image_key'))
         opening_message = str(template_config.get('opening_message') or COURSE_OPENING_MESSAGE)
         model_uuid = str(template_config.get('model_uuid') or model_uuid)
+        intent_model_uuid = str(template_config.get('intent_model_uuid') or COURSE_SALES_INTENT_MODEL_UUID)
         asr_config = template_config.get('asr') if isinstance(template_config.get('asr'), dict) else {}
         screenshot_config = (
             template_config.get('screenshot_input') if isinstance(template_config.get('screenshot_input'), dict) else {}
@@ -4848,6 +5153,12 @@ class TaskAssistantService:
                 'description': '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态',
                 'position': {'x': 1460, 'y': 320},
                 'config': {
+                    'model_uuid': intent_model_uuid,
+                    'model_extra_args': copy.deepcopy(
+                        template_config.get('intent_model_extra_args')
+                        if isinstance(template_config.get('intent_model_extra_args'), dict)
+                        else COURSE_SALES_INTENT_MODEL_EXTRA_ARGS
+                    ),
                     'intents': [
                         'resource_help',
                         'resource_confirmed',
@@ -4962,6 +5273,11 @@ class TaskAssistantService:
                 'position': {'x': 3240, 'y': 320},
                 'config': {
                     'model_uuid': model_uuid,
+                    'model_extra_args': copy.deepcopy(
+                        template_config.get('model_extra_args')
+                        if isinstance(template_config.get('model_extra_args'), dict)
+                        else COURSE_SALES_REPLY_MODEL_EXTRA_ARGS
+                    ),
                     'tone': '真人客服、短句、先服务后转化',
                     'prompt': self.compose_course_sales_prompt(
                         {
@@ -5554,6 +5870,8 @@ class TaskAssistantService:
     ) -> dict[str, Any]:
         model_uuid = self._resolve_primary_model_uuid(query, workflow)
         if not model_uuid:
+            return {}
+        if not hasattr(self.ap, 'persistence_mgr'):
             return {}
 
         model_result = await self.ap.persistence_mgr.execute_async(

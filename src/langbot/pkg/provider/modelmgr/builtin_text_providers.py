@@ -14,14 +14,18 @@ class BuiltinTextModelSpec:
     context_window: int
     max_output_tokens: int
     streaming: bool = True
+    extra_args: dict | None = None
 
     def to_extra_args(self) -> dict:
-        return {
+        args = {
             'display_name': self.display_name,
             'context_window': self.context_window,
             'max_output_tokens': self.max_output_tokens,
             'streaming': self.streaming,
         }
+        if self.extra_args:
+            args.update(self.extra_args)
+        return args
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,7 @@ def _model(
     context_window: int = 128_000,
     max_output_tokens: int = 16_384,
     streaming: bool = True,
+    extra_args: dict | None = None,
 ) -> BuiltinTextModelSpec:
     return BuiltinTextModelSpec(
         uuid=f'lnp-{provider_slug}-{model_slug}',
@@ -55,6 +60,7 @@ def _model(
         context_window=context_window,
         max_output_tokens=max_output_tokens,
         streaming=streaming,
+        extra_args=extra_args,
     )
 
 
@@ -201,7 +207,24 @@ BUILTIN_TEXT_PROVIDER_SPECS: tuple[BuiltinTextProviderSpec, ...] = (
         protocol='openai',
         api_key_required=True,
         sort_order=100,
-        models=(),
+        models=(
+            _model(
+                'doubao',
+                'doubao-seed-2-0-mini-260215',
+                'doubao-seed-2-0-mini-260215',
+                'Doubao Seed 2.0 Mini',
+                abilities=('func_call',),
+                extra_args={'thinking': {'type': 'disabled'}, 'reasoning_effort': 'minimal'},
+            ),
+            _model(
+                'doubao',
+                'doubao-seed-2-0-pro-260215',
+                'doubao-seed-2-0-pro-260215',
+                'Doubao Seed 2.0 Pro',
+                abilities=('vision', 'func_call'),
+                extra_args={'thinking': {'type': 'enabled'}, 'reasoning_effort': 'low'},
+            ),
+        ),
     ),
     BuiltinTextProviderSpec(
         uuid='lnp-xai',
