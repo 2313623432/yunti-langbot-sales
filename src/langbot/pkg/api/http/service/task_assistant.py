@@ -1613,7 +1613,14 @@ class TaskAssistantService:
 
         messages = [
             provider_message.Message(role='system', content=self._course_sales_intent_prompt(workflow)),
-            provider_message.Message(role='user', content=self._course_sales_intent_user_text(text, message_chain)),
+            provider_message.Message(
+                role='user',
+                content=self._course_sales_intent_user_text(
+                    text,
+                    message_chain,
+                    reference_history=self._course_sales_intent_reference_history(query, workflow),
+                ),
+            ),
         ]
         extra_args = self._resolve_course_sales_intent_model_extra_args(query, runtime_model)
         try:
@@ -1712,6 +1719,7 @@ class TaskAssistantService:
         self,
         text: str,
         message_chain: platform_message.MessageChain | list[platform_message.MessageComponent],
+        reference_history: str = '',
     ) -> str:
         media_hints = []
         if self._has_image(message_chain):
@@ -1719,7 +1727,72 @@ class TaskAssistantService:
         if self._has_voice(message_chain):
             media_hints.append('用户本轮包含语音')
         media_text = f"\n媒体：{'，'.join(media_hints)}" if media_hints else ''
-        return f'用户消息：{text or ""}{media_text}'
+        history_text = f'{reference_history}\n' if reference_history else ''
+        return f'{history_text}用户消息：{text or ""}{media_text}'
+
+    def _course_sales_reference_rounds(self, workflow: dict[str, Any]) -> int:
+        try:
+            rounds = int(workflow.get('reference_rounds') or 0)
+        except (TypeError, ValueError):
+            return 0
+        return max(0, min(rounds, 20))
+
+    def _provider_message_role_value(self, message: Any) -> str:
+        role = getattr(message, 'role', '')
+        return str(getattr(role, 'value', role)).lower()
+
+    def _provider_message_content_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
+            return ''
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get('type') == 'text':
+                    parts.append(str(item.get('text') or ''))
+                continue
+            if getattr(item, 'type', None) == 'text':
+                parts.append(str(getattr(item, 'text', '') or ''))
+        return ''.join(parts)
+
+    def _compact_course_sales_history_line(self, text: str) -> str:
+        line = re.sub(r'\s+', ' ', text).strip()
+        return f'{line[:300]}...' if len(line) > 300 else line
+
+    def _course_sales_intent_reference_history(self, query: pipeline_query.Query, workflow: dict[str, Any]) -> str:
+        reference_rounds = self._course_sales_reference_rounds(workflow)
+        if reference_rounds <= 0:
+            return ''
+        messages = getattr(query, 'messages', [])
+        if not isinstance(messages, list) or not messages:
+            return ''
+
+        selected: list[Any] = []
+        user_rounds = 0
+        for message in reversed(messages):
+            selected.append(message)
+            if self._provider_message_role_value(message) == 'user':
+                user_rounds += 1
+                if user_rounds >= reference_rounds:
+                    break
+        selected.reverse()
+
+        lines: list[str] = []
+        for message in selected:
+            role = self._provider_message_role_value(message)
+            if role not in {'user', 'assistant'}:
+                continue
+            text = self._compact_course_sales_history_line(
+                self._provider_message_content_text(getattr(message, 'content', ''))
+            )
+            if not text:
+                continue
+            label = '用户' if role == 'user' else '助手'
+            lines.append(f'{label}：{text}')
+        if not lines:
+            return ''
+        return f'历史对话（最近{reference_rounds}轮）：\n' + '\n'.join(lines)
 
     def _parse_course_sales_model_intent(
         self,
@@ -3348,6 +3421,7 @@ class TaskAssistantService:
         await self._ensure_yuanfudao_enhanced_template_pipeline()
         await self._ensure_builtin_pipeline_default_models()
         await self._ensure_course_sales_doubao_model_defaults()
+        await self._ensure_course_sales_runtime_defaults()
         await self._ensure_course_sales_product()
         await self._ensure_course_sales_outreach_for_chatted_users()
 
@@ -3487,6 +3561,7 @@ class TaskAssistantService:
         ai_config = config.get('ai') if isinstance(config.get('ai'), dict) else {}
         local_agent = ai_config.get('local-agent') if isinstance(ai_config.get('local-agent'), dict) else {}
         local_agent['model'] = {'primary': COURSE_SALES_REPLY_MODEL_UUID, 'fallbacks': []}
+        local_agent['max-round'] = 12
         local_agent['prompt'] = [{'role': 'system', 'content': template_config['role_prompt']}]
         ai_config['local-agent'] = local_agent
         config['ai'] = ai_config
@@ -3510,6 +3585,51 @@ class TaskAssistantService:
             config['workflow'] = workflow
 
         return config != before
+
+    def _is_course_sales_pipeline_config(self, config: dict[str, Any]) -> bool:
+        template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
+        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
+        metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
+        return (
+            template_config.get('scenario') == COURSE_SALES_SCENARIO
+            or workflow.get('scenario') == COURSE_SALES_SCENARIO
+            or metadata.get('scenario') == COURSE_SALES_SCENARIO
+        )
+
+    def _apply_course_sales_runtime_defaults(self, config: dict[str, Any]) -> bool:
+        if not self._is_course_sales_pipeline_config(config):
+            return False
+        before = copy.deepcopy(config)
+        template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
+
+        ai_config = config.get('ai') if isinstance(config.get('ai'), dict) else {}
+        local_agent = ai_config.get('local-agent') if isinstance(ai_config.get('local-agent'), dict) else {}
+        local_agent['max-round'] = 12
+        ai_config['local-agent'] = local_agent
+        config['ai'] = ai_config
+
+        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
+        try:
+            reference_rounds = int(template_config.get('reference_rounds') or workflow.get('reference_rounds') or 4)
+        except (TypeError, ValueError):
+            reference_rounds = 4
+        workflow['reference_rounds'] = max(0, min(reference_rounds, 20))
+        config['workflow'] = workflow
+
+        return config != before
+
+    async def _ensure_course_sales_runtime_defaults(self) -> None:
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_pipeline.LegacyPipeline))
+        pipelines = result.all()
+        for pipeline in pipelines:
+            config = copy.deepcopy(pipeline.config) if isinstance(getattr(pipeline, 'config', None), dict) else {}
+            if not config or not self._apply_course_sales_runtime_defaults(config):
+                continue
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+                .where(persistence_pipeline.LegacyPipeline.uuid == pipeline.uuid)
+                .values(config=config)
+            )
 
     async def _remove_seeded_workflow_mode_pipelines(self) -> None:
         pipeline_uuids = [
@@ -3543,7 +3663,7 @@ class TaskAssistantService:
         config['ai']['runner']['runner'] = 'local-agent'
         config['ai']['runner']['expire-time'] = 0
         config['ai']['local-agent']['model'] = {'primary': model_uuid, 'fallbacks': []}
-        config['ai']['local-agent']['max-round'] = 8
+        config['ai']['local-agent']['max-round'] = 12
         config['ai']['local-agent']['prompt'] = [
             {'role': 'system', 'content': self.compose_system_prompt()},
         ]
@@ -4082,7 +4202,7 @@ class TaskAssistantService:
         config['ai']['runner']['runner'] = 'local-agent'
         config['ai']['runner']['expire-time'] = 0
         config['ai']['local-agent']['model'] = {'primary': model_uuid, 'fallbacks': []}
-        config['ai']['local-agent']['max-round'] = 8
+        config['ai']['local-agent']['max-round'] = 12
         config['ai']['local-agent']['prompt'] = [
             {'role': 'system', 'content': self.compose_course_sales_prompt(active_template)},
         ]
@@ -5042,6 +5162,11 @@ class TaskAssistantService:
             if isinstance(profile, dict) and str(profile.get('product_uuid') or '')
         ] or [COURSE_SALES_PRODUCT_UUID]
         template_name = str(template_config.get('name') or '课程销售模板')
+        try:
+            reference_rounds = int(template_config.get('reference_rounds') or 0)
+        except (TypeError, ValueError):
+            reference_rounds = 0
+        reference_rounds = max(0, min(reference_rounds, 20))
         template_kb_uuids = [
             str(kb_uuid) for kb_uuid in (template_config.get('knowledge_base_uuids') or []) if str(kb_uuid)
         ]
@@ -5397,6 +5522,7 @@ class TaskAssistantService:
             'course_profiles': course_profiles,
             'resource_faqs': resource_faqs,
             'course_faqs': course_faqs,
+            'reference_rounds': reference_rounds,
             'sales_links': sales_links,
             'radar': radar,
             'human_handoff': human_handoff,

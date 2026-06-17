@@ -23,8 +23,10 @@ class SendResponseBackStage(stage.PipelineStage):
 
     _EXTRA_REPLY_CHAINS_KEY = '_respback_extra_reply_chains'
     _COURSE_SALES_LINK_OPEN_QUESTION = '家长，您这边能打开吗？'
+    _COURSE_SALES_CHILD_GRADE_QUESTION = '孩子现在几年级呀？'
     _COURSE_SALES_SIGNUP_LINK_QUEUED_KEY = '_course_sales_signup_link_queued'
     _COURSE_SALES_RESOURCE_LINK_QUEUED_KEY = '_course_sales_resource_link_queued'
+    _COURSE_SALES_CHILD_GRADE_RE = re.compile(r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]年级|初[一二三]|高[一二三])')
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
         intent_data = query.variables.get('sales_intent') or query.variables.get('workflow_intent') or {}
@@ -658,8 +660,39 @@ class SendResponseBackStage(stage.PipelineStage):
         if self._course_sales_screenshot_question_needed(text):
             return '方便发我一张截图吗？'
         if self._course_sales_grade_question_needed(text):
-            return '孩子现在几年级呀？'
+            return self._COURSE_SALES_CHILD_GRADE_QUESTION
         return ''
+
+    def _course_sales_provider_content_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
+            return ''
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get('type') == 'text':
+                    parts.append(str(item.get('text') or ''))
+                continue
+            if getattr(item, 'type', None) == 'text':
+                parts.append(str(getattr(item, 'text', '') or ''))
+        return ''.join(parts)
+
+    def _course_sales_provider_user_text(self, message: Any) -> str:
+        role = getattr(message, 'role', '')
+        role_value = str(getattr(role, 'value', role)).lower()
+        if role_value != 'user':
+            return ''
+        return self._course_sales_provider_content_text(getattr(message, 'content', ''))
+
+    def _course_sales_child_grade_known(self, query: pipeline_query.Query) -> bool:
+        user_texts = [
+            str(query.variables.get('user_message_text') or ''),
+            self._plain_text_from_chain(query.message_chain) if isinstance(query.message_chain, platform_message.MessageChain) else '',
+            self._course_sales_provider_user_text(query.user_message),
+        ]
+        user_texts.extend(self._course_sales_provider_user_text(message) for message in query.messages)
+        return any(self._COURSE_SALES_CHILD_GRADE_RE.search(text or '') for text in user_texts)
 
     def _queue_extra_reply_chain(self, query: pipeline_query.Query, text: str) -> None:
         chain = platform_message.MessageChain([platform_message.Plain(text=text)])
@@ -689,6 +722,8 @@ class SendResponseBackStage(stage.PipelineStage):
             return
         question = self._course_sales_open_question(current_text)
         if not question:
+            return
+        if question == self._COURSE_SALES_CHILD_GRADE_QUESTION and self._course_sales_child_grade_known(query):
             return
         self._queue_extra_reply_chain(query, question)
 

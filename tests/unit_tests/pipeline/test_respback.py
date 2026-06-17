@@ -328,6 +328,33 @@ async def test_respback_appends_child_grade_question_for_course_sales_intro_repl
 
 
 @pytest.mark.asyncio
+async def test_respback_does_not_ask_child_grade_again_when_history_has_grade():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('还有什么课')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.messages = [
+        provider_message.Message(role='user', content='三年级'),
+        provider_message.Message(role='assistant', content='三年级刚好合适呀 😊'),
+    ]
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='咱们自然拼读大班到四年级都能学，正好补拼读规律和单词记忆方法。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == [
+        '咱们自然拼读大班到四年级都能学，正好补拼读规律和单词记忆方法',
+    ]
+
+
+@pytest.mark.asyncio
 async def test_respback_does_not_duplicate_child_grade_question():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
