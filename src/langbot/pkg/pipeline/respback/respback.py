@@ -558,7 +558,7 @@ class SendResponseBackStage(stage.PipelineStage):
         message_chain = query.resp_message_chain[-1]
 
         components = list(message_chain)
-        if not components or any(not isinstance(component, platform_message.Plain) for component in components):
+        if not components:
             return [message_chain]
 
         text = self._plain_text_from_chain(message_chain)
@@ -569,6 +569,9 @@ class SendResponseBackStage(stage.PipelineStage):
             if len(chains) <= 1 and text:
                 return [platform_message.MessageChain([platform_message.Plain(text=self._strip_course_sales_final_periods(text))])]
             return chains
+
+        if any(not isinstance(component, platform_message.Plain) for component in components):
+            return [message_chain]
 
         if not enabled:
             return [message_chain]
