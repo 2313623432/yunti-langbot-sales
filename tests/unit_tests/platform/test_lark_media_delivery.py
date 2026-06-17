@@ -142,6 +142,14 @@ def test_lark_contact_added_uses_first_created_or_entered_events():
     assert LarkAdapter._is_contact_added_chat_access_event('im.message.receive_v1') is False
 
 
+def test_lark_message_event_dedup_uses_message_id_before_event_id():
+    adapter = LarkAdapter.model_construct(processed_message_ids={})
+
+    assert adapter._is_duplicate_lark_message('om_message_1', 'evt_1') is False
+    assert adapter._is_duplicate_lark_message('om_message_1', 'evt_2') is True
+    assert adapter._is_duplicate_lark_message('om_message_2', 'evt_1') is False
+
+
 @pytest.mark.asyncio
 async def test_lark_friend_message_uses_contact_display_name():
     class FakeUserClient:
