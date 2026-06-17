@@ -1,18 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
-  BrainCircuit,
   CheckCircle2,
   ClipboardCheck,
   Folder,
   FolderPlus,
-  GitBranch,
-  Handshake,
   Loader2,
   MessageSquareText,
   PackageCheck,
   Plus,
-  Route,
   Repeat2,
   Search,
   Sparkles,
@@ -68,60 +64,7 @@ type SalesWorkflowTemplate = {
   accent: string;
 };
 
-type WorkflowPathStep = {
-  title: string;
-  description: string;
-  node: string;
-  icon: typeof MessageSquareText;
-  tone: string;
-};
-
 const defaultFolder = '我的项目';
-
-const salesPathSteps: WorkflowPathStep[] = [
-  {
-    title: '触发条件',
-    description: '客户发消息、点击链接、进入高意向标签或销售手动标记。',
-    node: '入口触发',
-    icon: MessageSquareText,
-    tone: 'bg-sky-50 text-sky-700 ring-sky-100',
-  },
-  {
-    title: 'AI 识别意图',
-    description: '识别询价、产品咨询、异议、转人工、复购等开放式表达。',
-    node: '意图识别',
-    icon: BrainCircuit,
-    tone: 'bg-violet-50 text-violet-700 ring-violet-100',
-  },
-  {
-    title: '提问补信息',
-    description: '补齐年级、需求、预算、联系方式、购买时间等资格判断字段。',
-    node: '线索收集',
-    icon: UserRoundCheck,
-    tone: 'bg-rose-50 text-rose-700 ring-rose-100',
-  },
-  {
-    title: '条件分支',
-    description: '按意向等级、缺失字段、产品匹配度决定不同推进路径。',
-    node: '条件分支',
-    icon: GitBranch,
-    tone: 'bg-slate-100 text-slate-700 ring-slate-200',
-  },
-  {
-    title: '执行业务动作',
-    description: '推荐产品、发送素材、写入客户记忆、创建触达计划或调用 CRM。',
-    node: '产品库 / 动作',
-    icon: Route,
-    tone: 'bg-amber-50 text-amber-800 ring-amber-100',
-  },
-  {
-    title: '转人工/沉淀线索',
-    description: '把摘要、画像、关键问答和推荐话术交给销售继续推进。',
-    node: '人工介入',
-    icon: Handshake,
-    tone: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-  },
-];
 
 const salesWorkflowTemplates: SalesWorkflowTemplate[] = [
   {
@@ -190,6 +133,7 @@ export default function WorkflowsPage() {
   const [draftInstruction, setDraftInstruction] = useState(
     defaultDraftInstruction,
   );
+  const [draftReferenceUrl, setDraftReferenceUrl] = useState('');
   const [draftScenario, setDraftScenario] =
     useState<WorkflowDraftScenario>('yuanfudao_sales');
   const [draftGenerating, setDraftGenerating] = useState(false);
@@ -299,10 +243,14 @@ export default function WorkflowsPage() {
       toast.error('请先输入销售规则');
       return;
     }
+    const referenceUrl = draftReferenceUrl.trim();
+    const finalInstruction = referenceUrl
+      ? `${instruction}\n\n产品或报名页面：${referenceUrl}`
+      : instruction;
     setDraftGenerating(true);
     try {
       const resp = await httpClient.generateWorkflowDraft({
-        instruction,
+        instruction: finalInstruction,
         scenario: draftScenario,
       });
       setGeneratedDraft(resp);
@@ -535,135 +483,122 @@ export default function WorkflowsPage() {
         </aside>
 
         <section className="min-h-0 overflow-y-auto px-5 pb-8 lg:px-9">
-          <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-3xl">
-                <div className="flex items-center gap-2 text-sm font-medium text-indigo-600">
-                  <Sparkles className="size-4" />
-                  业务路径 + AI 节点
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 px-5 py-5">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-orange-100 text-orange-600">
+                  <Sparkles className="size-5" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-xl font-semibold text-slate-950">
+                    Generate Workflow with AI
+                  </h2>
+                  <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+                    描述销售智能体如何判断客户、追问信息、推进报名和转人工，AI
+                    会生成可检查的工作流草稿。
+                  </p>
                 </div>
-                <h2 className="mt-2 text-xl font-semibold text-slate-950">
-                  工作流不是一个大 Prompt，而是一条可检查的销售推进路径
-                </h2>
-                <p className="mt-2 text-sm leading-6 text-slate-500">
-                  先确定客户从哪里进入、AI
-                  负责识别和追问什么、哪些条件触发业务动作，再决定何时转人工或沉淀线索。
-                </p>
               </div>
-              <Button
-                type="button"
-                className="h-10 bg-indigo-600 text-white hover:bg-indigo-700"
-                onClick={() => {
-                  const template = salesWorkflowTemplates[0];
-                  void createNewWorkflow(template);
-                }}
-                disabled={loading}
+              <Select
+                value={draftScenario}
+                onValueChange={(value) =>
+                  setDraftScenario(value as WorkflowDraftScenario)
+                }
               >
-                <Sparkles className="size-4" />
-                生成销售流程初稿
-              </Button>
+                <SelectTrigger className="h-10 w-[190px] rounded-full border-slate-200 bg-slate-50 shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yuanfudao_sales">
+                    猿辅导销售加强版
+                  </SelectItem>
+                  <SelectItem value="sales">通用销售流程</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <div className="mt-5 grid gap-3 lg:grid-cols-6">
-              {salesPathSteps.map((step, index) => {
-                const Icon = step.icon;
-                return (
-                  <div
-                    key={step.title}
-                    className="relative rounded-lg border border-slate-200 bg-slate-50 p-3"
-                  >
-                    <div className="flex items-start gap-2">
-                      <span
-                        className={cn(
-                          'flex size-8 shrink-0 items-center justify-center rounded-lg ring-1',
-                          step.tone,
-                        )}
-                      >
-                        <Icon className="size-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <div className="text-sm font-semibold text-slate-950">
-                          {step.title}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {step.node}
-                        </div>
-                      </div>
-                    </div>
-                    <p className="mt-3 text-xs leading-5 text-slate-600">
-                      {step.description}
-                    </p>
-                    {index < salesPathSteps.length - 1 && (
-                      <div className="absolute -right-2 top-1/2 hidden size-4 -translate-y-1/2 rounded-full border border-slate-200 bg-white text-center text-[10px] leading-3 text-slate-400 lg:block">
-                        →
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
-              <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="px-5 py-5">
+              <div className="rounded-2xl border border-slate-200">
+                <div className="grid gap-4 p-5 lg:grid-cols-[320px_minmax(0,1fr)]">
                   <div>
-                    <div className="text-sm font-medium text-indigo-700">
-                      AI-first Workflow 生成器
+                    <div className="text-sm font-semibold text-slate-950">
+                      Qualification process
                     </div>
-                    <p className="mt-1 text-sm leading-6 text-indigo-700/80">
-                      用自然语言描述路由、追问、转人工和跟进规则，系统会生成可检查的业务节点链路。
+                    <p className="mt-3 text-sm leading-6 text-slate-500">
+                      写清楚要收集哪些信息、如何判断结果，以及下一步要采取什么动作。
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-slate-500">
+                      可以包含产品资料、价格口径、常见异议、转人工条件和跟进规则。
                     </p>
                   </div>
-                  <Select
-                    value={draftScenario}
-                    onValueChange={(value) =>
-                      setDraftScenario(value as WorkflowDraftScenario)
+                  <Textarea
+                    value={draftInstruction}
+                    onChange={(event) =>
+                      setDraftInstruction(event.target.value)
                     }
-                  >
-                    <SelectTrigger className="h-10 w-[190px] bg-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="yuanfudao_sales">
-                        猿辅导销售加强版
-                      </SelectItem>
-                      <SelectItem value="sales">通用销售流程</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    className="min-h-[194px] resize-none rounded-2xl border-slate-200 bg-white px-4 py-4 text-sm leading-6 shadow-none focus-visible:ring-1 focus-visible:ring-slate-300"
+                    placeholder="例如：收集姓名、手机号、孩子年级、预算和学习目标。高意向客户转销售，低意向客户进入触达，无法处理的截图或投诉立即转人工。"
+                  />
                 </div>
-                <Textarea
-                  value={draftInstruction}
-                  onChange={(event) => setDraftInstruction(event.target.value)}
-                  className="mt-4 min-h-[154px] resize-none border-indigo-100 bg-white text-sm leading-6"
-                  placeholder="例如：客户问价格时先追问年级和预算，高意向转销售，未成交24小时后触达。"
-                />
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-xs leading-5 text-indigo-700/75">
-                    后端会优先调用已配置的真实
-                    LLM；没有可用模型时才使用规则兜底。
+
+                <div className="grid gap-4 border-t border-slate-100 p-5 lg:grid-cols-[320px_minmax(0,1fr)]">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-950">
+                      产品 / 报名页面
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-500">
+                      添加客户最终要访问的页面，便于生成时把报名、价格或资源路径写进流程。
+                    </p>
                   </div>
-                  <Button
-                    type="button"
-                    className="h-10 bg-indigo-600 text-white hover:bg-indigo-700"
-                    onClick={generateDraftWorkflow}
-                    disabled={draftGenerating}
-                  >
-                    {draftGenerating ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="size-4" />
-                    )}
-                    {draftGenerating ? '生成中' : '生成流程草稿'}
-                  </Button>
+                  <Input
+                    value={draftReferenceUrl}
+                    onChange={(event) =>
+                      setDraftReferenceUrl(event.target.value)
+                    }
+                    className="h-11 rounded-full border-slate-200 bg-white px-4 text-sm shadow-none focus-visible:ring-1 focus-visible:ring-slate-300"
+                    placeholder="https://example.com/pricing"
+                  />
                 </div>
               </div>
-              <div className="rounded-lg border border-slate-200 bg-white p-4">
-                <div className="flex items-start justify-between gap-3">
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  className="h-10 rounded-full bg-slate-950 px-5 text-white hover:bg-slate-800"
+                  onClick={generateDraftWorkflow}
+                  disabled={draftGenerating}
+                >
+                  {draftGenerating ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-4" />
+                  )}
+                  {draftGenerating ? '生成中' : 'Generate'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-10 rounded-full bg-slate-100 px-5 text-slate-900 hover:bg-slate-200"
+                  onClick={() => {
+                    const template = salesWorkflowTemplates[0];
+                    void createNewWorkflow(template);
+                  }}
+                  disabled={loading}
+                >
+                  Just use simple defaults
+                </Button>
+                <span className="text-sm leading-6 text-slate-500">
+                  生成不会影响已上线配置；确认后再创建到画布继续细化。
+                </span>
+              </div>
+
+              <div className="mt-5 border-t border-slate-100 pt-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium text-slate-950">
+                    <div className="text-sm font-semibold text-slate-950">
                       草稿审查
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                    <p className="mt-1 text-sm leading-6 text-slate-500">
                       先确认路径，再创建到画布继续细化节点。
                     </p>
                   </div>
@@ -671,7 +606,7 @@ export default function WorkflowsPage() {
                     <Badge
                       variant="outline"
                       className={cn(
-                        'shrink-0',
+                        'shrink-0 rounded-full',
                         generatedDraft.used_llm
                           ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                           : 'border-amber-200 bg-amber-50 text-amber-700',
@@ -683,7 +618,7 @@ export default function WorkflowsPage() {
                 </div>
 
                 {generatedDraft ? (
-                  <div className="mt-4 space-y-4">
+                  <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
                     <div>
                       <h3 className="text-base font-semibold text-slate-950">
                         {generatedDraft.draft.title}
@@ -696,35 +631,34 @@ export default function WorkflowsPage() {
                           {generatedDraft.fallback_reason}
                         </p>
                       )}
-                    </div>
-
-                    <div className="max-h-[178px] space-y-2 overflow-y-auto pr-1">
-                      {generatedDraft.draft.rules.map((rule, index) => (
-                        <div
-                          key={`${rule.intent}-${index}`}
-                          className="rounded-md border border-slate-100 bg-slate-50 p-3"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-semibold text-slate-500">
-                              {rule.intent}
-                            </span>
-                            {rule.handoff && (
-                              <Badge
-                                variant="outline"
-                                className="border-orange-200 bg-orange-50 text-orange-700"
-                              >
-                                转人工
-                              </Badge>
-                            )}
+                      <div className="mt-4 max-h-[178px] space-y-2 overflow-y-auto pr-1">
+                        {generatedDraft.draft.rules.map((rule, index) => (
+                          <div
+                            key={`${rule.intent}-${index}`}
+                            className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-slate-500">
+                                {rule.intent}
+                              </span>
+                              {rule.handoff && (
+                                <Badge
+                                  variant="outline"
+                                  className="rounded-full border-orange-200 bg-orange-50 text-orange-700"
+                                >
+                                  转人工
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="mt-2 text-xs leading-5 text-slate-600">
+                              当 {rule.when}，执行 {rule.action}
+                            </p>
                           </div>
-                          <p className="mt-2 text-xs leading-5 text-slate-600">
-                            当 {rule.when}，执行 {rule.action}
-                          </p>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
 
-                    <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-4">
                       <div>
                         <div className="text-xs font-medium text-slate-500">
                           资格判断字段
@@ -734,7 +668,7 @@ export default function WorkflowsPage() {
                             (field) => (
                               <span
                                 key={field}
-                                className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600"
+                                className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600"
                               >
                                 {field}
                               </span>
@@ -750,31 +684,33 @@ export default function WorkflowsPage() {
                           {generatedDraft.draft.handoff_rules.map((rule) => (
                             <span
                               key={rule}
-                              className="rounded-md bg-orange-50 px-2 py-1 text-xs text-orange-700"
+                              className="rounded-full bg-orange-50 px-3 py-1 text-xs text-orange-700"
                             >
                               {rule}
                             </span>
                           ))}
                         </div>
                       </div>
+                      <Button
+                        type="button"
+                        className="h-10 w-full rounded-full bg-slate-950 text-white hover:bg-slate-800"
+                        onClick={createGeneratedWorkflow}
+                      >
+                        创建到画布
+                      </Button>
                     </div>
-
-                    <Button
-                      type="button"
-                      className="w-full bg-slate-950 text-white hover:bg-slate-800"
-                      onClick={createGeneratedWorkflow}
-                    >
-                      创建到画布
-                    </Button>
                   </div>
                 ) : (
-                  <div className="mt-5 space-y-3 text-sm text-slate-600">
+                  <div className="mt-4 flex flex-wrap gap-2 text-sm text-slate-600">
                     {[
                       '触发入口是否真实存在',
                       'AI 追问字段是否足够',
                       '转人工规则是否清晰',
                     ].map((item) => (
-                      <div key={item} className="flex items-center gap-2">
+                      <div
+                        key={item}
+                        className="flex items-center gap-2 rounded-full bg-slate-50 px-3 py-2"
+                      >
                         <CheckCircle2 className="size-4 text-emerald-500" />
                         {item}
                       </div>
