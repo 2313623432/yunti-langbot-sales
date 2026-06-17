@@ -65,6 +65,29 @@ def _query(message_chain, text='', session_id='user-1'):
     )
 
 
+def test_course_sales_template_includes_configurable_meme_library():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_config()
+    memes = config['memes']
+
+    assert memes['enabled'] is True
+    assert memes['large_enabled'] is True
+    assert memes['feishu_native_enabled'] is True
+    assert memes['library_enabled'] is True
+    assert memes['api_fallback_enabled'] is True
+    assert len(memes['library']) >= 200
+    assert any(item['trigger_keyword'] == '{happy}' for item in memes['library'])
+    assert any(item['trigger_keyword'] == '{thanks}' for item in memes['library'])
+    assert all({'meaning', 'trigger_keyword', 'file_key', 'tags'} <= set(item) for item in memes['library'])
+    assert all(str(item['file_key']).startswith('sales-memes/') for item in memes['library'])
+    assert all(str(item.get('feishu_emoji', '')).startswith('[') for item in memes['library'])
+
+    workflow = service.build_course_sales_workflow_config(template_config=config)
+    assert workflow['memes']['library'][0]['trigger_keyword'].startswith('{')
+    assert workflow['variables']['memes']['library'][0]['trigger_keyword'].startswith('{')
+
+
 @pytest.mark.asyncio
 async def test_prepare_query_sets_verify_intent_and_injects_prompt():
     service = TaskAssistantService(SimpleNamespace())
@@ -1963,6 +1986,20 @@ async def test_course_sales_payment_screenshot_stops_promotional_outreach_before
             'segment_prefixes': ['course-sales:broadcast', 'course-sales:followup'],
         }
     ]
+    assert query.variables['lark_reaction_emoji_type'] == 'THUMBSUP'
+
+
+@pytest.mark.asyncio
+async def test_course_sales_open_confirmation_marks_lark_reaction():
+    service = TaskAssistantService(SimpleNamespace(sales_service=None, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain('可以打开'), '可以打开', session_id='customer-open-ok')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query.prompt = SimpleNamespace(messages=[])
+
+    await service.prepare_query(query)
+
+    assert query.variables['workflow_intent']['intent'] == 'resource_confirmed'
+    assert query.variables['lark_reaction_emoji_type'] == 'SMILE'
 
 
 @pytest.mark.asyncio

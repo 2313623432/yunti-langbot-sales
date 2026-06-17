@@ -12,6 +12,7 @@ import {
   Plus,
   RadioTower,
   ShieldCheck,
+  SmilePlus,
   Trash2,
   Upload,
   UserRound,
@@ -44,6 +45,7 @@ import {
   PipelineTemplateCourseProfile,
   PipelineTemplateFollowupMessage,
   PipelineTemplateImageTextBinding,
+  PipelineTemplateMemeLibraryItem,
   PipelineTemplateSpecialCase,
 } from './types';
 import { groupProductsByLine } from '@/app/home/products/utils/productLineUtils';
@@ -72,6 +74,7 @@ type TemplateConfigTab =
   | 'memory'
   | 'radar'
   | 'specialCases'
+  | 'memes'
   | 'push'
   | 'handoff'
   | 'media';
@@ -89,6 +92,7 @@ const CONFIG_TABS: Array<{
   { id: 'memory', label: '记忆', icon: Bot },
   { id: 'radar', label: '雷达跟进', icon: MousePointerClick },
   { id: 'specialCases', label: '特殊情况处理', icon: ShieldCheck },
+  { id: 'memes', label: '表情包', icon: SmilePlus },
   { id: 'push', label: '定时推送', icon: CalendarClock },
   { id: 'handoff', label: '转人工', icon: UserRoundCheck },
   { id: 'media', label: '图文素材', icon: ImageIcon },
@@ -243,6 +247,13 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
         ? value.human_handoff.semantic_triggers
         : defaults.human_handoff.semantic_triggers,
     },
+    memes: {
+      ...defaults.memes!,
+      ...(value?.memes || {}),
+      library: value?.memes?.library?.length
+        ? value.memes.library
+        : defaults.memes?.library || [],
+    },
     special_cases: value?.special_cases ?? defaults.special_cases ?? [],
     image_text_bindings:
       value?.image_text_bindings?.length ? value.image_text_bindings : defaults.image_text_bindings,
@@ -364,6 +375,60 @@ function imageAssetUrl(fileKey: string) {
   return `${prefix}/api/v1/files/image/${encodedKey}`;
 }
 
+function customMemePreviewSrc(item: PipelineTemplateMemeLibraryItem) {
+  const fileKey = item.file_key || '';
+  if (item.image_url) return item.image_url;
+  return fileKey && !fileKey.startsWith('builtin:') ? imageAssetUrl(fileKey) : '';
+}
+
+const MEME_PREVIEW_EMOJI_BY_CODE: Record<string, string> = {
+  happy: '[愉快]',
+  thanks: '[感谢]',
+  like: '[赞]',
+  success: '[完成]',
+  morning: '[咖啡]',
+  noon: '[愉快]',
+  evening: '[咖啡]',
+  night: '[再见]',
+  ok: '[OK]',
+  received: '[了解]',
+  cheer: '[加油]',
+  welcome: '[挥手]',
+  question: '[思考]',
+  thinking: '[思考中]',
+  sorry: '[抱拳]',
+  wait: '[稍等]',
+  checking: '[在做了]',
+  reminder: '[图钉]',
+  deal: '[鼓掌]',
+  signup: '[撒花]',
+  payment: '[勾号]',
+  link: '[点击]',
+  resource: '[图钉]',
+  class_time: '[日程]',
+  replay: '[电视]',
+  gift: '[礼物]',
+  trial: '[微笑]',
+  discount: '[火]',
+  grade: '[了解]',
+  parent: '[双手合十]',
+  child: '[送你小红花]',
+  homework: '[奋斗]',
+  reading: '[100分]',
+  phonics: '[音乐]',
+  followup: '[图钉]',
+  congrats: '[欢呼]',
+  polite: '[感谢]',
+  calm: '[摸头]',
+  service: '[在做了]',
+  handoff_ready: '[举手]',
+};
+
+function memeStickerPreviewLabel(item: PipelineTemplateMemeLibraryItem) {
+  const code = (item.code || item.trigger_keyword || '').replace(/[{}]/g, '');
+  return item.feishu_emoji || MEME_PREVIEW_EMOJI_BY_CODE[code] || item.trigger_keyword || '[微笑]';
+}
+
 function makeCustomImageBinding(): PipelineTemplateImageTextBinding {
   const suffix = Date.now().toString(36);
   return {
@@ -402,6 +467,24 @@ function makeSpecialCase(): PipelineTemplateSpecialCase {
     ai_rewrite: true,
     file_key: '',
     image_url: '',
+  };
+}
+
+function makeMemeLibraryItem(): PipelineTemplateMemeLibraryItem {
+  const suffix = Date.now().toString(36);
+  return {
+    id: `meme_${suffix}`,
+    enabled: true,
+    meaning: '礼貌开心回应',
+    trigger_keyword: '{happy}',
+    code: 'happy',
+    emotion: 'happy',
+    search_keyword: '开心',
+    keywords: ['开心', '谢谢'],
+    tags: ['happy', '销售'],
+    file_key: '',
+    image_url: '',
+    source: 'custom',
   };
 }
 
@@ -571,6 +654,32 @@ export default function PipelineTemplateConfigEditor({
 
   function patchReplyControls(next: Partial<PipelineTemplateConfig['reply_controls']>) {
     patch({ reply_controls: { ...config.reply_controls, ...next } });
+  }
+
+  function patchMemes(next: Partial<NonNullable<PipelineTemplateConfig['memes']>>) {
+    patch({ memes: { ...config.memes!, ...next } });
+  }
+
+  function patchMemeLibraryItem(index: number, next: Partial<PipelineTemplateMemeLibraryItem>) {
+    patchMemes({
+      library: (config.memes?.library || []).map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...next } : item,
+      ),
+    });
+  }
+
+  function addMemeLibraryItem() {
+    patchMemes({
+      library: [...(config.memes?.library || []), makeMemeLibraryItem()],
+    });
+  }
+
+  function removeMemeLibraryItem(index: number) {
+    patchMemes({
+      library: (config.memes?.library || []).filter(
+        (_, itemIndex) => itemIndex !== index,
+      ),
+    });
   }
 
   function patchBinding(index: number, next: Partial<PipelineTemplateImageTextBinding>) {
@@ -858,6 +967,29 @@ export default function PipelineTemplateConfigEditor({
     } catch (error) {
       console.error('Template image upload failed:', error);
       toast.error('图片上传失败');
+    } finally {
+      setUploadingBindingId('');
+      event.target.value = '';
+    }
+  }
+
+  async function uploadImageForMeme(
+    index: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const meme = config.memes?.library?.[index];
+    const memeId = `meme-${meme?.id || index}`;
+    try {
+      setUploadingBindingId(memeId);
+      const result = await httpClient.uploadImage(file);
+      patchMemeLibraryItem(index, { file_key: result.file_key, image_url: '', source: 'custom' });
+      toast.success('表情包已上传');
+    } catch (error) {
+      console.error('Meme image upload failed:', error);
+      toast.error('表情包上传失败');
     } finally {
       setUploadingBindingId('');
       event.target.value = '';
@@ -2366,6 +2498,256 @@ export default function PipelineTemplateConfigEditor({
     );
   }
 
+  function renderMemeSettings() {
+    const memes = config.memes!;
+    const library = memes.library || [];
+    const previewItems = library.filter((item) => item.enabled !== false).slice(0, 12);
+    return (
+      <div className="space-y-4">
+        <Section
+          icon={SmilePlus}
+          title="表情包发送"
+          description="配置 AI 在合适时机输出触发码后自动发送的表情包。"
+          right={<Badge variant="outline" className="rounded-md">{library.length} 条</Badge>}
+        >
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleRow
+              label="开启表情包"
+              checked={memes.enabled}
+              onCheckedChange={(checked) => patchMemes({ enabled: checked })}
+            />
+            <ToggleRow
+              label="开启大表情包"
+              checked={memes.large_enabled}
+              onCheckedChange={(checked) => patchMemes({ large_enabled: checked })}
+            />
+            <ToggleRow
+              label="开启飞书官方表情"
+              checked={memes.feishu_native_enabled}
+              onCheckedChange={(checked) => patchMemes({ feishu_native_enabled: checked })}
+            />
+            <ToggleRow
+              label="优先使用本地表情包库"
+              checked={memes.library_enabled}
+              onCheckedChange={(checked) => patchMemes({ library_enabled: checked })}
+            />
+            <ToggleRow
+              label="本地无匹配时调用表情包接口"
+              checked={memes.api_fallback_enabled}
+              onCheckedChange={(checked) =>
+                patchMemes({ api_fallback_enabled: checked, oiapi_enabled: checked })
+              }
+            />
+            <label className="block">
+              <FieldLabel>接口候选数量</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={memes.oiapi_limit ?? 5}
+                onChange={(event) => patchMemes({ oiapi_limit: Number(event.target.value) || 5 })}
+                className="h-10 bg-white"
+              />
+            </label>
+          </div>
+        </Section>
+
+        <Section
+          icon={SmilePlus}
+          title="常用表情预览"
+          description="这里展示的是会真实发送给客户的表情包效果。"
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {previewItems.map((item) => {
+              const previewSrc = customMemePreviewSrc(item);
+              const stickerLabel = memeStickerPreviewLabel(item);
+              return (
+                <div key={`preview-${item.id}`} className="rounded-md border border-slate-200 bg-white p-2">
+                  {previewSrc ? (
+                    <img
+                      src={previewSrc}
+                      alt={item.meaning}
+                      className="h-28 w-full rounded bg-slate-50 object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-28 w-full items-center justify-center rounded bg-amber-50 text-3xl font-semibold text-amber-700">
+                      {stickerLabel}
+                    </div>
+                  )}
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-slate-900">{item.meaning}</span>
+                    <Badge variant="outline" className="shrink-0 rounded font-mono">
+                      {stickerLabel}
+                    </Badge>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+
+        <Section
+          icon={SmilePlus}
+          title="表情包库"
+          description="触发关键词使用 {happy} 这类代码，AI 发出代码后系统自动替换为对应表情。"
+          right={<Badge variant="outline" className="rounded-md">{library.filter((item) => item.enabled !== false).length} 条启用</Badge>}
+        >
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 w-full justify-center rounded-md"
+            onClick={addMemeLibraryItem}
+          >
+            <Plus className="mr-1.5 size-4" />
+            新增表情包
+          </Button>
+          <div className="grid gap-3">
+            {library.map((item, index) => {
+              const builtin = item.source === 'builtin';
+              const previewSrc = customMemePreviewSrc(item);
+              const stickerLabel = memeStickerPreviewLabel(item);
+              const uploadId = `meme-upload-${item.id || index}`;
+              return (
+                <div key={item.id || index} className="rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="mb-3 flex items-center gap-3">
+                    <Badge variant="outline" className="rounded bg-white">
+                      {String(index + 1).padStart(3, '0')}
+                    </Badge>
+                    <Input
+                      value={item.meaning}
+                      onChange={(event) => patchMemeLibraryItem(index, { meaning: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="表情包含义"
+                    />
+                    <Switch
+                      checked={item.enabled !== false}
+                      onCheckedChange={(checked) => patchMemeLibraryItem(index, { enabled: checked })}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="删除表情包"
+                      onClick={() => removeMemeLibraryItem(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <label className="block">
+                      <FieldLabel>触发关键词</FieldLabel>
+                      <Input
+                        value={item.trigger_keyword}
+                        onChange={(event) => {
+                          const trigger = event.target.value;
+                          patchMemeLibraryItem(index, {
+                            trigger_keyword: trigger,
+                            code: trigger.replace(/[{}]/g, ''),
+                          });
+                        }}
+                        className="h-10 bg-white font-mono"
+                        placeholder="{happy}"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>接口搜索词</FieldLabel>
+                      <Input
+                        value={item.search_keyword || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { search_keyword: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="开心"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>标签</FieldLabel>
+                      <Input
+                        value={(item.tags || []).join(',')}
+                        onChange={(event) => patchMemeLibraryItem(index, { tags: textToList(event.target.value) })}
+                        className="h-10 bg-white"
+                        placeholder="happy,销售"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>飞书官方表情</FieldLabel>
+                      <Input
+                        value={item.feishu_emoji || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { feishu_emoji: event.target.value })}
+                        className="h-10 bg-white font-mono"
+                        placeholder="[感谢]"
+                      />
+                    </label>
+                  </div>
+                  <label className="mt-3 block">
+                    <FieldLabel>触发语义关键词</FieldLabel>
+                    <Input
+                      value={(item.keywords || []).join(',')}
+                      onChange={(event) => patchMemeLibraryItem(index, { keywords: textToList(event.target.value) })}
+                      className="h-10 bg-white"
+                      placeholder="开心,谢谢,收到"
+                    />
+                  </label>
+                  {!builtin && (
+                    <>
+                      <div className="mt-3 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 justify-center rounded-md bg-white"
+                          asChild
+                          disabled={uploadingBindingId === `meme-${item.id || index}`}
+                        >
+                          <label htmlFor={uploadId} className="cursor-pointer">
+                            <input
+                              id={uploadId}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(event) => uploadImageForMeme(index, event)}
+                            />
+                            <Upload className="mr-1.5 inline size-4" />
+                            {uploadingBindingId === `meme-${item.id || index}` ? '上传中' : '上传表情包'}
+                          </label>
+                        </Button>
+                        <Input
+                          value={item.image_url || ''}
+                          onChange={(event) => patchMemeLibraryItem(index, { image_url: event.target.value, source: 'custom' })}
+                          className="h-10 bg-white"
+                          placeholder="大表情包 URL"
+                        />
+                      </div>
+                      <Input
+                        value={item.file_key || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { file_key: event.target.value })}
+                        className="mt-3 h-10 bg-white"
+                        placeholder="大表情包 file_key 或本地素材路径"
+                      />
+                    </>
+                  )}
+                  {previewSrc && (
+                    <div className="mt-3 overflow-hidden rounded-md border bg-white">
+                      <img
+                        src={previewSrc}
+                        alt={item.meaning}
+                        className="max-h-36 w-full object-contain"
+                      />
+                    </div>
+                  )}
+                  {builtin && (
+                    <div className="mt-3 flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      <span>内置安全表情包</span>
+                      <span className="font-mono text-base">{stickerLabel}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      </div>
+    );
+  }
+
   function renderMediaSettings() {
     return (
       <div className="space-y-4">
@@ -2495,6 +2877,8 @@ export default function PipelineTemplateConfigEditor({
         return renderRadarSettings();
       case 'specialCases':
         return renderSpecialCaseSettings();
+      case 'memes':
+        return renderMemeSettings();
       case 'push':
         return renderPushSettings();
       case 'handoff':

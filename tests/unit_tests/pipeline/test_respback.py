@@ -227,6 +227,291 @@ async def test_respback_does_not_repeat_open_question_after_user_confirmed_resou
 
 
 @pytest.mark.asyncio
+async def test_respback_adds_lark_reaction_once_before_replies():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('可以打开')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['lark_reaction_emoji_type'] = 'SMILE'
+    query.adapter.add_message_reaction = AsyncMock(return_value=True)
+    query.message_event.message_chain.insert(0, platform_message.Source(id='om_user_msg', time=0))
+    query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='好的')])]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    query.adapter.add_message_reaction.assert_awaited_once_with('om_user_msg', 'SMILE')
+    query.adapter.reply_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_respback_appends_configured_meme_image_for_positive_intent():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('我已经报名了')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.pipeline_config['workflow']['memes'] = {
+        'enabled': True,
+        'emotions': {
+            '赞同': ['https://example.com/like.png'],
+        },
+    }
+    query.variables['workflow_intent'] = {'intent': 'purchased', 'confidence': 0.9}
+    query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='好的')])]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert str(sent_messages[0]) == '好的'
+    assert isinstance(sent_messages[1][0], platform_message.Image)
+    assert sent_messages[1][0].url == 'https://example.com/like.png'
+
+
+@pytest.mark.asyncio
+async def test_respback_fetches_oiapi_meme_when_workflow_has_no_meme_image(monkeypatch):
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    fetched = {}
+
+    async def fake_fetch(emotion: str, limit: int) -> str:
+        fetched['emotion'] = emotion
+        fetched['limit'] = limit
+        return 'https://example.com/oiapi-happy.png'
+
+    monkeypatch.setattr(stage, '_fetch_oiapi_meme_url', fake_fetch)
+    query = text_query('可以打开')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {'intent': 'resource_confirmed', 'confidence': 0.9}
+    query.variables['auto_meme_emotion'] = '开心'
+    query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='太好了')])]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert fetched == {'emotion': '开心', 'limit': 5}
+    assert isinstance(sent_messages[1][0], platform_message.Image)
+    assert sent_messages[1][0].url == 'https://example.com/oiapi-happy.png'
+
+
+def test_respback_rejects_impolite_or_unrelated_meme_titles():
+    stage = get_respback_stage_class()(FakeApp())
+
+    assert stage._is_safe_meme_candidate(
+        {'url': 'https://example.com/surrender.png', 'title': '我投降我投降'},
+        '赞同',
+    ) is False
+    assert stage._is_safe_meme_candidate(
+        {'url': 'https://example.com/like.png', 'title': '点赞收到'},
+        '赞同',
+    ) is True
+
+
+@pytest.mark.asyncio
+async def test_respback_uses_local_meme_library_for_trigger_code(monkeypatch):
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+
+    async def fail_fetch(emotion: str, limit: int) -> str:
+        raise AssertionError('local meme library should be used before api fallback')
+
+    monkeypatch.setattr(stage, '_fetch_provider_chain_meme_url', fail_fetch)
+    query = text_query('done')
+    query.pipeline_config = {
+        **_pipeline_config(multi_reply_enabled=False),
+        'workflow': {
+            'memes': {
+                'enabled': True,
+                'large_enabled': True,
+                'library_enabled': True,
+                'library': [
+                    {
+                        'id': 'local-happy',
+                        'enabled': True,
+                        'meaning': 'polite happy reply',
+                        'trigger_keyword': '{happy}',
+                        'code': 'happy',
+                        'emotion': 'happy',
+                        'image_url': 'https://example.com/local-happy.png',
+                        'tags': ['happy'],
+                        'keywords': ['happy'],
+                    }
+                ],
+            },
+        },
+    }
+    query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='Great {happy}')])]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert str(sent_messages[0]) == 'Great'
+    assert isinstance(sent_messages[1][0], platform_message.Image)
+    assert sent_messages[1][0].url == 'https://example.com/local-happy.png'
+
+
+@pytest.mark.asyncio
+async def test_respback_falls_back_to_api_when_trigger_code_has_no_local_image(monkeypatch):
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    fetched = {}
+
+    async def fake_fetch(emotion: str, limit: int) -> str:
+        fetched['emotion'] = emotion
+        fetched['limit'] = limit
+        return 'https://example.com/api-happy.png'
+
+    monkeypatch.setattr(stage, '_fetch_provider_chain_meme_url', fake_fetch)
+    query = text_query('done')
+    query.pipeline_config = {
+        **_pipeline_config(multi_reply_enabled=False),
+        'workflow': {
+            'memes': {
+                'enabled': True,
+                'large_enabled': True,
+                'library_enabled': True,
+                'api_fallback_enabled': True,
+                'library': [
+                    {
+                        'id': 'local-happy-empty',
+                        'enabled': True,
+                        'meaning': 'polite happy reply',
+                        'trigger_keyword': '{happy}',
+                        'code': 'happy',
+                        'emotion': 'happy',
+                        'source': 'builtin',
+                        'file_key': 'builtin:sales-meme:happy:1',
+                        'search_keyword': 'happy',
+                        'tags': ['happy'],
+                        'keywords': ['happy'],
+                    }
+                ],
+            },
+        },
+    }
+    query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='Great {happy}')])]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert fetched == {'emotion': 'happy', 'limit': 5}
+    assert str(sent_messages[0]) == 'Great'
+    assert isinstance(sent_messages[1][0], platform_message.Image)
+    assert sent_messages[1][0].url == 'https://example.com/api-happy.png'
+
+
+@pytest.mark.asyncio
+async def test_respback_inserts_feishu_native_emoji_at_trigger_position():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('谢谢')
+    query.adapter.__class__.__name__ = 'LarkAdapter'
+    query.pipeline_config = {
+        **_pipeline_config(multi_reply_enabled=False),
+        'workflow': {
+            'memes': {
+                'enabled': True,
+                'large_enabled': False,
+                'feishu_native_enabled': True,
+                'library_enabled': True,
+                'library': [
+                    {
+                        'id': 'local-thanks',
+                        'enabled': True,
+                        'meaning': 'polite thanks reply',
+                        'trigger_keyword': '{thanks}',
+                        'code': 'thanks',
+                        'emotion': 'thanks',
+                        'search_keyword': '感谢',
+                        'feishu_emoji': '[感谢]',
+                        'tags': ['thanks'],
+                        'keywords': ['谢谢', '感谢'],
+                    }
+                ],
+            },
+        },
+    }
+    query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='已经帮您登记 {thanks} 这边会继续跟进')])]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert str(sent_messages[0]) == '已经帮您登记 [感谢] 这边会继续跟进'
+
+
+@pytest.mark.asyncio
+async def test_respback_provider_chain_skips_unsafe_candidates(monkeypatch):
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    calls = []
+
+    async def fake_fetch(provider, keyword: str, limit: int):
+        calls.append((provider['id'], keyword, limit))
+        if provider['id'] == 'oiapi':
+            return [{'url': 'https://example.com/surrender.png', 'title': '我投降我投降'}]
+        if provider['id'] == 'doutula':
+            return [{'url': 'https://example.com/like.png', 'title': '点赞收到'}]
+        return []
+
+    monkeypatch.setattr(stage, '_fetch_meme_provider_candidates', fake_fetch)
+
+    url = await stage._fetch_provider_chain_meme_url('赞同', 5)
+
+    assert url == 'https://example.com/like.png'
+    assert calls[:2] == [('oiapi', '赞同', 5), ('doutula', '点赞', 5)]
+
+
+@pytest.mark.asyncio
+async def test_respback_adds_meme_for_generic_platform_purchase_text(monkeypatch):
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+
+    async def fake_fetch(emotion: str, limit: int) -> str:
+        assert emotion == '赞同'
+        return 'https://example.com/generic-like.png'
+
+    monkeypatch.setattr(stage, '_fetch_provider_chain_meme_url', fake_fetch)
+    query = text_query('我报名了')
+    query.pipeline_config = _pipeline_config(multi_reply_enabled=False)
+    query.variables['user_message_text'] = '我报名了'
+    query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='报名成功啦')])]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert str(sent_messages[0]) == '报名成功啦'
+    assert isinstance(sent_messages[1][0], platform_message.Image)
+    assert sent_messages[1][0].url == 'https://example.com/generic-like.png'
+
+
+def test_respback_uses_feishu_native_emoji_only_for_lark_adapter():
+    stage = get_respback_stage_class()(FakeApp())
+    lark_query = text_query('我报名了')
+    lark_query.adapter.__class__.__name__ = 'LarkAdapter'
+    lark_query.variables['auto_meme_emotion'] = '赞同'
+    lark_query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='报名成功啦')])]
+
+    stage._prepend_feishu_native_emoji(lark_query)
+
+    assert str(lark_query.resp_message_chain[-1]) in {
+        '报名成功啦 [赞]',
+        '报名成功啦 [+1]',
+        '报名成功啦 [我看行]',
+        '报名成功啦 [强]',
+        '报名成功啦 [完成]',
+        '报名成功啦 [勾号]',
+        '报名成功啦 [100分]',
+        '报名成功啦 [鼓掌]',
+    }
+
+    generic_query = text_query('我报名了')
+    generic_query.variables['auto_meme_emotion'] = '赞同'
+    generic_query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='报名成功啦')])]
+
+    stage._prepend_feishu_native_emoji(generic_query)
+
+    assert str(generic_query.resp_message_chain[-1]) == '报名成功啦'
+
+
+@pytest.mark.asyncio
 async def test_respback_prefixes_first_course_sales_reply_with_light_emoji():
     app = FakeApp()
     stage = get_respback_stage_class()(app)

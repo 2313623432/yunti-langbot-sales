@@ -2,8 +2,10 @@ import pytest
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from langbot.pkg.platform.sources.lark import LarkAdapter, LarkEventConverter, LarkMessageConverter
+from lark_oapi.core.enum import AccessTokenType, HttpMethod
 from lark_oapi.api.im.v1 import EventMessage
 
 
@@ -38,6 +40,36 @@ async def test_lark_text_emoji_fallback_remains_plain_post_content():
 
     assert text_elements == [[{'tag': 'md', 'text': '😊 家长您好'}]]
     assert media_items == []
+
+
+@pytest.mark.asyncio
+async def test_lark_adapter_add_message_reaction_uses_feishu_reaction_api():
+    captured = {}
+
+    class FakeApiClient:
+        async def arequest(self, request, option):
+            captured['request'] = request
+            captured['option'] = option
+            return SimpleNamespace(success=lambda: True, code=0, msg='ok', raw=SimpleNamespace(content=b'{}'))
+
+    adapter = LarkAdapter.model_construct(
+        api_client=FakeApiClient(),
+        config={'app_type': 'self'},
+        app_ticket='ticket',
+        get_app_access_token=lambda: 'app-token',
+        logger=SimpleNamespace(warning=AsyncMock()),
+    )
+
+    sent = await adapter.add_message_reaction('om_user_msg', 'SMILE')
+
+    assert sent is True
+    request = captured['request']
+    assert request.http_method == HttpMethod.POST
+    assert request.uri == '/open-apis/im/v1/messages/om_user_msg/reactions'
+    assert request.token_types == {AccessTokenType.TENANT, AccessTokenType.USER}
+    assert request.body == {'reaction_type': {'emoji_type': 'SMILE'}}
+    assert captured['option'].app_ticket == 'ticket'
+    assert captured['option'].app_access_token is None
 
 
 @pytest.mark.asyncio

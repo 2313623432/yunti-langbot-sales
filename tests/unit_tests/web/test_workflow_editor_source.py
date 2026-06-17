@@ -160,6 +160,54 @@ def test_template_tool_settings_expose_reply_controls():
     assert 'merge_delay_seconds: 10' in workflow_templates_source
 
 
+def test_template_config_editor_supports_meme_library_controls():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    types_source = Path(
+        'web/src/app/home/pipelines/components/workflow-editor/types.ts'
+    ).read_text(encoding='utf-8')
+    workflow_templates_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+
+    assert 'PipelineTemplateMemeLibraryItem' in types_source
+    assert 'memes?: PipelineTemplateMemeConfig' in types_source
+    assert "  | 'memes'" in template_source
+    assert "id: 'memes'" in template_source
+    assert 'patchMemes' in template_source
+    assert 'patchMemeLibraryItem' in template_source
+    assert 'addMemeLibraryItem' in template_source
+    assert 'removeMemeLibraryItem' in template_source
+    assert 'uploadImageForMeme' in template_source
+    assert 'trigger_keyword' in template_source
+    assert 'meaning' in template_source
+    assert 'large_enabled' in template_source
+    assert 'feishu_native_enabled' in template_source
+    assert 'library_enabled' in template_source
+    assert 'api_fallback_enabled' in template_source
+    assert 'courseMemeConfig' in workflow_templates_source
+    assert 'memes: courseMemeConfig' in workflow_templates_source
+    assert 'memes: templateConfig.memes' in workflow_templates_source
+
+
+def test_meme_library_renders_builtin_stickers_without_internal_codes():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+
+    assert 'builtinMemePreviewDataUrl' not in template_source
+    assert 'memeStickerPreviewLabel' in template_source
+    assert 'customMemePreviewSrc' in template_source
+    assert 'const previewItems = library' in template_source
+    assert '常用表情预览' in template_source
+    assert '飞书官方表情' in template_source
+    assert '内置安全表情包' in template_source
+    assert 'sales-memes/${code}/${variant}.png' in WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    assert 'builtin:sales-meme' not in re.search(
+        r'function renderMemeSettings\(\) \{([\s\S]+?)\n  function renderMediaSettings',
+        template_source,
+    ).group(1)
+    assert '表情包图片 file_key' not in re.search(
+        r'function renderMemeSettings\(\) \{([\s\S]+?)\n  function renderMediaSettings',
+        template_source,
+    ).group(1)
+
+
 def test_template_model_capability_uses_configured_llm_model_select():
     template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
     model_settings = re.search(

@@ -25,6 +25,7 @@ import pydantic
 from lark_oapi.api.cardkit.v1 import *
 from lark_oapi.api.auth.v3 import *
 from lark_oapi.api.contact.v3 import GetUserRequest
+from lark_oapi.core.enum import AccessTokenType, HttpMethod
 from lark_oapi.core.model import *
 
 import langbot_plugin.api.definition.abstract.platform.adapter as abstract_platform_adapter
@@ -1376,6 +1377,43 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 raise Exception(
                     f'client.im.v1.message.create ({media["msg_type"]}) failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}, resp: \n{json.dumps(json.loads(response.raw.content), indent=4, ensure_ascii=False)}'
                 )
+
+    async def add_message_reaction(self, message_id: str, emoji_type: str) -> bool:
+        message_id = str(message_id or '').strip()
+        emoji_type = str(emoji_type or '').strip()
+        if not message_id or not emoji_type:
+            return False
+
+        request = (
+            BaseRequest.builder()
+            .http_method(HttpMethod.POST)
+            .uri(f'/open-apis/im/v1/messages/{message_id}/reactions')
+            .token_types({AccessTokenType.TENANT, AccessTokenType.USER})
+            .body({'reaction_type': {'emoji_type': emoji_type}})
+            .build()
+        )
+
+        app_access_token = self.get_app_access_token()
+        req_opt: RequestOption = RequestOption.builder().app_ticket(self.app_ticket).app_access_token(app_access_token).build()
+        response = await self.api_client.arequest(request, req_opt)
+        if response.success():
+            return True
+
+        logger = getattr(self, 'logger', None)
+        if logger is not None:
+            warning = getattr(logger, 'warning', None)
+            if callable(warning):
+                raw_content = getattr(getattr(response, 'raw', None), 'content', b'')
+                try:
+                    raw_text = raw_content.decode('utf-8') if isinstance(raw_content, bytes) else str(raw_content or '')
+                except Exception:
+                    raw_text = ''
+                result = warning(
+                    f'client.im.v1.message.reaction.create failed, code: {response.code}, msg: {response.msg}, resp: {raw_text}'
+                )
+                if asyncio.iscoroutine(result):
+                    await result
+        return False
 
     async def is_stream_output_supported(self) -> bool:
         is_stream = False

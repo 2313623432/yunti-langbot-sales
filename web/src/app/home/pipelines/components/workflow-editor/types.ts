@@ -51,6 +51,7 @@ export interface PipelineWorkflow {
   scenario: 'sales' | 'support' | 'task' | 'custom';
   metadata?: Record<string, unknown>;
   voice?: Record<string, unknown>;
+  memes?: PipelineTemplateMemeConfig;
   special_cases?: PipelineTemplateSpecialCase[];
   nodes: PipelineWorkflowNode[];
   edges: PipelineWorkflowEdge[];
@@ -162,6 +163,33 @@ export interface PipelineTemplateSpecialCase {
   image_url?: string;
 }
 
+export interface PipelineTemplateMemeLibraryItem {
+  id: string;
+  enabled: boolean;
+  meaning: string;
+  trigger_keyword: string;
+  code?: string;
+  emotion?: string;
+  search_keyword?: string;
+  feishu_emoji?: string;
+  keywords?: string[];
+  tags?: string[];
+  file_key?: string;
+  image_url?: string;
+  source?: string;
+}
+
+export interface PipelineTemplateMemeConfig {
+  enabled: boolean;
+  large_enabled: boolean;
+  feishu_native_enabled: boolean;
+  library_enabled: boolean;
+  api_fallback_enabled: boolean;
+  oiapi_enabled?: boolean;
+  oiapi_limit?: number;
+  library: PipelineTemplateMemeLibraryItem[];
+}
+
 export interface PipelineTemplateReplyControls {
   multi_reply_enabled: boolean;
   merge_reply_enabled: boolean;
@@ -222,6 +250,7 @@ export interface PipelineTemplateConfig {
     click_reply: string;
   };
   human_handoff: PipelineTemplateHumanHandoff;
+  memes?: PipelineTemplateMemeConfig;
   special_cases: PipelineTemplateSpecialCase[];
   image_text_bindings: PipelineTemplateImageTextBinding[];
   course_profile?: Record<string, string>;

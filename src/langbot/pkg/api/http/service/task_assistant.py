@@ -149,6 +149,136 @@ COURSE_REPLY_CONTROLS = {
     'merge_reply_enabled': True,
     'merge_delay_seconds': 10.0,
 }
+COURSE_MEME_SCENES = [
+    ('happy', '开心回应', ['开心', '高兴', '太好了', '哈哈', '顺利'], '开心'),
+    ('thanks', '感谢回应', ['谢谢', '感谢', '辛苦了', '麻烦你', '拜托'], '感谢'),
+    ('like', '认可点赞', ['不错', '可以', '赞', '认可', '支持'], '点赞'),
+    ('success', '完成确认', ['完成', '搞定', '成功', '好了', '已处理'], '完成'),
+    ('morning', '早上好', ['早上好', '早安', '上午好', '新的一天', '早'], '早上好'),
+    ('noon', '中午好', ['中午好', '午安', '吃饭', '午休', '中午'], '中午好'),
+    ('evening', '晚上好', ['晚上好', '晚好', '下班', '今晚', '晚上'], '晚上好'),
+    ('night', '晚安提醒', ['晚安', '早点休息', '明天看', '夜里', '休息'], '晚安'),
+    ('ok', '好的收到', ['好的', '好嘞', 'OK', '可以的', '没问题'], '好的'),
+    ('received', '收到记录', ['收到', '已记录', '我记下了', '明白', '了解'], '收到'),
+    ('cheer', '加油鼓励', ['加油', '坚持', '鼓励', '别着急', '慢慢来'], '加油'),
+    ('welcome', '欢迎咨询', ['欢迎', '你好', '您好', '在的', '来了'], '欢迎'),
+    ('question', '温和疑问', ['怎么', '哪里', '为什么', '不清楚', '疑问'], '疑问'),
+    ('thinking', '正在思考', ['我看看', '确认下', '稍等', '查一下', '核对'], '思考'),
+    ('sorry', '礼貌抱歉', ['抱歉', '不好意思', '久等', '给您添麻烦', '稍晚'], '抱歉'),
+    ('wait', '稍等一下', ['稍等', '等我下', '马上', '一会儿', '别急'], '稍等'),
+    ('checking', '正在核实', ['核实', '确认', '查看', '检查', '帮您看'], '核实'),
+    ('reminder', '温和提醒', ['提醒', '记得', '别忘了', '可以看看', '留意'], '提醒'),
+    ('deal', '成交喜悦', ['成交', '下单', '购买', '订了', '买好了'], '成交'),
+    ('signup', '报名成功', ['报名', '已报名', '报好了', '提交', '领课'], '报名'),
+    ('payment', '支付确认', ['支付', '付款', '付好了', '订单', '缴费'], '支付'),
+    ('link', '链接指引', ['链接', '入口', '打开', '点击', '访问'], '链接'),
+    ('resource', '资料资源', ['资料', '资源', '二维码', '听力', '答案'], '资料'),
+    ('class_time', '上课时间', ['上课', '时间', '几点', '安排', '课程表'], '上课时间'),
+    ('replay', '回放说明', ['回放', '录播', '错过', '补看', '复习'], '回放'),
+    ('gift', '礼品赠品', ['礼品', '赠品', '资料包', '奖励', '福利'], '礼品'),
+    ('trial', '体验课', ['体验', '试听', '试试', '体验课', '先看看'], '体验课'),
+    ('discount', '优惠提醒', ['优惠', '活动', '价格', '9元', '名额'], '优惠'),
+    ('grade', '年级确认', ['年级', '几年级', '大班', '一年级', '孩子'], '年级'),
+    ('parent', '家长沟通', ['家长', '妈妈', '爸爸', '您家', '孩子家长'], '家长'),
+    ('child', '孩子鼓励', ['孩子', '小朋友', '学习', '兴趣', '基础'], '孩子'),
+    ('homework', '作业练习', ['作业', '练习', '打卡', '预习', '复习'], '练习'),
+    ('reading', '阅读写作', ['阅读', '写作', '作文', '理解', '表达'], '阅读'),
+    ('phonics', '自然拼读', ['自然拼读', '发音', '拼读', '单词', '英语'], '自然拼读'),
+    ('followup', '跟进关怀', ['跟进', '回访', '看看', '需要帮忙', '进展'], '跟进'),
+    ('congrats', '恭喜祝贺', ['恭喜', '太棒了', '祝贺', '好消息', '进步'], '恭喜'),
+    ('polite', '礼貌亲切', ['请', '您', '方便', '麻烦', '辛苦'], '礼貌'),
+    ('calm', '安抚情绪', ['别急', '不着急', '慢慢来', '我帮您', '放心'], '安抚'),
+    ('service', '服务承接', ['我来帮您', '帮您看', '处理', '安排', '登记'], '服务'),
+    ('handoff_ready', '准备人工协助', ['人工', '老师联系', '班主任', '电话', '专人'], '协助'),
+]
+COURSE_MEME_VARIANTS = [
+    ('soft', '温和友好'),
+    ('bright', '轻松明亮'),
+    ('steady', '稳妥专业'),
+    ('cute', '亲切可爱'),
+    ('clean', '简洁礼貌'),
+]
+COURSE_MEME_FEISHU_EMOJIS = {
+    'happy': ['[微笑]', '[愉快]', '[大笑]', '[欢呼]', '[耶]'],
+    'thanks': ['[双手合十]', '[感谢]', '[抱拳]'],
+    'like': ['[赞]', '[+1]', '[我看行]', '[强]', '[完成]'],
+    'success': ['[完成]', '[勾号]', '[100分]', '[鼓掌]'],
+    'morning': ['[微笑]', '[咖啡]'],
+    'noon': ['[咖啡]', '[愉快]'],
+    'evening': ['[咖啡]', '[微笑]'],
+    'night': ['[再见]', '[鼾睡]'],
+    'ok': ['[OK]', '[了解]', '[完成]'],
+    'received': ['[了解]', '[OK]', '[完成]'],
+    'cheer': ['[加油]', '[奋斗]', '[冲！]', '[鼓掌]'],
+    'welcome': ['[挥手]', '[微笑]', '[愉快]'],
+    'question': ['[思考]', '[什么？]', '[啊？]'],
+    'thinking': ['[思考]', '[思考中]', '[稍等]'],
+    'sorry': ['[抱拳]', '[双手合十]'],
+    'wait': ['[稍等]', '[在做了]', '[思考中]'],
+    'checking': ['[在做了]', '[稍等]', '[思考]'],
+    'reminder': ['[图钉]', '[闹钟]', '[点击]'],
+    'deal': ['[鼓掌]', '[欢呼]', '[撒花]'],
+    'signup': ['[完成]', '[鼓掌]', '[撒花]'],
+    'payment': ['[完成]', '[勾号]', '[100分]'],
+    'link': ['[点击]', '[OK]', '[了解]'],
+    'resource': ['[图钉]', '[点击]', '[了解]'],
+    'class_time': ['[日程]', '[闹钟]', '[了解]'],
+    'replay': ['[电视]', '[了解]', '[OK]'],
+    'gift': ['[礼物]', '[送你小红花]', '[撒花]'],
+    'trial': ['[微笑]', '[愉快]', '[挥手]'],
+    'discount': ['[礼物]', '[火]', '[点击]'],
+    'grade': ['[了解]', '[思考]', '[OK]'],
+    'parent': ['[微笑]', '[了解]', '[双手合十]'],
+    'child': ['[送你小红花]', '[加油]', '[比心]'],
+    'homework': ['[奋斗]', '[加油]', '[100分]'],
+    'reading': ['[100分]', '[送你小红花]', '[加油]'],
+    'phonics': ['[音乐]', '[100分]', '[加油]'],
+    'followup': ['[图钉]', '[了解]', '[微笑]'],
+    'congrats': ['[鼓掌]', '[欢呼]', '[撒花]'],
+    'polite': ['[双手合十]', '[感谢]', '[微笑]'],
+    'calm': ['[摸头]', '[抱拳]', '[稍等]'],
+    'service': ['[在做了]', '[了解]', '[OK]'],
+    'handoff_ready': ['[举手]', '[稍等]', '[了解]'],
+}
+
+
+def _build_default_sales_meme_library() -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for code, meaning, keywords, search_keyword in COURSE_MEME_SCENES:
+        for variant_index, (variant, variant_label) in enumerate(COURSE_MEME_VARIANTS, 1):
+            items.append(
+                {
+                    'id': f'{code}-{variant}',
+                    'enabled': True,
+                    'source': 'builtin',
+                    'meaning': f'{meaning} · {variant_label}',
+                    'trigger_keyword': f'{{{code}}}',
+                    'code': code,
+                    'emotion': code,
+                    'search_keyword': search_keyword,
+                    'feishu_emoji': COURSE_MEME_FEISHU_EMOJIS.get(code, ['[微笑]'])[
+                        (variant_index - 1) % len(COURSE_MEME_FEISHU_EMOJIS.get(code, ['[微笑]']))
+                    ],
+                    'keywords': keywords,
+                    'tags': [code, meaning, variant_label, search_keyword],
+                    'file_key': f'sales-memes/{code}/{variant}.png',
+                    'image_url': '',
+                }
+            )
+    return items
+
+
+DEFAULT_SALES_MEME_LIBRARY = _build_default_sales_meme_library()
+COURSE_MEME_CONFIG = {
+    'enabled': True,
+    'large_enabled': True,
+    'feishu_native_enabled': True,
+    'library_enabled': True,
+    'api_fallback_enabled': True,
+    'oiapi_enabled': True,
+    'oiapi_limit': 5,
+    'library': DEFAULT_SALES_MEME_LIBRARY,
+}
 COURSE_PAYMENT_SCREENSHOT_KEYWORDS = ['付款截图', '支付截图', '付款成功', '订单截图', '订单已支付', '收款成功']
 COURSE_SCREENSHOT_TEXT_KEYWORDS = ['截图', '截屏', '截个图', '截一下', '发图']
 COURSE_SMALLTALK_KEYWORDS = [
@@ -1138,6 +1268,7 @@ class TaskAssistantService:
         intent = self.classify_intent(text, query.message_chain, previous_messages, progress, workflow)
         self._record_progress(session_key, intent)
         query.variables['workflow_intent'] = intent
+        self._apply_lark_reaction_for_intent(query, intent)
         query.variables['task_assistant_voice_reply'] = self._has_voice(query.message_chain)
         model_info = await self._resolve_primary_llm_model_info(query, workflow)
         supports_native_audio = audio_content.model_supports_native_audio(
@@ -1571,10 +1702,28 @@ class TaskAssistantService:
         await self._schedule_course_sales_outreach_for_query(query, workflow, intent)
         intent = self._apply_course_faq_short_answer(intent, text, workflow, query)
         query.variables['workflow_intent'] = intent
+        self._apply_lark_reaction_for_intent(query, intent)
         self._rewrite_user_message_for_course_sales(query, intent, supports_native_audio=supports_native_audio)
         self._append_course_sales_control_context(query, intent)
 
         return {'handled': True, 'intent': intent}
+
+    def _apply_lark_reaction_for_intent(self, query: pipeline_query.Query, intent: dict[str, Any]) -> None:
+        if not isinstance(intent, dict):
+            return
+        intent_name = str(intent.get('intent') or '').strip()
+        emoji_type = ''
+        meme_emotion = ''
+        if intent_name == 'resource_confirmed':
+            emoji_type = 'SMILE'
+            meme_emotion = '开心'
+        elif intent_name == 'purchased':
+            emoji_type = 'THUMBSUP'
+            meme_emotion = '赞同'
+        if emoji_type:
+            query.variables['lark_reaction_emoji_type'] = emoji_type
+        if meme_emotion:
+            query.variables['auto_meme_emotion'] = meme_emotion
 
     async def _reset_sales_context_if_requested(
         self,
@@ -4076,6 +4225,27 @@ class TaskAssistantService:
         normalized['merge_delay_seconds'] = max(1.0, delay)
         return normalized
 
+    def _normalize_course_meme_config(self, value: Any) -> dict[str, Any]:
+        source = value if isinstance(value, dict) else {}
+        normalized = {**copy.deepcopy(COURSE_MEME_CONFIG), **copy.deepcopy(source)}
+        for key in (
+            'enabled',
+            'large_enabled',
+            'feishu_native_enabled',
+            'library_enabled',
+            'api_fallback_enabled',
+            'oiapi_enabled',
+        ):
+            normalized[key] = normalized.get(key) is not False
+        try:
+            limit = int(normalized.get('oiapi_limit') or COURSE_MEME_CONFIG['oiapi_limit'])
+        except (TypeError, ValueError):
+            limit = int(COURSE_MEME_CONFIG['oiapi_limit'])
+        normalized['oiapi_limit'] = max(1, min(20, limit))
+        if not isinstance(normalized.get('library'), list) or not normalized['library']:
+            normalized['library'] = copy.deepcopy(DEFAULT_SALES_MEME_LIBRARY)
+        return normalized
+
     def _normalize_course_media_key(self, value: Any) -> Any:
         if value == 'course-sales/phonics/phonics_poster.jpeg':
             return 'course-sales/phonics/gift_poster.jpeg'
@@ -4492,6 +4662,7 @@ class TaskAssistantService:
                 'handoff': True,
             },
             'reply_controls': copy.deepcopy(COURSE_REPLY_CONTROLS),
+            'memes': copy.deepcopy(COURSE_MEME_CONFIG),
             'memory': {
                 'variables_enabled': True,
                 'table_enabled': True,
@@ -4543,6 +4714,9 @@ class TaskAssistantService:
                 elif key == 'reply_controls' and isinstance(value, dict):
                     current = template_config.get('reply_controls') if isinstance(template_config.get('reply_controls'), dict) else {}
                     template_config['reply_controls'] = self._normalize_course_reply_controls({**current, **value})
+                elif key == 'memes' and isinstance(value, dict):
+                    current = template_config.get('memes') if isinstance(template_config.get('memes'), dict) else {}
+                    template_config['memes'] = self._normalize_course_meme_config({**current, **value})
                 elif key == 'scheduled_push' and isinstance(value, dict):
                     template_config['scheduled_push'] = {**scheduled_push, **value}
                 elif key == 'radar' and isinstance(value, dict):
@@ -4601,6 +4775,7 @@ class TaskAssistantService:
                 template_config['human_handoff'].get('notify_message')
             )
         template_config['reply_controls'] = self._normalize_course_reply_controls(template_config.get('reply_controls'))
+        template_config['memes'] = self._normalize_course_meme_config(template_config.get('memes'))
         self._normalize_course_template_media_keys(template_config)
         self._normalize_course_outreach_messages(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
@@ -4709,6 +4884,7 @@ class TaskAssistantService:
             if isinstance(template_config.get('radar'), dict)
             else copy.deepcopy(COURSE_RADAR_CONFIG)
         )
+        memes = self._normalize_course_meme_config(template_config.get('memes'))
         sales_links = (
             copy.deepcopy(template_config.get('sales_links'))
             if isinstance(template_config.get('sales_links'), list) and template_config.get('sales_links')
@@ -5109,6 +5285,7 @@ class TaskAssistantService:
             'sales_links': sales_links,
             'radar': radar,
             'human_handoff': human_handoff,
+            'memes': memes,
             'special_cases': special_cases,
             'followup_sequences': followups,
             'long_term_broadcasts': broadcasts,
@@ -5126,6 +5303,7 @@ class TaskAssistantService:
                 'selected_product_uuid': product_uuids[0],
                 'course_profiles': course_profiles,
                 'human_handoff': human_handoff,
+                'memes': memes,
                 'special_cases': special_cases,
                 'source_materials': source_materials,
             },
