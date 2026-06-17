@@ -187,6 +187,74 @@ async def test_respback_splits_course_sales_text_before_image_message():
 
 
 @pytest.mark.asyncio
+async def test_respback_splits_course_sales_extra_reply_open_question_and_link():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('我要报名')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.variables['workflow_intent'] = {'intent': 'purchase', 'confidence': 0.9}
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='报名入口我发您，方便时点开看看 家长，您这边能打开吗？')])
+    ]
+    stage._queue_extra_reply_chain(
+        query,
+        '猿辅导阅读+思维9元体验课报名通道\nhttps://example.com/radar/click/token',
+    )
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == [
+        '报名入口我发您，方便时点开看看',
+        '家长，您这边能打开吗？',
+        '猿辅导阅读+思维9元体验课报名通道',
+        'https://example.com/radar/click/token',
+    ]
+
+
+@pytest.mark.asyncio
+async def test_respback_adds_gift_intro_before_course_sales_signup_image():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('我要报名')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.pipeline_config['workflow']['nodes'] = [
+        {
+            'id': 'image_gift_poster',
+            'type': 'image',
+            'config': {
+                'file_key': 'course-sales/phonics/gift_poster.jpeg',
+                'trigger_intents': ['purchase'],
+                'requires_course_sales_signup_link': True,
+            },
+        }
+    ]
+    query.variables['workflow_intent'] = {
+        'intent': 'purchase',
+        'confidence': 0.9,
+        'link_url': 'https://m.yuanfudao.com/primary/templates/package?test=gift',
+    }
+    query.variables['course_sales_radar_link'] = 'https://m.yuanfudao.com/primary/templates/package?test=gift'
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='报名入口我发您。')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [
+        kwargs['message']
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    sent_texts = [str(message) for message in sent_messages]
+    assert '报课后按活动规则有完课礼，礼品说明我发您看一下' in sent_texts
+    image_index = next(index for index, message in enumerate(sent_messages) if isinstance(message[0], platform_message.Image))
+    assert sent_texts.index('报课后按活动规则有完课礼，礼品说明我发您看一下') < image_index
+
+
+@pytest.mark.asyncio
 async def test_respback_resends_resource_link_for_course_sales_resource_open_failure():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
@@ -228,7 +296,8 @@ async def test_respback_resends_resource_link_for_course_sales_resource_open_fai
         '你说的图书资源打不开吗？',
         '我帮您再发一下适配的资源链接哈',
         '方便发我一张截图吗？',
-        '图书配套学习资源卡片：https://example.com/resource-card',
+        '图书配套学习资源卡片',
+        'https://example.com/resource-card',
     ]
     assert all('家长，您这边能打开吗？' not in text for text in sent_texts)
 
@@ -278,7 +347,7 @@ async def test_respback_does_not_repeat_open_question_after_user_confirmed_resou
         str(kwargs['message'])
         for _, kwargs in query.adapter.reply_message.await_args_list
     ]
-    assert sent_texts == ['好的，孩子现在几年级呀？']
+    assert sent_texts == ['好的，', '孩子现在几年级呀？']
 
 
 @pytest.mark.asyncio
@@ -312,8 +381,11 @@ async def test_respback_does_not_duplicate_parent_open_question():
 
     await stage.process(query, 'SendResponseBackStage')
 
-    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
-    assert str(sent_chain) == '我把资源链接发您了，家长，您这边能打开吗？'
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == ['我把资源链接发您了，', '家长，您这边能打开吗？']
 
 
 @pytest.mark.asyncio
@@ -397,8 +469,11 @@ async def test_respback_does_not_duplicate_child_grade_question():
 
     await stage.process(query, 'SendResponseBackStage')
 
-    sent_chain = query.adapter.reply_message.await_args.kwargs['message']
-    assert str(sent_chain) == '这个课适合小学阶段孩子，孩子现在几年级呀？'
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == ['这个课适合小学阶段孩子，', '孩子现在几年级呀？']
 
 
 @pytest.mark.asyncio
@@ -764,7 +839,8 @@ async def test_respback_sends_course_sales_signup_link_as_separate_plain_reply()
     ]
     assert sent_texts == [
         '好哒',
-        f'猿辅导英语自然拼读9元体验课点这里👉：{tracking_link}',
+        '猿辅导英语自然拼读9元体验课点这里👉',
+        tracking_link,
     ]
     assert '报名链接' not in sent_texts[1]
     assert '报名入口' not in sent_texts[1]

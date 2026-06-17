@@ -422,6 +422,8 @@ class SendResponseBackStage(stage.PipelineStage):
             caption = str(node_config.get('caption') or '').strip()
             if caption and not is_task_assistant_workflow and node_config.get('append_caption') is not False:
                 components.append(platform_message.Plain(text=f'\n{caption}'))
+            elif requires_signup_link and self._is_course_sales_workflow(workflow) and not is_task_assistant_workflow:
+                components.append(platform_message.Plain(text='报课后按活动规则有完课礼，礼品说明我发您看一下。'))
             components.append(await self._image_component(file_key, image_url))
 
             if max_images is not None and sum(isinstance(component, platform_message.Image) for component in components) >= max_images:
@@ -470,6 +472,16 @@ class SendResponseBackStage(stage.PipelineStage):
         for raw_line in text.strip().replace('\r\n', '\n').split('\n'):
             line = raw_line.strip()
             if not line:
+                continue
+            for marker in (
+                self._COURSE_SALES_LINK_OPEN_QUESTION,
+                self._COURSE_SALES_CHILD_GRADE_QUESTION,
+                '方便发我一张截图吗？',
+            ):
+                if marker in line and not line.startswith(marker):
+                    line = line.replace(marker, f'\n{marker}')
+            if '\n' in line:
+                chunks.extend(self._split_natural_sentences(line))
                 continue
             parts = re.findall(r'.+?(?:[。！？!?；;]+|$)', line)
             chunks.extend(part.strip() for part in parts if part.strip())
@@ -728,6 +740,16 @@ class SendResponseBackStage(stage.PipelineStage):
         if not isinstance(extra_chains, list):
             return []
         return [chain for chain in extra_chains if isinstance(chain, platform_message.MessageChain)]
+
+    def _pop_outgoing_extra_reply_chains(self, query: pipeline_query.Query) -> list[platform_message.MessageChain]:
+        extra_chains = self._pop_extra_reply_chains(query)
+        workflow = self._active_workflow(query)
+        if not self._is_course_sales_workflow(workflow):
+            return extra_chains
+        outgoing_chains: list[platform_message.MessageChain] = []
+        for chain in extra_chains:
+            outgoing_chains.extend(self._course_sales_reply_chains(chain))
+        return outgoing_chains
 
     def _append_course_sales_open_question(self, query: pipeline_query.Query) -> None:
         workflow = self._active_workflow(query)
@@ -1035,7 +1057,7 @@ class SendResponseBackStage(stage.PipelineStage):
             if is_final:
                 for message_chain in [
                     *reply_chains[1:],
-                    *self._pop_extra_reply_chains(query),
+                    *self._pop_outgoing_extra_reply_chains(query),
                 ]:
                     await query.adapter.reply_message(
                         message_source=query.message_event,
@@ -1048,7 +1070,7 @@ class SendResponseBackStage(stage.PipelineStage):
             self._strip_thinking_from_response(query)
             reply_chains = [
                 *self._multi_reply_chains(query),
-                *self._pop_extra_reply_chains(query),
+                *self._pop_outgoing_extra_reply_chains(query),
             ]
             for index, message_chain in enumerate(reply_chains):
                 await query.adapter.reply_message(
