@@ -158,6 +158,35 @@ async def test_respback_sends_course_sales_followup_question_as_separate_message
 
 
 @pytest.mark.asyncio
+async def test_respback_splits_course_sales_text_before_image_message():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('您这边有数学课么')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(text='有的哦\n我们还有9元的阅读+思维体验课\n适合小学阶段的孩子 还支持回放'),
+                platform_message.Image(path='course-sales/phonics/gift_poster.jpeg'),
+            ]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [
+        kwargs['message']
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert [str(message) for message in sent_messages[:3]] == [
+        '有的哦',
+        '我们还有9元的阅读+思维体验课',
+        '适合小学阶段的孩子 还支持回放',
+    ]
+    assert isinstance(sent_messages[3][0], platform_message.Image)
+
+
+@pytest.mark.asyncio
 async def test_respback_resends_resource_link_for_course_sales_resource_open_failure():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
@@ -483,6 +512,45 @@ async def test_respback_strips_unclosed_thinking_tags_from_stream_chunk():
     sent_chunk = query.adapter.reply_message_chunk.await_args.kwargs['bot_message']
     assert str(sent_chain) == '收到'
     assert sent_chunk.content == '收到'
+
+
+@pytest.mark.asyncio
+async def test_respback_splits_final_course_sales_stream_reply():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('您这边有数学课么')
+    query.adapter.is_stream_output_supported = AsyncMock(return_value=True)
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.resp_messages = [
+        provider_message.MessageChunk(
+            role='assistant',
+            content='有的哦\n我们还有9元的阅读+思维体验课\n适合小学阶段的孩子 还支持回放',
+            is_final=True,
+        )
+    ]
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(
+                    text='有的哦\n我们还有9元的阅读+思维体验课\n适合小学阶段的孩子 还支持回放'
+                )
+            ]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chunk_chain = query.adapter.reply_message_chunk.await_args.kwargs['message']
+    sent_reply_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert str(sent_chunk_chain) == '有的哦'
+    assert sent_reply_texts == [
+        '我们还有9元的阅读+思维体验课',
+        '适合小学阶段的孩子 还支持回放',
+        '孩子现在几年级呀？',
+    ]
 
 
 @pytest.mark.asyncio

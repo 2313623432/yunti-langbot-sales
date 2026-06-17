@@ -212,6 +212,16 @@ class DingTalkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
 
         markdown_enabled = self.config.get('markdown_card', False)
         content, at = await DingTalkMessageConverter.yiri2target(message, markdown_enabled)
+        if not quote_origin:
+            if isinstance(message_source, platform_events.FriendMessage):
+                target_id = incoming_message.sender_staff_id or message_source.sender.id
+                await self.bot.send_proactive_message_to_one(target_id, content)
+                return
+            if isinstance(message_source, platform_events.GroupMessage):
+                target_id = incoming_message.conversation_id or message_source.sender.group.id
+                await self.bot.send_proactive_message_to_group(target_id, content)
+                return
+
         await self.bot.send_message(content, incoming_message, at)
 
     async def reply_message_chunk(

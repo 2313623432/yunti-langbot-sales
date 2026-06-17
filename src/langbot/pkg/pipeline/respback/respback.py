@@ -503,6 +503,22 @@ class SendResponseBackStage(stage.PipelineStage):
                     normalized.append(stripped)
         return normalized
 
+    def _course_sales_reply_chains(
+        self,
+        message_chain: platform_message.MessageChain,
+    ) -> list[platform_message.MessageChain]:
+        chains: list[platform_message.MessageChain] = []
+        for component in message_chain:
+            if isinstance(component, platform_message.Plain):
+                for chunk in self._split_course_sales_reply_text(component.text):
+                    chains.append(platform_message.MessageChain([platform_message.Plain(text=chunk)]))
+                continue
+            if isinstance(component, platform_message.Image):
+                chains.append(platform_message.MessageChain([component]))
+                continue
+            return [message_chain]
+        return chains or [message_chain]
+
     def _split_plain_text(self, text: str, threshold: int, *, natural_sentences: bool = False) -> list[str]:
         stripped = text.strip()
         if not stripped or len(stripped) <= threshold:
@@ -547,10 +563,12 @@ class SendResponseBackStage(stage.PipelineStage):
 
         text = self._plain_text_from_chain(message_chain)
         if is_course_sales:
-            chunks = self._split_course_sales_reply_text(text)
-            if len(chunks) <= 1:
+            if any(not isinstance(component, (platform_message.Plain, platform_message.Image)) for component in components):
+                return [message_chain]
+            chains = self._course_sales_reply_chains(message_chain)
+            if len(chains) <= 1 and text:
                 return [platform_message.MessageChain([platform_message.Plain(text=self._strip_course_sales_final_periods(text))])]
-            return [platform_message.MessageChain([platform_message.Plain(text=chunk)]) for chunk in chunks]
+            return chains
 
         if not enabled:
             return [message_chain]
@@ -1003,15 +1021,19 @@ class SendResponseBackStage(stage.PipelineStage):
             if is_final:
                 await self._append_response_enrichments(query)
                 self._strip_thinking_from_response(query)
+            reply_chains = self._multi_reply_chains(query) if is_final else [query.resp_message_chain[-1]]
             await query.adapter.reply_message_chunk(
                 message_source=query.message_event,
                 bot_message=query.resp_messages[-1],
-                message=query.resp_message_chain[-1],
+                message=reply_chains[0],
                 quote_origin=quote_origin,
                 is_final=is_final,
             )
             if is_final:
-                for message_chain in self._pop_extra_reply_chains(query):
+                for message_chain in [
+                    *reply_chains[1:],
+                    *self._pop_extra_reply_chains(query),
+                ]:
                     await query.adapter.reply_message(
                         message_source=query.message_event,
                         message=message_chain,
