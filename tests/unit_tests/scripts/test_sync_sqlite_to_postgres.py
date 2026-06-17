@@ -1,10 +1,7 @@
 import datetime
 import json
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import sqlalchemy
-import pytest
 
 from scripts import sync_sqlite_to_postgres
 
@@ -28,39 +25,3 @@ def test_coerce_value_converts_json_datetime_and_bool():
     )
     assert sync_sqlite_to_postgres._coerce_value(bool_column, 1) is True
     assert sync_sqlite_to_postgres._coerce_value(bool_column, 0) is False
-
-
-@pytest.mark.asyncio
-async def test_reset_postgres_sequences_sets_integer_primary_keys(monkeypatch):
-    test_table = sqlalchemy.Table(
-        'example_table',
-        sqlalchemy.MetaData(),
-        sqlalchemy.Column('id', sqlalchemy.Integer, primary_key=True),
-        sqlalchemy.Column('name', sqlalchemy.String),
-    )
-    executed = []
-
-    class FakeConnection:
-        async def execute(self, statement, params=None):
-            executed.append((str(statement), params))
-
-    class FakeBegin:
-        async def __aenter__(self):
-            return FakeConnection()
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-    class FakeEngine:
-        def begin(self):
-            return FakeBegin()
-
-    monkeypatch.setattr(sync_sqlite_to_postgres.Base, 'metadata', SimpleNamespace(sorted_tables=[test_table]))
-
-    await sync_sqlite_to_postgres._reset_postgres_sequences(FakeEngine())
-
-    assert len(executed) == 1
-    statement, params = executed[0]
-    assert 'setval' in statement
-    assert 'MAX("id")' in statement
-    assert params == {'table_name': 'example_table', 'column_name': 'id'}

@@ -35,3 +35,28 @@ async def test_ensure_builtin_text_providers_creates_openai_provider_and_models(
     first_model_args = mock_app.llm_model_service.create_llm_model.await_args_list[0].args[0]
     assert first_model_args['provider_uuid'] == 'lnp-openai'
     assert first_model_args['extra_args']['display_name']
+
+
+@pytest.mark.asyncio
+async def test_remove_removed_doubao_builtin_models_prunes_database_and_runtime():
+    mock_app = Mock()
+    mock_app.logger = Mock()
+    mock_app.persistence_mgr = AsyncMock()
+    mock_app.persistence_mgr.execute_async = AsyncMock(
+        return_value=Mock(first=Mock(return_value=Mock()))
+    )
+    mock_app.model_mgr = AsyncMock()
+    mock_app.model_mgr.remove_llm_model = AsyncMock()
+
+    await llm_bootstrap._remove_removed_doubao_models(mock_app)
+
+    removed_model_uuids = {
+        call.args[0] for call in mock_app.model_mgr.remove_llm_model.await_args_list
+    }
+    assert removed_model_uuids == llm_bootstrap.REMOVED_DOUBAO_TEXT_MODEL_UUIDS
+    assert mock_app.persistence_mgr.execute_async.await_count == (
+        len(llm_bootstrap.REMOVED_DOUBAO_TEXT_MODEL_UUIDS) * 2
+    )
+    assert mock_app.logger.info.call_count == len(
+        llm_bootstrap.REMOVED_DOUBAO_TEXT_MODEL_UUIDS
+    )

@@ -1,7 +1,7 @@
 import pytest
-from types import SimpleNamespace
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
+from types import SimpleNamespace
 
 from langbot.pkg.platform.sources.lark import LarkAdapter, LarkEventConverter, LarkMessageConverter
 from lark_oapi.api.im.v1 import EventMessage
@@ -20,6 +20,24 @@ def test_lark_voice_upload_options_use_audio_message_for_ogg_opus_data_uri():
     voice_options = LarkMessageConverter._voice_upload_options('data:audio/ogg;base64,ZmFrZQ==')
 
     assert voice_options == {'file_type': 'opus', 'file_name': 'voice.opus'}
+
+
+def test_lark_sticker_file_key_support_requires_shared_message_component():
+    assert LarkMessageConverter.supports_lark_sticker_file_key_components() is False
+    assert LarkMessageConverter.lark_sticker_file_key_from_component(platform_message.Plain(text='😊')) is None
+    assert LarkMessageConverter.lark_sticker_file_key_from_component(
+        platform_message.Face(face_type='face', face_id=1, face_name='smile')
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_lark_text_emoji_fallback_remains_plain_post_content():
+    message_chain = platform_message.MessageChain([platform_message.Plain(text='😊 家长您好')])
+
+    text_elements, media_items = await LarkMessageConverter.yiri2target(message_chain, api_client=None)
+
+    assert text_elements == [[{'tag': 'md', 'text': '😊 家长您好'}]]
+    assert media_items == []
 
 
 @pytest.mark.asyncio
@@ -193,3 +211,65 @@ async def test_lark_friend_message_uses_sender_display_name_when_contact_lookup_
 
     assert isinstance(converted, platform_events.FriendMessage)
     assert converted.sender.nickname == 'Customer Name'
+
+
+@pytest.mark.asyncio
+async def test_lark_friend_message_uses_contact_display_name_from_dict_response():
+    class FakeUserClient:
+        async def aget(self, request):
+            assert request.user_id == 'ou_customer'
+            return SimpleNamespace(
+                success=lambda: True,
+                data={'user': {'name': '少华', 'nickname': '少华昵称'}},
+            )
+
+    api_client = SimpleNamespace(contact=SimpleNamespace(v3=SimpleNamespace(user=FakeUserClient())))
+    event = SimpleNamespace(
+        event=SimpleNamespace(
+            sender=SimpleNamespace(sender_id=SimpleNamespace(open_id='ou_customer', union_id='on_technical_id_123456')),
+            message=SimpleNamespace(
+                message_id='om_message',
+                message_type='text',
+                content='{"text":"hello"}',
+                create_time='1710000000000',
+                mentions=[],
+                chat_type='p2p',
+                chat_id='oc_chat',
+                parent_id=None,
+                thread_id=None,
+            ),
+        )
+    )
+
+    converted = await LarkEventConverter.target2yiri(event, api_client)
+
+    assert isinstance(converted, platform_events.FriendMessage)
+    assert converted.sender.nickname == '少华'
+
+
+@pytest.mark.asyncio
+async def test_lark_contact_lookup_failure_logs_warning_and_uses_fallback_name():
+    class FakeUserClient:
+        async def aget(self, request):
+            return SimpleNamespace(success=lambda: False, code=99991663, msg='no user authority')
+
+    class FakeLogger:
+        def __init__(self):
+            self.warnings = []
+
+        async def warning(self, text, images=None, message_session_id=None, no_throw=True):
+            self.warnings.append(text)
+
+    api_client = SimpleNamespace(contact=SimpleNamespace(v3=SimpleNamespace(user=FakeUserClient())))
+    logger = FakeLogger()
+
+    display_name = await LarkEventConverter._fetch_user_display_name(
+        api_client,
+        'ou_customer_abcdefghijklmnopqrstuvwxyz',
+        '事件显示名',
+        logger,
+    )
+
+    assert display_name == '事件显示名'
+    assert logger.warnings
+    assert 'no user authority' in logger.warnings[0]

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from tests.utils.import_isolation import isolated_sys_modules
 
 
@@ -241,6 +243,50 @@ class TestParseRerankResponse:
 
         result = OpenAIChatCompletions._parse_rerank_response(data)
         assert result == []
+
+
+class TestThinkingContent:
+    @pytest.mark.asyncio
+    async def test_process_thinking_content_removes_reasoning_and_think_tags(self):
+        from langbot.pkg.provider.modelmgr.requesters.chatcmpl import OpenAIChatCompletions
+
+        requester = OpenAIChatCompletions(MagicMock(), {})
+
+        content, thinking = await requester._process_thinking_content(
+            content='<think>internal reasoning</think>\n请问您这边能打开吗？',
+            reasoning_content='hidden chain',
+            remove_think=True,
+        )
+
+        assert content == '请问您这边能打开吗？'
+        assert thinking == ''
+        assert '<think>' not in content
+        assert 'hidden chain' not in content
+
+    def test_remove_think_delta_filters_streaming_content_tags(self):
+        from langbot.pkg.provider.modelmgr.requesters.chatcmpl import OpenAIChatCompletions
+
+        requester = OpenAIChatCompletions(MagicMock(), {})
+
+        first, inside = requester._remove_think_delta('<think>internal', False)
+        second, inside = requester._remove_think_delta(' reasoning</think>您好', inside)
+        third, inside = requester._remove_think_delta('，家长这边能打开吗？', inside)
+
+        assert first == ''
+        assert second == '您好'
+        assert third == '，家长这边能打开吗？'
+        assert inside is False
+
+    def test_volcark_requester_disables_thinking_by_default(self):
+        from langbot.pkg.provider.modelmgr.requesters.volcarkchatcmpl import VolcArkChatCompletions
+
+        requester = VolcArkChatCompletions(MagicMock(), {})
+
+        extra_body = requester._prepare_extra_body({'temperature': 0.4})
+
+        assert extra_body['temperature'] == 0.4
+        assert extra_body['thinking'] == {'type': 'disabled'}
+        assert extra_body['reasoning_effort'] == 'minimal'
 
 
 class TestExtractScanMetadata:

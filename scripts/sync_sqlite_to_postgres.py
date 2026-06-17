@@ -78,7 +78,9 @@ async def _reset_postgres_sequences(engine: AsyncEngine) -> None:
     async with engine.begin() as conn:
         for table in Base.metadata.sorted_tables:
             integer_pk_columns = [
-                column for column in table.primary_key.columns if isinstance(column.type, sqlalchemy.Integer)
+                column
+                for column in table.primary_key.columns
+                if isinstance(column.type, sqlalchemy.Integer)
             ]
             for column in integer_pk_columns:
                 await conn.execute(
@@ -115,17 +117,17 @@ async def sync_sqlite_to_postgres(sqlite_path: Path, postgres_url: str, replace:
                 if not rows:
                     continue
                 valid_columns = {column.name: column for column in table.columns}
-                converted_rows = []
-                for row in rows:
-                    converted_rows.append(
-                        {
-                            name: _coerce_value(valid_columns[name], value)
-                            for name, value in row.items()
-                            if name in valid_columns
-                        }
-                    )
+                converted_rows = [
+                    {
+                        name: _coerce_value(valid_columns[name], value)
+                        for name, value in row.items()
+                        if name in valid_columns
+                    }
+                    for row in rows
+                ]
                 await conn.execute(table.insert(), converted_rows)
                 inserted += len(converted_rows)
+
         if inserted:
             await _reset_postgres_sequences(engine)
     finally:

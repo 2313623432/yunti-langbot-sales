@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import copy
 import datetime
-import asyncio
 import json
 import os
 import re
@@ -45,12 +44,14 @@ YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID = 'yuanfudao-enhanced-sales-template-p
 YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID = 'yuanfudao-sales-knowledge-base'
 BUILTIN_KNOWLEDGE_ENGINE_ID = builtin_engine.BUILTIN_KNOWLEDGE_ENGINE_ID
 YUANFUDAO_KNOWLEDGE_PACK_DIR = 'templates/course-sales/yuanfudao-knowledge'
+RETIRED_YUANFUDAO_SEED_DOCUMENTS = {'猿辅导介绍0317.pdf'}
 COURSE_SALES_PRODUCT_UUID = 'yuanfudao-phonics-course'
 COURSE_SALES_TTS_MODEL_UUID = 'lnv-doubao-seed-tts-2-0-standard'
 COURSE_SALES_TTS_VOICE_TYPE = 'zh_female_vv_uranus_bigtts'
 COURSE_SALES_ASR_MODEL_UUID = 'lna-doubao-bigasr-flash'
 COURSE_PURCHASE_CONFIRMATION_KEYWORDS = [
     '买了',
+    '报名了',
     '已报名',
     '支付了',
     '付了',
@@ -144,7 +145,7 @@ COURSE_SPECIAL_CASES = [
     }
 ]
 COURSE_REPLY_CONTROLS = {
-    'multi_reply_enabled': False,
+    'multi_reply_enabled': True,
     'merge_reply_enabled': True,
     'merge_delay_seconds': 10.0,
 }
@@ -182,9 +183,10 @@ COURSE_RESOURCE_CARD_LINK = (
 COURSE_RESOURCE_HISTORY_LINK = 'https://mp.bookln.cn/user/history/moment.htm'
 COURSE_RESOURCE_MINI_PROGRAM = '#小程序://教辅好帮手/la0KWwjPCx8S26C'
 COURSE_RESOURCE_GOODS_GROUP_LINK = 'https://d.codeup.cn/d/UVruQn'
+COURSE_RESOURCE_OPEN_CHECK_MESSAGE = '家长，您这边能打开吗？'
 
 COURSE_OPENING_MESSAGE = (
-    '您的图书配套学习资源点击👇️下方卡片激活查看；\n'
+    '😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n'
     f'也可点击➡️查看扫码记录  {COURSE_RESOURCE_HISTORY_LINK}\n\n'
     f'✅ 搜本页答案，点击👉{COURSE_RESOURCE_MINI_PROGRAM}\n\n'
     f'✅ 出版社内购好物群：{COURSE_RESOURCE_GOODS_GROUP_LINK}'
@@ -905,9 +907,10 @@ COURSE_IMAGE_BINDINGS = [
     {
         'step_id': 'gift_poster',
         'title': '完课好礼海报',
-        'text': '表格内置素材：用户不买、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
+        'text': '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
-        'trigger_intents': ['gift', 'objection', 'course_intro'],
+        'trigger_intents': ['gift', 'objection', 'course_intro', 'purchase'],
+        'requires_course_sales_signup_link': True,
         'enabled': True,
     },
     {
@@ -955,7 +958,14 @@ COURSE_STOP_RULES = {
     'stop_keywords': [
         '不需要',
         '不买',
+        '不想买',
+        '不想报',
+        '不想报名',
+        '不想领取',
+        '不领取',
         '不要再发',
+        '不感兴趣',
+        '没兴趣',
         '别来烦',
         '别联系',
         '滚',
@@ -1118,6 +1128,11 @@ class TaskAssistantService:
 
         text = query.variables.get('user_message_text', '')
         session_key = self._query_session_key(query)
+        reset_result = await self._reset_sales_context_if_requested(query, text, session_key)
+        if reset_result is not None:
+            return reset_result
+        query.variables['course_sales_first_contact'] = await self._is_course_sales_first_contact(query)
+
         progress = self._session_progress.get(session_key, {}) if session_key else {}
         previous_messages = getattr(query, 'messages', []) or []
         intent = self.classify_intent(text, query.message_chain, previous_messages, progress, workflow)
@@ -1528,6 +1543,10 @@ class TaskAssistantService:
 
         text = query.variables.get('user_message_text', '')
         session_key = self._query_session_key(query)
+        reset_result = await self._reset_sales_context_if_requested(query, text, session_key)
+        if reset_result is not None:
+            return reset_result
+
         voice_config = workflow.get('voice') if isinstance(workflow.get('voice'), dict) else {}
         course_voice_enabled = voice_config.get('enabled') is True
         query.variables['task_assistant_voice_reply'] = self._has_voice(query.message_chain) and course_voice_enabled
@@ -1556,6 +1575,32 @@ class TaskAssistantService:
         self._append_course_sales_control_context(query, intent)
 
         return {'handled': True, 'intent': intent}
+
+    async def _reset_sales_context_if_requested(
+        self,
+        query: pipeline_query.Query,
+        text: str,
+        session_key: str,
+    ) -> dict[str, Any] | None:
+        sales_service = getattr(self.ap, 'sales_service', None)
+        is_reset_command = getattr(sales_service, 'is_reset_command', None)
+        reset_requested = (
+            is_reset_command(text)
+            if callable(is_reset_command)
+            else (text or '').strip().lower() in {'/new', '／new'}
+        )
+        if not reset_requested:
+            return None
+
+        if session_key:
+            self._session_progress.pop(session_key, None)
+        if sales_service is not None and hasattr(sales_service, 'reset_sales_session_context'):
+            await sales_service.reset_sales_session_context(query)
+        return {
+            'handled': True,
+            'interrupted': True,
+            'notice': '已重置当前会话，之前的聊天上下文和客户记忆已清空。请直接发送新的问题继续咨询。',
+        }
 
     async def _record_course_resource_issue_for_query(
         self,
@@ -1690,7 +1735,7 @@ class TaskAssistantService:
                 selected_profile=selected_profile,
             )
         rejection_keywords = explicit_rejection_keywords or self._lower_keywords(stop_rules.get('stop_keywords'))
-        if any(keyword in normalized for keyword in rejection_keywords):
+        if self._mentions_course_sales_explicit_rejection(normalized, rejection_keywords):
             return self._course_intent(
                 'explicit_rejection',
                 0.9,
@@ -1705,6 +1750,14 @@ class TaskAssistantService:
                 '用户提到点击或进入报名通道，按雷达触发后跟进',
                 step_ids=[],
                 include_link=True,
+                selected_profile=selected_profile,
+            )
+        if self._mentions_resource_open_confirmation(normalized):
+            return self._course_intent(
+                'resource_confirmed',
+                0.82,
+                '用户确认图书资源或卡片可以打开，按SOP先问年级再承接课程',
+                step_ids=[],
                 selected_profile=selected_profile,
             )
         resource_faqs = workflow.get('resource_faqs') if isinstance(workflow.get('resource_faqs'), list) else COURSE_RESOURCE_FAQS
@@ -1740,6 +1793,14 @@ class TaskAssistantService:
                 step_ids=[],
                 selected_profile={'key': '', 'product_uuid': '', 'facts': {}},
             )
+        if self._is_low_signal_course_sales_text(normalized):
+            return self._course_intent(
+                'clarification',
+                0.58,
+                '用户表达较短或不明确，先低压力澄清需求，不主动推课',
+                step_ids=[],
+                selected_profile={'key': '', 'product_uuid': '', 'facts': {}},
+            )
         if selected_profile.get('key') == 'reading_thinking':
             return self._course_intent(
                 'reading_thinking_intro',
@@ -1752,9 +1813,15 @@ class TaskAssistantService:
 
     def _classify_course_resource_issue_type(self, normalized: str) -> str:
         text = normalized or ''
+        open_failure = any(keyword in text for keyword in ['打不开', '不能打开', '无法打开', '没打开', '没有打开', '点不开'])
+        signup_context = any(keyword in text for keyword in ['报名', '购买', '支付', '付款', '课程链接', '报名链接'])
+        if open_failure and not signup_context:
+            return 'missing_resource'
         has_resource_context = any(keyword in text for keyword in ['资源', '听力', '音频', '答案', '扫码', '二维码'])
         if not has_resource_context:
             return ''
+        if open_failure:
+            return 'missing_resource'
         if any(keyword in text for keyword in ['缺失', '暂无资源', '没有资源', '没资源']):
             return 'missing_resource'
         if any(keyword in text for keyword in ['正在上传中', '正在上传', '上传中', '更新中', '还在更新']):
@@ -1774,7 +1841,7 @@ class TaskAssistantService:
             return 'gift_poster'
         if intent in {'resource_help'}:
             return 'gift_qr'
-        if intent in {'no_reply'}:
+        if intent in {'no_reply', 'resource_confirmed'}:
             return ''
         return 'gift_poster'
 
@@ -1811,6 +1878,39 @@ class TaskAssistantService:
             return COURSE_SAFE_HANDOFF_NOTIFY_MESSAGE
         return message
 
+    def _looks_like_manual_handoff_request(self, normalized: str) -> bool:
+        if not normalized:
+            return False
+        direct_phrases = [
+            '转人工',
+            '转真人',
+            '找人工',
+            '找真人',
+            '找客服',
+            '要人工',
+            '要真人',
+            '人工客服',
+            '真人客服',
+            '联系客服',
+            '客服介入',
+            '人工介入',
+            '人工处理',
+            '人工帮',
+            '班主任联系',
+            '联系班主任',
+            '老师联系',
+            '电话联系',
+            '打电话',
+            '回电话',
+            '给我回电',
+            '联系我',
+        ]
+        if any(phrase in normalized for phrase in direct_phrases):
+            return True
+        request_words = ['找', '转', '要', '需要', '叫', '让', '换', '联系', '电话']
+        target_words = ['人工', '真人', '客服', '班主任']
+        return any(word in normalized for word in request_words) and any(word in normalized for word in target_words)
+
     def _course_sales_handoff_match(self, normalized: str, workflow: dict[str, Any]) -> dict[str, str] | None:
         if not normalized:
             return None
@@ -1818,26 +1918,12 @@ class TaskAssistantService:
         if config.get('enabled') is False:
             return None
 
-        keywords = self._lower_keywords(config.get('keywords'))
-        for keyword in keywords:
-            if keyword and keyword in normalized:
-                if keyword in {'转人工', '人工', '真人', '真人客服', '人工客服', '客服', '班主任', '老师联系', '电话联系'}:
-                    return {'id': 'manual_request', 'label': f'命中转人工关键词：{keyword}'}
-                if keyword in {'退费', '退款', '订单异常', '支付异常', '看不到课', '没收到课'}:
-                    return {'id': 'payment_issue', 'label': f'命中订单异常关键词：{keyword}'}
-                if keyword in {'投诉', '举报', '诈骗', '骗子', '维权'}:
-                    return {'id': 'high_risk_complaint', 'label': f'命中高风险关键词：{keyword}'}
-                return {'id': 'keyword', 'label': f'命中转人工关键词：{keyword}'}
-
         enabled_triggers = {
             str(trigger.get('id') or '')
             for trigger in config.get('semantic_triggers', [])
             if isinstance(trigger, dict) and trigger.get('enabled') is not False
         }
-        if 'manual_request' in enabled_triggers and any(
-            keyword in normalized
-            for keyword in ['转人工', '人工', '真人', '人工客服', '真人客服', '客服', '班主任', '电话联系', '联系我']
-        ):
+        if 'manual_request' in enabled_triggers and self._looks_like_manual_handoff_request(normalized):
             return {'id': 'manual_request', 'label': '客户明确要求人工介入'}
         if 'payment_issue' in enabled_triggers and any(
             keyword in normalized
@@ -1853,6 +1939,19 @@ class TaskAssistantService:
             for keyword in ['投诉', '举报', '诈骗', '骗子', '欺骗', '维权', '12315', '黑猫', '315', '垃圾', 'cnm', '滚']
         ):
             return {'id': 'high_risk_complaint', 'label': '客户表达投诉或高风险负面情绪'}
+
+        keywords = self._lower_keywords(config.get('keywords'))
+        for keyword in keywords:
+            if keyword and keyword in normalized:
+                if keyword in {'转人工', '人工', '真人', '真人客服', '人工客服', '客服', '班主任', '老师联系', '电话联系'}:
+                    if self._looks_like_manual_handoff_request(normalized):
+                        return {'id': 'manual_request', 'label': f'命中转人工兜底词：{keyword}'}
+                    continue
+                if keyword in {'退费', '退款', '订单异常', '支付异常', '看不到课', '没收到课'}:
+                    return {'id': 'payment_issue', 'label': f'命中订单异常兜底词：{keyword}'}
+                if keyword in {'投诉', '举报', '诈骗', '骗子', '维权'}:
+                    return {'id': 'high_risk_complaint', 'label': f'命中高风险兜底词：{keyword}'}
+                return {'id': 'keyword', 'label': f'命中转人工兜底词：{keyword}'}
         return None
 
     def _course_sales_profiles(self, workflow: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1897,6 +1996,34 @@ class TaskAssistantService:
         ]
         return any(keyword in normalized for keyword in [*COURSE_ABUSIVE_STOP_KEYWORDS, *configured_keywords])
 
+    def _mentions_course_sales_explicit_rejection(self, normalized: str, rejection_keywords: list[str]) -> bool:
+        if any(keyword in normalized for keyword in rejection_keywords):
+            return True
+        direct_rejections = (
+            '不想领取',
+            '不领取',
+            '不想报',
+            '不想报名',
+            '不报名',
+            '不想报课',
+            '不报课',
+            '不想买',
+            '不买课',
+            '不想了解',
+            '不感兴趣',
+            '没兴趣',
+            '暂时不需要',
+            '暂时不想',
+            '先不领',
+            '先不领取',
+            '先不报名',
+        )
+        if any(phrase in normalized for phrase in direct_rejections):
+            return True
+        rejection_prefixes = ('不想', '不打算', '不考虑', '不需要', '不要', '不用', '先不', '暂时不')
+        signup_words = ('领取', '报名', '报课', '买课', '购买', '了解')
+        return any(f'{prefix}{word}' in normalized for prefix in rejection_prefixes for word in signup_words)
+
     def _mentions_payment_screenshot_confirmation(self, normalized: str) -> bool:
         return self._mentions_purchase_confirmation(normalized) or any(
             keyword in normalized for keyword in COURSE_PAYMENT_SCREENSHOT_KEYWORDS
@@ -1904,6 +2031,34 @@ class TaskAssistantService:
 
     def _mentions_screenshot_text(self, normalized: str) -> bool:
         return any(keyword in normalized for keyword in COURSE_SCREENSHOT_TEXT_KEYWORDS)
+
+    def _mentions_resource_open_confirmation(self, normalized: str) -> bool:
+        text = (normalized or '').strip()
+        if not text or len(text) > 40:
+            return False
+        if any(keyword in text for keyword in ['打不开', '不能打开', '无法打开', '没打开', '没有打开', '点不开']):
+            return False
+        if any(keyword in text for keyword in ['报名', '购买', '支付', '付款', '课程', '上课']):
+            return False
+        confirmations = {
+            '好的',
+            '好哒',
+            '可以',
+            '可以的',
+            '没问题',
+            'ok',
+            '能打开',
+            '可以打开',
+            '我能打开',
+            '能点开',
+            '可以点开',
+            '打开了',
+            '点开了',
+            '看到了',
+        }
+        if text in confirmations:
+            return True
+        return any(marker in text for marker in ['能打开', '可以打开', '打开了', '点开了', '看到了'])
 
     def _is_course_sales_smalltalk(self, normalized: str) -> bool:
         if not normalized or len(normalized) > 40:
@@ -1934,6 +2089,12 @@ class TaskAssistantService:
         if any(keyword in normalized for keyword in sales_keywords):
             return False
         return any(keyword in normalized for keyword in COURSE_SMALLTALK_KEYWORDS)
+
+    def _is_low_signal_course_sales_text(self, normalized: str) -> bool:
+        text = (normalized or '').strip()
+        if not text:
+            return True
+        return text in {'嗯', '哦', '噢', '额', '呃', '啊', '好', '行', '?', '？'}
 
     async def _get_course_sales_explicit_rejection_count(self, session_key: str, query: pipeline_query.Query) -> int:
         sales_service = getattr(self.ap, 'sales_service', None)
@@ -2005,7 +2166,7 @@ class TaskAssistantService:
         profile_facts = selected_profile.get('facts') if isinstance(selected_profile.get('facts'), dict) else COURSE_SALES_PROFILE
         product_key = str(selected_profile.get('key') or 'phonics')
         selected_product_uuid = str(selected_profile.get('product_uuid') or COURSE_SALES_PRODUCT_UUID)
-        if intent == 'smalltalk':
+        if intent in {'smalltalk', 'clarification'}:
             profile_facts = {}
             product_key = ''
             selected_product_uuid = ''
@@ -2234,13 +2395,25 @@ class TaskAssistantService:
         elif intent_name == 'resource_help':
             control_text = (
                 '\n\n[课程销售上下文]\n'
-                '先解决图书资源问题，不急着推课。只在资源问题解决后，用一句话自然承接自然拼读体验课。'
+                '先解决图书资源问题，不急着推课。'
+                '如果用户说资源打不开、不能打开、点不开或进不去，本轮先说明再发一遍图书配套学习资源卡片链接，'
+                '再用单独短句问“方便发我一张截图吗？”，不要再问“能打开吗”。'
+                '只在资源问题解决后，用一句话自然承接自然拼读体验课。'
+            )
+        elif intent_name == 'resource_confirmed':
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户已确认图书资源或卡片能打开。不要重复问能打开吗，不要直接说“我给您安排课程”，'
+                '不要发报名链接、不要催支付。按SOP循序渐进：先问孩子几年级；确认年级和基础后，'
+                '再轻量介绍自然拼读适配情况；用户表达想了解/想报名后，再问要不要报课；'
+                '用户明确要报时，先说明完课好礼，再发送报名链接。'
             )
         elif intent_name in {'purchase', 'radar_clicked'}:
             control_text = (
                 '\n\n[课程销售上下文]\n'
                 f'本轮要给报名动作和报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
                 '说明支付9元后截图或报名成功短信发来，用于登记开课和资料。'
+                '不得输出 xxx、XXXX、占位符或自编链接。'
             )
         elif intent_name == 'handoff':
             handoff_config = intent.get('handoff_config') if isinstance(intent.get('handoff_config'), dict) else {}
@@ -2256,6 +2429,13 @@ class TaskAssistantService:
                 '\n\n[课程销售上下文]\n'
                 '用户疑似已报名或支付成功。本轮转成交后交付：要截图、提示班主任/短信/猿辅导素养课APP，不要继续促单。'
             )
+        elif intent_name == 'objection' and intent.get('explicit_rejection_count'):
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户第一次明确拒绝或不想领取。本轮不要发报名链接、不要推课、不要安排购买动作。'
+                '只追问拒绝原因：是孩子没时间、觉得不值得、已经学过、年级/基础不合适，还是暂时不想了解？'
+                '语气轻，不压迫，不要说“之后想领取随时找我”这种结束式话术。'
+            )
         elif intent_name == 'screenshot_help':
             control_text = (
                 '\n\n[课程销售上下文]\n'
@@ -2264,7 +2444,14 @@ class TaskAssistantService:
         elif intent_name == 'smalltalk':
             control_text = (
                 '\n\n[课程销售上下文]\n'
-                '用户在闲聊或寒暄。先自然回应当前话题，最多一句轻轻带回学习或课程，不要发链接、不要塞话术。'
+                '用户在闲聊或寒暄。先自然回应当前话题，最多问一个低压力澄清问题：'
+                '家长是想看图书资源，还是了解课程信息？不要发链接、不要塞话术。'
+            )
+        elif intent_name == 'clarification':
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户表达不明确。只问一个低压力澄清问题：'
+                '家长是想看图书资源，还是了解课程信息？不要发链接、不要推课、不要塞话术。'
             )
         else:
             control_text = (
@@ -2283,7 +2470,7 @@ class TaskAssistantService:
         course_profile = intent.get('course_profile') if isinstance(intent.get('course_profile'), dict) else {}
         product_key = str(intent.get('product_key') or '')
         course_name = str(course_profile.get('course_name') or '').strip()
-        if course_name and intent_name != 'smalltalk':
+        if course_name and intent_name not in {'smalltalk', 'clarification'}:
             facts = [
                 str(course_profile.get('price') or '').strip(),
                 str(course_profile.get('duration') or '').strip(),
@@ -2295,7 +2482,7 @@ class TaskAssistantService:
             if fact_text:
                 control_text += f'；关键信息：{fact_text}'
 
-        if not faq_short_answer and intent_name != 'smalltalk':
+        if not faq_short_answer and intent_name not in {'smalltalk', 'clarification'}:
             user_text = str(query.variables.get('user_message_text') or '')
             snippets = self._select_yuanfudao_knowledge_snippets(user_text)
             if snippets:
@@ -2369,12 +2556,22 @@ class TaskAssistantService:
                             bot_uuid=target['bot_uuid'],
                             target_type=target['target_type'],
                             target_id=target['target_id'],
-                            segments=['course-sales:opening:text', 'course-sales:opening:resource-card'],
+                            segments=[
+                                'course-sales:opening:text',
+                                'course-sales:opening:resource-card',
+                                'course-sales:opening:open-check',
+                            ],
                         )
                         > 0
                     )
                 if not has_existing_opening:
-                    await self._schedule_course_sales_opening_for_target(target, workflow)
+                    await self._schedule_course_sales_opening_for_target(target, workflow, card_delay_seconds=0)
+                    if hasattr(sales_service, 'run_due_outreach_for_target'):
+                        await sales_service.run_due_outreach_for_target(
+                            bot_uuid=target['bot_uuid'],
+                            target_type=target['target_type'],
+                            target_id=target['target_id'],
+                        )
                     await self._schedule_course_sales_broadcasts_for_target(target, workflow)
 
             followup_stage = self._course_followup_stage_for_intent(intent, text)
@@ -2427,23 +2624,26 @@ class TaskAssistantService:
                 user_message_count = await sales_service.count_user_messages_for_session(session_id)
                 if user_message_count > 0:
                     return {'handled': True, 'scheduled': False, 'reason': 'entered event ignored after user messages'}
-                await asyncio.sleep(1)
                 if hasattr(sales_service, 'count_outreach_plans_for_target_segments'):
                     existing_opening_count = await sales_service.count_outreach_plans_for_target_segments(
                         bot_uuid=bot_uuid,
                         target_type=target_type or 'person',
                         target_id=target_id,
-                        segments=['course-sales:opening:text', 'course-sales:opening:resource-card'],
+                        segments=[
+                            'course-sales:opening:text',
+                            'course-sales:opening:resource-card',
+                            'course-sales:opening:open-check',
+                        ],
                     )
                     if existing_opening_count > 0:
                         return {'handled': True, 'scheduled': False, 'reason': 'entered event ignored after existing welcome plan'}
             await self._schedule_course_sales_opening_for_target(target, workflow, card_delay_seconds=0)
-            await self._schedule_course_sales_broadcasts_for_target(target, workflow)
             sent = await sales_service.run_due_outreach_for_target(
                 bot_uuid=bot_uuid,
                 target_type=target_type or 'person',
                 target_id=target_id,
             )
+            await self._schedule_course_sales_broadcasts_for_target(target, workflow)
             return {'handled': True, 'scheduled': True, 'sent_immediately': sent}
         except Exception as exc:
             logger = getattr(self.ap, 'logger', None)
@@ -2564,6 +2764,8 @@ class TaskAssistantService:
         if intent_name in {'purchase', 'radar_clicked', 'no_reply'}:
             return intent_name
         if intent_name == 'objection':
+            if intent.get('explicit_rejection_count'):
+                return ''
             return 'considering' if '考虑' in text else 'not_buy'
         return ''
 
@@ -2596,6 +2798,14 @@ class TaskAssistantService:
             dedupe_parts=['opening', 'resource-card', target.get('session_id', '')],
             scheduled_at=now + datetime.timedelta(seconds=max(0, card_delay_seconds)),
             components=[self._course_link_component(resource_link, target=target, workflow=workflow)],
+        )
+        await self._create_course_sales_outreach_plan(
+            target,
+            name='课程销售首次打开确认',
+            segment='course-sales:opening:open-check',
+            dedupe_parts=['opening', 'open-check', target.get('session_id', '')],
+            scheduled_at=now + datetime.timedelta(seconds=max(0, card_delay_seconds)),
+            components=[{'type': 'plain', 'text': COURSE_RESOURCE_OPEN_CHECK_MESSAGE}],
         )
 
     async def _schedule_course_sales_broadcasts_for_target(self, target: dict[str, str], workflow: dict[str, Any]) -> None:
@@ -2792,13 +3002,20 @@ class TaskAssistantService:
 - 不夸大价格、赠品、课时、名额；强时效信息以活动页和班主任通知为准。
 - 用户拒绝、投诉、无孩子、非目标年级、老师身份或人工接管时停止促单和群发。
 - 用户已报名/已支付后停止促单，转交付（截图、班主任、APP、资料）。
+- 涉及报名链接时，只能使用上下文里的真实链接或链接卡片；不得输出 xxx、XXXX、占位符或自编链接。
 - 停发关键词（命中即停止打扰）：{stop_keywords}
 
 回复原则：
 1. 只答用户当前问题，不要整段塞话术或主动背书未问到的内容。
-2. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
-3. 需要报名时再发链接；不需要时不硬推。
-4. 需要图片时由工作流追加素材，不要口头描述图片内容。
+2. 最多 2 条短消息，必要时 3 条；每条 15-35 字左右，避免一大段。
+3. 不用“作为AI/建议您/希望能帮到您/如有其他问题”等机器腔；不要总结、不要讲大道理。
+4. 回复最后不要用句号结尾，也不要用“还有什么问题随时问我”收尾。
+5. 首次自然回复可以带一个轻松表情符号，不要堆表情。
+6. 涉及图书资源链接、资源卡片、扫码记录或小程序时，最后用单独短消息追问“家长，您这边能打开吗？”
+7. 用户确认资源能打开后，不要重复问能打开吗；先问孩子几年级，再按年级和基础承接。
+8. 需要报名时，先确认报名意愿和完课好礼，再发链接；不需要时不硬推。
+9. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
+10. 需要图片时由工作流追加素材，不要口头描述图片内容。
 """.strip()
 
     async def synthesize_reply_voice(self, query: pipeline_query.Query, text: str) -> str | None:
@@ -3240,6 +3457,9 @@ class TaskAssistantService:
                     config['image_url'] = str(binding.get('image_url') or config.get('image_url') or '')
                     config['caption'] = str(binding.get('title') or config.get('caption') or '')
                     config['enabled'] = binding.get('enabled', True)
+                    config['requires_course_sales_signup_link'] = (
+                        binding.get('requires_course_sales_signup_link') is True
+                    )
                     if isinstance(binding.get('trigger_intents'), list):
                         config['trigger_intents'] = binding['trigger_intents']
 
@@ -3726,6 +3946,124 @@ class TaskAssistantService:
             normalized['link_title'] = COURSE_RADAR_CONFIG['link_title']
         return normalized
 
+    def _course_sales_template_safety_issues(self, template_config: dict[str, Any]) -> list[dict[str, str]]:
+        issues: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        placeholder_pattern = re.compile(r'(\[报名链接\]|\bxxxx?\b)', re.IGNORECASE)
+
+        def path_text(path: list[str | int]) -> str:
+            text = ''
+            for part in path:
+                if isinstance(part, int):
+                    text += f'[{part}]'
+                elif text:
+                    text += f'.{part}'
+                else:
+                    text = part
+            return text
+
+        def add_issue(code: str, path: list[str | int], message: str) -> None:
+            issue_path = path_text(path)
+            key = (code, issue_path)
+            if key in seen:
+                return
+            seen.add(key)
+            issues.append({'code': code, 'path': issue_path, 'message': message})
+
+        def is_link_or_material_path(path: list[str | int]) -> bool:
+            names = {str(part) for part in path if isinstance(part, str)}
+            leaf = str(path[-1]) if path else ''
+            return bool(
+                names & {'sales_links', 'radar', 'source_materials'}
+                and leaf in {'url', 'link_url', 'href'}
+            )
+
+        def walk(value: Any, path: list[str | int]) -> None:
+            if isinstance(value, dict):
+                if path and path[0] == 'sales_links':
+                    url = str(value.get('url') or '')
+                    if 'zhizhuma.com' in url and (
+                        value.get('id') != 'phonics_resource_card' or value.get('radar_enabled') is not False
+                    ):
+                        add_issue(
+                            'resource_link_used_as_radar',
+                            [*path, 'url'],
+                            'Resource card links must not be used as radar/sign-up links.',
+                        )
+                for key, child in value.items():
+                    walk(child, [*path, str(key)])
+                return
+            if isinstance(value, list):
+                for index, child in enumerate(value):
+                    walk(child, [*path, index])
+                return
+            if not isinstance(value, str) or not is_link_or_material_path(path):
+                return
+
+            if placeholder_pattern.search(value):
+                add_issue('placeholder_link', path, 'Configured course-sales links must not contain placeholders.')
+            if 'radar.yunti.local' in value:
+                add_issue('legacy_radar_link', path, 'Legacy radar.yunti.local links must be normalized offline.')
+            if path[:2] == ['radar', 'link_url'] and 'zhizhuma.com' in value:
+                add_issue(
+                    'resource_link_used_as_radar',
+                    path,
+                    'Resource card links must not be used as radar/sign-up links.',
+                )
+
+        if isinstance(template_config, dict):
+            walk(template_config, [])
+        return issues
+
+    def _compact_course_outreach_message(
+        self,
+        message: dict[str, Any],
+        *,
+        stage: str = '',
+        broadcast: bool = False,
+    ) -> str:
+        text = re.sub(r'\s+', ' ', str(message.get('message') or '')).strip()
+        text = re.sub(r'[。．.]+$', '', text)
+        pressure_markers = (
+            '名额不多',
+            '一直等您',
+            '恳求',
+            '不忍心',
+            '不能再耽搁',
+            '最后3个',
+            '打扰你千千万万遍',
+        )
+        has_low_pressure_question = any(marker in text for marker in ('吗', '呀', '呢', '能打开吗'))
+        if text and len(text) <= 90 and has_low_pressure_question and not any(marker in text for marker in pressure_markers):
+            return text
+
+        if message.get('send_link_card') or message.get('link_id'):
+            return '报名入口我发您，方便时点开看看\n家长，您这边能打开吗？'
+        if message.get('image_key'):
+            return '礼品说明我发您一张图，方便时看看\n孩子现在几年级呀？'
+        if stage == 'radar_clicked':
+            return '看到您打开报名入口了\n家长，您这边能打开吗？'
+        if stage == 'purchased':
+            return '报名后留意班主任短信或电话\n需要我帮您看下截图吗？'
+        if broadcast:
+            return '9元自然拼读专项课可以回放，含180次开口练习\n孩子现在几年级呀？'
+        return '我这边简单跟您确认一下\n孩子现在几年级呀？'
+
+    def _normalize_course_outreach_messages(self, template_config: dict[str, Any]) -> None:
+        for sequence in template_config.get('followup_sequences', []):
+            if not isinstance(sequence, dict):
+                continue
+            stage = str(sequence.get('stage') or '')
+            for message in sequence.get('messages', []):
+                if not isinstance(message, dict) or message.get('action') == 'continue_long_term_broadcasts':
+                    continue
+                if 'message' in message:
+                    message['message'] = self._compact_course_outreach_message(message, stage=stage)
+
+        for broadcast in template_config.get('long_term_broadcasts', []):
+            if isinstance(broadcast, dict) and 'message' in broadcast:
+                broadcast['message'] = self._compact_course_outreach_message(broadcast, broadcast=True)
+
     def _normalize_course_reply_controls(self, value: Any) -> dict[str, Any]:
         source = value if isinstance(value, dict) else {}
         normalized = {**copy.deepcopy(COURSE_REPLY_CONTROLS), **copy.deepcopy(source)}
@@ -3936,6 +4274,7 @@ class TaskAssistantService:
                 )
             return
 
+        await self._delete_retired_yuanfudao_seed_documents(knowledge_service, logger)
         await self._retry_failed_yuanfudao_seed_documents(knowledge_service, logger)
 
         existing_files = await knowledge_service.get_files_by_knowledge_base(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
@@ -3971,6 +4310,31 @@ class TaskAssistantService:
                 len(import_targets),
                 len(existing_names),
             )
+
+    async def _delete_retired_yuanfudao_seed_documents(
+        self,
+        knowledge_service: Any,
+        logger: Any,
+    ) -> None:
+        existing_files = await knowledge_service.get_files_by_knowledge_base(
+            YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
+        )
+        removed_count = 0
+        for file in existing_files:
+            raw_name = str(file.get('file_name') or '')
+            if raw_name not in RETIRED_YUANFUDAO_SEED_DOCUMENTS and Path(raw_name).name not in RETIRED_YUANFUDAO_SEED_DOCUMENTS:
+                continue
+            file_uuid = str(file.get('uuid') or '').strip()
+            if not file_uuid:
+                continue
+            try:
+                await knowledge_service.delete_file(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID, file_uuid)
+                removed_count += 1
+            except Exception as exc:
+                if logger is not None:
+                    logger.warning('Failed to delete retired Yuanfudao seed document %s: %s', raw_name, exc)
+        if logger is not None and removed_count > 0:
+            logger.info('Deleted %s retired Yuanfudao seed documents', removed_count)
 
     async def _retry_failed_yuanfudao_seed_documents(
         self,
@@ -4238,6 +4602,7 @@ class TaskAssistantService:
             )
         template_config['reply_controls'] = self._normalize_course_reply_controls(template_config.get('reply_controls'))
         self._normalize_course_template_media_keys(template_config)
+        self._normalize_course_outreach_messages(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
         for sequence in template_config.get('followup_sequences', []):
             if not isinstance(sequence, dict):
@@ -4314,7 +4679,7 @@ class TaskAssistantService:
             copy.deepcopy(template_config.get('stop_policy'))
             if isinstance(template_config.get('stop_policy'), dict)
             else {
-                'explicit_rejection_threshold': 1,
+                'explicit_rejection_threshold': 2,
                 'explicit_rejection_keywords': COURSE_STOP_RULES['stop_keywords'],
                 'immediate_stop_keywords': [
                     '投诉',
@@ -4334,6 +4699,11 @@ class TaskAssistantService:
             else copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG)
         )
         human_handoff['notify_message'] = self._safe_course_handoff_notify_message(human_handoff.get('notify_message'))
+        special_cases = (
+            copy.deepcopy(template_config.get('special_cases'))
+            if isinstance(template_config.get('special_cases'), list)
+            else copy.deepcopy(COURSE_SPECIAL_CASES)
+        )
         radar = (
             copy.deepcopy(template_config.get('radar'))
             if isinstance(template_config.get('radar'), dict)
@@ -4505,6 +4875,7 @@ class TaskAssistantService:
                 'config': {
                     'intents': [
                         'resource_help',
+                        'resource_confirmed',
                         'course_intro',
                         'course_schedule',
                         'course_replay',
@@ -4662,6 +5033,7 @@ class TaskAssistantService:
                         'image_url': str(binding.get('image_url') or ''),
                         'caption': str(binding.get('title') or ''),
                         'trigger_intents': binding.get('trigger_intents') or [],
+                        'requires_course_sales_signup_link': binding.get('requires_course_sales_signup_link') is True,
                         'append_caption': False,
                         'enabled': binding.get('enabled', True),
                     },
@@ -4737,6 +5109,7 @@ class TaskAssistantService:
             'sales_links': sales_links,
             'radar': radar,
             'human_handoff': human_handoff,
+            'special_cases': special_cases,
             'followup_sequences': followups,
             'long_term_broadcasts': broadcasts,
             'stop_rules': stop_rules,

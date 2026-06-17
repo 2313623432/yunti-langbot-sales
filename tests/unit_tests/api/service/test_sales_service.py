@@ -12,8 +12,10 @@ from langbot.pkg.api.http.service.sales import SalesService, YUANFUDAO_CATALOG_P
 from langbot.pkg.entity.persistence.base import Base
 from langbot.pkg.entity.persistence import monitoring as persistence_monitoring
 from langbot.pkg.entity.persistence import sales as persistence_sales
+
 from langbot_plugin.api.entities.builtin.provider import session as provider_session
 from langbot_plugin.api.entities.builtin.provider import message as provider_message
+
 from langbot_plugin.api.entities.builtin.platform import message as platform_message
 
 
@@ -25,6 +27,19 @@ def test_classify_intent_detects_handoff_request():
     assert result['intent'] == 'handoff'
     assert result['requires_handoff'] is True
     assert result['confidence'] >= 0.8
+
+
+def test_normalize_handoff_reason_labels_known_manual_reasons():
+    service = SalesService(SimpleNamespace())
+
+    assert service.normalize_handoff_reason('child_spam') == 'child_spam'
+    assert service.normalize_handoff_reason('孩子刷屏发无意义消息') == 'child_spam'
+    assert service.normalize_handoff_reason('家长投诉课程体验') == 'parent_complaint'
+    assert service.normalize_handoff_reason('付款后没有开通') == 'payment_issue'
+    assert service.normalize_handoff_reason('图书扫码资源缺失') == 'resource_missing'
+    assert service.normalize_handoff_reason('需要老师讲解一下这道题') == 'needs_teacher'
+    assert service.normalize_handoff_reason('孩子是初中，不是目标年级') == 'non_target_grade'
+    assert service.normalize_handoff_reason('Manual takeover') == 'Manual takeover'
 
 
 def test_normalize_sales_message_content_preserves_text_image_voice_and_source_metadata():
@@ -92,6 +107,14 @@ def test_normalize_sales_message_content_accepts_platform_media_alias_fields():
     assert normalized['components'][1]['available'] is True
     assert normalized['components'][2]['base64'] == 'data:image/png;base64,AAAA'
     assert normalized['components'][3]['base64'] == 'data:audio/ogg;base64,BBBB'
+
+
+def test_format_datetime_marks_naive_monitoring_time_as_utc():
+    service = SalesService(SimpleNamespace())
+
+    formatted = service._format_datetime(datetime.datetime(2026, 6, 15, 6, 30, 0))
+
+    assert formatted == '2026-06-15T06:30:00+00:00'
 
 
 def test_select_best_product_matches_selling_points_and_pain_points():
@@ -217,6 +240,7 @@ def test_compose_sales_prompt_includes_product_memory_and_handoff_policy():
     assert '客户预算明确' in prompt
     assert 'comparison' in prompt
     assert '客户明确要求人工' in prompt
+    assert '不得输出 xxx、XXXX' in prompt
 
 
 @pytest.mark.asyncio
@@ -355,6 +379,66 @@ async def _insert_monitoring_session_with_messages(service, session_id='person_c
             ]
         )
     )
+
+
+@pytest.mark.asyncio
+async def test_reset_sales_session_context_clears_chat_state_for_current_session(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'person_customer-1'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id=session_id,
+            platform='person',
+            user_id='ou_customer',
+            summary='旧对话摘要',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesHandoff).values(
+            session_id=session_id,
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='ou_customer',
+            status='open',
+            reason='等待人工',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(
+            name='跟进计划',
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='ou_customer',
+            segment='course-sales:followup',
+            dedupe_key='followup-key',
+            enabled=True,
+        )
+    )
+    conversation = SimpleNamespace(messages=[provider_message.Message(role='user', content='旧消息')])
+    query = SimpleNamespace(
+        launcher_type=SimpleNamespace(value='person'),
+        launcher_id='customer-1',
+        sender_id='ou_customer',
+        bot_uuid='bot-uuid',
+        session=SimpleNamespace(using_conversation=conversation),
+    )
+
+    result = await service.reset_sales_session_context(query)
+
+    assert result['reset'] is True
+    assert conversation.messages == []
+    for model in (
+        persistence_monitoring.MonitoringMessage,
+        persistence_monitoring.MonitoringSession,
+        persistence_sales.SalesCustomerMemory,
+        persistence_sales.SalesHandoff,
+        persistence_sales.SalesOutreachPlan,
+    ):
+        count = await service.ap.persistence_mgr.execute_async(sqlalchemy.select(sqlalchemy.func.count()).select_from(model))
+        assert count.scalar() == 0
 
 
 @pytest.mark.asyncio
@@ -567,7 +651,6 @@ async def test_get_sales_conversations_hides_technical_user_name_and_keeps_bot_n
                 _FakeResult([message]),
                 _FakeResult([]),
                 _FakeResult([]),
-                _FakeResult([message]),
             ]
         ),
         serialize_model=lambda _model, value: value.__dict__,
@@ -602,10 +685,14 @@ async def test_open_handoff_from_query_uses_monitoring_session_id_for_pending_ma
     conversations = await service.get_sales_conversations(status='pending_manual')
 
     assert handoff['session_id'] == session_id
+    assert handoff['reason'] == 'manual_request'
+    assert handoff['reason_label'] == 'manual_request'
     assert len(conversations) == 1
     assert conversations[0]['session_id'] == session_id
     assert conversations[0]['handoff_status'] == 'pending_manual'
     assert conversations[0]['handoff']['last_message'] == '转人工'
+    assert conversations[0]['handoff']['reason'] == 'manual_request'
+    assert conversations[0]['handoff']['reason_label'] == 'manual_request'
 
 
 @pytest.mark.asyncio
@@ -635,6 +722,7 @@ async def test_get_sales_conversations_maps_legacy_handoff_session_id_to_monitor
     assert conversations[0]['session_id'] == session_id
     assert conversations[0]['handoff_status'] == 'pending_manual'
     assert conversations[0]['handoff']['session_id'] == 'person_ou_customer'
+    assert conversations[0]['handoff']['reason_label'] == 'manual_request'
 
 
 @pytest.mark.asyncio
@@ -1069,6 +1157,26 @@ async def test_open_handoff_from_monitoring_session_creates_open_handoff():
 
 
 @pytest.mark.asyncio
+async def test_open_handoff_from_monitoring_session_stores_normalized_granular_reason():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        platform='person',
+        user_id='customer-1',
+        user_name='Alice',
+    )
+    message = SimpleNamespace(message_content='付款后还没有开通')
+    persistence_mgr = _SessionHandoffPersistence(session, message)
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    handoff = await service.open_handoff_from_session('person_customer-1', '付款后没有开通', 'sales-admin')
+
+    assert handoff['reason'] == 'payment_issue'
+    assert handoff['reason_label'] == 'payment_issue'
+    assert persistence_mgr.insert_values['reason'] == 'payment_issue'
+
+
+@pytest.mark.asyncio
 async def test_open_handoff_from_monitoring_session_reuses_existing_open_handoff():
     session = SimpleNamespace(
         session_id='group_room-1',
@@ -1357,6 +1465,39 @@ def test_yuanfudao_catalog_products_include_reading_thinking_course():
     }
     assert products_by_uuid['yuanfudao-phonics-course']['product_line'] == '猿辅导'
     assert products_by_uuid['yuanfudao-reading-thinking-course']['profile_key'] == 'reading_thinking'
+    for product in products_by_uuid.values():
+        assert product['link'].startswith('https://m.yuanfudao.com/primary/templates/package?')
+        assert 'xxx' not in product['link'].lower()
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_products_fills_missing_yuanfudao_link(sales_service_with_db):
+    service = sales_service_with_db
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesProduct).values(
+            {
+                'uuid': 'yuanfudao-reading-thinking-course',
+                'product_line': '猿辅导',
+                'profile_key': 'reading_thinking',
+                'keywords': ['阅读', '思维'],
+                'name': '猿辅导阅读+思维特训营',
+                'category': '阅读+思维',
+                'price': '9元体验',
+                'link': '',
+                'description': '旧产品行',
+                'selling_points': [],
+                'pain_points': [],
+                'objections': [],
+                'audience': [],
+                'enabled': True,
+            }
+        )
+    )
+
+    await service.ensure_catalog_products()
+
+    product = await service.get_product('yuanfudao-reading-thinking-course')
+    assert product['link'].startswith('https://m.yuanfudao.com/primary/templates/package?')
 
 
 def test_build_radar_tracking_url_wraps_destination_with_token():

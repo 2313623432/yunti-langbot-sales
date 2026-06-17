@@ -90,6 +90,12 @@ def test_token_manager_next_token_ignores_empty_token_list():
     assert token_mgr.using_token_index == 0
 
 
+def test_local_agent_always_removes_thinking_from_customer_replies():
+    pipeline_config = {'output': {'misc': {'remove-think': False}}}
+
+    assert LocalAgentRunner._resolve_remove_think(pipeline_config) is True
+
+
 @pytest.mark.asyncio
 async def test_openai_requester_initialize_uses_placeholder_api_key(monkeypatch):
     captured_kwargs = {}

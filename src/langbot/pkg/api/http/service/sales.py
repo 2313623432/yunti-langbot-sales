@@ -18,6 +18,11 @@ from ....entity.persistence import monitoring as persistence_monitoring
 from ....entity.persistence import sales as persistence_sales
 
 
+YUANFUDAO_SIGNUP_LINK = (
+    'https://m.yuanfudao.com/primary/templates/package?'
+    'pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class'
+)
+
 YUANFUDAO_CATALOG_PRODUCTS = [
     {
         'uuid': 'yuanfudao-phonics-course',
@@ -27,7 +32,7 @@ YUANFUDAO_CATALOG_PRODUCTS = [
         'name': '猿辅导英语自然拼读体验课',
         'category': '自然拼读',
         'price': '9元体验',
-        'link': '',
+        'link': YUANFUDAO_SIGNUP_LINK,
         'description': (
             '猿辅导英语自然拼读体验课/自然拼读集训营，5天10节课，'
             '适合大班至小学4年级，帮助孩子掌握自然拼读、口语发音和拼读规则。'
@@ -51,7 +56,7 @@ YUANFUDAO_CATALOG_PRODUCTS = [
         'name': '猿辅导阅读+思维特训营',
         'category': '阅读+思维',
         'price': '9元体验',
-        'link': '',
+        'link': YUANFUDAO_SIGNUP_LINK,
         'description': (
             '猿辅导阅读+思维特训营，390分钟名师直播精讲，'
             '主要解决阅读没头绪、作文凑字数、数学难变通和常马虎等问题。'
@@ -100,6 +105,15 @@ DEFAULT_SALES_PRODUCTS = [
 
 
 COURSE_SALES_EXPLICIT_REJECTION_COUNT_KEY = 'course_sales_explicit_rejection_count'
+SALES_RESET_COMMANDS = {'/new', '／new'}
+HANDOFF_REASON_KEYWORDS = {
+    'child_spam': ['child_spam', 'spam_flood', '刷屏', '无意义消息', '乱发', '骚扰'],
+    'parent_complaint': ['parent_complaint', '投诉', '不满意', '生气', '骗人', '找负责人'],
+    'payment_issue': ['payment_issue', '付款', '支付', '扣款', '退款', '退钱', '没有开通'],
+    'resource_missing': ['resource_missing', '资源缺失', '资源为空', '资源没有', '没有资源', '缺资源', '补传'],
+    'needs_teacher': ['needs_teacher', '老师', '讲解', '讲题', '答疑', '不会做'],
+    'non_target_grade': ['non_target_grade', '非目标年级', '不是目标年级', '初中', '高中', '不适合年级'],
+}
 
 
 class SalesService:
@@ -221,6 +235,21 @@ class SalesService:
             'next_action': 'send_product_link' if link else 'ask_qualifying_question',
         }
 
+    def is_reset_command(self, text: str) -> bool:
+        return (text or '').strip().lower() in SALES_RESET_COMMANDS
+
+    def normalize_handoff_reason(self, reason: str) -> str:
+        text = str(reason or '').strip()
+        if not text:
+            return ''
+        normalized = text.lower()
+        for label, keywords in HANDOFF_REASON_KEYWORDS.items():
+            if normalized == label:
+                return label
+            if any(keyword.lower() in normalized for keyword in keywords):
+                return label
+        return text
+
     def compose_sales_prompt(
         self,
         product: dict[str, Any] | None,
@@ -242,6 +271,7 @@ class SalesService:
 3. 当客户表现出购买、价格、对比或试用意向时，主动给出下一步行动。
 4. 客户明确要求人工、报价单、合同、电话、加微信或复杂定制时，必须转人工，不要继续硬推。
 5. 输出要像真实销售对话，短句、具体、有下一步。
+6. 涉及产品链接时，只能使用“当前推荐产品”里的真实链接；不得输出 xxx、XXXX、占位符或自编链接。
 
 当前推荐产品：
 - 名称：{product.get('name', '未指定产品')}
@@ -292,7 +322,7 @@ class SalesService:
                 continue
             updates = {
                 key: product[key]
-                for key in ('product_line', 'profile_key', 'keywords', 'name', 'category', 'price', 'description')
+                for key in ('product_line', 'profile_key', 'keywords', 'name', 'category', 'price', 'link', 'description')
                 if product.get(key) and getattr(row, key, None) in (None, '', [])
             }
             if updates:
@@ -358,6 +388,9 @@ class SalesService:
         if not text:
             return {'interrupted': False}
 
+        if self.is_reset_command(text):
+            return await self.reset_sales_session_context(query)
+
         existing_handoff = await self.get_open_handoff_for_query(query)
         if existing_handoff:
             reason = existing_handoff.get('reason') or '客户正在等待人工接入'
@@ -392,6 +425,76 @@ class SalesService:
             self.ap.logger.warning('Failed to inject sales prompt into query')
 
         return {'interrupted': False, 'intent': intent, 'product': product, 'memory': memory}
+
+    async def reset_sales_session_context(self, query: Any) -> dict[str, Any]:
+        session_ids = self._query_session_aliases(query)
+        target_aliases = self._query_target_aliases(query)
+        self._clear_runtime_conversation(query)
+
+        if session_ids:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringFeedback).where(
+                    persistence_monitoring.MonitoringFeedback.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringEmbeddingCall).where(
+                    persistence_monitoring.MonitoringEmbeddingCall.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringLLMCall).where(
+                    persistence_monitoring.MonitoringLLMCall.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringError).where(
+                    persistence_monitoring.MonitoringError.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringMessage).where(
+                    persistence_monitoring.MonitoringMessage.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_monitoring.MonitoringSession).where(
+                    persistence_monitoring.MonitoringSession.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesCustomerMemory).where(
+                    persistence_sales.SalesCustomerMemory.session_id.in_(session_ids)
+                )
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesHandoff).where(
+                    persistence_sales.SalesHandoff.session_id.in_(session_ids)
+                )
+            )
+
+        for target_type, target_id in target_aliases:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesOutreachPlan)
+                .where(persistence_sales.SalesOutreachPlan.target_type == target_type)
+                .where(persistence_sales.SalesOutreachPlan.target_id == target_id)
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesResourceIssue)
+                .where(persistence_sales.SalesResourceIssue.target_type == target_type)
+                .where(persistence_sales.SalesResourceIssue.target_id == target_id)
+            )
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.delete(persistence_sales.SalesHandoff)
+                .where(persistence_sales.SalesHandoff.target_type == target_type)
+                .where(persistence_sales.SalesHandoff.target_id == target_id)
+            )
+
+        return {
+            'reset': True,
+            'interrupted': True,
+            'notice': '已重置当前会话，之前的聊天上下文和客户记忆已清空。请直接发送新的问题继续咨询。',
+        }
 
     async def upsert_memory_from_query(
         self,
@@ -613,7 +716,7 @@ class SalesService:
         handoff = result.first()
         if handoff is None:
             return None
-        return self._serialize(persistence_sales.SalesHandoff, self._row_entity(handoff))
+        return self._serialize_handoff(self._row_entity(handoff))
 
     async def open_handoff_from_query(self, query: Any, reason: str, message_text: str) -> dict[str, Any]:
         session_id = self._query_session_id(query)
@@ -623,13 +726,14 @@ class SalesService:
             .where(persistence_sales.SalesHandoff.status == 'open')
         )
         existing = self._first_row(result)
+        reason_label = self.normalize_handoff_reason(reason)
         values = {
             'bot_uuid': query.bot_uuid or '',
             'target_type': getattr(query.launcher_type, 'value', str(query.launcher_type)),
             'target_id': str(query.launcher_id),
             'platform': query.adapter.__class__.__name__ if getattr(query, 'adapter', None) else '',
             'user_id': str(query.sender_id),
-            'reason': reason,
+            'reason': reason_label or reason,
             'last_message': message_text,
             'updated_at': datetime.datetime.now(),
         }
@@ -639,10 +743,47 @@ class SalesService:
                 .where(persistence_sales.SalesHandoff.id == existing.id)
                 .values(**values)
             )
-            return {'id': existing.id, 'session_id': session_id, **values}
+            return self._with_handoff_reason_label({'id': existing.id, 'session_id': session_id, **values})
         values['session_id'] = session_id
         await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_sales.SalesHandoff).values(**values))
-        return {'session_id': session_id, **values}
+        return self._with_handoff_reason_label({'session_id': session_id, **values})
+
+    async def open_handoff_from_aggregated_messages(self, messages: list[Any], reason: str) -> dict[str, Any]:
+        if not messages:
+            raise ValueError('No messages to open handoff')
+        first = messages[0]
+        last_message = '\n'.join(str(getattr(message, 'message_chain', '') or '') for message in messages).strip()
+        launcher_type = getattr(first, 'launcher_type', '')
+        target_type = getattr(launcher_type, 'value', str(launcher_type))
+        target_id = str(getattr(first, 'launcher_id', '') or '')
+        session_id = f'{target_type}_{target_id}'
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesHandoff)
+            .where(persistence_sales.SalesHandoff.session_id == session_id)
+            .where(persistence_sales.SalesHandoff.status == 'open')
+        )
+        existing = self._first_row(result)
+        reason_label = self.normalize_handoff_reason(reason)
+        values = {
+            'bot_uuid': str(getattr(first, 'bot_uuid', '') or ''),
+            'target_type': target_type,
+            'target_id': target_id,
+            'platform': first.adapter.__class__.__name__ if getattr(first, 'adapter', None) else '',
+            'user_id': str(getattr(first, 'sender_id', '') or ''),
+            'reason': reason_label or reason,
+            'last_message': last_message,
+            'updated_at': datetime.datetime.now(),
+        }
+        if existing:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_sales.SalesHandoff)
+                .where(persistence_sales.SalesHandoff.id == existing.id)
+                .values(**values)
+            )
+            return self._with_handoff_reason_label({'id': existing.id, 'session_id': session_id, **values})
+        values['session_id'] = session_id
+        await self.ap.persistence_mgr.execute_async(sqlalchemy.insert(persistence_sales.SalesHandoff).values(**values))
+        return self._with_handoff_reason_label({'session_id': session_id, **values})
 
     async def open_handoff_from_session(
         self,
@@ -679,7 +820,7 @@ class SalesService:
             'target_id': target_id,
             'platform': getattr(session, 'platform', '') or '',
             'user_id': getattr(session, 'user_id', '') or target_id,
-            'reason': reason or '人工主动介入',
+            'reason': self.normalize_handoff_reason(reason or '人工主动介入') or '人工主动介入',
             'last_message': getattr(latest_message, 'message_content', '') if latest_message else '',
             'assigned_to': assigned_to,
             'updated_at': datetime.datetime.now(),
@@ -697,7 +838,7 @@ class SalesService:
                 .where(persistence_sales.SalesHandoff.id == existing.id)
                 .values(**values)
             )
-            return {'id': existing.id, 'session_id': session_id, 'status': 'open', **values}
+            return self._with_handoff_reason_label({'id': existing.id, 'session_id': session_id, 'status': 'open', **values})
 
         values['status'] = 'open'
         values['session_id'] = session_id
@@ -707,14 +848,14 @@ class SalesService:
         inserted_primary_key = getattr(insert_result, 'inserted_primary_key', None)
         if inserted_primary_key:
             values['id'] = int(inserted_primary_key[0])
-        return values
+        return self._with_handoff_reason_label(values)
 
     async def get_handoffs(self, status: str | None = None) -> list[dict[str, Any]]:
         query = sqlalchemy.select(persistence_sales.SalesHandoff).order_by(persistence_sales.SalesHandoff.updated_at.desc())
         if status:
             query = query.where(persistence_sales.SalesHandoff.status == status)
         result = await self.ap.persistence_mgr.execute_async(query)
-        return [self._serialize(persistence_sales.SalesHandoff, row) for row in result.all()]
+        return [self._serialize_handoff(row) for row in result.all()]
 
     async def reply_handoff(self, handoff_id: int, reply: str, assigned_to: str = '') -> None:
         result = await self.ap.persistence_mgr.execute_async(
@@ -1347,6 +1488,14 @@ class SalesService:
         except (AttributeError, KeyError):
             return self.ap.persistence_mgr.serialize_model(model, self._row_value(row))
 
+    def _serialize_handoff(self, row: Any) -> dict[str, Any]:
+        return self._with_handoff_reason_label(self._serialize(persistence_sales.SalesHandoff, row))
+
+    def _with_handoff_reason_label(self, handoff: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(handoff)
+        payload['reason_label'] = self.normalize_handoff_reason(payload.get('reason', ''))
+        return payload
+
     def _clean_product_payload(self, data: dict[str, Any], partial: bool = False) -> dict[str, Any]:
         fields = {
             'name',
@@ -1780,9 +1929,6 @@ class SalesService:
             return '群聊客户'
         if platform == 'person':
             return '私聊客户'
-        user_id = getattr(message, 'user_id', '') or ''
-        if user_id and not self._is_technical_identifier(user_id):
-            return user_id
         return '客户'
 
     def _is_technical_identifier(self, value: str) -> bool:
@@ -1849,7 +1995,6 @@ class SalesService:
                 component.get('base64')
                 or component.get('data')
                 or component.get('image_base64')
-                or component.get('file_base64')
                 or ''
             )
             path = str(component.get('path') or '')
@@ -1858,7 +2003,7 @@ class SalesService:
                 'url': url,
                 'base64': base64_data,
                 'path': path,
-                'name': str(component.get('name') or component.get('file_name') or component.get('file_key') or ''),
+                'name': str(component.get('name') or component.get('file_name') or ''),
                 'available': bool(url or base64_data or path),
                 'raw': component,
             }
@@ -1874,9 +2019,8 @@ class SalesService:
             base64_data = str(
                 component.get('base64')
                 or component.get('data')
-                or component.get('voice_base64')
                 or component.get('audio_base64')
-                or component.get('file_base64')
+                or component.get('voice_base64')
                 or ''
             )
             path = str(component.get('path') or '')
@@ -1998,6 +2142,8 @@ class SalesService:
         if value is None:
             return ''
         if isinstance(value, datetime.datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=datetime.timezone.utc)
             return value.isoformat()
         return str(value)
 
@@ -2083,9 +2229,7 @@ class SalesService:
                     'latest_message': latest,
                     'latest_message_preview': latest['preview'] if latest else '',
                     'handoff_status': normalized_status,
-                    'handoff': self.ap.persistence_mgr.serialize_model(persistence_sales.SalesHandoff, handoff)
-                    if handoff
-                    else None,
+                    'handoff': self._serialize_handoff(handoff) if handoff else None,
                     'memory': self.ap.persistence_mgr.serialize_model(persistence_sales.SalesCustomerMemory, memory)
                     if memory
                     else None,
@@ -2285,6 +2429,50 @@ class SalesService:
         if launcher_type_value:
             return f'{launcher_type_value}_{launcher_id}'
         return f'{launcher_type}_{launcher_id}'
+
+    def _query_session_aliases(self, query: Any) -> list[str]:
+        aliases: set[str] = set()
+        variables = getattr(query, 'variables', None)
+        if isinstance(variables, dict):
+            session_id = str(variables.get('session_id') or '').strip()
+            if session_id:
+                aliases.add(session_id)
+
+        session = getattr(query, 'session', None)
+        for source in (query, session):
+            if source is None:
+                continue
+            launcher_type = getattr(source, 'launcher_type', '')
+            launcher_id = str(getattr(source, 'launcher_id', '') or '').strip()
+            if not launcher_id:
+                continue
+            raw_type = str(launcher_type or '').strip()
+            value_type = str(getattr(launcher_type, 'value', '') or '').strip()
+            if raw_type:
+                aliases.add(f'{raw_type}_{launcher_id}')
+            if value_type:
+                aliases.add(f'{value_type}_{launcher_id}')
+
+        return sorted(aliases)
+
+    def _query_target_aliases(self, query: Any) -> list[tuple[str, str]]:
+        aliases: set[tuple[str, str]] = set()
+        launcher_type = getattr(getattr(query, 'launcher_type', None), 'value', None) or getattr(query, 'launcher_type', '')
+        target_type = str(launcher_type or 'person')
+        if target_type not in ('person', 'group'):
+            target_type = 'person'
+        for value in (getattr(query, 'launcher_id', ''), getattr(query, 'sender_id', '')):
+            target_id = str(value or '').strip()
+            if target_id:
+                aliases.add((target_type, target_id))
+        return sorted(aliases)
+
+    def _clear_runtime_conversation(self, query: Any) -> None:
+        session = getattr(query, 'session', None)
+        conversation = getattr(session, 'using_conversation', None)
+        messages = getattr(conversation, 'messages', None)
+        if hasattr(messages, 'clear'):
+            messages.clear()
 
     def _handoff_session_aliases_for_monitoring_session(self, session: Any) -> set[str]:
         session_id = str(getattr(session, 'session_id', '') or '')

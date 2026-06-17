@@ -201,11 +201,7 @@ BUILTIN_TEXT_PROVIDER_SPECS: tuple[BuiltinTextProviderSpec, ...] = (
         protocol='openai',
         api_key_required=True,
         sort_order=100,
-        models=(
-            _model('doubao', 'doubao-pro-32k', 'doubao-pro-32k', 'Doubao Pro 32K', abilities=('func_call',), context_window=32_768),
-            _model('doubao', 'doubao-lite-32k', 'doubao-lite-32k', 'Doubao Lite 32K', abilities=('func_call',), context_window=32_768),
-            _model('doubao', 'doubao-pro-128k', 'doubao-pro-128k', 'Doubao Pro 128K', abilities=('func_call',), context_window=128_000),
-        ),
+        models=(),
     ),
     BuiltinTextProviderSpec(
         uuid='lnp-xai',

@@ -31,11 +31,9 @@ class MonitoringHelper:
     ) -> str:
         """Record the start of query processing, returns message_id"""
         try:
-            raw_monitoring_message_ids = []
-            if query and hasattr(query, 'variables'):
-                raw_monitoring_message_ids = query.variables.get('_raw_monitoring_message_ids') or []
-            if raw_monitoring_message_ids:
-                return str(raw_monitoring_message_ids[0])
+            raw_message_ids = getattr(query, 'variables', {}).get('_raw_monitoring_message_ids', [])
+            if raw_message_ids:
+                return raw_message_ids[0]
 
             # Check if session exists, if not, record session start
             session_id = f'{query.launcher_type}_{query.launcher_id}'
@@ -123,10 +121,15 @@ class MonitoringHelper:
                         except Exception:
                             pass
 
+                message_content = None
+                if query and hasattr(query, 'message_chain') and hasattr(query.message_chain, 'model_dump'):
+                    message_content = json.dumps(query.message_chain.model_dump(), ensure_ascii=False)
+
                 await ap.monitoring_service.update_message_status(
                     message_id=message_id,
                     status='success',
                     variables=query_variables_str,
+                    message_content=message_content,
                 )
         except Exception as e:
             ap.logger.error(f'Failed to record query success: {e}')

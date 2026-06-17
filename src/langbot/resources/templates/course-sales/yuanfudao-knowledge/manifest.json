@@ -14,7 +14,7 @@
   },
   "generated_at": "2026-06-10T12:09:43",
   "source_label": "猿辅导知识库",
-  "total_files": 72,
+  "total_files": 71,
   "files": [
     {
       "name": "16.8元品-直播脚本示例.md",
@@ -512,16 +512,6 @@
       "kind": "spreadsheet",
       "category": "销售话术与私域SOP",
       "size_bytes": 2903850,
-      "indexed": true,
-      "upload_ready": true,
-      "note": "已纳入可检索文本语料。"
-    },
-    {
-      "name": "猿辅导介绍0317.pdf",
-      "extension": ".pdf",
-      "kind": "pdf",
-      "category": "品牌介绍与宣传素材",
-      "size_bytes": 15329306,
       "indexed": true,
       "upload_ready": true,
       "note": "已纳入可检索文本语料。"
@@ -1081,14 +1071,6 @@
       "kind": "spreadsheet",
       "category": "销售话术与私域SOP",
       "size_bytes": 2903850
-    },
-    {
-      "path": "documents/猿辅导介绍0317.pdf",
-      "source_name": "猿辅导介绍0317.pdf",
-      "storage_name": "猿辅导介绍0317.pdf",
-      "kind": "pdf",
-      "category": "品牌介绍与宣传素材",
-      "size_bytes": 15329306
     },
     {
       "path": "documents/猿辅导品牌宣传素材0224.md",

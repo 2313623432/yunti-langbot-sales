@@ -463,6 +463,7 @@ export default function PipelineFormComponent({
           basic: {
             avatar: values.basic.avatar || DEFAULT_AGENT_AVATAR,
           },
+          ai: syncTemplateModelIntoAIConfig(templateConfig, values.ai),
           config_mode: 'workflow',
           template_config: templateConfig,
           role_prompt: rolePrompt,
@@ -533,7 +534,7 @@ export default function PipelineFormComponent({
         basic: {
           avatar: values.basic.avatar || DEFAULT_AGENT_AVATAR,
         },
-        ai: values.ai,
+        ai: syncTemplateModelIntoAIConfig(templateConfig, values.ai),
         trigger: values.trigger,
         safety: values.safety,
         output: values.output,

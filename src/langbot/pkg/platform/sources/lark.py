@@ -64,6 +64,21 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
     _LAZY_IMAGE_ID_PREFIX = 'lark:'
 
     @staticmethod
+    def supports_lark_sticker_file_key_components() -> bool:
+        """Return whether the shared platform message layer exposes Lark sticker file_key messages."""
+        return False
+
+    @staticmethod
+    def lark_sticker_file_key_from_component(msg: platform_message.MessageComponent) -> str | None:
+        """Return a Lark sticker file_key only when a shared sticker component exists.
+
+        Feishu/Lark only accepts sticker file_key values for stickers the bot has
+        received. The current shared message entities do not expose such a
+        component, so course-sales first replies must keep using text emoji.
+        """
+        return None
+
+    @staticmethod
     def _lazy_image_id(message_id: str, image_key: str) -> str:
         return f'{LarkMessageConverter._LAZY_IMAGE_ID_PREFIX}{message_id}:{image_key}'
 
@@ -538,7 +553,9 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
             elif ele['tag'] == 'img':
                 image_key = ele['image_key']
                 lb_msg_list.append(
-                    platform_message.Image(image_id=LarkMessageConverter._lazy_image_id(message.message_id, image_key))
+                    platform_message.Image(
+                        image_id=LarkMessageConverter._lazy_image_id(message.message_id, image_key)
+                    )
                 )
             elif ele['tag'] == 'audio':
                 file_key = ele['file_key']
@@ -654,6 +671,12 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
     _processed_thread_quote_cache: typing.ClassVar[dict[str, float]] = {}
     _processed_thread_quote_cache_max_size: typing.ClassVar[int] = 4096
     _processed_thread_quote_cache_ttl_seconds: typing.ClassVar[int] = 86400
+
+    @staticmethod
+    def _read_value(source: typing.Any, key: str) -> typing.Any:
+        if isinstance(source, dict):
+            return source.get(key)
+        return getattr(source, key, None)
 
     @classmethod
     def _prune_processed_thread_quote_cache(cls, now: typing.Optional[float] = None) -> None:
@@ -785,52 +808,89 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
 
     @staticmethod
     def _sender_display_name(sender: typing.Any) -> str:
-        def read_value(source: typing.Any, key: str) -> typing.Any:
-            if isinstance(source, dict):
-                return source.get(key)
-            return getattr(source, key, None)
-
         candidates: list[typing.Any] = []
         for key in ('name', 'display_name', 'nickname', 'sender_name', 'user_name'):
-            candidates.append(read_value(sender, key))
+            candidates.append(LarkEventConverter._read_value(sender, key))
 
-        user = read_value(sender, 'user')
+        user = LarkEventConverter._read_value(sender, 'user')
         if user is not None:
             for key in ('name', 'display_name', 'nickname', 'en_name', 'user_name'):
-                candidates.append(read_value(user, key))
+                candidates.append(LarkEventConverter._read_value(user, key))
 
-        sender_id = read_value(sender, 'sender_id')
+        sender_id = LarkEventConverter._read_value(sender, 'sender_id')
         if sender_id is not None:
             for key in ('name', 'display_name', 'nickname', 'union_id'):
-                candidates.append(read_value(sender_id, key))
+                candidates.append(LarkEventConverter._read_value(sender_id, key))
 
         return LarkEventConverter._first_display_name(*candidates)
+
+    @staticmethod
+    def _display_name_from_contact_user(user: typing.Any, fallback_name: str | None = None) -> str:
+        candidates: list[typing.Any] = []
+        for key in ('name', 'nickname', 'en_name', 'display_name', 'user_name', 'localized_name'):
+            candidates.append(LarkEventConverter._read_value(user, key))
+
+        i18n_name = LarkEventConverter._read_value(user, 'i18n_name')
+        if i18n_name is not None:
+            for key in ('zh_cn', 'zh-CN', 'zh_hans', 'en_us', 'en-US'):
+                candidates.append(LarkEventConverter._read_value(i18n_name, key))
+
+        candidates.append(fallback_name)
+        return LarkEventConverter._first_display_name(*candidates)
+
+    @staticmethod
+    def _compact_lark_id(value: str | None) -> str:
+        text = str(value or '').strip()
+        if len(text) <= 16:
+            return text
+        return f'{text[:8]}...{text[-6:]}'
+
+    @staticmethod
+    async def _log_display_name_lookup_failure(
+        logger: abstract_platform_logger.AbstractEventLogger | None,
+        message: str,
+    ):
+        if logger is None:
+            return
+        try:
+            await logger.warning(message)
+        except Exception:
+            pass
 
     @staticmethod
     async def _fetch_user_display_name(
         api_client: lark_oapi.Client,
         open_id: str | None,
-        union_id: str | None = None,
+        fallback_name: str | None = None,
+        logger: abstract_platform_logger.AbstractEventLogger | None = None,
     ) -> str:
         if not api_client or not open_id:
-            return LarkEventConverter._first_display_name(union_id) or '飞书用户'
+            return LarkEventConverter._first_display_name(fallback_name) or '飞书用户'
         try:
             request = GetUserRequest.builder().user_id(open_id).user_id_type('open_id').build()
             response = await api_client.contact.v3.user.aget(request)
             if response.success():
-                user = getattr(getattr(response, 'data', None), 'user', None)
-                display_name = LarkEventConverter._first_display_name(
-                    getattr(user, 'name', None),
-                    getattr(user, 'nickname', None),
-                    getattr(user, 'en_name', None),
-                    getattr(user, 'user_id', None),
-                    union_id,
-                )
+                user = LarkEventConverter._read_value(getattr(response, 'data', None), 'user')
+                display_name = LarkEventConverter._display_name_from_contact_user(user, fallback_name)
                 if display_name:
                     return display_name
-        except Exception:
-            pass
-        return LarkEventConverter._first_display_name(union_id) or '飞书用户'
+                await LarkEventConverter._log_display_name_lookup_failure(
+                    logger,
+                    f'Lark contact user lookup returned no display name for open_id='
+                    f'{LarkEventConverter._compact_lark_id(open_id)}',
+                )
+            else:
+                await LarkEventConverter._log_display_name_lookup_failure(
+                    logger,
+                    f'Lark contact user lookup failed for open_id={LarkEventConverter._compact_lark_id(open_id)}: '
+                    f'code={getattr(response, "code", "")}, msg={getattr(response, "msg", "")}',
+                )
+        except Exception as e:
+            await LarkEventConverter._log_display_name_lookup_failure(
+                logger,
+                f'Lark contact user lookup raised for open_id={LarkEventConverter._compact_lark_id(open_id)}: {e}',
+            )
+        return LarkEventConverter._first_display_name(fallback_name) or '飞书用户'
 
     @staticmethod
     async def yiri2target(
@@ -840,9 +900,21 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
 
     @staticmethod
     async def target2yiri(
-        event: lark_oapi.im.v1.P2ImMessageReceiveV1, api_client: lark_oapi.Client
+        event: lark_oapi.im.v1.P2ImMessageReceiveV1,
+        api_client: lark_oapi.Client,
+        logger: abstract_platform_logger.AbstractEventLogger | None = None,
     ) -> platform_events.Event:
         message_chain = await LarkMessageConverter.target2yiri(event.event.message, api_client)
+        sender_id = event.event.sender.sender_id
+        sender_open_id = getattr(sender_id, 'open_id', None)
+        sender_union_id = getattr(sender_id, 'union_id', None)
+        sender_event_display_name = LarkEventConverter._sender_display_name(event.event.sender)
+        sender_display_name = await LarkEventConverter._fetch_user_display_name(
+            api_client,
+            sender_open_id,
+            sender_event_display_name or sender_union_id,
+            logger,
+        )
 
         # Check for quote/reply message
         # Extract files/images/voice from quote and add them as top-level components
@@ -868,16 +940,6 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
                     elif isinstance(comp, platform_message.Plain):
                         # Add text with context prefix
                         message_chain.append(platform_message.Plain(text=f'[引用消息] {comp.text}'))
-
-        sender_id = event.event.sender.sender_id
-        sender_open_id = getattr(sender_id, 'open_id', None)
-        sender_union_id = getattr(sender_id, 'union_id', None)
-        sender_event_display_name = LarkEventConverter._sender_display_name(event.event.sender)
-        sender_display_name = await LarkEventConverter._fetch_user_display_name(
-            api_client,
-            sender_open_id,
-            sender_event_display_name or sender_union_id,
-        )
 
         if event.event.message.chat_type == 'p2p':
             return platform_events.FriendMessage(
@@ -955,7 +1017,7 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         quart_app = quart.Quart(__name__)
 
         async def on_message(event: lark_oapi.im.v1.P2ImMessageReceiveV1):
-            lb_event = await self.event_converter.target2yiri(event, self.api_client)
+            lb_event = await self.event_converter.target2yiri(event, self.api_client, self.logger)
 
             await self.listeners[type(lb_event)](lb_event, self)
 
@@ -1910,7 +1972,7 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                     event.sender = EventSender(context.event['sender'])
                     p2v1.event = event
                     p2v1.schema = context.schema
-                    event = await self.event_converter.target2yiri(p2v1, self.api_client)
+                    event = await self.event_converter.target2yiri(p2v1, self.api_client, self.logger)
                 except Exception:
                     await self.logger.error(f'Error in lark callback: {traceback.format_exc()}')
 

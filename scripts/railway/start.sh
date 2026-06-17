@@ -20,8 +20,6 @@ export PORT="${PORT:-5300}"
 export API__PORT="${API__PORT:-$PORT}"
 export PLUGIN__RUNTIME_WS_URL="${PLUGIN__RUNTIME_WS_URL:-ws://127.0.0.1:5400/control/ws}"
 
-mkdir -p /app/data/metadata /app/data/logs /app/data/labels /app/data/storage /app/data/chroma /app/data/temp
-
 if [ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ] && [ -z "${API__WEBHOOK_PREFIX:-}" ]; then
     export API__WEBHOOK_PREFIX="https://${RAILWAY_PUBLIC_DOMAIN}"
 fi
@@ -39,6 +37,8 @@ if [ -n "${RAILWAY_VOLUME_MOUNT_PATH:-}" ] && [ "${RAILWAY_VOLUME_MOUNT_PATH}" !
         echo "Railway volume is mounted at ${RAILWAY_VOLUME_MOUNT_PATH}; /app/data already exists, so it was not linked." >&2
     fi
 fi
+
+mkdir -p /app/data/metadata /app/data/logs /app/data/labels /app/data/storage /app/data/chroma /app/data/temp
 
 if [ ! -f /app/data/langbot.db ] && [ -d /app/render-seed-data ]; then
     cp -a /app/render-seed-data/. /app/data/
@@ -69,8 +69,12 @@ PY
 fi
 
 if [ "${LANGBOT_POSTGRES_SEED_FROM_SQLITE:-0}" = "1" ] && [ -n "${DATABASE_URL:-}" ]; then
-    echo "Seeding PostgreSQL from bundled SQLite database if target is empty..."
-    uv run --no-sync python scripts/sync_sqlite_to_postgres.py --sqlite /app/data/langbot.db
+    if [ -f /app/data/langbot.db ]; then
+        echo "Seeding PostgreSQL from SQLite database if target is empty..."
+        uv run --no-sync python scripts/sync_sqlite_to_postgres.py --sqlite /app/data/langbot.db
+    else
+        echo "LANGBOT_POSTGRES_SEED_FROM_SQLITE=1 but /app/data/langbot.db was not found; skipping seed." >&2
+    fi
 fi
 
 echo "Starting LangBot plugin runtime..."

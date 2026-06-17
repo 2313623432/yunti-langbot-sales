@@ -12662,8 +12662,6 @@ http://llc1\.yfdurl\.com/fLQFuA
 
 ### 1\.猿辅导素养课素材
 
-\[猿辅导介绍0317\.pdf\]
-
 重点
 
 \[252662ab87f1ae942b3c5d4d4f6df19e\.mov\]

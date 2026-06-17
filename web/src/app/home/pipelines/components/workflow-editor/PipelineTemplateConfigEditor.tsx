@@ -42,6 +42,7 @@ import { agentAvatarUrl } from '@/app/home/pipelines/components/agent-avatar/age
 import {
   PipelineTemplateConfig,
   PipelineTemplateCourseProfile,
+  PipelineTemplateFollowupMessage,
   PipelineTemplateImageTextBinding,
   PipelineTemplateSpecialCase,
 } from './types';
@@ -98,6 +99,14 @@ const RADAR_EVENT_OPTIONS = [
   { value: 'browse_30s', label: '客户浏览了一会儿', description: '客户停留一段时间后，主动询问卡点。' },
   { value: 'click_apply_button', label: '客户点击报名按钮', description: '客户进入报名动作后，提醒完成支付并发截图。' },
   { value: 'no_payment_after_click', label: '点击后暂未支付', description: '客户点了报名但没有支付时，提醒截图或帮看页面。' },
+];
+
+const FOLLOWUP_TIMING_OPTIONS = [
+  { value: 'immediate', label: '立即发送' },
+  { value: 'after_5', label: '5 分钟后发送' },
+  { value: 'after_60', label: '1 小时后发送' },
+  { value: 'evening', label: '今晚固定时间发送' },
+  { value: 'custom', label: '自定义几分钟后发送' },
 ];
 
 type VoiceToneOption = {
@@ -368,6 +377,22 @@ function makeCustomImageBinding(): PipelineTemplateImageTextBinding {
   };
 }
 
+function followupTimingValue(message: PipelineTemplateFollowupMessage) {
+  if (message.schedule_time) return 'evening';
+  if (message.delay_minutes === 0) return 'immediate';
+  if (message.delay_minutes === 5) return 'after_5';
+  if (message.delay_minutes === 60) return 'after_60';
+  return 'custom';
+}
+
+function timingPatch(value: string): Partial<PipelineTemplateFollowupMessage> {
+  if (value === 'immediate') return { delay_minutes: 0, schedule_time: undefined };
+  if (value === 'after_5') return { delay_minutes: 5, schedule_time: undefined };
+  if (value === 'after_60') return { delay_minutes: 60, schedule_time: undefined };
+  if (value === 'evening') return { delay_minutes: 0, schedule_time: '21:30' };
+  return { delay_minutes: 10, schedule_time: undefined };
+}
+
 function makeSpecialCase(): PipelineTemplateSpecialCase {
   return {
     id: `special_${Date.now().toString(36)}`,
@@ -429,6 +454,7 @@ export default function PipelineTemplateConfigEditor({
   const [uploadingBindingId, setUploadingBindingId] = useState('');
   const [showAdvancedRadar, setShowAdvancedRadar] = useState(false);
   const [showAdvancedStopRules, setShowAdvancedStopRules] = useState(false);
+  const [showAdvancedHandoffKeywords, setShowAdvancedHandoffKeywords] = useState(false);
 
   useEffect(() => {
     httpClient
@@ -724,6 +750,54 @@ export default function PipelineTemplateConfigEditor({
     patch({
       followup_sequences: (config.followup_sequences || []).map((sequence, sequenceIndex) =>
         sequenceIndex === index ? { ...sequence, ...next } : sequence,
+      ),
+    });
+  }
+
+  function addFollowupMessage(sequenceIndex: number) {
+    patch({
+      followup_sequences: (config.followup_sequences || []).map((sequence, index) =>
+        index === sequenceIndex
+          ? {
+              ...sequence,
+              messages: [
+                ...(sequence.messages || []),
+                { delay_minutes: 5, message: '家长领取到了吗？' },
+              ],
+            }
+          : sequence,
+      ),
+    });
+  }
+
+  function patchFollowupMessage(
+    sequenceIndex: number,
+    messageIndex: number,
+    next: Partial<PipelineTemplateFollowupMessage>,
+  ) {
+    patch({
+      followup_sequences: (config.followup_sequences || []).map((sequence, index) =>
+        index === sequenceIndex
+          ? {
+              ...sequence,
+              messages: (sequence.messages || []).map((message, itemIndex) =>
+                itemIndex === messageIndex ? { ...message, ...next } : message,
+              ),
+            }
+          : sequence,
+      ),
+    });
+  }
+
+  function removeFollowupMessage(sequenceIndex: number, messageIndex: number) {
+    patch({
+      followup_sequences: (config.followup_sequences || []).map((sequence, index) =>
+        index === sequenceIndex
+          ? {
+              ...sequence,
+              messages: (sequence.messages || []).filter((_, itemIndex) => itemIndex !== messageIndex),
+            }
+          : sequence,
       ),
     });
   }
@@ -1658,6 +1732,10 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderPushSettings() {
+    const salesLinks = config.sales_links || [];
+    const defaultSalesLinkId =
+      salesLinks.find((link) => link.radar_enabled !== false)?.id || salesLinks[0]?.id || '';
+
     return (
       <div className="space-y-4">
         <Section
@@ -1726,7 +1804,16 @@ export default function PipelineTemplateConfigEditor({
           </label>
         </Section>
 
-        <Section icon={MessageSquareText} title="主动跟进话术矩阵">
+        <Section
+          icon={MessageSquareText}
+          title="主动跟进话术矩阵"
+          description="把不同客户状态下要发的提醒拆成可编辑步骤，保存后仍由后台按原规则执行。"
+          right={
+            <Badge variant="outline" className="rounded-md">
+              {(config.followup_sequences || []).length} 个场景
+            </Badge>
+          }
+        >
           <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addFollowupSequence}>
             <Plus className="mr-1.5 size-4" />
             新增跟进场景
@@ -1734,42 +1821,204 @@ export default function PipelineTemplateConfigEditor({
           <div className="grid gap-3">
             {(config.followup_sequences || []).map((sequence, index) => (
               <div key={`${sequence.stage}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                  <Input
-                    value={sequence.label}
-                    onChange={(event) => patchFollowupSequence(index, { label: event.target.value })}
-                    className="h-10 bg-white"
-                    placeholder="场景名称"
-                  />
-                  <Input
-                    value={sequence.stage}
-                    onChange={(event) => patchFollowupSequence(index, { stage: event.target.value })}
-                    className="h-10 bg-white"
-                    placeholder="阶段标识"
-                  />
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="block">
+                    <FieldLabel>跟进场景</FieldLabel>
+                    <Input
+                      value={sequence.label}
+                      onChange={(event) => patchFollowupSequence(index, { label: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="例如：客户想购买、客户点击报名后未支付"
+                    />
+                  </label>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
                     title="删除跟进场景"
                     onClick={() => removeFollowupSequence(index)}
                   >
                     <Trash2 className="size-4" />
                   </Button>
                 </div>
-                <Textarea
-                  value={JSON.stringify(sequence.messages, null, 2)}
-                  onChange={(event) => {
-                    try {
-                      patchFollowupSequence(index, { messages: JSON.parse(event.target.value) });
-                    } catch {
-                      patchFollowupSequence(index, { messages_text: event.target.value });
-                    }
-                  }}
-                  className="min-h-28 font-mono text-xs leading-5"
-                  placeholder="跟进消息 JSON"
-                />
+                <div className="space-y-3">
+                  {(sequence.messages || []).map((message, messageIndex) => {
+                    const linkEnabled = Boolean(message.link_id || message.send_link_card);
+                    return (
+                      <div
+                        key={`${sequence.stage}-${messageIndex}`}
+                        className="space-y-3 rounded-md border border-slate-200 bg-white p-3"
+                      >
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_auto]">
+                          <label className="block">
+                            <FieldLabel>发送节奏</FieldLabel>
+                            <Select
+                              value={followupTimingValue(message)}
+                              onValueChange={(value) =>
+                                patchFollowupMessage(index, messageIndex, timingPatch(value))
+                              }
+                            >
+                              <SelectTrigger className="h-10 bg-white">
+                                <SelectValue placeholder="选择什么时候发送" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FOLLOWUP_TIMING_OPTIONS.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </label>
+                          {followupTimingValue(message) === 'custom' ? (
+                            <label className="block">
+                              <FieldLabel>几分钟后发送</FieldLabel>
+                              <Input
+                                type="number"
+                                min={0}
+                                value={message.delay_minutes}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    delay_minutes: Number(event.target.value || 0),
+                                    schedule_time: undefined,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                                placeholder="例如：15"
+                              />
+                            </label>
+                          ) : followupTimingValue(message) === 'evening' ? (
+                            <label className="block">
+                              <FieldLabel>固定发送时间</FieldLabel>
+                              <Input
+                                type="time"
+                                value={message.schedule_time || '21:30'}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    schedule_time: event.target.value,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                              />
+                            </label>
+                          ) : (
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                              系统会按所选节奏自动安排发送
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="删除这条话术"
+                            onClick={() => removeFollowupMessage(index, messageIndex)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                        <label className="block">
+                          <FieldLabel>发送内容</FieldLabel>
+                          <Textarea
+                            value={message.message}
+                            onChange={(event) =>
+                              patchFollowupMessage(index, messageIndex, { message: event.target.value })
+                            }
+                            className="min-h-24 resize-none bg-white leading-6"
+                            placeholder="输入这一步要发送给客户的话术"
+                          />
+                        </label>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-slate-900">带报名链接</p>
+                                <p className="text-xs leading-5 text-muted-foreground">
+                                  需要时自动附上客户可点击的报名页或资料页。
+                                </p>
+                              </div>
+                              <Switch
+                                checked={linkEnabled}
+                                onCheckedChange={(checked) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    link_id: checked ? message.link_id || defaultSalesLinkId || undefined : undefined,
+                                    send_link_card: checked && Boolean(message.link_id || defaultSalesLinkId),
+                                  })
+                                }
+                              />
+                            </div>
+                            {linkEnabled && salesLinks.length > 0 && (
+                              <Select
+                                value={message.link_id || defaultSalesLinkId}
+                                onValueChange={(value) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    link_id: value,
+                                    send_link_card: true,
+                                  })
+                                }
+                              >
+                                <SelectTrigger className="h-10 bg-white">
+                                  <SelectValue placeholder="选择要发送的链接" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {salesLinks.map((link) => (
+                                    <SelectItem key={link.id} value={link.id}>
+                                      {link.title || link.id}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                            {linkEnabled && salesLinks.length === 0 && (
+                              <p className="text-xs leading-5 text-amber-700">
+                                还没有客户链接，请先在“雷达跟进”里添加报名页或资料页。
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                            <label className="block">
+                              <FieldLabel>发送图片素材</FieldLabel>
+                              <Input
+                                value={message.image_key || ''}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    image_key: event.target.value,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                                placeholder="如需附图，填写素材名称或编号"
+                              />
+                            </label>
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-slate-900">语音可选</p>
+                                <p className="text-xs leading-5 text-muted-foreground">
+                                  后台可按策略把这条话术转成语音发送。
+                                </p>
+                              </div>
+                              <Switch
+                                checked={Boolean(message.voice_optional)}
+                                onCheckedChange={(checked) =>
+                                  patchFollowupMessage(index, messageIndex, { voice_optional: checked })
+                                }
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 w-full justify-center rounded-md bg-white"
+                  onClick={() => addFollowupMessage(index)}
+                >
+                  <Plus className="mr-1.5 size-4" />
+                  新增一条发送步骤
+                </Button>
               </div>
             ))}
           </div>
@@ -1926,7 +2175,7 @@ export default function PipelineTemplateConfigEditor({
         <Section
           icon={UserRoundCheck}
           title="转人工"
-          description="配置客户在什么关键词或语义意图下需要申请人工介入。"
+          description="配置客户在哪些意图场景下需要申请人工介入。"
           right={
             <SummaryPill active={config.human_handoff.enabled}>
               {config.human_handoff.enabled ? '已启用' : '未启用'}
@@ -1939,20 +2188,13 @@ export default function PipelineTemplateConfigEditor({
             checked={config.human_handoff.enabled}
             onCheckedChange={(checked) => patchHumanHandoff({ enabled: checked })}
           />
-          <label className="block">
-            <FieldLabel>触发关键词</FieldLabel>
-            <Textarea
-              value={(config.human_handoff.keywords || []).join('\n')}
-              onChange={(event) => patchHumanHandoff({ keywords: textToList(event.target.value) })}
-              className="min-h-32 resize-none leading-6"
-              placeholder="转人工&#10;人工客服&#10;投诉&#10;退款&#10;看不到课"
-            />
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              每行一个关键词。客户消息包含这些词时，会优先申请人工介入。
-            </p>
-          </label>
           <div className="space-y-3">
-            <FieldLabel>语义意图边界</FieldLabel>
+            <div>
+              <FieldLabel>意图识别场景</FieldLabel>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                数字员工优先按客户表达的诉求判断是否需要人工介入，避免只因为出现“客服”“老师”等词就误触发。
+              </p>
+            </div>
             {(config.human_handoff.semantic_triggers || []).map((trigger, index) => (
               <div key={trigger.id || index} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -1974,6 +2216,28 @@ export default function PipelineTemplateConfigEditor({
               </div>
             ))}
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 px-2 text-sm text-muted-foreground"
+            onClick={() => setShowAdvancedHandoffKeywords((visible) => !visible)}
+          >
+            {showAdvancedHandoffKeywords ? '收起关键词兜底' : '展开关键词兜底'}
+          </Button>
+          {showAdvancedHandoffKeywords && (
+            <label className="block">
+              <FieldLabel>关键词兜底</FieldLabel>
+              <Textarea
+                value={(config.human_handoff.keywords || []).join('\n')}
+                onChange={(event) => patchHumanHandoff({ keywords: textToList(event.target.value) })}
+                className="min-h-32 resize-none leading-6"
+                placeholder="转人工&#10;人工客服&#10;投诉&#10;退款&#10;看不到课"
+              />
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                仅作为意图识别之外的兜底规则。宽泛词仍需表达“找人工、转人工、联系我”等诉求才会触发。
+              </p>
+            </label>
+          )}
         </Section>
 
         <Section icon={ShieldCheck} title="命中后的动作边界">
@@ -2009,22 +2273,15 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderSpecialCaseSettings() {
-    const enabledCount = (config.special_cases || []).filter((item) => item.enabled !== false).length;
+    const specialCases = config.special_cases || [];
     return (
       <div className="space-y-4">
         <Section
           icon={ShieldCheck}
           title="特殊情况处理"
-          description="用 AI语义触发识别相似意思，命中后优先按指定意思回复，支持固定回复、AI改写和图片。"
-          right={
-            <SummaryPill active={enabledCount > 0}>
-              {enabledCount} 条启用
-            </SummaryPill>
-          }
+          description="配置需要优先覆盖普通回复的高频特殊场景。"
+          right={<Badge variant="outline" className="rounded-md">{specialCases.length} 条规则</Badge>}
         >
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-            AI语义触发会判断“意思是否相同”，不是关键词触发。用户换一种说法、口语化表达，也可以命中。
-          </div>
           <Button
             type="button"
             variant="outline"
@@ -2034,13 +2291,9 @@ export default function PipelineTemplateConfigEditor({
             <Plus className="mr-1.5 size-4" />
             新增特殊情况
           </Button>
-
           <div className="grid gap-3">
-            {(config.special_cases || []).map((item, index) => (
-              <div
-                key={item.id || index}
-                className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3"
-              >
+            {specialCases.map((item, index) => (
+              <div key={item.id || index} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
                 <div className="flex items-center gap-3">
                   <Badge variant="outline" className="rounded bg-white">
                     {String(index + 1).padStart(2, '0')}
@@ -2066,37 +2319,32 @@ export default function PipelineTemplateConfigEditor({
                     <Trash2 className="size-4" />
                   </Button>
                 </div>
-
                 <label className="block">
-                  <FieldLabel>语义条件</FieldLabel>
+                  <FieldLabel>用户语义条件</FieldLabel>
                   <Textarea
                     value={item.condition}
                     onChange={(event) => patchSpecialCase(index, { condition: event.target.value })}
                     className="min-h-24 resize-none bg-white leading-6"
-                    placeholder="例如：用户在问书籍二维码里的听力、答案、音频或扫码资源怎么打开、怎么听、在哪里看。"
+                    placeholder="用户在问书籍二维码里的听力、答案、音频或扫码资源怎么打开、怎么听、在哪里看。"
                   />
                 </label>
-
                 <label className="block">
-                  <FieldLabel>回复意思</FieldLabel>
+                  <FieldLabel>固定回复意思</FieldLabel>
                   <Textarea
                     value={item.reply}
                     onChange={(event) => patchSpecialCase(index, { reply: event.target.value })}
                     className="min-h-24 resize-none bg-white leading-6"
-                    placeholder="例如：书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片。"
+                    placeholder="书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片。"
                   />
                 </label>
-
-                <ToggleRow
-                  label="AI改写"
-                  description="开启后 AI 按回复意思自然表达，每次略有不同；关闭后每次发送同一条固定回复。"
-                  checked={Boolean(item.ai_rewrite)}
-                  onCheckedChange={(checked) => patchSpecialCase(index, { ai_rewrite: checked })}
-                />
-
-                <div className="grid gap-2 md:grid-cols-2">
-                  <label>
-                    <FieldLabel>图片 URL</FieldLabel>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <ToggleRow
+                    label="允许 AI 自然改写话术"
+                    checked={item.ai_rewrite !== false}
+                    onCheckedChange={(checked) => patchSpecialCase(index, { ai_rewrite: checked })}
+                  />
+                  <label className="block">
+                    <FieldLabel>图片地址</FieldLabel>
                     <Input
                       value={item.image_url || ''}
                       onChange={(event) => patchSpecialCase(index, { image_url: event.target.value })}
@@ -2104,31 +2352,12 @@ export default function PipelineTemplateConfigEditor({
                       placeholder="https://example.com/image.png"
                     />
                   </label>
-                  <label>
-                    <FieldLabel>图片 file_key</FieldLabel>
-                    <Input
-                      value={item.file_key || ''}
-                      onChange={(event) => patchSpecialCase(index, { file_key: event.target.value })}
-                      className="h-10 bg-white"
-                      placeholder="storage/path/image.png"
-                    />
-                  </label>
                 </div>
-
-                {(item.image_url || item.file_key) && (
-                  <div className="overflow-hidden rounded-md border bg-white">
-                    <img
-                      src={item.image_url || imageAssetUrl(item.file_key || '')}
-                      alt={item.id || '特殊情况图片'}
-                      className="max-h-40 w-full object-contain"
-                    />
-                  </div>
-                )}
               </div>
             ))}
-            {!(config.special_cases || []).length && (
-              <div className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-sm text-muted-foreground">
-                暂无特殊情况。可以新增一条，例如“用户在问听力/答案怎么听”。
+            {!specialCases.length && (
+              <div className="rounded-md border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-muted-foreground">
+                暂无特殊情况规则
               </div>
             )}
           </div>

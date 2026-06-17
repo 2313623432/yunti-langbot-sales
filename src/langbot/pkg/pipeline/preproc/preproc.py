@@ -46,9 +46,11 @@ class PreProcessor(stage.PipelineStage):
 
         if not isinstance(resolved, platform_message.Image):
             return image
+
         image.base64 = resolved.base64
         image.url = resolved.url
         image.path = resolved.path
+        image.image_id = resolved.image_id or image.image_id
         return image
 
     async def process(
@@ -199,7 +201,7 @@ class PreProcessor(stage.PipelineStage):
                     llm_model and llm_model.model_entity.abilities.__contains__('vision')
                 ):
                     me = await self._resolve_image_component(me, query)
-                    if me.base64 is not None:
+                    if me.base64:
                         content_list.append(provider_message.ContentElement.from_image_base64(me.base64))
                     elif me.url:
                         content_list.append(provider_message.ContentElement.from_image_url(me.url))
@@ -223,7 +225,7 @@ class PreProcessor(stage.PipelineStage):
                             llm_model and llm_model.model_entity.abilities.__contains__('vision')
                         ):
                             msg = await self._resolve_image_component(msg, query)
-                            if msg.base64 is not None:
+                            if msg.base64:
                                 content_list.append(provider_message.ContentElement.from_image_base64(msg.base64))
                             elif msg.url:
                                 content_list.append(provider_message.ContentElement.from_image_url(msg.url))
@@ -273,6 +275,12 @@ class PreProcessor(stage.PipelineStage):
         task_assistant_handled = False
         if getattr(self.ap, 'task_assistant_service', None) is not None:
             task_result = await self.ap.task_assistant_service.prepare_query(query)
+            if task_result.get('interrupted'):
+                return entities.StageProcessResult(
+                    result_type=entities.ResultType.INTERRUPT,
+                    new_query=query,
+                    user_notice=task_result.get('notice', ''),
+                )
             task_assistant_handled = task_result.get('handled', False)
 
         if not task_assistant_handled and getattr(self.ap, 'sales_service', None) is not None:

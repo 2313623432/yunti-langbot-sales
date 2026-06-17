@@ -4,6 +4,19 @@ import { FileText, ImageIcon, Link2, Volume2 } from 'lucide-react';
 import type { SalesMessageComponent } from '@/app/infra/entities/api';
 import { cn } from '@/lib/utils';
 
+function rawValue(
+  raw: Record<string, unknown> | undefined,
+  keys: string[],
+): string {
+  for (const key of keys) {
+    const value = raw?.[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return String(value);
+    }
+  }
+  return '';
+}
+
 function browserSafeMediaSource(value?: unknown): string {
   const source = String(value || '').trim();
   if (!source) return '';
@@ -44,19 +57,6 @@ function mediaSource(component: {
   for (const candidate of candidates) {
     const source = browserSafeMediaSource(candidate);
     if (source) return source;
-  }
-  return '';
-}
-
-function rawValue(
-  raw: Record<string, unknown> | undefined,
-  keys: string[],
-): string {
-  for (const key of keys) {
-    const value = raw?.[key];
-    if (value !== undefined && value !== null && value !== '') {
-      return String(value);
-    }
   }
   return '';
 }
@@ -134,7 +134,9 @@ function SalesMessageComponentView({
         <div className="min-w-[220px] rounded-md bg-black/5 px-3 py-2">
           <div className="mb-2 flex items-center gap-2 text-sm">
             <Volume2 className="size-4" />
-            <span>{component.length ? `${component.length}s` : '语音消息'}</span>
+            <span>
+              {component.length ? `${component.length}s` : '语音消息'}
+            </span>
           </div>
           <audio controls src={src} className="h-9 w-full" />
         </div>

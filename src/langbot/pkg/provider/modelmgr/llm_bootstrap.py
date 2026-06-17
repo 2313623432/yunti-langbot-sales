@@ -6,13 +6,40 @@ from langbot.pkg.core import app
 from langbot.pkg.entity.persistence import model as persistence_model
 from langbot.pkg.provider.modelmgr import builtin_text_providers
 
+REMOVED_DOUBAO_TEXT_MODEL_UUIDS = frozenset(
+    {
+        'lnp-doubao-doubao-pro-32k',
+        'lnp-doubao-doubao-lite-32k',
+        'lnp-doubao-doubao-pro-128k',
+    }
+)
+
 
 async def ensure_builtin_text_providers(ap: app.Application) -> None:
     """Ensure built-in text model providers and their default models exist."""
+    await _remove_removed_doubao_models(ap)
     for provider_spec in builtin_text_providers.BUILTIN_TEXT_PROVIDER_SPECS:
         await _ensure_provider(ap, provider_spec)
         for model_spec in provider_spec.models:
             await _ensure_model(ap, provider_spec.uuid, model_spec)
+
+
+async def _remove_removed_doubao_models(ap: app.Application) -> None:
+    for model_uuid in REMOVED_DOUBAO_TEXT_MODEL_UUIDS:
+        existing = await ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.LLMModel).where(
+                persistence_model.LLMModel.uuid == model_uuid
+            )
+        )
+        if existing.first() is None:
+            continue
+        await ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_model.LLMModel).where(
+                persistence_model.LLMModel.uuid == model_uuid
+            )
+        )
+        await ap.model_mgr.remove_llm_model(model_uuid)
+        ap.logger.info('Removed deprecated built-in text model: %s', model_uuid)
 
 
 async def _ensure_provider(

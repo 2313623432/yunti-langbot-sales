@@ -225,6 +225,25 @@ function compactIdentifier(value?: string | null): string {
   return text.length > 28 ? `${text.slice(0, 12)}...${text.slice(-8)}` : text;
 }
 
+function nestedText(value: unknown, path: string[]): string {
+  let cursor: unknown = value;
+  for (const key of path) {
+    if (!cursor || typeof cursor !== 'object') return '';
+    cursor = (cursor as Record<string, unknown>)[key];
+  }
+  return typeof cursor === 'string' ? cursor.trim() : '';
+}
+
+function extractSalesSuggestionMessage(response: unknown): string {
+  if (typeof response === 'string') return response.trim();
+  return (
+    nestedText(response, ['suggestion', 'message']) ||
+    nestedText(response, ['suggestion']) ||
+    nestedText(response, ['message']) ||
+    nestedText(response, ['data', 'suggestion', 'message'])
+  );
+}
+
 function conversationAccountLabel(conversation: ConversationRow): string {
   return (
     conversation.session?.bot_name ||
@@ -244,25 +263,6 @@ function conversationMessageTypeLabel(conversation: ConversationRow): string {
 
 function conversationReplyModeLabel(conversation: ConversationRow): string {
   return handoffStatusLabels[conversation.handoffStatus];
-}
-
-function nestedText(value: unknown, path: string[]): string {
-  let cursor: unknown = value;
-  for (const key of path) {
-    if (!cursor || typeof cursor !== 'object') return '';
-    cursor = (cursor as Record<string, unknown>)[key];
-  }
-  return typeof cursor === 'string' ? cursor.trim() : '';
-}
-
-function extractSalesSuggestionMessage(response: unknown): string {
-  if (typeof response === 'string') return response.trim();
-  return (
-    nestedText(response, ['suggestion', 'message']) ||
-    nestedText(response, ['suggestion']) ||
-    nestedText(response, ['message']) ||
-    nestedText(response, ['data', 'suggestion', 'message'])
-  );
 }
 
 function uniqueLabels(values: string[]): string[] {
@@ -485,7 +485,6 @@ function buildConversations(
       session,
     };
   });
-
 }
 
 function ConversationFilterSelect({
@@ -872,7 +871,8 @@ function ChatCenter({
             </h2>
             {conversation && (
               <span className="text-base text-[#687086]">
-                来源-{conversation.platform} · 机器人-{conversationAccountLabel(conversation)}
+                来源-{conversation.platform} · 机器人-
+                {conversationAccountLabel(conversation)}
               </span>
             )}
           </div>
@@ -963,7 +963,6 @@ function ChatCenter({
                       )}
                     >
                       <SalesMessageComponents components={message.components} />
-
                     </div>
                   </div>
                   {isAgent && <Avatar name={senderLabel || 'AI'} />}
@@ -1861,81 +1860,87 @@ export default function SalesChatPage() {
     (typeof window !== 'undefined' ? localStorage.getItem('userEmail') : '') ||
     'sales-admin';
 
-  const loadDashboard = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    try {
-      await initializeUserInfo();
-      const monitoringRangeStart = new Date(
-        Date.now() - 30 * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const [
-        overviewData,
-        productResp,
-        memoryResp,
-        handoffResp,
-        outreachResp,
-        conversationResp,
-        allConversationResp,
-        monitoringResp,
-      ] = await Promise.all([
-        httpClient.getSalesOverview(),
-        httpClient.getSalesProducts(),
-        httpClient.getSalesMemories(),
-        httpClient.getSalesHandoffs('open'),
-        httpClient.getSalesOutreachPlans(),
-        httpClient.getSalesConversations({
-          status: activeConversationTab,
-          limit: 100,
-          offset: 0,
-        }),
-        httpClient.getSalesConversations({
-          status: 'all',
-          limit: 100,
-          offset: 0,
-        }),
-        httpClient.getMonitoringData({
-          startTime: monitoringRangeStart,
-          endTime: new Date().toISOString(),
-          limit: 100,
-        }),
-      ]);
-      setOverview(overviewData);
-      setProducts(productResp.products || []);
-      setMemories(memoryResp.memories || []);
-      setHandoffs(handoffResp.handoffs || []);
-      setOutreachPlans(outreachResp.plans || []);
-      setSalesConversations(conversationResp.conversations || []);
-      setConversationStatusCounts(
-        countConversationStatuses(allConversationResp.conversations || []),
-      );
-      setSessions((monitoringResp.sessions || []) as MonitoringSession[]);
-    } catch (error) {
-      toast.error(errorMessage(error));
-    } finally {
-      if (showLoading) setLoading(false);
-    }
-  }, [activeConversationTab]);
+  const loadDashboard = useCallback(
+    async (showLoading = true) => {
+      if (showLoading) setLoading(true);
+      try {
+        await initializeUserInfo();
+        const monitoringRangeStart = new Date(
+          Date.now() - 30 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const [
+          overviewData,
+          productResp,
+          memoryResp,
+          handoffResp,
+          outreachResp,
+          conversationResp,
+          allConversationResp,
+          monitoringResp,
+        ] = await Promise.all([
+          httpClient.getSalesOverview(),
+          httpClient.getSalesProducts(),
+          httpClient.getSalesMemories(),
+          httpClient.getSalesHandoffs('open'),
+          httpClient.getSalesOutreachPlans(),
+          httpClient.getSalesConversations({
+            status: activeConversationTab,
+            limit: 100,
+            offset: 0,
+          }),
+          httpClient.getSalesConversations({
+            status: 'all',
+            limit: 100,
+            offset: 0,
+          }),
+          httpClient.getMonitoringData({
+            startTime: monitoringRangeStart,
+            endTime: new Date().toISOString(),
+            limit: 100,
+          }),
+        ]);
+        setOverview(overviewData);
+        setProducts(productResp.products || []);
+        setMemories(memoryResp.memories || []);
+        setHandoffs(handoffResp.handoffs || []);
+        setOutreachPlans(outreachResp.plans || []);
+        setSalesConversations(conversationResp.conversations || []);
+        setConversationStatusCounts(
+          countConversationStatuses(allConversationResp.conversations || []),
+        );
+        setSessions((monitoringResp.sessions || []) as MonitoringSession[]);
+      } catch (error) {
+        toast.error(errorMessage(error));
+      } finally {
+        if (showLoading) setLoading(false);
+      }
+    },
+    [activeConversationTab],
+  );
 
-  const loadMessages = useCallback(async (sessionId: string, showLoading = true) => {
-    if (!sessionId) {
-      setMessages([]);
-      return;
-    }
-    if (showLoading) setMessageLoading(true);
-    try {
-      const resp = await httpClient.getSalesConversationMessages(
-        sessionId,
-        200,
-        0,
-      );
-      setMessages(resp.messages || []);
-    } catch (error) {
-      setMessages([]);
-      toast.error(errorMessage(error));
-    } finally {
-      if (showLoading) setMessageLoading(false);
-    }
-  }, []);
+  const loadMessages = useCallback(
+    async (sessionId: string, showLoading = true) => {
+      if (!sessionId) {
+        setMessages([]);
+        return;
+      }
+      if (showLoading) setMessageLoading(true);
+      try {
+        const resp = await httpClient.getSalesConversationMessages(
+          sessionId,
+          200,
+          0,
+        );
+        setMessages(resp.messages || []);
+      } catch (error) {
+        setMessages([]);
+        toast.error(errorMessage(error));
+      } finally {
+        if (showLoading) setMessageLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     void loadDashboard();
@@ -2042,9 +2047,10 @@ export default function SalesChatPage() {
     if (!selectedConversation || suggesting) return;
     setSuggesting(true);
     try {
-      const response = await httpClient.generateSalesConversationReplySuggestion(
-        selectedConversation.sessionId,
-      );
+      const response =
+        await httpClient.generateSalesConversationReplySuggestion(
+          selectedConversation.sessionId,
+        );
       const message = extractSalesSuggestionMessage(response);
       if (!message) {
         toast.error('AI 推荐回复为空，请稍后再试');

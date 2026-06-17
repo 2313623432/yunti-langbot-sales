@@ -596,7 +596,7 @@ const courseSalesSignupLink =
 const courseResourceCardLink =
   'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347';
 const courseOpeningMessage =
-  '您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn';
+  '😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn';
 const defaultHumanHandoff = {
   enabled: true,
   keywords: [
@@ -713,17 +713,30 @@ const courseStopRules = {
   message: '好的家长，收到，不再打扰您了。后面有需要可以随时联系我。',
 };
 const courseStopPolicy = {
-  explicit_rejection_threshold: 1,
-  explicit_rejection_keywords: ['不需要', '不买', '不要', '不考虑', '没兴趣'],
+  explicit_rejection_threshold: 2,
+  explicit_rejection_keywords: [
+    '不需要',
+    '不买',
+    '不想买',
+    '不想报',
+    '不想报名',
+    '不想领取',
+    '不领取',
+    '不要',
+    '不考虑',
+    '不感兴趣',
+    '没兴趣',
+  ],
   immediate_stop_keywords: ['投诉', '没有孩子', '没孩子', '打错', '我是老师'],
 };
 const courseImageBindings = [
   {
     step_id: 'gift_poster',
     title: '完课好礼海报',
-    text: '表格内置素材：用户不买、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
+    text: '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
     file_key: 'course-sales/phonics/gift_poster.jpeg',
-    trigger_intents: ['gift', 'objection', 'course_intro'],
+    trigger_intents: ['gift', 'objection', 'course_intro', 'purchase'],
+    requires_course_sales_signup_link: true,
     enabled: true,
   },
   {
@@ -732,6 +745,7 @@ const courseImageBindings = [
     text: '表格内置素材：用户已报名/已支付后发送，引导长按识别关注，领取2026年最新幼小资源。',
     file_key: 'course-sales/phonics/gift_qr.jpeg',
     trigger_intents: ['purchased', 'resource_help', 'screenshot_help'],
+    requires_course_sales_signup_link: false,
     enabled: true,
   },
 ];
@@ -740,8 +754,8 @@ const courseFollowupSequences = [
     stage: 'purchase',
     label: '要买/怎么买',
     messages: [
-      { delay_minutes: 0, message: '好的', link_id: 'phonics_radar_apply', send_link_card: true },
-      { delay_minutes: 0, message: '点开上面报名链接👆🏻支付9元成功了记添加一下班主任辅导老师微信，方便给孩子辅导不懂不会的家庭作业\n\n截图发下这边登记排课，把全科学习资料发给您', link_id: 'phonics_radar_apply' },
+      { delay_minutes: 0, message: '好哒' },
+      { delay_minutes: 0, message: '猿辅导英语自然拼读9元体验课点这里👉：', link_id: 'phonics_radar_apply', send_link_card: true },
       { delay_minutes: 5, message: '家长领取到了吗？' },
       { delay_minutes: 60, message: '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。' },
       { delay_minutes: 0, schedule_time: '21:30', message: '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~' },
@@ -798,7 +812,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
     workflowNode('voice_asr', 'asr', '语音输入处理', '用户发语音时先理解课程咨询内容，语音回复开关开启时可用语音回复', { x: 1160, y: 320 }, { provider: 'volcengine', model_uuid: 'lna-doubao-bigasr-flash', fallback_text: '用户发来课程咨询语音，请用文字短句回复。' }),
     workflowNode('screenshot_input', 'vision', '截图识别', '识别支付成功页、报名页、白屏、资源页或二维码页', { x: 1160, y: 520 }, { model_uuid: modelUuid, target_steps: ['gift_poster', 'gift_qr', 'link_error'] }),
     workflowNode('intent', 'intent', '意图识别', '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态', { x: 1460, y: 320 }, {
-      intents: ['resource_help', 'course_intro', 'course_schedule', 'course_replay', 'course_content', 'purchase', 'purchased', 'objection', 'gift', 'radar_clicked', 'handoff', 'stop', 'screenshot_help'],
+      intents: ['resource_help', 'resource_confirmed', 'course_intro', 'course_schedule', 'course_replay', 'course_content', 'purchase', 'purchased', 'objection', 'gift', 'radar_clicked', 'handoff', 'stop', 'screenshot_help'],
       confidence_threshold: 0.55,
       image_intents: ['screenshot_help', 'purchased', 'link_error'],
     }),
@@ -814,7 +828,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
     workflowNode('reply', 'llm', '真人客服回复', '按SOP生成短句、明确、有下一步的课程客服/销售回复', { x: 3240, y: 320 }, {
       model_uuid: modelUuid,
       tone: '真人客服、短句、先服务后转化',
-      prompt: '你是真人课程客服，先处理图书资源问题，再自然承接猿辅导自然拼读体验课咨询。回复要短、具体、有下一步动作。',
+      prompt: '你是真人课程客服，先处理图书资源问题。用户确认资源能打开后，先问孩子几年级，不要直接安排课程或发链接；用户明确要报名时，先给完课好礼，再单独发报名链接。',
     }),
     workflowNode('end', 'end', '发送给用户', '发送文字、链接卡片、Excel素材图；用户语音咨询时可按配置追加语音回复', { x: 3540, y: 420 }, {}),
   ];
@@ -835,6 +849,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
         image_url: '',
         caption: binding.title,
         trigger_intents: binding.trigger_intents,
+        requires_course_sales_signup_link: binding.requires_course_sales_signup_link === true,
         append_caption: false,
         enabled: binding.enabled,
       }),

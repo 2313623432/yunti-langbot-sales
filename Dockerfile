@@ -13,6 +13,7 @@ WORKDIR /app
 COPY . .
 
 COPY --from=node /app/web/dist ./web/dist
+COPY deploy/render/start.sh /app/deploy/render/start.sh
 
 COPY data ./render-seed-data
 COPY deploy/render/start.sh /app/deploy/render/start.sh

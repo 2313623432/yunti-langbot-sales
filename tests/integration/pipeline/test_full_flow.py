@@ -683,8 +683,98 @@ class TestSendResponseBackStage:
         assert len(outbound) == 1
         components = outbound[0]['message']
         assert [component.type for component in components] == ['Plain', 'Plain', 'Image']
-        assert components[1].text == '\nPrice sheet'
+        assert components[1].text == 'Price sheet'
         assert str(components[2].path) == 'price-sheet.png'
+
+    @pytest.mark.asyncio
+    async def test_send_response_skips_link_bound_course_sales_image_without_signup_link(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Course sales images bound to signup links should not appear in ordinary replies."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        config = create_minimal_pipeline_config()
+        config['workflow'] = {
+            'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+            'nodes': [
+                {
+                    'id': 'image_gift_poster',
+                    'type': 'image',
+                    'config': {
+                        'file_key': 'course-sales/phonics/gift_poster.jpeg',
+                        'trigger_intents': ['course_intro'],
+                        'requires_course_sales_signup_link': True,
+                    },
+                },
+            ],
+        }
+        query = text_query('还有什么资料')
+        query.adapter = adapter
+        query.pipeline_config = config
+        query.variables['workflow_intent'] = {'intent': 'course_intro', 'confidence': 0.91}
+        query.resp_messages = [Message(role='assistant', content='咱们有发音练习纸和拼读卡这些资料。')]
+        query.resp_message_chain = [text_chain('咱们有发音练习纸和拼读卡这些资料。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        assert [component.type for component in components] == ['Plain']
+
+    @pytest.mark.asyncio
+    async def test_send_response_appends_link_bound_course_sales_image_after_signup_link(
+        self, pipeline_app, fake_platform_adapter
+    ):
+        """Course sales signup-link images should appear after the signup link is sent."""
+        from langbot.pkg.pipeline import entities
+        from langbot.pkg.pipeline.respback import respback
+        from tests.factories.message import text_chain, text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        adapter, platform = fake_platform_adapter
+        signup_link = 'https://m.yuanfudao.com/primary/templates/package?test=gift'
+        config = create_minimal_pipeline_config()
+        config['workflow'] = {
+            'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+            'nodes': [
+                {
+                    'id': 'image_gift_poster',
+                    'type': 'image',
+                    'config': {
+                        'file_key': 'course-sales/phonics/gift_poster.jpeg',
+                        'trigger_intents': ['purchase'],
+                        'requires_course_sales_signup_link': True,
+                    },
+                },
+            ],
+        }
+        query = text_query('我要报名')
+        query.adapter = adapter
+        query.pipeline_config = config
+        query.variables['workflow_intent'] = {'intent': 'purchase', 'confidence': 0.91, 'link_url': signup_link}
+        query.variables['course_sales_radar_link'] = signup_link
+        query.resp_messages = [Message(role='assistant', content='可以，我现在把链接发给您。')]
+        query.resp_message_chain = [text_chain('可以，我现在把链接发给您。')]
+
+        respback_stage = respback.SendResponseBackStage(pipeline_app)
+
+        result = await respback_stage.process(query, 'SendResponseBackStage')
+
+        assert result.result_type == entities.ResultType.CONTINUE
+        outbound = platform.get_outbound_messages()
+        components = outbound[0]['message']
+        assert [component.type for component in components] == ['Plain', 'Image']
+        assert str(components[1].path) == 'course-sales/phonics/gift_poster.jpeg'
+        link_components = outbound[1]['message']
+        assert [component.type for component in link_components] == ['Plain']
+        assert signup_link in link_components[0].text
 
     @pytest.mark.asyncio
     async def test_send_response_appends_task_assistant_tts_for_voice_query(self, pipeline_app, fake_platform_adapter):
@@ -728,7 +818,7 @@ class TestSendResponseBackStage:
     async def test_send_response_appends_course_sales_signup_link_for_purchase_intent(
         self, pipeline_app, fake_platform_adapter
     ):
-        """Course sales purchase replies should include the signup link in the same outgoing message."""
+        """Course sales purchase replies should send the signup link as a separate outgoing message."""
         from langbot.pkg.pipeline import entities
         from langbot.pkg.pipeline.respback import respback
         from tests.factories.message import text_chain, text_query
@@ -754,11 +844,11 @@ class TestSendResponseBackStage:
 
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
-        components = outbound[0]['message']
+        components = outbound[1]['message']
         text = ''.join(component.text for component in components if component.type == 'Plain')
         assert signup_link in text
         assert text.count(signup_link) == 1
-        assert '支付成功后把截图发我' in text
+        assert '猿辅导英语自然拼读9元体验课点这里' in text
 
     @pytest.mark.asyncio
     async def test_send_response_replaces_course_sales_signup_link_placeholder(
@@ -795,41 +885,10 @@ class TestSendResponseBackStage:
         assert '[报名链接' not in text
 
     @pytest.mark.asyncio
-    async def test_send_response_replaces_plain_course_sales_signup_link_placeholder(
-        self, pipeline_app, fake_platform_adapter
-    ):
-        """Course sales replies should replace plain placeholder suffixes, not only bracketed ones."""
-        from langbot.pkg.pipeline import entities
-        from langbot.pkg.pipeline.respback import respback
-        from tests.factories.message import text_chain, text_query
-        from langbot_plugin.api.entities.builtin.provider.message import Message
-
-        adapter, platform = fake_platform_adapter
-        signup_link = 'https://m.yuanfudao.com/primary/templates/package?test=plain-placeholder'
-        query = text_query('好的')
-        query.adapter = adapter
-        query.pipeline_config = create_minimal_pipeline_config()
-        query.variables['workflow_intent'] = {
-            'intent': 'course_content',
-            'confidence': 0.72,
-        }
-        query.variables['course_sales_radar_link'] = signup_link
-        query.resp_messages = [Message(role='assistant', content='趁优惠给孩子领一份 👇\n报名链接XXXXXXX')]
-        query.resp_message_chain = [text_chain('趁优惠给孩子领一份 👇\n报名链接XXXXXXX')]
-
-        result = await respback.SendResponseBackStage(pipeline_app).process(query, 'SendResponseBackStage')
-
-        assert result.result_type == entities.ResultType.CONTINUE
-        outbound = platform.get_outbound_messages()
-        text = ''.join(component.text for component in outbound[0]['message'] if component.type == 'Plain')
-        assert signup_link in text
-        assert '报名链接XXXXXXX' not in text
-
-    @pytest.mark.asyncio
     async def test_send_response_appends_signup_link_when_schedule_reply_promises_link(
         self, pipeline_app, fake_platform_adapter
     ):
-        """If the assistant promises a signup page link, the outgoing message must include it."""
+        """If the assistant promises a signup page link, send it as a separate message."""
         from langbot.pkg.pipeline import entities
         from langbot.pkg.pipeline.respback import respback
         from tests.factories.message import text_chain, text_query
@@ -855,7 +914,7 @@ class TestSendResponseBackStage:
 
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
-        components = outbound[0]['message']
+        components = outbound[1]['message']
         text = ''.join(component.text for component in components if component.type == 'Plain')
         assert signup_link in text
         assert text.count(signup_link) == 1
@@ -897,7 +956,7 @@ class TestSendResponseBackStage:
 
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
-        components = outbound[0]['message']
+        components = outbound[1]['message']
         text = ''.join(component.text for component in components if component.type == 'Plain')
         assert tracking_link in text
         assert signup_link not in text
@@ -982,8 +1041,10 @@ class TestSendResponseBackStage:
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
         components = outbound[0]['message']
-        assert [component.type for component in components] == ['Voice', 'Plain']
-        assert components[1].text.count(signup_link) == 1
+        assert [component.type for component in components] == ['Voice']
+        link_components = outbound[1]['message']
+        assert [component.type for component in link_components] == ['Plain']
+        assert link_components[0].text.count(signup_link) == 1
 
     @pytest.mark.asyncio
     async def test_send_response_sends_one_task_assistant_image_without_caption_tail(self, pipeline_app, fake_platform_adapter):

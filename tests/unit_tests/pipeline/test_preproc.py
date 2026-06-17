@@ -86,6 +86,45 @@ class TestPreProcessorNormalText:
         assert result.new_query is not None
 
     @pytest.mark.asyncio
+    async def test_task_assistant_interrupt_result_stops_pipeline(self):
+        preproc = get_preproc_module()
+        entities = get_entities_module()
+
+        app = FakeApp()
+        mock_session = Mock()
+        mock_session.launcher_type = Mock(value='person')
+        mock_session.launcher_id = 12345
+        app.sess_mgr.get_session = AsyncMock(return_value=mock_session)
+
+        mock_conversation = Mock()
+        mock_conversation.prompt = Mock(messages=[])
+        mock_conversation.prompt.copy = Mock(return_value=Mock(messages=[]))
+        mock_conversation.messages = []
+        mock_conversation.uuid = None
+        app.sess_mgr.get_conversation = AsyncMock(return_value=mock_conversation)
+
+        mock_model = Mock()
+        mock_model.model_entity = Mock(uuid='test-model', abilities=['func_call'])
+        app.model_mgr.get_model_by_uuid = AsyncMock(return_value=mock_model)
+        app.tool_mgr.get_all_tools = AsyncMock(return_value=[])
+
+        mock_event_ctx = Mock()
+        mock_event_ctx.event = Mock(default_prompt=[], prompt=[])
+        app.plugin_connector.emit_event = AsyncMock(return_value=mock_event_ctx)
+        app.task_assistant_service = Mock(
+            prepare_query=AsyncMock(
+                return_value={'handled': True, 'interrupted': True, 'notice': '已重置当前会话。'}
+            )
+        )
+        app.sales_service = Mock(prepare_query=AsyncMock())
+
+        result = await preproc.PreProcessor(app).process(text_query('/new'), 'PreProcessor')
+
+        assert result.result_type == entities.ResultType.INTERRUPT
+        assert result.user_notice == '已重置当前会话。'
+        app.sales_service.prepare_query.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_normal_text_sets_user_message(self):
         """PreProcessor should set user_message from text content."""
         preproc = get_preproc_module()

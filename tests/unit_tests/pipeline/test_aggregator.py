@@ -307,6 +307,31 @@ class TestMessageAggregatorConfig:
 
         assert delay == 1.5  # Default
 
+    @pytest.mark.asyncio
+    async def test_config_pipeline_aggregation_defaults_disabled_when_enabled_is_missing(self):
+        """A message-aggregation section without enabled should not change existing disabled default."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+
+        mock_pipeline = Mock()
+        mock_pipeline.pipeline_entity = Mock()
+        mock_pipeline.pipeline_entity.config = {
+            'trigger': {
+                'message-aggregation': {
+                    'delay': 2.0,
+                }
+            }
+        }
+        app.pipeline_mgr.get_pipeline_by_uuid = AsyncMock(return_value=mock_pipeline)
+
+        agg = aggregator.MessageAggregator(app)
+
+        enabled, delay = await agg._get_aggregation_config('test-pipeline')
+
+        assert enabled is False
+        assert delay == 2.0
+
 
 class TestMessageAggregatorAddMessage:
     """Tests for add_message behavior."""
@@ -339,7 +364,7 @@ class TestMessageAggregatorAddMessage:
 
     @pytest.mark.asyncio
     async def test_records_each_raw_message_before_queueing(self):
-        """Each platform message should be visible in monitoring even when later aggregation happens."""
+        """Each platform message should be visible in monitoring even before aggregation."""
         aggregator = get_aggregator_module()
 
         app = make_aggregator_app()
@@ -401,24 +426,27 @@ class TestMessageAggregatorAddMessage:
 
     @pytest.mark.asyncio
     async def test_same_source_id_with_different_content_is_not_dropped(self):
-        """Different message content must still be queued even if a platform reuses Source id."""
+        """Some adapters reuse Source ids during aggregation; different payloads should survive."""
         aggregator = get_aggregator_module()
 
         app = make_aggregator_app()
         agg = aggregator.MessageAggregator(app)
+        event = friend_message_event(text_chain('unused'))
         adapter = mock_adapter()
 
-        for text in ['first message', 'second message']:
-            chain = platform_message.MessageChain([
-                platform_message.Source(id='msg-reused', time=0),
-                platform_message.Plain(text=text),
-            ])
+        for text in ['第一条', '第二条']:
+            chain = platform_message.MessageChain(
+                [
+                    platform_message.Source(id='msg-reused', time=0),
+                    platform_message.Plain(text=text),
+                ]
+            )
             await agg.add_message(
                 bot_uuid='test-bot',
                 launcher_type=provider_session.LauncherTypes.PERSON,
                 launcher_id=12345,
                 sender_id=12345,
-                message_event=friend_message_event(chain),
+                message_event=event,
                 message_chain=chain,
                 adapter=adapter,
                 pipeline_uuid=None,
@@ -506,6 +534,56 @@ class TestMessageAggregatorAddMessage:
         # Buffer should be flushed (empty or no buffer)
         session_id = agg._get_session_id('test-bot', provider_session.LauncherTypes.PERSON, 12345)
         assert session_id not in agg.buffers or len(agg.buffers[session_id].messages) == 0
+
+    @pytest.mark.asyncio
+    async def test_course_sales_spam_opens_handoff_without_queueing_query(self):
+        """Rapid child-like spam should open a manual handoff and avoid model invocation."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        app.sales_service = Mock()
+        app.sales_service.open_handoff_from_aggregated_messages = AsyncMock(return_value={'id': 9})
+
+        mock_pipeline = Mock()
+        mock_pipeline.pipeline_entity = Mock()
+        mock_pipeline.pipeline_entity.config = {
+            'workflow': {
+                'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+            },
+            'trigger': {
+                'message-aggregation': {
+                    'enabled': True,
+                    'delay': 10.0,
+                    'spam_handoff_enabled': True,
+                    'spam_message_limit': 4,
+                }
+            },
+        }
+        app.pipeline_mgr.get_pipeline_by_uuid = AsyncMock(return_value=mock_pipeline)
+
+        agg = aggregator.MessageAggregator(app)
+        event = friend_message_event(text_chain('unused'))
+        adapter = mock_adapter()
+
+        for text in ['111', '222', '333', '444']:
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id='customer-1',
+                sender_id='customer-1',
+                message_event=event,
+                message_chain=text_chain(text),
+                adapter=adapter,
+                pipeline_uuid='test-pipeline',
+            )
+
+        assert app.query_pool.add_query.await_count == 0
+        app.sales_service.open_handoff_from_aggregated_messages.assert_awaited_once()
+        handoff_kwargs = app.sales_service.open_handoff_from_aggregated_messages.await_args.kwargs
+        assert handoff_kwargs['reason'] == 'spam_flood'
+        assert [str(message.message_chain) for message in handoff_kwargs['messages']] == ['111', '222', '333', '444']
+        session_id = agg._get_session_id('test-bot', provider_session.LauncherTypes.PERSON, 'customer-1')
+        assert session_id not in agg.buffers
 
     @pytest.mark.asyncio
     async def test_enabled_debounces_three_consecutive_text_messages_into_one_query(self):
