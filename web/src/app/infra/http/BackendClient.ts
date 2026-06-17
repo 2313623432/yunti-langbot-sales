@@ -5,6 +5,7 @@ import {
   ApiRespProviderLLMModels,
   ApiRespProviderLLMModel,
   ApiRespWorkflows,
+  WorkflowDraftResp,
   LLMModel,
   TestLLMModelResult,
   ApiRespPipelines,
@@ -345,7 +346,9 @@ export class BackendClient extends BaseHttpClient {
     return this.post(`/api/v1/autotest/runs/${runUuid}/feedback`, data);
   }
 
-  public revertAutoTestRunOptimization(runUuid: string): Promise<ApiRespAutoTestRun> {
+  public revertAutoTestRunOptimization(
+    runUuid: string,
+  ): Promise<ApiRespAutoTestRun> {
     return this.post(`/api/v1/autotest/runs/${runUuid}/revert`);
   }
 
@@ -381,6 +384,14 @@ export class BackendClient extends BaseHttpClient {
 
   public createWorkflowFolder(name: string): Promise<object> {
     return this.post('/api/v1/workflows/folders', { name });
+  }
+
+  public generateWorkflowDraft(data: {
+    instruction: string;
+    scenario: 'yuanfudao_sales' | 'sales';
+    model_uuid?: string;
+  }): Promise<WorkflowDraftResp> {
+    return this.post('/api/v1/workflows/generate-draft', data);
   }
 
   public getPipelineExtensions(uuid: string): Promise<{

@@ -14,6 +14,7 @@ import {
   Bot,
   Brain,
   Cable,
+  CheckCircle2,
   GitBranch,
   Handshake,
   Eye,
@@ -270,6 +271,67 @@ const paletteOrder: WorkflowNodeType[] = [
   'custom',
   'end',
 ];
+
+type NodeGuide = {
+  title: string;
+  description: string;
+  checklist: string[];
+};
+
+const nodeGuides: Partial<Record<WorkflowNodeType, NodeGuide>> = {
+  start: {
+    title: '触发条件',
+    description:
+      '定义客户从哪里进入流程，例如真实消息、点击链接、标签变化或人工标记。',
+    checklist: ['确认渠道入口', '保留会话上下文', '避免无入口的孤立流程'],
+  },
+  intent: {
+    title: 'AI 识别意图',
+    description:
+      'AI 在这里处理开放式表达，把自然语言转成后续分支可使用的意图和置信度。',
+    checklist: ['列出销售意图', '设置置信度阈值', '低置信度进入兜底或人工'],
+  },
+  lead: {
+    title: '资格判断问题',
+    description:
+      '销售推进不是只回答问题，而是逐步补齐判断客户价值和下一步动作所需的信息。',
+    checklist: ['收集需求和预算', '标记必填字段', '缺字段时继续追问'],
+  },
+  product: {
+    title: '产品知识',
+    description:
+      '把推荐建立在产品资料、价格、卖点和适用人群上，避免 AI 自由发挥。',
+    checklist: ['选择可售产品', '优先完整产品资料', '与客户需求匹配'],
+  },
+  condition: {
+    title: '条件分支',
+    description:
+      '把客户阶段、意向等级、缺失信息和转人工条件写清楚，让流程可审计。',
+    checklist: ['高意向进销售', '缺信息继续追问', '低意向进入触达'],
+  },
+  llm: {
+    title: 'AI 回复节点',
+    description:
+      'AI 只负责生成自然回复和下一步话术，不替代触发、分支、动作和转人工规则。',
+    checklist: ['回复要有下一步', '避免只解释不推进', '引用知识和产品上下文'],
+  },
+  memory: {
+    title: '沉淀线索',
+    description: '把客户阶段、已知需求、关键问答和推荐结果沉淀给后续销售接管。',
+    checklist: ['更新客户阶段', '写入兴趣标签', '保留摘要和关键问答'],
+  },
+  outreach: {
+    title: '持续触达',
+    description: '暂未成交的客户进入定时跟进，避免销售线索在一次对话后沉默。',
+    checklist: ['设置触达间隔', '引用上次需求', '定义停止条件'],
+  },
+  handoff: {
+    title: '转人工规则',
+    description:
+      '人机协作默认存在。AI 处理不了或客户高意向时，把上下文交给销售。',
+    checklist: ['说明转人工原因', '指派负责人', '同步摘要和推荐话术'],
+  },
+};
 
 interface PipelineWorkflowEditorProps {
   value?: PipelineWorkflow;
@@ -619,9 +681,7 @@ export default function PipelineWorkflowEditor({
     }
   }
 
-  function handleCanvasPointerDown(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (
@@ -642,18 +702,16 @@ export default function PipelineWorkflowEditor({
     };
   }
 
-  function handleCanvasPointerMove(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const pan = canvasPanRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
-    event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
-    event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+    event.currentTarget.scrollLeft =
+      pan.scrollLeft - (event.clientX - pan.startX);
+    event.currentTarget.scrollTop =
+      pan.scrollTop - (event.clientY - pan.startY);
   }
 
-  function handleCanvasPointerUp(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     const pan = canvasPanRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1423,6 +1481,7 @@ function NodeConfigPanel({
   const previewUrl = fileKey ? imageAssetUrl(fileKey) : imageUrl;
   const selectedKbIds = asStringList(node.config.knowledge_base_uuids);
   const selectedProductIds = asStringList(node.config.product_uuids);
+  const guide = nodeGuides[node.type];
 
   function toggleListValue(field: string, value: string) {
     const current = asStringList(node.config[field]);
@@ -1432,8 +1491,118 @@ function NodeConfigPanel({
     onConfigChange({ [field]: next });
   }
 
+  function applySalesPreset() {
+    if (node.type === 'intent') {
+      onConfigChange({
+        intents: ['价格咨询', '产品匹配', '课程对比', '异议处理', '要求转人工'],
+        image_intents: ['产品匹配', '价格咨询'],
+        confidence_threshold: 0.7,
+      });
+      return;
+    }
+    if (node.type === 'lead') {
+      onConfigChange({
+        fields: [
+          '手机号',
+          '微信号',
+          '孩子年级',
+          '关注需求',
+          '预算',
+          '购买时间',
+        ],
+        required_fields: ['手机号', '关注需求'],
+      });
+      return;
+    }
+    if (node.type === 'condition') {
+      onConfigChange({
+        rules: [
+          'stage == high_intent -> handoff',
+          'missing_fields.length > 0 -> lead',
+          'matched_product_uuid != empty -> llm',
+          'confidence < 0.7 -> handoff',
+        ],
+      });
+      return;
+    }
+    if (node.type === 'llm') {
+      onConfigChange({
+        tone: 'consultative',
+        prompt:
+          '根据客户阶段、已知需求、缺失信息和产品资料生成回复。回复必须包含一个明确下一步：追问、推荐产品、邀请留资或建议销售接管。',
+      });
+      return;
+    }
+    if (node.type === 'handoff') {
+      onConfigChange({
+        reason: '客户高意向或需要人工确认价格、排课、优惠和成交细节',
+        assigned_to: '销售顾问',
+      });
+      return;
+    }
+    if (node.type === 'memory') {
+      onConfigChange({
+        stage: 'consideration',
+        tags: ['待跟进', '产品咨询', '销售线索'],
+      });
+      return;
+    }
+    if (node.type === 'outreach') {
+      onConfigChange({
+        delay_minutes: 1440,
+        message_template:
+          '您好，昨天您关注的课程我已经整理好重点。如果还在比较方案，我可以继续帮您确认适合的班型和上课时间。',
+      });
+    }
+  }
+
   return (
     <div className="space-y-5 [&_input]:h-10 [&_input]:rounded-lg [&_input]:border-slate-200 [&_input]:bg-slate-50/70 [&_input]:shadow-none [&_input]:focus-visible:bg-white [&_label]:text-[11px] [&_label]:font-semibold [&_label]:text-slate-500 [&_textarea]:rounded-lg [&_textarea]:border-slate-200 [&_textarea]:bg-slate-50/70 [&_textarea]:shadow-none [&_textarea]:focus-visible:bg-white">
+      {guide && (
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-indigo-950">
+                {guide.title}
+              </div>
+              <p className="mt-1 text-xs leading-5 text-indigo-800/80">
+                {guide.description}
+              </p>
+            </div>
+            {[
+              'intent',
+              'lead',
+              'condition',
+              'llm',
+              'handoff',
+              'memory',
+              'outreach',
+            ].includes(node.type) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50"
+                onClick={applySalesPreset}
+              >
+                AI 生成建议
+              </Button>
+            )}
+          </div>
+          <div className="mt-3 grid gap-1.5">
+            {guide.checklist.map((item) => (
+              <div
+                key={item}
+                className="flex items-center gap-2 text-xs text-indigo-800"
+              >
+                <CheckCircle2 className="size-3.5 shrink-0" />
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         <label className="text-xs font-medium text-muted-foreground">
           名称
@@ -1473,7 +1642,10 @@ function NodeConfigPanel({
             <SelectContent>
               <SelectItem value="__none__">跟随数字员工默认模型</SelectItem>
               {llmModels
-                .filter((model) => model.provider?.requester !== 'space-chat-completions')
+                .filter(
+                  (model) =>
+                    model.provider?.requester !== 'space-chat-completions',
+                )
                 .map((model) => (
                   <SelectItem key={model.uuid} value={model.uuid}>
                     {model.name}

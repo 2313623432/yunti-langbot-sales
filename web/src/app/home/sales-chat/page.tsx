@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BriefcaseBusiness,
   CalendarClock,
+  ClipboardCheck,
   Database,
   Edit3,
   Eye,
@@ -12,6 +13,7 @@ import {
   PackagePlus,
   RefreshCw,
   Search,
+  Send,
   Sparkles,
   UserPlus,
   Users,
@@ -82,6 +84,12 @@ type CustomerProfileDraft = {
   summary: string;
 };
 
+type CopilotAction = {
+  label: string;
+  description: string;
+  draft: string;
+};
+
 const profileFields: Array<{
   key: keyof CustomerProfileDraft;
   label: string;
@@ -96,6 +104,17 @@ const profileFields: Array<{
   { key: 'budget', label: '客单价/预算' },
   { key: 'child_grade', label: '孩子年级' },
   { key: 'needs', label: '关注需求' },
+];
+
+const leadQualificationFields: Array<{
+  key: keyof CustomerProfileDraft;
+  label: string;
+}> = [
+  { key: 'phone', label: '手机号' },
+  { key: 'wechat', label: '微信号' },
+  { key: 'child_grade', label: '孩子年级' },
+  { key: 'needs', label: '关注需求' },
+  { key: 'budget', label: '预算' },
 ];
 
 const stageLabels: Record<string, string> = {
@@ -275,6 +294,80 @@ function productIdentity(product: SalesProduct): string {
 
 function compactList(items: string[], fallback = '暂无'): string {
   return items.filter(Boolean).join('、') || fallback;
+}
+
+function nextSalesAction(
+  conversation: ConversationRow | undefined,
+  missingFields: string[],
+  product: SalesProduct | undefined,
+): string {
+  if (!conversation) return '选择一个客户会话后查看建议动作';
+  if (conversation.handoffStatus === 'pending_manual') {
+    return '客户已进入待人工介入，建议销售先接管并确认联系方式';
+  }
+  if (conversation.handoffStatus === 'manual_handling') {
+    return '人工处理中，建议补齐客户资料后决定是否恢复 AI 托管';
+  }
+  if (conversation.stage === 'high_intent') {
+    return '客户意向较高，建议生成话术并推动留资或转人工';
+  }
+  if (missingFields.length > 0) {
+    return `优先补齐 ${missingFields.slice(0, 2).join('、')}，再推荐具体产品`;
+  }
+  if (product) return `可围绕「${product.name}」继续解释卖点和异议处理`;
+  return '先补充产品资料，再让 AI 进行产品发现和推荐';
+}
+
+function buildCopilotActions(
+  conversation: ConversationRow | undefined,
+  missingFields: string[],
+  product: SalesProduct | undefined,
+): CopilotAction[] {
+  if (!conversation) {
+    return [
+      {
+        label: '选择会话',
+        description: '先从左侧选中一条真实客户会话',
+        draft: '',
+      },
+    ];
+  }
+
+  const primaryMissingFields = missingFields.slice(0, 3);
+  const actions: CopilotAction[] = [];
+
+  if (primaryMissingFields.length) {
+    actions.push({
+      label: '追问线索',
+      description: `补齐 ${compactList(primaryMissingFields)}`,
+      draft: `我先帮您确认一下关键信息，方便推荐更合适的方案。请问${compactList(
+        primaryMissingFields,
+      )}大概是什么情况？`,
+    });
+  }
+
+  if (product) {
+    actions.push({
+      label: '推荐产品',
+      description: `围绕「${product.name}」解释适配理由`,
+      draft: `结合您刚才提到的情况，我建议先看「${product.name}」。它更适合解决当前关注的问题，我可以继续帮您说明课程内容、适用人群和下一步安排。`,
+    });
+  }
+
+  actions.push({
+    label:
+      conversation.handoffStatus === 'ai_hosted' ? '建议转人工' : '推进跟进',
+    description:
+      conversation.handoffStatus === 'ai_hosted'
+        ? '高意向或复杂问题交给销售接管'
+        : '人工处理中继续明确下一步',
+    draft:
+      conversation.handoffStatus === 'ai_hosted'
+        ? '这个问题我建议安排课程顾问继续跟进，会更快帮您确认方案和细节。方便留下联系方式吗？'
+        : '我已经记录了您的需求，接下来可以继续确认上课目标、时间安排和预算范围，然后给您一个更具体的建议。',
+  });
+
+  return actions.slice(0, 3);
 }
 
 function getProfileValue(
@@ -1035,6 +1128,7 @@ function RightPanelContent({
   savingMemory,
   onPanel,
   onDraft,
+  onUseDraft,
   onSaveMemory,
   onClose,
 }: {
@@ -1046,6 +1140,7 @@ function RightPanelContent({
   savingMemory: boolean;
   onPanel: (panel: RightPanel) => void;
   onDraft: (draft: CustomerProfileDraft) => void;
+  onUseDraft: (value: string) => void;
   onSaveMemory: () => void;
   onClose: () => void;
 }) {
@@ -1065,6 +1160,25 @@ function RightPanelContent({
     enabledProducts.find(
       (product) => productIdentity(product) === selectedProductKey,
     ) || enabledProducts[0];
+  const preferredProduct =
+    enabledProducts.find(
+      (product) =>
+        product.uuid === conversation?.memory?.preferred_product_uuid,
+    ) || selectedProduct;
+  const missingLeadFields = leadQualificationFields
+    .filter((field) => !String(memoryDraft[field.key] || '').trim())
+    .map((field) => field.label);
+  const latestIntent = conversation?.memory?.last_intent;
+  const copilotNextAction = nextSalesAction(
+    conversation,
+    missingLeadFields,
+    preferredProduct,
+  );
+  const copilotActions = buildCopilotActions(
+    conversation,
+    missingLeadFields,
+    preferredProduct,
+  );
 
   useEffect(() => {
     if (!enabledProducts.length) {
@@ -1108,7 +1222,7 @@ function RightPanelContent({
       <div className="min-w-0 flex-1 overflow-auto">
         <div className="flex h-16 items-center justify-between border-b border-[#eef0f4] px-6">
           <h2 className="text-xl font-semibold text-[#1f2a44]">
-            {activePanel === 'customer' && '客户信息'}
+            {activePanel === 'customer' && '销售 Copilot'}
             {activePanel === 'talk' && '话术库'}
             {activePanel === 'material' && '素材库'}
             {activePanel === 'history' && '历史记录'}
@@ -1120,6 +1234,87 @@ function RightPanelContent({
 
         {activePanel === 'customer' && (
           <div className="space-y-5 p-6">
+            <section className="rounded-xl border border-[#dfe3ee] bg-[#fbfcff] p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Sparkles className="size-4 text-[#5f58ff]" />
+                <div className="text-sm font-semibold text-[#1f2a44]">
+                  线索判断
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-white p-3">
+                  <div className="text-xs text-[#7c8496]">客户阶段</div>
+                  <div className="mt-1 font-medium text-[#1f2a44]">
+                    {stageLabel(memoryDraft.stage)}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-white p-3">
+                  <div className="text-xs text-[#7c8496]">最近意图</div>
+                  <div className="mt-1 font-medium text-[#1f2a44]">
+                    {intentLabel(latestIntent)}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 rounded-lg bg-white p-3">
+                <div className="text-xs text-[#7c8496]">缺失字段</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {missingLeadFields.length ? (
+                    missingLeadFields.map((field) => (
+                      <span
+                        key={field}
+                        className="rounded-md bg-[#fff7ed] px-2 py-1 text-xs text-[#c2410c]"
+                      >
+                        {field}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="rounded-md bg-[#eaf8f0] px-2 py-1 text-xs text-[#1c8b52]">
+                      关键线索已补齐
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="mt-3 rounded-lg bg-white p-3">
+                <div className="text-xs text-[#7c8496]">匹配产品</div>
+                <div className="mt-1 font-medium text-[#1f2a44]">
+                  {preferredProduct?.name || '暂无可用产品'}
+                </div>
+              </div>
+              <div className="mt-3 rounded-lg bg-[#eff2ff] p-3 text-sm leading-6 text-[#4f46e5]">
+                {copilotNextAction}
+              </div>
+              <div className="mt-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-[#7c8496]">
+                  <ClipboardCheck className="size-3.5" />
+                  建议动作
+                </div>
+                <div className="grid gap-2">
+                  {copilotActions.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      disabled={!conversation || !action.draft}
+                      onClick={() => {
+                        onUseDraft(action.draft);
+                        toast.success('已写入回复草稿');
+                      }}
+                      className="rounded-lg border border-[#e4e7ef] bg-white px-3 py-2 text-left transition hover:border-[#c9c6ff] hover:bg-[#fbfbff] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-sm font-medium text-[#1f2a44]">
+                          {action.label}
+                        </span>
+                        <Send className="size-3.5 text-[#5f58ff]" />
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-[#7c8496]">
+                        {action.description}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
             {!conversation?.memory && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-800">
                 该会话还没有销售客户记忆。可直接补充并保存，系统会基于当前真实会话创建客户资料。
@@ -1431,7 +1626,7 @@ function RightPanelContent({
 
       <div className="flex w-[76px] shrink-0 flex-col items-center gap-4 border-l border-[#eef0f4] py-4">
         {[
-          { panel: 'customer', label: '客户信息', icon: Users },
+          { panel: 'customer', label: 'Copilot', icon: Sparkles },
           { panel: 'talk', label: '话术库', icon: MessageSquare },
           { panel: 'material', label: '素材库', icon: PackagePlus },
           { panel: 'history', label: '历史记录', icon: History },
@@ -2189,6 +2384,7 @@ export default function SalesChatPage() {
             savingMemory={savingMemory}
             onPanel={setActivePanel}
             onDraft={setMemoryDraft}
+            onUseDraft={setDraft}
             onSaveMemory={() => void saveMemory()}
             onClose={() => setRightPanelOpen(false)}
           />

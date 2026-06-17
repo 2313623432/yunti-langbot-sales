@@ -40,31 +40,10 @@ export const sidebarConfigList = [
   // ── Home section ──
   new SidebarChildVO({
     id: 'sales',
-    name: 'AI销售',
+    name: '销售中枢',
     icon: <BadgeDollarSign className="text-emerald-600" />,
     route: '/home/sales',
-    description: 'AI销售工作台',
-    helpLink: {
-      en_US: '',
-      zh_Hans: '',
-    },
-    section: 'home',
-  }),
-  new SidebarChildVO({
-    id: 'monitoring',
-    name: t('monitoring.title'),
-    icon: (
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox="0 0 24 24"
-        fill="currentColor"
-        className="text-blue-500"
-      >
-        <path d="M2 3.9934C2 3.44476 2.45531 3 2.9918 3H21.0082C21.556 3 22 3.44495 22 3.9934V20.0066C22 20.5552 21.5447 21 21.0082 21H2.9918C2.44405 21 2 20.5551 2 20.0066V3.9934ZM4 5V19H20V5H4ZM6 7H18V9H6V7ZM6 11H18V13H6V11ZM6 15H12V17H6V15Z"></path>
-      </svg>
-    ),
-    route: '/home/monitoring',
-    description: t('monitoring.description'),
+    description: '搭建、测试和分析 AI 销售智能体',
     helpLink: {
       en_US: '',
       zh_Hans: '',
@@ -73,10 +52,10 @@ export const sidebarConfigList = [
   }),
   new SidebarChildVO({
     id: 'sales-chat',
-    name: '聚合聊天',
+    name: '客户收件箱',
     icon: <MessagesSquare className="text-indigo-500" />,
     route: '/home/sales-chat',
-    description: '聚合客户会话与销售跟进信息',
+    description: '处理客户会话、线索和人工接管',
     helpLink: {
       en_US: '',
       zh_Hans: '',
@@ -89,6 +68,18 @@ export const sidebarConfigList = [
     icon: <Workflow className="text-sky-600" />,
     route: '/home/pipelines',
     description: '配置数字员工的回复能力和执行流程',
+    helpLink: {
+      en_US: '',
+      zh_Hans: '',
+    },
+    section: 'home',
+  }),
+  new SidebarChildVO({
+    id: 'products',
+    name: '产品内容',
+    icon: <Package className="text-sky-600" />,
+    route: '/home/products',
+    description: '维护销售智能体可引用的产品资料',
     helpLink: {
       en_US: '',
       zh_Hans: '',
@@ -113,6 +104,27 @@ export const sidebarConfigList = [
     icon: <Sparkles className="text-cyan-600" />,
     route: '/home/auto-test',
     description: 'AI 自动模拟客户对话并优化数字员工或工作流',
+    helpLink: {
+      en_US: '',
+      zh_Hans: '',
+    },
+    section: 'home',
+  }),
+  new SidebarChildVO({
+    id: 'monitoring',
+    name: t('monitoring.title'),
+    icon: (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        className="text-blue-500"
+      >
+        <path d="M2 3.9934C2 3.44476 2.45531 3 2.9918 3H21.0082C21.556 3 22 3.44495 22 3.9934V20.0066C22 20.5552 21.5447 21 21.0082 21H2.9918C2.44405 21 2 20.5551 2 20.0066V3.9934ZM4 5V19H20V5H4ZM6 7H18V9H6V7ZM6 11H18V13H6V11ZM6 15H12V17H6V15Z"></path>
+      </svg>
+    ),
+    route: '/home/monitoring',
+    description: t('monitoring.description'),
     helpLink: {
       en_US: '',
       zh_Hans: '',
@@ -160,18 +172,6 @@ export const sidebarConfigList = [
       en_US: 'https://link.langbot.app/en/docs/knowledge',
       zh_Hans: 'https://link.langbot.app/zh/docs/knowledge',
       ja_JP: 'https://link.langbot.app/ja/docs/knowledge',
-    },
-    section: 'home',
-  }),
-  new SidebarChildVO({
-    id: 'products',
-    name: t('sidebar.productLibrary'),
-    icon: <Package className="text-sky-600" />,
-    route: '/home/products',
-    description: t('productLibrary.description'),
-    helpLink: {
-      en_US: '',
-      zh_Hans: '',
     },
     section: 'home',
   }),

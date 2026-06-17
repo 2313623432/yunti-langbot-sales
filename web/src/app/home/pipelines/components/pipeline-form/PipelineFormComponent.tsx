@@ -44,7 +44,14 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  Bot,
+  BrainCircuit,
+  Database,
+  GitBranch,
+  Handshake,
   Info,
+  ListChecks,
+  Sparkles,
   Workflow,
   PanelLeftClose,
   PanelLeftOpen,
@@ -73,7 +80,9 @@ function syncTemplateModelIntoAIConfig(
   const localAgentConfig = aiConfig?.['local-agent'] || {};
   const existingModelConfig = localAgentConfig.model;
   const fallbackModels =
-    existingModelConfig && typeof existingModelConfig === 'object' && Array.isArray(existingModelConfig.fallbacks)
+    existingModelConfig &&
+    typeof existingModelConfig === 'object' &&
+    Array.isArray(existingModelConfig.fallbacks)
       ? existingModelConfig.fallbacks
       : [];
 
@@ -100,6 +109,65 @@ type WorkflowSource = {
   workflow_name?: string;
   workflow_folder?: string;
 };
+
+type SalesAgentModule = {
+  title: string;
+  description: string;
+  target: string;
+  icon: ElementType;
+  tone: string;
+};
+
+const salesAgentModules: SalesAgentModule[] = [
+  {
+    title: '接待规则',
+    description:
+      '定义客户从哪些渠道进入、第一句话如何开场，以及何时保持 AI 托管。',
+    target: '基本信息 / 开场白 / 入口触发',
+    icon: Bot,
+    tone: 'bg-sky-50 text-sky-700 ring-sky-100',
+  },
+  {
+    title: '资格判断问题',
+    description:
+      '把年级、需求、预算、联系方式、购买时间等关键字段设计成逐步追问。',
+    target: '线索收集节点',
+    icon: ListChecks,
+    tone: 'bg-rose-50 text-rose-700 ring-rose-100',
+  },
+  {
+    title: '产品知识',
+    description:
+      '选择产品库和知识库，让 AI 推荐时有价格、卖点、适用人群和异议处理依据。',
+    target: '产品库 / 知识库节点',
+    icon: Database,
+    tone: 'bg-amber-50 text-amber-800 ring-amber-100',
+  },
+  {
+    title: '转人工规则',
+    description:
+      '当客户高意向、低置信度或要求销售跟进时，把摘要和上下文交给人工。',
+    target: '条件分支 / 人工介入',
+    icon: Handshake,
+    tone: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+  },
+  {
+    title: 'CRM 字段映射',
+    description:
+      '明确哪些线索字段需要沉淀，用于客户阶段、标签、跟进任务和外部系统。',
+    target: '客户记忆 / HTTP 节点',
+    icon: GitBranch,
+    tone: 'bg-violet-50 text-violet-700 ring-violet-100',
+  },
+  {
+    title: '失败兜底话术',
+    description:
+      '当 AI 不确定、信息缺失或流程失败时，使用安全话术并建议销售介入。',
+    target: 'AI 回复 / 条件分支',
+    icon: BrainCircuit,
+    tone: 'bg-indigo-50 text-indigo-700 ring-indigo-100',
+  },
+];
 
 function cloneWorkflow(workflow: PipelineWorkflow): PipelineWorkflow {
   if (typeof structuredClone === 'function') {
@@ -377,8 +445,9 @@ export default function PipelineFormComponent({
           pipelineConfig.config_mode === 'workflow' ? 'workflow' : 'template';
         setIsWorkflowAnswerMode(configMode === 'workflow');
         const templateConfig =
-          (pipelineConfig.template_config as PipelineTemplateConfig | undefined) ||
-          createBlankAgentTemplateConfig();
+          (pipelineConfig.template_config as
+            | PipelineTemplateConfig
+            | undefined) || createBlankAgentTemplateConfig();
         const workflowConfig =
           (pipelineConfig.workflow as PipelineWorkflow | undefined) ||
           createDefaultWorkflow();
@@ -500,7 +569,9 @@ export default function PipelineFormComponent({
         template_config:
           (values.template_config as PipelineTemplateConfig | undefined) ||
           createBlankAgentTemplateConfig(),
-        workflow: (values.workflow as PipelineWorkflow | undefined) || createDefaultWorkflow(),
+        workflow:
+          (values.workflow as PipelineWorkflow | undefined) ||
+          createDefaultWorkflow(),
       },
       description: values.basic.description ?? '',
       name: values.basic.name,
@@ -567,7 +638,9 @@ export default function PipelineFormComponent({
     const templateConfig =
       (values.template_config as PipelineTemplateConfig | undefined) ||
       createBlankAgentTemplateConfig();
-    const baseWorkflow = (values.workflow as PipelineWorkflow | undefined) || createDefaultWorkflow();
+    const baseWorkflow =
+      (values.workflow as PipelineWorkflow | undefined) ||
+      createDefaultWorkflow();
     const workflow = baseWorkflow;
     const realConfig = {
       basic: {
@@ -663,9 +736,72 @@ export default function PipelineFormComponent({
       },
       { shouldDirty: true },
     );
-    form.setValue('workflow', cloneWorkflow(project.workflow as PipelineWorkflow), {
-      shouldDirty: true,
-    });
+    form.setValue(
+      'workflow',
+      cloneWorkflow(project.workflow as PipelineWorkflow),
+      {
+        shouldDirty: true,
+      },
+    );
+  }
+
+  function renderSalesAgentSetupGuide() {
+    return (
+      <section className="rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-medium text-blue-700">
+              <Sparkles className="size-4" />
+              销售智能体配置模块
+            </div>
+            <h3 className="mt-2 text-base font-semibold text-slate-950">
+              低代码配置，不做黑盒 Agent
+            </h3>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+              把销售流程拆成可检查模块：接待、判断、知识、转人工、字段沉淀和失败兜底。AI
+              负责生成草稿和开放式对话，最终仍由规则和节点控制业务路径。
+            </p>
+          </div>
+          <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-700 lg:max-w-[300px]">
+            AI 生成建议适合生成初稿；上线前仍需要确认字段、分支和转人工责任人。
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {salesAgentModules.map((module) => {
+            const Icon = module.icon;
+            return (
+              <div
+                key={module.title}
+                className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className={cn(
+                      'flex size-9 shrink-0 items-center justify-center rounded-lg ring-1',
+                      module.tone,
+                    )}
+                  >
+                    <Icon className="size-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="font-medium text-slate-950">
+                      {module.title}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500">
+                      {module.target}
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  {module.description}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
   }
 
   function renderWorkflowBasicSettings() {
@@ -754,9 +890,7 @@ export default function PipelineFormComponent({
     return (
       <div className="space-y-5 rounded-lg border border-slate-200 bg-white p-6">
         <div>
-          <h3 className="text-base font-semibold text-slate-950">
-            工作流绑定
-          </h3>
+          <h3 className="text-base font-semibold text-slate-950">工作流绑定</h3>
           <p className="mt-1 text-sm text-slate-500">
             从工作流库选择一个流程，数字员工会按该流程组织回复。
           </p>
@@ -885,6 +1019,7 @@ export default function PipelineFormComponent({
         <div className="grid h-full min-h-[640px] lg:grid-cols-[minmax(0,1fr)_420px]">
           <div className="flex min-h-0 flex-col">
             <div className="border-b border-slate-200 bg-white px-6 py-5">
+              <div className="mb-5">{renderSalesAgentSetupGuide()}</div>
               <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
                 {formLabelList.map((section) => {
                   const Icon = section.icon;
@@ -931,214 +1066,220 @@ export default function PipelineFormComponent({
             {isWorkflowAnswerMode ? (
               renderWorkflowAnswerEditor()
             ) : (
-            <div className="flex-1 flex flex-col md:flex-row min-h-0 gap-3">
-              {/* Vertical section navigation (only show when multiple sections) */}
-              {formLabelList.length > 1 && !sectionNavCollapsed && (
-                <nav
-                  className={cn(
-                    'mb-2 shrink-0 overflow-x-auto md:mb-0 md:overflow-x-visible md:overflow-y-auto',
-                    compactSectionNav ? 'md:w-11' : 'md:w-48',
-                  )}
-                >
-                  {!compactSectionNav && (
-                    <div className="mb-2 hidden items-center justify-between px-1 md:flex">
-                      <span className="text-xs font-semibold text-muted-foreground">
-                        配置分区
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-7 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                        title="收起配置面板"
-                        onClick={() => setSectionNavCollapsed(true)}
-                      >
-                        <PanelLeftClose className="size-4" />
-                      </Button>
-                    </div>
-                  )}
-                  <ul
+              <div className="flex-1 flex flex-col md:flex-row min-h-0 gap-3">
+                {/* Vertical section navigation (only show when multiple sections) */}
+                {formLabelList.length > 1 && !sectionNavCollapsed && (
+                  <nav
                     className={cn(
-                      'flex gap-1 rounded-xl bg-slate-100 p-1 md:flex-col md:space-y-1',
-                      compactSectionNav && 'md:items-center',
+                      'mb-2 shrink-0 overflow-x-auto md:mb-0 md:overflow-x-visible md:overflow-y-auto',
+                      compactSectionNav ? 'md:w-11' : 'md:w-48',
                     )}
                   >
+                    {!compactSectionNav && (
+                      <div className="mb-2 hidden items-center justify-between px-1 md:flex">
+                        <span className="text-xs font-semibold text-muted-foreground">
+                          配置分区
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                          title="收起配置面板"
+                          onClick={() => setSectionNavCollapsed(true)}
+                        >
+                          <PanelLeftClose className="size-4" />
+                        </Button>
+                      </div>
+                    )}
+                    <ul
+                      className={cn(
+                        'flex gap-1 rounded-xl bg-slate-100 p-1 md:flex-col md:space-y-1',
+                        compactSectionNav && 'md:items-center',
+                      )}
+                    >
+                      {formLabelList.map((section) => {
+                        const Icon = section.icon;
+                        return (
+                          <li key={section.name}>
+                            <button
+                              type="button"
+                              title={section.label}
+                              onClick={() => setActiveSection(section.name)}
+                              className={cn(
+                                'w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left cursor-pointer whitespace-nowrap',
+                                compactSectionNav &&
+                                  'md:size-9 md:justify-center md:px-0',
+                                activeSection === section.name
+                                  ? 'bg-white text-slate-950 shadow-sm'
+                                  : 'text-slate-500 hover:bg-white/60 hover:text-slate-900',
+                              )}
+                            >
+                              <Icon className="size-4 shrink-0" />
+                              <span
+                                className={cn(compactSectionNav && 'md:hidden')}
+                              >
+                                {section.label}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </nav>
+                )}
+
+                {formLabelList.length > 1 && sectionNavCollapsed && (
+                  <div className="hidden shrink-0 flex-col items-center gap-2 rounded-xl bg-slate-100 p-1 md:flex">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="size-8 rounded-lg border-slate-200 bg-white"
+                      title="展开配置面板"
+                      onClick={() => setSectionNavCollapsed(false)}
+                    >
+                      <PanelLeftOpen className="size-4" />
+                    </Button>
                     {formLabelList.map((section) => {
                       const Icon = section.icon;
                       return (
-                        <li key={section.name}>
-                          <button
-                            type="button"
-                            title={section.label}
-                            onClick={() => setActiveSection(section.name)}
-                            className={cn(
-                              'w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors text-left cursor-pointer whitespace-nowrap',
-                              compactSectionNav &&
-                                'md:size-9 md:justify-center md:px-0',
-                              activeSection === section.name
-                                ? 'bg-white text-slate-950 shadow-sm'
-                                : 'text-slate-500 hover:bg-white/60 hover:text-slate-900',
-                            )}
-                          >
-                            <Icon className="size-4 shrink-0" />
-                            <span
-                              className={cn(compactSectionNav && 'md:hidden')}
-                            >
-                              {section.label}
-                            </span>
-                          </button>
-                        </li>
+                        <button
+                          key={section.name}
+                          type="button"
+                          title={section.label}
+                          onClick={() => setActiveSection(section.name)}
+                          className={cn(
+                            'flex size-8 items-center justify-center rounded-lg transition-colors',
+                            activeSection === section.name
+                              ? 'bg-white text-slate-950 shadow-sm'
+                              : 'text-slate-500 hover:bg-white/60 hover:text-slate-900',
+                          )}
+                        >
+                          <Icon className="size-4" />
+                        </button>
                       );
                     })}
-                  </ul>
-                </nav>
-              )}
+                  </div>
+                )}
 
-              {formLabelList.length > 1 && sectionNavCollapsed && (
-                <div className="hidden shrink-0 flex-col items-center gap-2 rounded-xl bg-slate-100 p-1 md:flex">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="size-8 rounded-lg border-slate-200 bg-white"
-                    title="展开配置面板"
-                    onClick={() => setSectionNavCollapsed(false)}
-                  >
-                    <PanelLeftOpen className="size-4" />
-                  </Button>
-                  {formLabelList.map((section) => {
-                    const Icon = section.icon;
-                    return (
-                      <button
-                        key={section.name}
-                        type="button"
-                        title={section.label}
-                        onClick={() => setActiveSection(section.name)}
-                        className={cn(
-                          'flex size-8 items-center justify-center rounded-lg transition-colors',
-                          activeSection === section.name
-                            ? 'bg-white text-slate-950 shadow-sm'
-                            : 'text-slate-500 hover:bg-white/60 hover:text-slate-900',
-                        )}
-                      >
-                        <Icon className="size-4" />
-                      </button>
-                    );
-                  })}
+                {/* Content panel */}
+                <div
+                  className={cn(
+                    'flex-1 min-h-0',
+                    activeSection === 'workflow'
+                      ? 'flex flex-col overflow-hidden'
+                      : 'overflow-y-auto',
+                  )}
+                >
+                  {/* Basic info section */}
+                  {activeSection === 'basic' && (
+                    <div className="space-y-6">
+                      {/* Basic Information Card */}
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>
+                            {isWorkflowAnswerMode
+                              ? '基本信息'
+                              : t('pipelines.basicInfo')}
+                          </CardTitle>
+                          <CardDescription>
+                            设置数字员工名称、头像和描述
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <FormField
+                            control={form.control}
+                            name="basic.avatar"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Agent头像</FormLabel>
+                                <FormControl>
+                                  <AgentAvatarPicker
+                                    value={field.value}
+                                    onChange={field.onChange}
+                                    uploadInputId="create-agent-avatar-upload"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="basic.name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>
+                                  {t('common.name')}
+                                  <span className="text-destructive">*</span>
+                                </FormLabel>
+                                <FormControl>
+                                  <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+
+                          <FormField
+                            control={form.control}
+                            name="basic.description"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>{t('common.description')}</FormLabel>
+                                <FormControl>
+                                  <Input {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {isEditMode &&
+                    !isWorkflowAnswerMode &&
+                    activeSection === 'workflow' && (
+                      <div className="flex h-full min-h-0 flex-col">
+                        <div className="mb-3 shrink-0">
+                          {renderSalesAgentSetupGuide()}
+                        </div>
+                        <PipelineTemplateConfigEditor
+                          value={
+                            form.watch(
+                              'template_config',
+                            ) as PipelineTemplateConfig
+                          }
+                          pipelineId={pipelineId}
+                          hasUnsavedChanges={hasUnsavedChanges}
+                          pipelineName={form.watch('basic.name')}
+                          pipelineDescription={form.watch('basic.description')}
+                          pipelineAvatar={form.watch('basic.avatar')}
+                          onPipelineNameChange={(name) =>
+                            form.setValue('basic.name', name, {
+                              shouldDirty: true,
+                            })
+                          }
+                          onPipelineDescriptionChange={(description) =>
+                            form.setValue('basic.description', description, {
+                              shouldDirty: true,
+                            })
+                          }
+                          onPipelineAvatarChange={(avatar) =>
+                            form.setValue('basic.avatar', avatar, {
+                              shouldDirty: true,
+                            })
+                          }
+                          onChange={handleTemplateConfigChange}
+                        />
+                      </div>
+                    )}
                 </div>
-              )}
-
-              {/* Content panel */}
-              <div
-                className={cn(
-                  'flex-1 min-h-0',
-                  activeSection === 'workflow'
-                    ? 'flex flex-col overflow-hidden'
-                    : 'overflow-y-auto',
-                )}
-              >
-                {/* Basic info section */}
-                {activeSection === 'basic' && (
-                  <div className="space-y-6">
-                    {/* Basic Information Card */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>
-                          {isWorkflowAnswerMode
-                            ? '基本信息'
-                            : t('pipelines.basicInfo')}
-                        </CardTitle>
-                        <CardDescription>
-                          设置数字员工名称、头像和描述
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <FormField
-                          control={form.control}
-                          name="basic.avatar"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Agent头像</FormLabel>
-                              <FormControl>
-                                <AgentAvatarPicker
-                                  value={field.value}
-                                  onChange={field.onChange}
-                                  uploadInputId="create-agent-avatar-upload"
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name="basic.name"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>
-                                {t('common.name')}
-                                <span className="text-destructive">*</span>
-                              </FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name="basic.description"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>{t('common.description')}</FormLabel>
-                              <FormControl>
-                                <Input {...field} />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                      </CardContent>
-                    </Card>
-                  </div>
-                )}
-
-                {isEditMode &&
-                  !isWorkflowAnswerMode &&
-                  activeSection === 'workflow' && (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <PipelineTemplateConfigEditor
-                      value={form.watch('template_config') as PipelineTemplateConfig}
-                      pipelineId={pipelineId}
-                      hasUnsavedChanges={hasUnsavedChanges}
-                      pipelineName={form.watch('basic.name')}
-                      pipelineDescription={form.watch('basic.description')}
-                      pipelineAvatar={form.watch('basic.avatar')}
-                      onPipelineNameChange={(name) =>
-                        form.setValue('basic.name', name, {
-                          shouldDirty: true,
-                        })
-                      }
-                      onPipelineDescriptionChange={(description) =>
-                        form.setValue('basic.description', description, {
-                          shouldDirty: true,
-                        })
-                      }
-                      onPipelineAvatarChange={(avatar) =>
-                        form.setValue('basic.avatar', avatar, {
-                          shouldDirty: true,
-                        })
-                      }
-                      onChange={handleTemplateConfigChange}
-                    />
-                  </div>
-                )}
               </div>
-            </div>
             )}
           </form>
           {/* Button bar pinned to bottom */}

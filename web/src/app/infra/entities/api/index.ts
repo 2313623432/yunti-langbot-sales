@@ -214,6 +214,30 @@ export interface ApiRespWorkflows {
   workflows: WorkflowProject[];
 }
 
+export interface WorkflowDraftRule {
+  when: string;
+  intent: string;
+  action: string;
+  handoff: boolean;
+}
+
+export interface WorkflowDraft {
+  title: string;
+  summary: string;
+  rules: WorkflowDraftRule[];
+  qualification_fields: string[];
+  handoff_rules: string[];
+  workflow: object;
+}
+
+export interface WorkflowDraftResp {
+  draft: WorkflowDraft;
+  used_llm: boolean;
+  model_uuid: string;
+  model_name: string;
+  fallback_reason?: string;
+}
+
 export interface Pipeline {
   uuid?: string;
   name: string;
