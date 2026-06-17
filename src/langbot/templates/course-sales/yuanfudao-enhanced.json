@@ -19,14 +19,14 @@
     "yuanfudao-phonics-course",
     "yuanfudao-reading-thinking-course"
   ],
-  "model_uuid": "lnp-doubao-doubao-seed-2-0-pro-260215",
+  "model_uuid": "doubao-seed-2-0-pro-260215",
   "model_extra_args": {
     "thinking": {
       "type": "enabled"
     },
     "reasoning_effort": "low"
   },
-  "intent_model_uuid": "lnp-doubao-doubao-seed-2-0-mini-260215",
+  "intent_model_uuid": "doubao-seed-2-0-mini-260215",
   "intent_model_extra_args": {
     "thinking": {
       "type": "disabled"

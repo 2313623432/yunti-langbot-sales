@@ -36,8 +36,8 @@ TASK_ASSISTANT_SCENARIO = 'task_assistant_ant_af'
 TASK_ASSISTANT_PIPELINE_UUID = 'task-assistant-ant-af-pipeline'
 TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID = 'task-assistant-ant-af-template-pipeline'
 DEFAULT_ASSISTANT_MODEL_UUID = ''
-COURSE_SALES_REPLY_MODEL_UUID = 'lnp-doubao-doubao-seed-2-0-pro-260215'
-COURSE_SALES_INTENT_MODEL_UUID = 'lnp-doubao-doubao-seed-2-0-mini-260215'
+COURSE_SALES_REPLY_MODEL_UUID = 'doubao-seed-2-0-pro-260215'
+COURSE_SALES_INTENT_MODEL_UUID = 'doubao-seed-2-0-mini-260215'
 COURSE_SALES_REPLY_MODEL_EXTRA_ARGS = {
     'thinking': {'type': 'enabled'},
     'reasoning_effort': 'low',

@@ -716,8 +716,8 @@ def test_course_sales_template_defaults_to_doubao_reply_and_intent_models():
     config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
     template = config['template_config']
 
-    assert template['model_uuid'] == 'lnp-doubao-doubao-seed-2-0-pro-260215'
-    assert template['intent_model_uuid'] == 'lnp-doubao-doubao-seed-2-0-mini-260215'
+    assert template['model_uuid'] == 'doubao-seed-2-0-pro-260215'
+    assert template['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
     assert template['model_extra_args']['reasoning_effort'] == 'low'
     assert template['intent_model_extra_args']['thinking'] == {'type': 'disabled'}
     assert '不要输出思考过程' in template['role_prompt']
@@ -738,7 +738,7 @@ async def test_course_sales_prepare_query_uses_configured_intent_model(monkeypat
     )
     runtime_model = SimpleNamespace(
         model_entity=SimpleNamespace(
-            uuid='lnp-doubao-doubao-seed-2-0-mini-260215',
+            uuid='doubao-seed-2-0-mini-260215',
             name='doubao-seed-2-0-mini-260215',
             abilities=[],
             extra_args={'thinking': {'type': 'disabled'}},
@@ -755,11 +755,11 @@ async def test_course_sales_prepare_query_uses_configured_intent_model(monkeypat
     monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
     query = _query(text_chain('我随便问问'), '我随便问问')
     query.pipeline_config = service.build_course_sales_template_pipeline_config(
-        model_uuid='lnp-doubao-doubao-seed-2-0-pro-260215',
+        model_uuid='doubao-seed-2-0-pro-260215',
         template_slug='yuanfudao-enhanced',
         existing_config={
             'template_config': {
-                'intent_model_uuid': 'lnp-doubao-doubao-seed-2-0-mini-260215',
+                'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
                 'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
             }
         },
@@ -770,7 +770,7 @@ async def test_course_sales_prepare_query_uses_configured_intent_model(monkeypat
     assert result['handled'] is True
     assert query.variables['workflow_intent']['intent'] == 'purchase'
     assert query.variables['workflow_intent']['source'] == 'model'
-    service.ap.model_mgr.get_model_by_uuid.assert_awaited_once_with('lnp-doubao-doubao-seed-2-0-mini-260215')
+    service.ap.model_mgr.get_model_by_uuid.assert_awaited_once_with('doubao-seed-2-0-mini-260215')
     provider.invoke_llm.assert_awaited_once()
     invoke_kwargs = provider.invoke_llm.await_args.kwargs
     assert invoke_kwargs['extra_args'] == {'thinking': {'type': 'disabled'}}
@@ -853,9 +853,9 @@ async def test_course_sales_doubao_defaults_rebind_saved_course_pipeline_models(
     update_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
     params = update_statement.compile().params
     updated_config = params['config']
-    assert updated_config['template_config']['model_uuid'] == 'lnp-doubao-doubao-seed-2-0-pro-260215'
-    assert updated_config['template_config']['intent_model_uuid'] == 'lnp-doubao-doubao-seed-2-0-mini-260215'
-    assert updated_config['ai']['local-agent']['model']['primary'] == 'lnp-doubao-doubao-seed-2-0-pro-260215'
+    assert updated_config['template_config']['model_uuid'] == 'doubao-seed-2-0-pro-260215'
+    assert updated_config['template_config']['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
+    assert updated_config['ai']['local-agent']['model']['primary'] == 'doubao-seed-2-0-pro-260215'
 
 
 def test_task_assistant_template_pipeline_config_matches_workflow_capabilities():
@@ -893,9 +893,9 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert config['config_mode'] == 'template'
     assert config['workflow']['metadata']['scenario'] == COURSE_SALES_SCENARIO
     assert config['ai']['runner']['runner'] == 'local-agent'
-    assert config['ai']['local-agent']['model']['primary'] == 'lnp-doubao-doubao-seed-2-0-pro-260215'
+    assert config['ai']['local-agent']['model']['primary'] == 'doubao-seed-2-0-pro-260215'
     template = config['template_config']
-    assert template['intent_model_uuid'] == 'lnp-doubao-doubao-seed-2-0-mini-260215'
+    assert template['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
     assert template['name'] == '课程销售模板'
     assert template['course_profile']['course_name'] == '猿辅导英语自然拼读体验课/自然拼读集训营'
     assert template['course_profile']['price'] == '9元体验'

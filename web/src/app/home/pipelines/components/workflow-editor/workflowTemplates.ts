@@ -6,8 +6,8 @@ import {
   WorkflowNodeType,
 } from './types';
 
-const COURSE_SALES_REPLY_MODEL_UUID = 'lnp-doubao-doubao-seed-2-0-pro-260215';
-const COURSE_SALES_INTENT_MODEL_UUID = 'lnp-doubao-doubao-seed-2-0-mini-260215';
+const COURSE_SALES_REPLY_MODEL_UUID = 'doubao-seed-2-0-pro-260215';
+const COURSE_SALES_INTENT_MODEL_UUID = 'doubao-seed-2-0-mini-260215';
 const COURSE_SALES_REPLY_MODEL_EXTRA_ARGS = {
   thinking: { type: 'enabled' },
   reasoning_effort: 'low',

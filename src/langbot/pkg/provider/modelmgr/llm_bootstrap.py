@@ -11,6 +11,8 @@ REMOVED_DOUBAO_TEXT_MODEL_UUIDS = frozenset(
         'lnp-doubao-doubao-pro-32k',
         'lnp-doubao-doubao-lite-32k',
         'lnp-doubao-doubao-pro-128k',
+        'lnp-doubao-doubao-seed-2-0-mini-260215',
+        'lnp-doubao-doubao-seed-2-0-pro-260215',
     }
 )
 
