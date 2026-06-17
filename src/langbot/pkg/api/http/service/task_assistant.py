@@ -36,6 +36,7 @@ TASK_ASSISTANT_SCENARIO = 'task_assistant_ant_af'
 TASK_ASSISTANT_PIPELINE_UUID = 'task-assistant-ant-af-pipeline'
 TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID = 'task-assistant-ant-af-template-pipeline'
 DEFAULT_ASSISTANT_MODEL_UUID = ''
+TASK_ASSISTANT_FAILURE_HINT = 'AI回复失败，请检查模型配置、API地址或Key是否可用，然后再试一次'
 TASK_ASSISTANT_TTS_VOICE_TYPE = 'zh_female_yuanqinvyou_moon_bigtts'
 COURSE_SALES_SCENARIO = 'course_sales_yuanfudao_phonics'
 COURSE_SALES_WORKFLOW_PIPELINE_UUID = 'course-sales-workflow-pipeline'
@@ -198,6 +199,80 @@ COURSE_MEME_VARIANTS = [
     ('cute', '亲切可爱'),
     ('clean', '简洁礼貌'),
 ]
+COURSE_MEME_USAGE_SCENES = {
+    'happy': '客户情绪轻松、表达开心、咨询进展顺利',
+    'thanks': '客户配合、表达感谢、完成信息确认或下单后',
+    'like': '客户做出正向回应、认可方案、完成操作',
+    'success': '报名、支付、资料领取、问题处理完成后',
+    'morning': '客户早上首次进线或早安问候',
+    'noon': '中午轻松问候、午间跟进',
+    'evening': '晚上轻量问候、结束前温和提醒',
+    'night': '晚间收尾、提醒客户早点休息',
+    'ok': '确认收到、答复客户“可以/好的/没问题”',
+    'received': '记录客户信息、确认已收到截图/年级/需求',
+    'cheer': '鼓励客户或孩子完成学习、打卡、报名动作',
+    'welcome': '客户首次进线、问你好/在吗/想咨询',
+    'question': '客户提出疑问，需要温和承接问题',
+    'thinking': '需要确认、查询、核对资料或稍作思考',
+    'sorry': '出现等待、误解、服务不便，需要礼貌道歉',
+    'wait': '需要客户稍等、客服正在查找或处理',
+    'checking': '正在核实报名、支付、资料、课程安排',
+    'reminder': '温和提醒客户查看链接、截图、上课或支付',
+    'deal': '客户明确购买、下单、成交、报名意愿强',
+    'signup': '客户准备报名、领取课程名额、需要报名链接',
+    'payment': '客户支付、订单、截图、付款确认相关',
+    'link': '发送或解释报名链接、资源入口、访问入口',
+    'resource': '图书资源、二维码、听力、答案、资料包相关',
+    'class_time': '上课时间、排课、日程、几点上课相关',
+    'replay': '回放、录播、错过课程、补看相关',
+    'gift': '赠品、资料包、完课好礼、福利说明相关',
+    'trial': '体验课、试听、先体验再决定相关',
+    'discount': '优惠、活动价、名额、限时权益相关',
+    'grade': '询问孩子年级、基础、学段、适合课程',
+    'parent': '面向家长的礼貌沟通、确认孩子情况',
+    'child': '鼓励孩子学习、兴趣、基础提升',
+    'homework': '作业、练习、打卡、预习、复习相关',
+    'reading': '阅读、写作、作文、表达训练相关',
+    'phonics': '自然拼读、发音、英语启蒙、单词拼读相关',
+    'followup': '跟进客户进展、轻量回访、确认是否打开',
+    'congrats': '恭喜客户完成报名、支付、领取或孩子进步',
+    'polite': '通用礼貌承接、轻松但不冒犯的客服表达',
+    'calm': '客户着急、不满、情绪波动，需要安抚',
+    'service': '客服承接处理、帮客户查看、安排下一步',
+    'handoff_ready': '客户要求人工、需要老师/班主任/专人协助',
+}
+COURSE_MEME_USAGE_INSTRUCTIONS = {
+    'welcome': '客户首次进线、打招呼、问“在吗/你好”时可以发；不要用于客户投诉或严肃质疑。',
+    'thanks': '客户配合、下单、发截图、提供信息或表达感谢时可以发；不要用于催单施压。',
+    'sorry': '等待过久、解释不清、给客户带来不便时可以发；不要反复发送造成打扰。',
+    'calm': '客户着急、情绪激动、遇到问题时用于先共情安抚；不要用于成交庆祝。',
+    'question': '客户提问、表达疑惑、需要进一步解释时可以发；不要用于客户已经明确拒绝的场景。',
+    'thinking': '需要查询、核对、确认资料或报名状态时可以发；发送后要继续给出明确答复。',
+    'wait': '需要客户稍等、正在处理或转接前可以发；不要让客户只看到表情没有正文。',
+    'checking': '正在核实支付、截图、课程安排、资源入口时可以发；必须搭配处理说明。',
+    'reminder': '提醒客户看链接、发截图、完成报名或留意上课时可以发；语气必须轻，不要催促压迫。',
+    'deal': '客户明确要买、已下单、报名成功时可以发；不要在客户犹豫或拒绝时发。',
+    'signup': '客户询问怎么报名、报名链接、领取体验课时可以发；不要用于投诉、道歉或情绪激动场景。',
+    'payment': '客户付款、订单、支付截图、确认支付状态时可以发；不要在未确认意愿时催付。',
+    'link': '发送真实报名链接、资源入口、卡片入口时可以发；不得替代真实链接。',
+    'resource': '客户问听力、答案、二维码、图书资源时可以发；先解决资源问题再承接课程。',
+    'class_time': '客户问几点上课、课程安排、日程时可以发；不要自行编造时间。',
+    'replay': '客户错过课程、询问回放或录播时可以发；要说明具体查看方式。',
+    'gift': '说明赠品、资料包、完课好礼、福利时可以发；不要夸大权益。',
+    'trial': '客户考虑体验课、试听、先看看时可以发；不要强迫报名。',
+    'discount': '说明优惠、活动、名额时可以发；价格和时效必须以真实链接为准。',
+    'grade': '询问或确认孩子年级、基础、学习阶段时可以发；不要套用成人口吻。',
+    'parent': '对家长表达礼貌感谢、确认孩子情况时可以发；不要显得过度亲昵。',
+    'child': '鼓励孩子学习、打卡、进步时可以发；避免对效果作绝对承诺。',
+    'homework': '作业、练习、预习、复习、打卡相关时可以发；语气鼓励为主。',
+    'reading': '阅读、写作、作文、表达训练相关时可以发；不要脱离课程事实。',
+    'phonics': '自然拼读、发音、英语启蒙、单词拼读相关时可以发；要配合课程说明。',
+    'followup': '轻量回访、确认能否打开、是否领取成功时可以发；不要频繁打扰。',
+    'congrats': '客户完成报名、支付、领取资料或孩子取得进步时可以发；不要用于催单。',
+    'polite': '通用礼貌收尾、承接和感谢时可以发；避免每句话都发。',
+    'service': '表达“我帮您看/我来处理/这边安排”时可以发；必须跟具体动作。',
+    'handoff_ready': '客户说转人工、找老师、班主任、电话联系时可以发；随后要进入人工协助流程。',
+}
 COURSE_MEME_FEISHU_EMOJIS = {
     'happy': ['[微笑]', '[愉快]', '[大笑]', '[欢呼]', '[耶]'],
     'thanks': ['[双手合十]', '[感谢]', '[抱拳]'],
@@ -242,6 +317,24 @@ COURSE_MEME_FEISHU_EMOJIS = {
 }
 
 
+def _course_meme_usage_scene(code: str, meaning: str, search_keyword: str) -> str:
+    return COURSE_MEME_USAGE_SCENES.get(code, f'{meaning}、{search_keyword} 等相近客服销售场景')
+
+
+def _course_meme_usage_instruction(
+    code: str,
+    meaning: str,
+    keywords: list[str],
+    variant_label: str,
+) -> str:
+    fallback = (
+        f'当客户表达 {meaning}，或出现“{"、".join(keywords[:4])}”等相近语义时可以发；'
+        '必须礼貌、克制、和正文放在合适位置，不要在投诉、拒绝、严肃问题中乱用。'
+    )
+    base = COURSE_MEME_USAGE_INSTRUCTIONS.get(code, fallback)
+    return f'{base} 推荐风格：{variant_label}。'
+
+
 def _build_default_sales_meme_library() -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for code, meaning, keywords, search_keyword in COURSE_MEME_SCENES:
@@ -256,6 +349,8 @@ def _build_default_sales_meme_library() -> list[dict[str, Any]]:
                     'code': code,
                     'emotion': code,
                     'search_keyword': search_keyword,
+                    'usage_scene': _course_meme_usage_scene(code, meaning, search_keyword),
+                    'usage_instruction': _course_meme_usage_instruction(code, meaning, keywords, variant_label),
                     'feishu_emoji': COURSE_MEME_FEISHU_EMOJIS.get(code, ['[微笑]'])[
                         (variant_index - 1) % len(COURSE_MEME_FEISHU_EMOJIS.get(code, ['[微笑]']))
                     ],
@@ -273,6 +368,9 @@ COURSE_MEME_CONFIG = {
     'enabled': True,
     'large_enabled': True,
     'feishu_native_enabled': True,
+    'smart_judge_enabled': True,
+    'small_interval_rounds': 3,
+    'large_interval_rounds': 5,
     'library_enabled': True,
     'api_fallback_enabled': True,
     'oiapi_enabled': True,
@@ -3134,10 +3232,42 @@ class TaskAssistantService:
         combined = ' '.join(str(item) for item in value.values())
         return bool(image_key) or any(token in combined for token in ['sop_doc_media', 'image1.png', 'image2.png', 'image3.png'])
 
+    def _compose_meme_usage_prompt(self, workflow: dict[str, Any]) -> str:
+        raw_memes = workflow.get('memes') if isinstance(workflow.get('memes'), dict) else {}
+        memes = self._normalize_course_meme_config(raw_memes)
+        if memes.get('enabled') is False or not memes.get('library_enabled'):
+            return ''
+
+        lines: list[str] = []
+        seen_codes: set[str] = set()
+        for item in memes.get('library', []):
+            if not isinstance(item, dict) or item.get('enabled') is False:
+                continue
+            code = str(item.get('code') or item.get('trigger_keyword') or '').strip().strip('{}')
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            trigger = str(item.get('trigger_keyword') or f'{{{code}}}')
+            scene = str(item.get('usage_scene') or item.get('meaning') or '').strip()
+            instruction = str(item.get('usage_instruction') or '').strip()
+            lines.append(f'- {trigger}：使用场景：{scene}；使用说明：{instruction}')
+            if len(lines) >= 40:
+                break
+        if not lines:
+            return ''
+        return (
+            '\n\n表情包触发规则：\n'
+            '- 只有在语义、情绪和客服场景确实匹配时，才在回复中自然插入一个触发码；系统会自动把触发码替换成小表情或大表情包。\n'
+            '- 触发码要放在合适的位置，不要全部放开头；不要每句话都发；客户投诉、拒绝、严肃问题时优先解决问题。\n'
+            '- 只能使用下面列出的触发码，不要输出未配置的代码。\n'
+            + '\n'.join(lines)
+        )
+
     def compose_course_sales_prompt(self, workflow: dict[str, Any] | None = None) -> str:
         workflow = workflow if isinstance(workflow, dict) else {}
         stop_rules = workflow.get('stop_rules') if isinstance(workflow.get('stop_rules'), dict) else COURSE_STOP_RULES
         stop_keywords = '、'.join(stop_rules.get('stop_keywords', [])[:10])
+        meme_usage_prompt = self._compose_meme_usage_prompt(workflow)
         return f"""你是微信/企微私域里的真人课程客服兼销售，负责猿辅导体验课咨询。
 
 人设与口吻：
@@ -3165,6 +3295,7 @@ class TaskAssistantService:
 8. 需要报名时，先确认报名意愿和完课好礼，再发链接；不需要时不硬推。
 9. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
 10. 需要图片时由工作流追加素材，不要口头描述图片内容。
+{meme_usage_prompt}
 """.strip()
 
     async def synthesize_reply_voice(self, query: pipeline_query.Query, text: str) -> str | None:
@@ -3399,6 +3530,7 @@ class TaskAssistantService:
         ]
         config['output']['misc']['at-sender'] = False
         config['output']['misc']['quote-origin'] = True
+        config['output']['misc']['failure-hint'] = TASK_ASSISTANT_FAILURE_HINT
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else {}
         existing_voice = existing_workflow.get('voice') if isinstance(existing_workflow, dict) else {}
         config['workflow'] = self.build_workflow_config(
@@ -3427,7 +3559,11 @@ class TaskAssistantService:
         config['config_mode'] = 'template'
         config['template_config'] = template_config
         if isinstance(existing_workflow, dict) and existing_workflow:
-            config['workflow'] = existing_workflow
+            workflow = copy.deepcopy(existing_workflow)
+            memes = self._normalize_course_meme_config(workflow.get('memes') or template_config.get('memes'))
+            workflow['memes'] = copy.deepcopy(memes)
+            workflow.setdefault('variables', {})['memes'] = copy.deepcopy(memes)
+            config['workflow'] = workflow
         return config
 
     def _preserve_existing_basic_config(
@@ -3517,6 +3653,7 @@ class TaskAssistantService:
             'scheduled_push': scheduled_push,
             'interaction_radar': interaction_radar,
             'human_handoff': copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG),
+            'memes': copy.deepcopy(COURSE_MEME_CONFIG),
             'special_cases': [],
             'image_text_bindings': [
                 {
@@ -3546,12 +3683,15 @@ class TaskAssistantService:
                     )
                 elif key == 'image_text_bindings' and isinstance(value, list) and value:
                     template_config['image_text_bindings'] = value
+                elif key == 'memes' and isinstance(value, dict):
+                    template_config['memes'] = self._normalize_course_meme_config(value)
                 else:
                     template_config[key] = value
         if isinstance(template_config.get('human_handoff'), dict):
             template_config['human_handoff']['notify_message'] = self._safe_course_handoff_notify_message(
                 template_config['human_handoff'].get('notify_message')
             )
+        template_config['memes'] = self._normalize_course_meme_config(template_config.get('memes'))
         return template_config
 
     def build_workflow_from_template_config(self, template_config: dict[str, Any]) -> dict[str, Any]:
@@ -3627,6 +3767,9 @@ class TaskAssistantService:
         if isinstance(special_cases, list):
             workflow['special_cases'] = copy.deepcopy(special_cases)
             workflow.setdefault('variables', {})['special_cases'] = copy.deepcopy(special_cases)
+        memes = self._normalize_course_meme_config(template_config.get('memes'))
+        workflow['memes'] = copy.deepcopy(memes)
+        workflow.setdefault('variables', {})['memes'] = copy.deepcopy(memes)
         return workflow
 
     def build_workflow_config(
@@ -3648,6 +3791,7 @@ class TaskAssistantService:
             for key, value in voice_overrides.items():
                 if value is not None:
                     voice_config[key] = value
+        meme_config = self._normalize_course_meme_config({})
 
         nodes = [
             {
@@ -3889,6 +4033,10 @@ class TaskAssistantService:
             'nodes': nodes,
             'edges': edges,
             'voice': voice_config,
+            'memes': copy.deepcopy(meme_config),
+            'variables': {
+                'memes': copy.deepcopy(meme_config),
+            },
         }
 
     def _load_course_sales_template_by_slug(self, template_slug: str | None) -> dict[str, Any]:
@@ -3967,6 +4115,7 @@ class TaskAssistantService:
         config['output']['force-delay'] = {'min': 0, 'max': 0}
         config['output']['misc']['at-sender'] = False
         config['output']['misc']['quote-origin'] = True
+        config['output']['misc']['failure-hint'] = TASK_ASSISTANT_FAILURE_HINT
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else {}
         existing_voice = existing_workflow.get('voice') if isinstance(existing_workflow, dict) else {}
         config['workflow'] = self.build_course_sales_workflow_config(
@@ -4225,6 +4374,48 @@ class TaskAssistantService:
         normalized['merge_delay_seconds'] = max(1.0, delay)
         return normalized
 
+    def _normalize_course_meme_library_item(self, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        item = copy.deepcopy(value)
+        trigger = str(item.get('trigger_keyword') or '').strip()
+        code = str(item.get('code') or trigger.strip('{}') or item.get('emotion') or '').strip()
+        item_id = str(item.get('id') or '').strip()
+        default_by_id = {str(default.get('id')): default for default in DEFAULT_SALES_MEME_LIBRARY}
+        default_by_code = {
+            (str(default.get('code')), str(default.get('file_key')).split('/')[-1].removesuffix('.png')): default
+            for default in DEFAULT_SALES_MEME_LIBRARY
+        }
+        variant = ''
+        file_key = str(item.get('file_key') or '')
+        if file_key.endswith('.png') and '/' in file_key:
+            variant = file_key.rsplit('/', 1)[-1].removesuffix('.png')
+        default = default_by_id.get(item_id) or default_by_code.get((code, variant)) or {}
+        meaning = str(item.get('meaning') or default.get('meaning') or code or '礼貌表情包')
+        keywords = item.get('keywords') if isinstance(item.get('keywords'), list) else default.get('keywords')
+        if not isinstance(keywords, list):
+            keywords = []
+
+        item.setdefault('meaning', meaning)
+        item.setdefault('trigger_keyword', trigger or f'{{{code or "happy"}}}')
+        item.setdefault('code', code or str(default.get('code') or '').strip() or 'happy')
+        item.setdefault('emotion', str(item.get('emotion') or default.get('emotion') or item.get('code') or 'happy'))
+        item.setdefault('search_keyword', str(item.get('search_keyword') or default.get('search_keyword') or meaning))
+        item.setdefault('usage_scene', str(item.get('scene') or default.get('usage_scene') or meaning))
+        item.setdefault(
+            'usage_instruction',
+            str(
+                item.get('usage_timing')
+                or item.get('timing')
+                or default.get('usage_instruction')
+                or f'当客户表达“{meaning}”或相近语义时可以发；必须礼貌、克制、和正文语境一致。'
+            ),
+        )
+        item.setdefault('keywords', keywords)
+        item.setdefault('tags', default.get('tags') if isinstance(default.get('tags'), list) else [])
+        item.setdefault('source', item.get('source') or default.get('source') or 'custom')
+        return item
+
     def _normalize_course_meme_config(self, value: Any) -> dict[str, Any]:
         source = value if isinstance(value, dict) else {}
         normalized = {**copy.deepcopy(COURSE_MEME_CONFIG), **copy.deepcopy(source)}
@@ -4232,6 +4423,7 @@ class TaskAssistantService:
             'enabled',
             'large_enabled',
             'feishu_native_enabled',
+            'smart_judge_enabled',
             'library_enabled',
             'api_fallback_enabled',
             'oiapi_enabled',
@@ -4242,7 +4434,20 @@ class TaskAssistantService:
         except (TypeError, ValueError):
             limit = int(COURSE_MEME_CONFIG['oiapi_limit'])
         normalized['oiapi_limit'] = max(1, min(20, limit))
+        for key in ('small_interval_rounds', 'large_interval_rounds'):
+            try:
+                interval = int(normalized.get(key) or COURSE_MEME_CONFIG[key])
+            except (TypeError, ValueError):
+                interval = int(COURSE_MEME_CONFIG[key])
+            normalized[key] = max(1, min(99, interval))
         if not isinstance(normalized.get('library'), list) or not normalized['library']:
+            normalized['library'] = copy.deepcopy(DEFAULT_SALES_MEME_LIBRARY)
+        normalized['library'] = [
+            item
+            for item in (self._normalize_course_meme_library_item(item) for item in normalized.get('library', []))
+            if item is not None
+        ]
+        if not normalized['library']:
             normalized['library'] = copy.deepcopy(DEFAULT_SALES_MEME_LIBRARY)
         return normalized
 
@@ -5723,12 +5928,6 @@ class TaskAssistantService:
     ) -> str:
         pipeline_config = getattr(query, 'pipeline_config', None)
         if isinstance(pipeline_config, dict):
-            template_config = pipeline_config.get('template_config')
-            if isinstance(template_config, dict):
-                model_uuid = str(template_config.get('model_uuid') or '').strip()
-                if model_uuid:
-                    return model_uuid
-
             ai_config = pipeline_config.get('ai')
             if isinstance(ai_config, dict):
                 local_agent = ai_config.get('local-agent')
@@ -5738,6 +5937,16 @@ class TaskAssistantService:
                         primary = str(model_config.get('primary') or '').strip()
                         if primary:
                             return primary
+                    elif isinstance(model_config, str):
+                        primary = model_config.strip()
+                        if primary:
+                            return primary
+
+            template_config = pipeline_config.get('template_config')
+            if isinstance(template_config, dict):
+                model_uuid = str(template_config.get('model_uuid') or '').strip()
+                if model_uuid:
+                    return model_uuid
 
         workflow = workflow if isinstance(workflow, dict) else {}
         for node in workflow.get('nodes', []):

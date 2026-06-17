@@ -200,6 +200,43 @@ function voiceToneOptionsFromModel(model?: LLMModel): VoiceToneOption[] {
   return options;
 }
 
+function normalizeMemeLibraryItems(
+  items: PipelineTemplateMemeLibraryItem[] | undefined,
+  defaults: PipelineTemplateMemeLibraryItem[],
+) {
+  const sourceItems = items?.length ? items : defaults;
+  const defaultsById = new Map(defaults.map((item) => [item.id, item]));
+  const defaultsByCodeVariant = new Map(
+    defaults.map((item) => {
+      const code = item.code || item.trigger_keyword.replace(/[{}]/g, '');
+      const variant = (item.file_key || '').split('/').pop()?.replace(/\.png$/, '') || '';
+      return [`${code}:${variant}`, item];
+    }),
+  );
+
+  return sourceItems.map((item) => {
+    const code = item.code || item.trigger_keyword?.replace(/[{}]/g, '') || item.emotion || 'happy';
+    const variant = (item.file_key || '').split('/').pop()?.replace(/\.png$/, '') || '';
+    const fallback = defaultsById.get(item.id) || defaultsByCodeVariant.get(`${code}:${variant}`);
+    const meaning = item.meaning || fallback?.meaning || '礼貌表情包';
+    return {
+      ...item,
+      meaning,
+      trigger_keyword: item.trigger_keyword || fallback?.trigger_keyword || `{${code}}`,
+      code,
+      emotion: item.emotion || fallback?.emotion || code,
+      search_keyword: item.search_keyword || fallback?.search_keyword || meaning,
+      usage_scene: item.usage_scene || fallback?.usage_scene || meaning,
+      usage_instruction:
+        item.usage_instruction ||
+        fallback?.usage_instruction ||
+        `当客户表达“${meaning}”或相近语义时可以发；必须礼貌、克制、和正文语境一致。`,
+      keywords: item.keywords?.length ? item.keywords : fallback?.keywords || [],
+      tags: item.tags?.length ? item.tags : fallback?.tags || [],
+    };
+  });
+}
+
 function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTemplateConfig {
   const defaults = createBlankAgentTemplateConfig();
   return {
@@ -250,9 +287,7 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
     memes: {
       ...defaults.memes!,
       ...(value?.memes || {}),
-      library: value?.memes?.library?.length
-        ? value.memes.library
-        : defaults.memes?.library || [],
+      library: normalizeMemeLibraryItems(value?.memes?.library, defaults.memes?.library || []),
     },
     special_cases: value?.special_cases ?? defaults.special_cases ?? [],
     image_text_bindings:
@@ -331,6 +366,7 @@ function ToggleRow({
   label,
   checked,
   onCheckedChange,
+  description,
 }: {
   label: string;
   checked: boolean;
@@ -341,6 +377,7 @@ function ToggleRow({
     <div className="flex items-center justify-between gap-4 rounded-md border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-indigo-200 hover:bg-indigo-50/30">
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-900">{label}</p>
+        {description && <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>}
       </div>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
@@ -480,6 +517,8 @@ function makeMemeLibraryItem(): PipelineTemplateMemeLibraryItem {
     code: 'happy',
     emotion: 'happy',
     search_keyword: '开心',
+    usage_scene: '客户表达开心、感谢、配合或轻松互动时',
+    usage_instruction: '当客户情绪轻松、表达感谢或完成一个正向动作时可以发；不要用于投诉、拒绝或严肃问题。',
     keywords: ['开心', '谢谢'],
     tags: ['happy', '销售'],
     file_key: '',
@@ -2527,6 +2566,38 @@ export default function PipelineTemplateConfigEditor({
               onCheckedChange={(checked) => patchMemes({ feishu_native_enabled: checked })}
             />
             <ToggleRow
+              label="智能判断发送时机"
+              description="开启后优先挑合适时机；连续未命中时按下方轮数兜底。"
+              checked={memes.smart_judge_enabled ?? true}
+              onCheckedChange={(checked) => patchMemes({ smart_judge_enabled: checked })}
+            />
+            <label className="block">
+              <FieldLabel>小表情最多几轮必须出现一次</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={99}
+                value={memes.small_interval_rounds ?? 3}
+                onChange={(event) =>
+                  patchMemes({ small_interval_rounds: Math.max(1, Math.min(99, Number(event.target.value) || 3)) })
+                }
+                className="h-10 bg-white"
+              />
+            </label>
+            <label className="block">
+              <FieldLabel>大表情最多几轮必须出现一次</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={99}
+                value={memes.large_interval_rounds ?? 5}
+                onChange={(event) =>
+                  patchMemes({ large_interval_rounds: Math.max(1, Math.min(99, Number(event.target.value) || 5)) })
+                }
+                className="h-10 bg-white"
+              />
+            </label>
+            <ToggleRow
               label="优先使用本地表情包库"
               checked={memes.library_enabled}
               onCheckedChange={(checked) => patchMemes({ library_enabled: checked })}
@@ -2687,43 +2758,59 @@ export default function PipelineTemplateConfigEditor({
                       placeholder="开心,谢谢,收到"
                     />
                   </label>
-                  {!builtin && (
-                    <>
-                      <div className="mt-3 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-10 justify-center rounded-md bg-white"
-                          asChild
-                          disabled={uploadingBindingId === `meme-${item.id || index}`}
-                        >
-                          <label htmlFor={uploadId} className="cursor-pointer">
-                            <input
-                              id={uploadId}
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(event) => uploadImageForMeme(index, event)}
-                            />
-                            <Upload className="mr-1.5 inline size-4" />
-                            {uploadingBindingId === `meme-${item.id || index}` ? '上传中' : '上传表情包'}
-                          </label>
-                        </Button>
-                        <Input
-                          value={item.image_url || ''}
-                          onChange={(event) => patchMemeLibraryItem(index, { image_url: event.target.value, source: 'custom' })}
-                          className="h-10 bg-white"
-                          placeholder="大表情包 URL"
-                        />
-                      </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="block">
+                      <FieldLabel>使用场景</FieldLabel>
                       <Input
-                        value={item.file_key || ''}
-                        onChange={(event) => patchMemeLibraryItem(index, { file_key: event.target.value })}
-                        className="mt-3 h-10 bg-white"
-                        placeholder="大表情包 file_key 或本地素材路径"
+                        value={item.usage_scene || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { usage_scene: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="客户询问报名链接、领取体验课时"
                       />
-                    </>
-                  )}
+                    </label>
+                    <label className="block">
+                      <FieldLabel>使用说明</FieldLabel>
+                      <Textarea
+                        value={item.usage_instruction || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { usage_instruction: event.target.value })}
+                        className="min-h-20 bg-white"
+                        placeholder="什么时候可以发、什么时候不要发，给 AI 做判断依据"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 justify-center rounded-md bg-white"
+                      asChild
+                      disabled={uploadingBindingId === `meme-${item.id || index}`}
+                    >
+                      <label htmlFor={uploadId} className="cursor-pointer">
+                        <input
+                          id={uploadId}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => uploadImageForMeme(index, event)}
+                        />
+                        <Upload className="mr-1.5 inline size-4" />
+                        {uploadingBindingId === `meme-${item.id || index}` ? '替换中' : '替换表情包'}
+                      </label>
+                    </Button>
+                    <Input
+                      value={item.image_url || ''}
+                      onChange={(event) => patchMemeLibraryItem(index, { image_url: event.target.value, source: 'custom' })}
+                      className="h-10 bg-white"
+                      placeholder="大表情包 URL"
+                    />
+                  </div>
+                  <Input
+                    value={item.file_key || ''}
+                    onChange={(event) => patchMemeLibraryItem(index, { file_key: event.target.value, source: 'custom' })}
+                    className="mt-3 h-10 bg-white"
+                    placeholder="大表情包 file_key 或本地素材路径"
+                  />
                   {previewSrc && (
                     <div className="mt-3 overflow-hidden rounded-md border bg-white">
                       <img

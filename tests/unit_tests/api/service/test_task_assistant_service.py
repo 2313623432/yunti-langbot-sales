@@ -79,13 +79,52 @@ def test_course_sales_template_includes_configurable_meme_library():
     assert len(memes['library']) >= 200
     assert any(item['trigger_keyword'] == '{happy}' for item in memes['library'])
     assert any(item['trigger_keyword'] == '{thanks}' for item in memes['library'])
-    assert all({'meaning', 'trigger_keyword', 'file_key', 'tags'} <= set(item) for item in memes['library'])
+    assert all(
+        {'meaning', 'trigger_keyword', 'file_key', 'tags', 'usage_scene', 'usage_instruction'} <= set(item)
+        for item in memes['library']
+    )
     assert all(str(item['file_key']).startswith('sales-memes/') for item in memes['library'])
     assert all(str(item.get('feishu_emoji', '')).startswith('[') for item in memes['library'])
+    assert any('客户首次进线' in item['usage_instruction'] for item in memes['library'])
 
     workflow = service.build_course_sales_workflow_config(template_config=config)
     assert workflow['memes']['library'][0]['trigger_keyword'].startswith('{')
     assert workflow['variables']['memes']['library'][0]['trigger_keyword'].startswith('{')
+
+    prompt = service.compose_course_sales_prompt(config)
+    assert '表情包触发规则' in prompt
+    assert '{happy}' in prompt
+    assert '使用场景' in prompt
+
+
+def test_course_sales_pipeline_uses_actionable_failure_hint():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_pipeline_config(model_uuid='model-ok')
+
+    failure_hint = config['output']['misc']['failure-hint']
+    assert failure_hint != 'Request failed.'
+    assert 'AI' in failure_hint
+    assert '模型' in failure_hint
+
+
+def test_primary_model_resolution_prefers_runtime_local_agent_model():
+    service = TaskAssistantService(SimpleNamespace())
+    query = SimpleNamespace(
+        pipeline_config={
+            'template_config': {'model_uuid': 'stale-template-model'},
+            'ai': {
+                'local-agent': {
+                    'model': {
+                        'primary': 'runtime-model',
+                        'fallbacks': [],
+                    }
+                }
+            },
+        }
+    )
+
+    assert service._resolve_primary_model_uuid(query, {}) == 'runtime-model'
 
 
 @pytest.mark.asyncio
@@ -800,6 +839,10 @@ def test_task_assistant_template_pipeline_config_matches_workflow_capabilities()
     assert template_config['interaction_radar']['click_reply']
     assert template_config['voice']['voice_type'] == TASK_ASSISTANT_TTS_VOICE_TYPE
     assert template_config['voice']['encoding'] == 'ogg_opus'
+    assert template_config['memes']['enabled'] is True
+    assert len(template_config['memes']['library']) >= 200
+    assert config['workflow']['memes']['library'][0]['trigger_keyword'].startswith('{')
+    assert config['workflow']['variables']['memes']['library'][0]['trigger_keyword'].startswith('{')
     assert len(template_config['image_text_bindings']) == 8
     first_binding = template_config['image_text_bindings'][0]
     assert first_binding['step_id'] == 'download_qr'

@@ -178,13 +178,49 @@ def test_template_config_editor_supports_meme_library_controls():
     assert 'uploadImageForMeme' in template_source
     assert 'trigger_keyword' in template_source
     assert 'meaning' in template_source
+    assert 'usage_scene' in types_source
+    assert 'usage_instruction' in types_source
+    assert '使用场景' in template_source
+    assert '使用说明' in template_source
+    assert 'usage_scene:' in workflow_templates_source
+    assert 'usage_instruction:' in workflow_templates_source
     assert 'large_enabled' in template_source
     assert 'feishu_native_enabled' in template_source
+    assert 'smart_judge_enabled' in template_source
+    assert '小表情最多几轮必须出现一次' in template_source
+    assert '大表情最多几轮必须出现一次' in template_source
+    assert '最少间隔轮数' not in template_source
+    assert '替换表情包' in template_source
+    assert '!builtin &&' not in re.search(
+        r'function renderMemeSettings\(\) \{([\s\S]+?)\n  function renderMediaSettings',
+        template_source,
+    ).group(1)
     assert 'library_enabled' in template_source
     assert 'api_fallback_enabled' in template_source
     assert 'courseMemeConfig' in workflow_templates_source
     assert 'memes: courseMemeConfig' in workflow_templates_source
     assert 'memes: templateConfig.memes' in workflow_templates_source
+
+
+def test_all_workflow_templates_share_meme_library_config():
+    source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    for function_name in (
+        'createSalesWorkflowTemplate',
+        'createSupportWorkflowTemplate',
+        'createBlankWorkflow',
+        'createTaskAssistantWorkflowTemplate',
+        'createCourseSalesWorkflowTemplate',
+        'applyTemplateConfigToWorkflow',
+    ):
+        match = re.search(
+            rf'export function {function_name}\([\s\S]+?\n\}}',
+            source,
+        )
+        assert match, function_name
+        body = match.group(0)
+        assert 'memes:' in body, function_name
+    assert source.count('memes: courseMemeConfig') >= 4
+    assert source.count('memes: templateConfig.memes') >= 4
 
 
 def test_meme_library_renders_builtin_stickers_without_internal_codes():

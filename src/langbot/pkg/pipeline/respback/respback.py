@@ -3,12 +3,15 @@ from __future__ import annotations
 import random
 import asyncio
 import base64
+from collections import deque
+import io
 import json
 import mimetypes
 import re
 from typing import Any
 
 import aiohttp
+from PIL import Image as PILImage
 
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
@@ -167,21 +170,17 @@ class SendResponseBackStage(stage.PipelineStage):
         '服务': 'service',
         '协助': 'handoff_ready',
     }
+    _FEISHU_NATIVE_EMOJI_VALUES = frozenset(
+        emoji for options in _FEISHU_NATIVE_EMOJIS_BY_KEY.values() for emoji in options
+    )
 
     _MEME_TRIGGER_RE = re.compile(r'\{([a-z][a-z0-9_-]{1,32})\}', re.IGNORECASE)
-    _DEFAULT_MEME_CODES = {
-        'happy',
-        'thanks',
-        'like',
-        'success',
-        'morning',
-        'night',
-        'ok',
-        'cheer',
-        'question',
-        'received',
-    }
+    _DEFAULT_MEME_CODES = set(_FEISHU_NATIVE_EMOJIS_BY_KEY)
     _BUILTIN_MEME_FILE_PREFIX = 'builtin:sales-meme:'
+
+    def __init__(self, ap):
+        super().__init__(ap)
+        self._meme_session_states: dict[str, dict[str, int]] = {}
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
         intent_data = query.variables.get('sales_intent') or query.variables.get('workflow_intent') or {}
@@ -490,8 +489,109 @@ class SendResponseBackStage(stage.PipelineStage):
             query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text=notice)])]
         return opened or bool(notice)
 
-    async def _image_component(self, file_key: str, image_url: str) -> platform_message.Image:
+    @staticmethod
+    def _tight_sticker_png(image_bytes: bytes) -> bytes:
+        try:
+            image = PILImage.open(io.BytesIO(image_bytes)).convert('RGBA')
+        except Exception:
+            return image_bytes
+
+        width, height = image.size
+        if width <= 0 or height <= 0:
+            return image_bytes
+
+        pixels = image.load()
+        visited = bytearray(width * height)
+        queue: deque[tuple[int, int]] = deque()
+
+        def index(x: int, y: int) -> int:
+            return y * width + x
+
+        def is_outer_background(x: int, y: int) -> bool:
+            r, g, b, alpha = pixels[x, y]
+            return alpha <= 10 or (r >= 245 and g >= 245 and b >= 245)
+
+        def push_if_background(x: int, y: int) -> None:
+            pos = index(x, y)
+            if visited[pos] or not is_outer_background(x, y):
+                return
+            visited[pos] = 1
+            queue.append((x, y))
+
+        for x in range(width):
+            push_if_background(x, 0)
+            push_if_background(x, height - 1)
+        for y in range(height):
+            push_if_background(0, y)
+            push_if_background(width - 1, y)
+
+        while queue:
+            x, y = queue.popleft()
+            r, g, b, _ = pixels[x, y]
+            pixels[x, y] = (r, g, b, 0)
+            if x > 0:
+                push_if_background(x - 1, y)
+            if x + 1 < width:
+                push_if_background(x + 1, y)
+            if y > 0:
+                push_if_background(x, y - 1)
+            if y + 1 < height:
+                push_if_background(x, y + 1)
+
+        bbox = image.getbbox()
+        if not bbox:
+            return image_bytes
+
+        cropped = image.crop(bbox)
+        padding = max(4, min(16, round(max(cropped.size) * 0.035)))
+        sticker = PILImage.new(
+            'RGBA',
+            (cropped.width + padding * 2, cropped.height + padding * 2),
+            (255, 255, 255, 0),
+        )
+        sticker.alpha_composite(cropped, (padding, padding))
+
+        max_side = 420
+        longest_side = max(sticker.size)
+        if longest_side > max_side:
+            scale = max_side / longest_side
+            sticker = sticker.resize(
+                (max(1, round(sticker.width * scale)), max(1, round(sticker.height * scale))),
+                PILImage.Resampling.LANCZOS,
+            )
+
+        output = io.BytesIO()
+        sticker.save(output, format='PNG', optimize=True)
+        return output.getvalue()
+
+    async def _download_image_bytes(self, image_url: str) -> bytes:
+        try:
+            timeout = aiohttp.ClientTimeout(total=8)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(image_url) as response:
+                    if response.status != 200:
+                        return b''
+                    content = await response.read()
+                    return content if len(content) <= 5 * 1024 * 1024 else b''
+        except Exception:
+            return b''
+
+    @staticmethod
+    def _is_image_bytes(image_bytes: bytes) -> bool:
+        try:
+            PILImage.open(io.BytesIO(image_bytes)).verify()
+            return True
+        except Exception:
+            return False
+
+    async def _image_component(self, file_key: str, image_url: str, *, sticker: bool = False) -> platform_message.Image:
         if image_url:
+            if sticker:
+                image_content = await self._download_image_bytes(image_url)
+                if image_content and self._is_image_bytes(image_content):
+                    image_content = self._tight_sticker_png(image_content)
+                    image_base64 = base64.b64encode(image_content).decode('utf-8')
+                    return platform_message.Image(base64=f'data:image/png;base64,{image_base64}')
             return platform_message.Image(url=image_url)
 
         storage_mgr = getattr(self.ap, 'storage_mgr', None)
@@ -499,7 +599,9 @@ class SendResponseBackStage(stage.PipelineStage):
         if storage_provider is not None:
             try:
                 file_content = await storage_provider.load(file_key)
-                mime_type = mimetypes.guess_type(file_key)[0] or 'image/png'
+                if sticker:
+                    file_content = self._tight_sticker_png(file_content)
+                mime_type = 'image/png' if sticker else mimetypes.guess_type(file_key)[0] or 'image/png'
                 image_base64 = base64.b64encode(file_content).decode('utf-8')
                 return platform_message.Image(base64=f'data:{mime_type};base64,{image_base64}')
             except Exception as exc:
@@ -946,6 +1048,13 @@ class SendResponseBackStage(stage.PipelineStage):
         value = self._meme_config(query).get(key)
         return value if isinstance(value, bool) else default
 
+    def _meme_config_int(self, query: pipeline_query.Query, key: str, default: int, minimum: int = 1, maximum: int = 99) -> int:
+        try:
+            value = int(self._meme_config(query).get(key) or default)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
+
     def _meme_master_enabled(self, query: pipeline_query.Query) -> bool:
         return self._meme_config_bool(query, 'enabled', True)
 
@@ -965,6 +1074,86 @@ class SendResponseBackStage(stage.PipelineStage):
     def _meme_api_fallback_enabled(self, query: pipeline_query.Query) -> bool:
         config = self._meme_config(query)
         return config.get('api_fallback_enabled') is not False and config.get('oiapi_enabled') is not False
+
+    def _meme_smart_judge_enabled(self, query: pipeline_query.Query) -> bool:
+        config = self._meme_config(query)
+        value = config.get('smart_judge_enabled')
+        if isinstance(value, bool):
+            return value
+        value = config.get('smart_enabled')
+        return value if isinstance(value, bool) else True
+
+    def _meme_interval_rounds(self, query: pipeline_query.Query, kind: str) -> int:
+        if kind == 'small':
+            return self._meme_config_int(query, 'small_interval_rounds', 3)
+        return self._meme_config_int(query, 'large_interval_rounds', 5)
+
+    def _meme_session_key(self, query: pipeline_query.Query) -> str:
+        session_id = str(query.variables.get('session_id') or '').strip()
+        launcher_type = getattr(getattr(query, 'launcher_type', ''), 'value', getattr(query, 'launcher_type', ''))
+        launcher_id = str(getattr(query, 'launcher_id', '') or '').strip()
+        session_key = session_id or f'{launcher_type}_{launcher_id}'
+        bot_uuid = str(getattr(query, 'bot_uuid', '') or '').strip()
+        pipeline_uuid = str(getattr(query, 'pipeline_uuid', '') or '').strip()
+        return f'{bot_uuid}:{pipeline_uuid}:{session_key}'
+
+    def _meme_session_state(self, query: pipeline_query.Query) -> dict[str, int]:
+        key = self._meme_session_key(query)
+        if len(self._meme_session_states) > 1000 and key not in self._meme_session_states:
+            self._meme_session_states.pop(next(iter(self._meme_session_states)), None)
+        return self._meme_session_states.setdefault(key, {'turn': 0})
+
+    def _prepare_meme_turn(self, query: pipeline_query.Query) -> None:
+        if query.variables.get('_meme_turn_prepared') is True:
+            return
+        state = self._meme_session_state(query)
+        state['turn'] = int(state.get('turn') or 0) + 1
+        query.variables['_meme_turn_prepared'] = True
+
+    def _meme_frequency_allows(self, query: pipeline_query.Query, kind: str) -> bool:
+        self._prepare_meme_turn(query)
+        state = self._meme_session_state(query)
+        turn = int(state.get('turn') or 0)
+        last_turn = state.get(f'last_{kind}_turn')
+        if last_turn is None:
+            return True
+        return turn - int(last_turn) >= self._meme_interval_rounds(query, kind)
+
+    def _meme_required_due(self, query: pipeline_query.Query, kind: str) -> bool:
+        self._prepare_meme_turn(query)
+        state = self._meme_session_state(query)
+        turn = int(state.get('turn') or 0)
+        last_turn = state.get(f'last_{kind}_turn')
+        required_within = self._meme_interval_rounds(query, kind)
+        if last_turn is None:
+            return turn >= required_within
+        return turn - int(last_turn) >= required_within
+
+    def _mark_meme_sent(self, query: pipeline_query.Query, kind: str) -> None:
+        self._prepare_meme_turn(query)
+        state = self._meme_session_state(query)
+        state[f'last_{kind}_turn'] = int(state.get('turn') or 0)
+
+    def _meme_suppressed_context(self, query: pipeline_query.Query) -> bool:
+        intent = str(self._current_intent_data(query).get('intent') or '').strip()
+        if intent in {'handoff', 'objection', 'explicit_rejection', 'stop'}:
+            return True
+        text = str(query.variables.get('user_message_text') or self._query_user_text(query) or '').strip()
+        return any(marker in text for marker in ('转人工', '投诉', '生气', '不需要', '别发', '退钱', '拉黑'))
+
+    def _meme_emotion_for_dispatch(self, query: pipeline_query.Query, kind: str, emotion: str) -> str:
+        if not self._meme_master_enabled(query):
+            return ''
+        emotion = str(emotion or '').strip()
+        if emotion:
+            return emotion if self._meme_frequency_allows(query, kind) else ''
+        if self._meme_smart_judge_enabled(query):
+            return '礼貌' if self._meme_required_due(query, kind) else ''
+        if self._meme_suppressed_context(query):
+            return ''
+        if not self._meme_frequency_allows(query, kind):
+            return ''
+        return '礼貌'
 
     def _meme_library_items(self, query: pipeline_query.Query) -> list[dict[str, Any]]:
         if not self._meme_library_enabled(query):
@@ -1032,6 +1221,21 @@ class SendResponseBackStage(stage.PipelineStage):
             query.variables['_auto_meme_trigger_code'] = selected_code
         return selected_code
 
+    def _peek_meme_trigger_code(self, query: pipeline_query.Query) -> str:
+        existing = str(query.variables.get('_auto_meme_trigger_code') or '').strip().lower()
+        if existing:
+            return existing
+        known_codes = self._known_meme_trigger_codes(query)
+        for chain in query.resp_message_chain or []:
+            for component in chain:
+                if not isinstance(component, platform_message.Plain):
+                    continue
+                for match in self._MEME_TRIGGER_RE.finditer(component.text):
+                    code = match.group(1).lower()
+                    if code in known_codes:
+                        return code
+        return ''
+
     def _meme_entry_matches_code(self, item: dict[str, Any], code: str) -> bool:
         return bool(code and code.lower() in self._meme_entry_codes(item))
 
@@ -1064,7 +1268,12 @@ class SendResponseBackStage(stage.PipelineStage):
             str(item.get('emotion') or ''),
             str(item.get('meaning') or ''),
             str(item.get('search_keyword') or ''),
+            str(item.get('usage_scene') or ''),
         ]
+        usage_instruction = str(item.get('usage_instruction') or item.get('usage_timing') or item.get('timing') or '')
+        if usage_instruction:
+            positive_instruction = re.split(r'(?:不要|避免|不适合|不用于|禁用|禁止)', usage_instruction, maxsplit=1)[0]
+            values.append(positive_instruction)
         for key in ('keywords', 'tags'):
             raw_values = item.get(key)
             if isinstance(raw_values, str):
@@ -1085,6 +1294,22 @@ class SendResponseBackStage(stage.PipelineStage):
             return random.choice(emotional)
         return None
 
+    def _default_local_meme_entry(self, query: pipeline_query.Query, emotion: str) -> dict[str, Any] | None:
+        if not self._meme_library_enabled(query):
+            return None
+        for key in self._feishu_emoji_lookup_keys(emotion):
+            code = self._FEISHU_NATIVE_KEY_ALIASES.get(key, key)
+            if code in self._FEISHU_NATIVE_EMOJIS_BY_KEY:
+                return {
+                    'id': f'default-{code}',
+                    'enabled': True,
+                    'code': code,
+                    'emotion': code,
+                    'search_keyword': emotion,
+                    'file_key': f'sales-memes/{code}/soft.png',
+                }
+        return None
+
     def _meme_emotion_from_entry(self, item: dict[str, Any], fallback: str) -> str:
         return str(item.get('search_keyword') or item.get('emotion') or item.get('code') or fallback).strip()
 
@@ -1092,12 +1317,12 @@ class SendResponseBackStage(stage.PipelineStage):
         image_url = str(item.get('image_url') or item.get('url') or '').strip()
         file_key = str(item.get('file_key') or '').strip()
         if image_url or (file_key and not file_key.startswith(self._BUILTIN_MEME_FILE_PREFIX)):
-            return await self._image_component(file_key, image_url)
+            return await self._image_component(file_key, image_url, sticker=True)
         return None
 
     def _infer_generic_meme_emotion(self, query: pipeline_query.Query) -> str:
         workflow = self._active_workflow(query)
-        if self._is_course_sales_workflow(workflow) or self._is_task_assistant_workflow(workflow):
+        if self._is_task_assistant_workflow(workflow):
             return ''
         text = str(query.variables.get('user_message_text') or self._query_user_text(query) or '').strip()
         if not text and query.resp_message_chain:
@@ -1110,6 +1335,8 @@ class SendResponseBackStage(stage.PipelineStage):
             return '赞同'
         if any(marker in text for marker in ('谢谢', '感谢')):
             return '感谢'
+        if any(marker in text for marker in ('你好', '您好', '哈喽', '在吗', '早上好', '晚上好')):
+            return '欢迎'
         if any(marker in text for marker in ('可以打开', '能打开', '打开了', '好的', '好哒', '开心')):
             return '开心'
         return ''
@@ -1127,13 +1354,15 @@ class SendResponseBackStage(stage.PipelineStage):
         if explicit:
             return explicit
         config = self._meme_config(query)
-        if config.get('enabled') is not True:
+        if config.get('enabled') is False:
             return self._infer_generic_meme_emotion(query)
         intent = str(self._current_intent_data(query).get('intent') or '').strip()
         if intent in {'handoff', 'objection', 'explicit_rejection', 'stop'}:
             return ''
         if intent in {'purchased', 'purchase', 'radar_clicked'}:
             return '赞同'
+        if intent in {'course_intro', 'course_question', 'product_intro', 'product_inquiry'}:
+            return '服务'
         if intent in {'resource_confirmed', 'smalltalk'}:
             return '开心'
         if intent in {'resource_help', 'screenshot_help', 'clarification', 'link_error'}:
@@ -1331,24 +1560,40 @@ class SendResponseBackStage(stage.PipelineStage):
                 return component
             emotion = self._meme_emotion_from_entry(entry, emotion)
 
-        url = await self._meme_image_url(query, emotion)
+        configured = self._configured_meme_url(query, emotion)
+        if configured:
+            return await self._image_component('', configured, sticker=True)
+
+        default_entry = self._default_local_meme_entry(query, emotion)
+        if default_entry:
+            component = await self._local_meme_component(default_entry)
+            if component is not None:
+                return component
+
+        if not self._meme_api_fallback_enabled(query):
+            return None
+        config = self._meme_config(query)
+        try:
+            limit = int(config.get('oiapi_limit') or 5)
+        except (TypeError, ValueError):
+            limit = 5
+        try:
+            url = await self._fetch_provider_chain_meme_url(emotion, limit)
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to fetch OIAPI meme for %s: %s', emotion, exc)
+            return None
         if not url:
             return None
-        return platform_message.Image(url=url)
+        return await self._image_component('', url, sticker=True)
 
     async def _append_auto_meme(self, query: pipeline_query.Query) -> None:
         if query.variables.get('_auto_meme_sent') is True:
             return
         if not self._large_meme_enabled(query):
             return
-        if query.variables.get(self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY) or query.variables.get(
-            self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY
-        ):
-            return
-        for chain in query.resp_message_chain or []:
-            if re.search(r'https?://', self._plain_text_from_chain(chain)):
-                return
-        emotion = self._meme_emotion_for_query(query)
+        emotion = self._meme_emotion_for_dispatch(query, 'large', self._meme_emotion_for_query(query))
         if not emotion:
             return
         image = await self._meme_image_component(query, emotion)
@@ -1360,6 +1605,7 @@ class SendResponseBackStage(stage.PipelineStage):
             query.variables[self._EXTRA_REPLY_CHAINS_KEY] = extra_chains
         extra_chains.append(platform_message.MessageChain([image]))
         query.variables['_auto_meme_sent'] = True
+        self._mark_meme_sent(query, 'large')
 
     def _feishu_emoji_lookup_keys(self, value: str) -> list[str]:
         text = str(value or '').strip()
@@ -1379,7 +1625,7 @@ class SendResponseBackStage(stage.PipelineStage):
     def _feishu_native_emoji_for_entry(self, item: dict[str, Any] | None, fallback: str = '') -> str:
         if item:
             explicit = str(item.get('feishu_emoji') or item.get('native_emoji') or '').strip()
-            if explicit.startswith('[') and explicit.endswith(']'):
+            if explicit in self._FEISHU_NATIVE_EMOJI_VALUES:
                 return explicit
             values: list[str] = [
                 str(item.get('code') or ''),
@@ -1442,9 +1688,20 @@ class SendResponseBackStage(stage.PipelineStage):
             return
         if not self._is_lark_query(query) or not query.resp_message_chain:
             return
-        if self._replace_meme_triggers_with_feishu_native_emoji(query):
+        trigger_code = self._peek_meme_trigger_code(query)
+        if trigger_code:
+            entry = self._local_meme_entry(query, code=trigger_code)
+            emotion = self._meme_emotion_from_entry(entry, trigger_code) if entry else trigger_code
+        else:
+            emotion = self._meme_emotion_for_query(query)
+        emotion = self._meme_emotion_for_dispatch(query, 'small', emotion)
+        if not emotion:
+            if trigger_code and not self._large_meme_enabled(query):
+                self._strip_meme_trigger_codes(query)
             return
-        emotion = self._meme_emotion_for_query(query)
+        if self._replace_meme_triggers_with_feishu_native_emoji(query):
+            self._mark_meme_sent(query, 'small')
+            return
         entry = self._local_meme_entry(query, code=str(query.variables.get('_auto_meme_trigger_code') or ''), emotion=emotion)
         emoji = self._feishu_native_emoji_for_entry(entry, emotion)
         if not emoji:
@@ -1456,6 +1713,7 @@ class SendResponseBackStage(stage.PipelineStage):
             if not text or text.startswith('[') or text.endswith(']'):
                 return
             component.text = f'{text} {emoji}'
+            self._mark_meme_sent(query, 'small')
             return
 
     def _course_sales_signup_link(self, query: pipeline_query.Query, intent_data: dict[str, Any]) -> str:
@@ -1612,6 +1870,7 @@ class SendResponseBackStage(stage.PipelineStage):
     async def _append_response_enrichments(self, query: pipeline_query.Query) -> None:
         if not query.resp_message_chain:
             return
+        self._prepare_meme_turn(query)
         if await self._apply_handoff_response(query):
             self._normalize_course_sales_text(query)
             return

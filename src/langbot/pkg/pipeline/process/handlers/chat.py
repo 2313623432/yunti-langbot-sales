@@ -22,6 +22,9 @@ import langbot_plugin.api.entities.builtin.provider.message as provider_message
 importutil.import_modules_in_pkg(runners)
 
 
+DEFAULT_FAILURE_HINT = 'AI回复失败，请检查模型配置、API地址或Key是否可用，然后再试一次'
+
+
 class ChatMessageHandler(handler.MessageHandler):
     async def handle(
         self,
@@ -157,7 +160,7 @@ class ChatMessageHandler(handler.MessageHandler):
                 if exception_handling == 'show-error':
                     user_notice = f'{e}'
                 elif exception_handling == 'show-hint':
-                    user_notice = query.pipeline_config['output']['misc'].get('failure-hint', 'Request failed.')
+                    user_notice = query.pipeline_config['output']['misc'].get('failure-hint', DEFAULT_FAILURE_HINT)
                 else:  # hide
                     user_notice = None
 

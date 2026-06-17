@@ -171,6 +171,8 @@ export interface PipelineTemplateMemeLibraryItem {
   code?: string;
   emotion?: string;
   search_keyword?: string;
+  usage_scene?: string;
+  usage_instruction?: string;
   feishu_emoji?: string;
   keywords?: string[];
   tags?: string[];
@@ -183,6 +185,9 @@ export interface PipelineTemplateMemeConfig {
   enabled: boolean;
   large_enabled: boolean;
   feishu_native_enabled: boolean;
+  smart_judge_enabled: boolean;
+  small_interval_rounds: number;
+  large_interval_rounds: number;
   library_enabled: boolean;
   api_fallback_enabled: boolean;
   oiapi_enabled?: boolean;
