@@ -24,6 +24,7 @@ class SendResponseBackStage(stage.PipelineStage):
     _EXTRA_REPLY_CHAINS_KEY = '_respback_extra_reply_chains'
     _COURSE_SALES_LINK_OPEN_QUESTION = '家长，您这边能打开吗？'
     _COURSE_SALES_SIGNUP_LINK_QUEUED_KEY = '_course_sales_signup_link_queued'
+    _COURSE_SALES_RESOURCE_LINK_QUEUED_KEY = '_course_sales_resource_link_queued'
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
         intent_data = query.variables.get('sales_intent') or query.variables.get('workflow_intent') or {}
@@ -476,6 +477,10 @@ class SendResponseBackStage(stage.PipelineStage):
         stripped = text.strip()
         if not stripped or len(stripped) <= threshold:
             if natural_sentences:
+                if '\n' in stripped.replace('\r\n', '\n'):
+                    lines = [line.strip() for line in stripped.replace('\r\n', '\n').split('\n') if line.strip()]
+                    if len(lines) > 1:
+                        return [self._strip_course_sales_final_periods(line) for line in lines]
                 chunks = self._split_natural_sentences(stripped)
                 if len(chunks) > 1:
                     return [self._strip_course_sales_final_periods(chunk) for chunk in chunks]
@@ -583,6 +588,12 @@ class SendResponseBackStage(stage.PipelineStage):
             )
         )
 
+    def _course_sales_user_reported_open_failure(self, query: pipeline_query.Query) -> bool:
+        text = str(query.variables.get('user_message_text') or '').strip().lower()
+        if not text:
+            text = self._plain_text_from_chain(query.message_chain) if isinstance(query.message_chain, platform_message.MessageChain) else ''
+        return any(marker in text for marker in ('打不开', '不能打开', '无法打开', '没打开', '没有打开', '点不开', '进不去'))
+
     def _course_sales_screenshot_question_needed(self, text: str) -> bool:
         if not text:
             return False
@@ -641,6 +652,8 @@ class SendResponseBackStage(stage.PipelineStage):
         intent_data = self._current_intent_data(query)
         if str(intent_data.get('intent') or '') in {'explicit_rejection', 'objection', 'stop', 'handoff'}:
             return
+        if str(intent_data.get('intent') or '') == 'resource_help' and self._course_sales_user_reported_open_failure(query):
+            return
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         if self._course_sales_user_confirmed_open(query):
             return
@@ -658,6 +671,65 @@ class SendResponseBackStage(stage.PipelineStage):
             last_plain.text = f'{self._strip_course_sales_final_periods(last_plain.text)}\n{question}'
             return
         query.resp_message_chain[-1].append(platform_message.Plain(text=question))
+
+    def _remove_course_sales_open_question_after_resource_failure(self, query: pipeline_query.Query) -> None:
+        intent_data = self._current_intent_data(query)
+        if str(intent_data.get('intent') or '') != 'resource_help':
+            return
+        if not self._course_sales_user_reported_open_failure(query):
+            return
+        for component in query.resp_message_chain[-1]:
+            if not isinstance(component, platform_message.Plain):
+                continue
+            lines = [
+                line
+                for line in component.text.replace('\r\n', '\n').split('\n')
+                if line.strip() != self._COURSE_SALES_LINK_OPEN_QUESTION
+            ]
+            component.text = '\n'.join(lines)
+
+    def _course_sales_resource_link(self, query: pipeline_query.Query) -> tuple[str, str]:
+        workflow = self._active_workflow(query)
+        if not isinstance(workflow, dict):
+            return '', ''
+        links = workflow.get('sales_links')
+        if not isinstance(links, list):
+            variables = workflow.get('variables') if isinstance(workflow.get('variables'), dict) else {}
+            links = variables.get('sales_links')
+        if not isinstance(links, list):
+            return '', ''
+        for item in links:
+            if not isinstance(item, dict) or item.get('id') != 'phonics_resource_card':
+                continue
+            title = str(item.get('title') or '图书配套学习资源卡片').strip()
+            url = str(item.get('url') or '').strip()
+            if url:
+                return title, url
+        return '', ''
+
+    def _promises_course_sales_resource_link(self, text: str) -> bool:
+        if not text:
+            return False
+        if not any(marker in text for marker in ('资源链接', '资源卡片', '学习资源', '图书资源')):
+            return False
+        return any(marker in text for marker in ('再发', '重发', '重新发', '发一下', '补发', '发给您', '发给你'))
+
+    def _append_course_sales_resource_link(self, query: pipeline_query.Query) -> None:
+        if query.variables.get(self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY):
+            return
+        intent_data = self._current_intent_data(query)
+        if str(intent_data.get('intent') or '') != 'resource_help':
+            return
+        if not self._course_sales_user_reported_open_failure(query):
+            return
+        current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
+        if not self._promises_course_sales_resource_link(current_text):
+            return
+        title, url = self._course_sales_resource_link(query)
+        if not url or url in current_text:
+            return
+        self._queue_extra_reply_chain(query, f'{title}\n{url}')
+        query.variables[self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY] = True
 
     def _prepend_course_sales_first_reply_emoji(self, query: pipeline_query.Query) -> None:
         workflow = self._active_workflow(query)
@@ -839,6 +911,8 @@ class SendResponseBackStage(stage.PipelineStage):
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_workflow_images(query, link_bound_only=False)
         await self._append_task_assistant_voice(query, reply_text)
+        self._remove_course_sales_open_question_after_resource_failure(query)
+        self._append_course_sales_resource_link(query)
         self._append_course_sales_signup_link(query)
         await self._append_workflow_images(query, link_bound_only=True)
         self._normalize_course_sales_text(query)

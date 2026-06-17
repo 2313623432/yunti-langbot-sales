@@ -1987,6 +1987,28 @@ async def test_course_sales_resource_question_takes_priority_over_purchase_keywo
 
 
 @pytest.mark.asyncio
+async def test_course_sales_resource_open_failure_context_requests_resend_link_and_screenshot():
+    sales_service = _CourseOutreachSalesService(user_message_count=2)
+    service = TaskAssistantService(
+        SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None))
+    )
+    query = _query(text_chain('不能打开'), '不能打开', session_id='customer-resource-fail')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
+    query.prompt = SimpleNamespace(messages=[])
+
+    await service.prepare_query(query)
+
+    assert query.variables['workflow_intent']['intent'] == 'resource_help'
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '再发一遍图书配套学习资源卡片链接' in context_text
+    assert '方便发我一张截图吗' in context_text
+    assert '不要再问“能打开吗”' in context_text
+    assert '本轮要给报名动作和报名链接卡片' not in context_text
+
+
+@pytest.mark.asyncio
 async def test_course_sales_explicit_rejection_does_not_push_purchase_link_this_turn():
     sales_service = _CourseOutreachSalesService(user_message_count=2)
     service = TaskAssistantService(

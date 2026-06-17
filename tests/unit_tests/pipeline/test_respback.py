@@ -134,6 +134,52 @@ async def test_respback_splits_course_sales_short_natural_sentences_by_default()
 
 
 @pytest.mark.asyncio
+async def test_respback_resends_resource_link_for_course_sales_resource_open_failure():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('不能打开')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=True, threshold=200)
+    query.pipeline_config['workflow']['sales_links'] = [
+        {
+            'id': 'phonics_resource_card',
+            'title': '图书配套学习资源卡片',
+            'url': 'https://example.com/resource-card',
+            'radar_enabled': False,
+        }
+    ]
+    query.variables['user_message_text'] = '不能打开'
+    query.variables['workflow_intent'] = {
+        'intent': 'resource_help',
+        'confidence': 0.88,
+        'resource_issue_type': 'missing_resource',
+    }
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(
+                    text='你说的图书资源打不开吗？我帮您再发一下适配的资源链接哈\n'
+                    '家长，您这边能打开吗？\n'
+                    '方便发我一张截图吗？'
+                )
+            ]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == [
+        '你说的图书资源打不开吗？我帮您再发一下适配的资源链接哈',
+        '方便发我一张截图吗？',
+        '图书配套学习资源卡片\nhttps://example.com/resource-card',
+    ]
+    assert all('家长，您这边能打开吗？' not in text for text in sent_texts)
+
+
+@pytest.mark.asyncio
 async def test_respback_sends_parent_open_question_as_separate_course_sales_reply():
     app = FakeApp()
     stage = get_respback_stage_class()(app)

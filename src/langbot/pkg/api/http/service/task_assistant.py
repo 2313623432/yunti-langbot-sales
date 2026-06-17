@@ -1813,9 +1813,15 @@ class TaskAssistantService:
 
     def _classify_course_resource_issue_type(self, normalized: str) -> str:
         text = normalized or ''
+        open_failure = any(keyword in text for keyword in ['打不开', '不能打开', '无法打开', '没打开', '没有打开', '点不开'])
+        signup_context = any(keyword in text for keyword in ['报名', '购买', '支付', '付款', '课程链接', '报名链接'])
+        if open_failure and not signup_context:
+            return 'missing_resource'
         has_resource_context = any(keyword in text for keyword in ['资源', '听力', '音频', '答案', '扫码', '二维码'])
         if not has_resource_context:
             return ''
+        if open_failure:
+            return 'missing_resource'
         if any(keyword in text for keyword in ['缺失', '暂无资源', '没有资源', '没资源']):
             return 'missing_resource'
         if any(keyword in text for keyword in ['正在上传中', '正在上传', '上传中', '更新中', '还在更新']):
@@ -2389,7 +2395,10 @@ class TaskAssistantService:
         elif intent_name == 'resource_help':
             control_text = (
                 '\n\n[课程销售上下文]\n'
-                '先解决图书资源问题，不急着推课。只在资源问题解决后，用一句话自然承接自然拼读体验课。'
+                '先解决图书资源问题，不急着推课。'
+                '如果用户说资源打不开、不能打开、点不开或进不去，本轮先说明再发一遍图书配套学习资源卡片链接，'
+                '再用单独短句问“方便发我一张截图吗？”，不要再问“能打开吗”。'
+                '只在资源问题解决后，用一句话自然承接自然拼读体验课。'
             )
         elif intent_name == 'resource_confirmed':
             control_text = (
