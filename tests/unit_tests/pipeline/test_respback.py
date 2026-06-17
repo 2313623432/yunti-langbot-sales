@@ -817,6 +817,59 @@ async def test_respback_forces_large_meme_within_configured_rounds_when_smart_ha
     assert sent_counts == [1, 2]
 
 
+@pytest.mark.asyncio
+async def test_respback_prefers_template_meme_interval_over_stale_workflow_config(monkeypatch):
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+
+    async def fail_fetch(emotion: str, limit: int) -> str:
+        raise AssertionError('Default local meme should be used before API fallback')
+
+    monkeypatch.setattr(stage, '_fetch_provider_chain_meme_url', fail_fetch)
+    sent_summaries: list[tuple[str, int]] = []
+
+    for _ in range(2):
+        query = text_query('plain follow up', sender_id='same-user')
+        query.adapter.__class__.__name__ = 'LarkAdapter'
+        query.pipeline_config = {
+            **_pipeline_config(multi_reply_enabled=False),
+            'template_config': {
+                'memes': {
+                    'enabled': True,
+                    'large_enabled': True,
+                    'feishu_native_enabled': True,
+                    'library_enabled': True,
+                    'smart_judge_enabled': True,
+                    'small_interval_rounds': 1,
+                    'large_interval_rounds': 1,
+                    'library': [],
+                },
+            },
+            'workflow': {
+                'memes': {
+                    'enabled': True,
+                    'large_enabled': True,
+                    'feishu_native_enabled': True,
+                    'library_enabled': True,
+                    'smart_judge_enabled': True,
+                    'small_interval_rounds': 3,
+                    'large_interval_rounds': 5,
+                    'library': [],
+                },
+            },
+        }
+        query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='ok follow up')])]
+
+        await stage.process(query, 'SendResponseBackStage')
+        sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+        sent_summaries.append((str(sent_messages[0]), len(sent_messages)))
+
+    assert sent_summaries[0][0].startswith('ok follow up [')
+    assert sent_summaries[0][1] == 2
+    assert sent_summaries[1][0].startswith('ok follow up [')
+    assert sent_summaries[1][1] == 2
+
+
 def test_respback_matches_meme_usage_scene_and_instruction():
     stage = get_respback_stage_class()(FakeApp())
     item = {

@@ -1035,6 +1035,11 @@ class SendResponseBackStage(stage.PipelineStage):
                 logger.warning('Failed to add platform reaction: %s', exc)
 
     def _meme_config(self, query: pipeline_query.Query) -> dict[str, Any]:
+        pipeline_config = query.pipeline_config if isinstance(query.pipeline_config, dict) else {}
+        template_config = pipeline_config.get('template_config')
+        if isinstance(template_config, dict) and isinstance(template_config.get('memes'), dict):
+            return template_config['memes']
+
         workflow = self._active_workflow(query)
         if not isinstance(workflow, dict):
             return {}
