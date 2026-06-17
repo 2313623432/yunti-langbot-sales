@@ -1707,6 +1707,14 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     ):
         # 不再需要了，因为message_id已经被包含到message_chain中
         # lark_event = await self.event_converter.yiri2target(message_source)
+        if not quote_origin:
+            if isinstance(message_source, platform_events.FriendMessage):
+                await self.send_message('person', message_source.sender.id, message)
+                return
+            if isinstance(message_source, platform_events.GroupMessage):
+                await self.send_message('group', message_source.sender.group.id, message)
+                return
+
         text_elements, media_items = await self.message_converter.yiri2target(message, self.api_client)
 
         # Send text message if there are text elements
