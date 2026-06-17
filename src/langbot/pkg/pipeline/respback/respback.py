@@ -756,7 +756,14 @@ class SendResponseBackStage(stage.PipelineStage):
         if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
             return
         intent_data = self._current_intent_data(query)
-        if str(intent_data.get('intent') or '') in {'explicit_rejection', 'objection', 'stop', 'handoff'}:
+        if str(intent_data.get('intent') or '') in {
+            'explicit_rejection',
+            'objection',
+            'stop',
+            'handoff',
+            'smalltalk',
+            'clarification',
+        }:
             return
         if str(intent_data.get('intent') or '') == 'resource_help' and self._course_sales_user_reported_open_failure(query):
             return

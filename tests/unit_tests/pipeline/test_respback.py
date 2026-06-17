@@ -328,6 +328,28 @@ async def test_respback_sends_parent_open_question_as_separate_course_sales_repl
 
 
 @pytest.mark.asyncio
+async def test_respback_does_not_add_open_question_for_course_sales_clarification():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('你好')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {'intent': 'smalltalk', 'confidence': 0.66}
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='家长是想看图书资源，还是了解课程信息呀')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == ['家长是想看图书资源，还是了解课程信息呀']
+
+
+@pytest.mark.asyncio
 async def test_respback_does_not_repeat_open_question_after_user_confirmed_resource_opens():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
