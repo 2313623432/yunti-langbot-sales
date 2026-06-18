@@ -1267,6 +1267,8 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
       single_date: '',
       message: '',
       push_message: '',
+      loop_enabled: false,
+      items: [],
     },
     interaction_radar: {
       enabled: false,
@@ -1369,6 +1371,14 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       single_date: '',
       message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
       push_message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+      loop_enabled: false,
+      items: [
+        {
+          day: 1,
+          time: '10:00',
+          message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+        },
+      ],
     },
     interaction_radar: {
       enabled: false,

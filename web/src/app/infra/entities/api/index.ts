@@ -645,7 +645,9 @@ export interface SalesOutreachPlan {
   target_type: 'person' | 'group';
   target_id: string;
   segment: string;
+  dedupe_key?: string;
   message_template: string;
+  message_components?: Array<Record<string, unknown>>;
   scheduled_at?: string;
   interval_minutes: number;
   enabled: boolean;
@@ -657,10 +659,13 @@ export interface SalesOverview {
   customers_count: number;
   open_handoffs_count: number;
   outreach_plans_count: number;
+  scheduled_push_plans_count?: number;
+  followup_plans_count?: number;
   products: SalesProduct[];
   recent_memories: SalesCustomerMemory[];
   open_handoffs: SalesHandoff[];
   outreach_plans: SalesOutreachPlan[];
+  followup_plans?: SalesOutreachPlan[];
 }
 
 export interface SalesPitchResp {

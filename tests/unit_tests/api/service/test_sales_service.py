@@ -442,6 +442,66 @@ async def test_reset_sales_session_context_clears_chat_state_for_current_session
 
 
 @pytest.mark.asyncio
+async def test_outreach_module_filters_and_clears_scheduled_push_only(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 18, 10, 0, 0)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(
+            [
+                {
+                    'name': 'Day1 scheduled push',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:broadcast',
+                    'dedupe_key': 'scheduled-1',
+                    'message_template': 'day one',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+                {
+                    'name': 'Purchase followup',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:followup:purchase',
+                    'dedupe_key': 'followup-1',
+                    'message_template': 'follow up',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+                {
+                    'name': 'Opening resource card',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:opening:resource-card',
+                    'dedupe_key': 'opening-1',
+                    'message_template': 'opening',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+            ]
+        )
+    )
+
+    scheduled_push = await service.get_outreach_plans(kind='scheduled_push')
+    followups = await service.get_followup_plans()
+    deleted = await service.clear_scheduled_push_plans()
+    remaining = await service.get_outreach_plans()
+
+    assert [plan['segment'] for plan in scheduled_push] == ['course-sales:broadcast']
+    assert [plan['segment'] for plan in followups] == ['course-sales:followup:purchase']
+    assert deleted == 1
+    assert {plan['segment'] for plan in remaining} == {
+        'course-sales:followup:purchase',
+        'course-sales:opening:resource-card',
+    }
+
+
+@pytest.mark.asyncio
 async def test_get_memories_builds_customer_memory_from_monitoring_session_without_plugin(
     sales_service_with_db,
 ):

@@ -46,6 +46,7 @@ import {
   PipelineTemplateFollowupMessage,
   PipelineTemplateImageTextBinding,
   PipelineTemplateMemeLibraryItem,
+  PipelineTemplateScheduledPushItem,
   PipelineTemplateSpecialCase,
 } from './types';
 import { groupProductsByLine } from '@/app/home/products/utils/productLineUtils';
@@ -76,6 +77,7 @@ type TemplateConfigTab =
   | 'specialCases'
   | 'memes'
   | 'push'
+  | 'followup'
   | 'handoff'
   | 'media';
 
@@ -94,6 +96,7 @@ const CONFIG_TABS: Array<{
   { id: 'specialCases', label: '特殊情况处理', icon: ShieldCheck },
   { id: 'memes', label: '表情包', icon: SmilePlus },
   { id: 'push', label: '定时推送', icon: CalendarClock },
+  { id: 'followup', label: '跟进', icon: MessageSquareText },
   { id: 'handoff', label: '转人工', icon: UserRoundCheck },
   { id: 'media', label: '图文素材', icon: ImageIcon },
 ];
@@ -269,6 +272,15 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
     scheduled_push: {
       ...defaults.scheduled_push,
       ...(value?.scheduled_push || {}),
+      items:
+        value?.scheduled_push?.items?.length
+          ? value.scheduled_push.items
+          : (value?.long_term_broadcasts || []).map((broadcast) => ({
+              day: broadcast.day,
+              time: broadcast.time,
+              message: broadcast.message,
+              image_key: broadcast.image_key || '',
+            })),
     },
     interaction_radar: {
       ...defaults.interaction_radar,
@@ -635,6 +647,53 @@ export default function PipelineTemplateConfigEditor({
       scheduledPush.push_message = next.message;
     }
     patch({ scheduled_push: scheduledPush });
+  }
+
+  function patchScheduledPushItems(items: PipelineTemplateScheduledPushItem[]) {
+    patch({
+      scheduled_push: {
+        ...config.scheduled_push,
+        items,
+      },
+      long_term_broadcasts: items.map((item, index) => ({
+        day: Math.max(1, Number(item.day || index + 1)),
+        title: `第${Math.max(1, Number(item.day || index + 1))}天定时推送`,
+        time: item.time || '10:00',
+        message: item.message || '',
+        image_key: item.image_key || '',
+      })),
+    });
+  }
+
+  function addScheduledPushItem() {
+    const nextDay = (config.scheduled_push.items?.length || 0) + 1;
+    patchScheduledPushItems([
+      ...(config.scheduled_push.items || []),
+      {
+        day: nextDay,
+        time: config.scheduled_push.time || '10:00',
+        message: '',
+        image_key: '',
+        image_url: '',
+        link_title: '',
+        link_url: '',
+        link_description: '',
+      },
+    ]);
+  }
+
+  function patchScheduledPushItem(index: number, next: Partial<PipelineTemplateScheduledPushItem>) {
+    patchScheduledPushItems(
+      (config.scheduled_push.items || []).map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...next } : item,
+      ),
+    );
+  }
+
+  function removeScheduledPushItem(index: number) {
+    patchScheduledPushItems(
+      (config.scheduled_push.items || []).filter((_, itemIndex) => itemIndex !== index),
+    );
   }
 
   function patchHumanHandoff(next: Partial<PipelineTemplateConfig['human_handoff']>) {
@@ -1029,6 +1088,27 @@ export default function PipelineTemplateConfigEditor({
     } catch (error) {
       console.error('Meme image upload failed:', error);
       toast.error('表情包上传失败');
+    } finally {
+      setUploadingBindingId('');
+      event.target.value = '';
+    }
+  }
+
+  async function uploadImageForScheduledPush(
+    index: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const uploadId = `scheduled-push-${index}`;
+    try {
+      setUploadingBindingId(uploadId);
+      const result = await httpClient.uploadImage(file);
+      patchScheduledPushItem(index, { image_key: result.file_key, image_url: '' });
+      toast.success('定时推送图片已上传');
+    } catch (error) {
+      console.error('Scheduled push image upload failed:', error);
+      toast.error('定时推送图片上传失败');
     } finally {
       setUploadingBindingId('');
       event.target.value = '';
@@ -1945,6 +2025,159 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderPushSettings() {
+    const scheduledItems = config.scheduled_push.items || [];
+
+    return (
+      <div className="space-y-4">
+        <Section
+          icon={CalendarClock}
+          title="定时推送"
+          description="只管理按第几天、指定时间自动发送的推送内容；跟进已拆到单独模块。"
+          right={
+            <SummaryPill active={config.scheduled_push.enabled}>
+              {config.scheduled_push.enabled ? '已启用' : '未启用'}
+            </SummaryPill>
+          }
+        >
+          <ToggleRow
+            label="启用定时推送"
+            description="开启后，数字员工会按下面的第 X 天和时间创建真实发送计划。"
+            checked={config.scheduled_push.enabled}
+            onCheckedChange={(checked) => patchScheduledPush({ enabled: checked })}
+          />
+          <ToggleRow
+            label="开始循环"
+            description="开启后，最后一天结束后会按当前天数周期继续循环。"
+            checked={Boolean(config.scheduled_push.loop_enabled)}
+            onCheckedChange={(checked) => patchScheduledPush({ loop_enabled: checked })}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 w-full justify-center rounded-md"
+            onClick={addScheduledPushItem}
+          >
+            <Plus className="mr-1.5 size-4" />
+            新增第 X 天推送
+          </Button>
+          <div className="grid gap-3">
+            {scheduledItems.map((item, index) => {
+              const uploadId = `scheduled-push-upload-${index}`;
+              const uploading = uploadingBindingId === `scheduled-push-${index}`;
+              return (
+                <div key={`${item.day}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="grid gap-3 md:grid-cols-[100px_140px_minmax(0,1fr)_auto]">
+                    <label className="block">
+                      <FieldLabel>第几天</FieldLabel>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={item.day || index + 1}
+                        onChange={(event) =>
+                          patchScheduledPushItem(index, { day: Number(event.target.value || 1) })
+                        }
+                        className="h-10 bg-white"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>推送时间</FieldLabel>
+                      <Input
+                        type="time"
+                        value={item.time || '10:00'}
+                        onChange={(event) => patchScheduledPushItem(index, { time: event.target.value })}
+                        className="h-10 bg-white"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>标题</FieldLabel>
+                      <Input
+                        value={`第${item.day || index + 1}天推送`}
+                        readOnly
+                        className="h-10 bg-white text-slate-500"
+                      />
+                    </label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="删除这条定时推送"
+                      onClick={() => removeScheduledPushItem(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                  <label className="block">
+                    <FieldLabel>推送内容</FieldLabel>
+                    <Textarea
+                      value={item.message || ''}
+                      onChange={(event) => patchScheduledPushItem(index, { message: event.target.value })}
+                      className="min-h-24 resize-none bg-white leading-6"
+                      placeholder="例如：家长，今天可以继续看一下课程资料，有打不开的页面直接发我。"
+                    />
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
+                      <FieldLabel>图片</FieldLabel>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          value={item.image_key || item.image_url || ''}
+                          onChange={(event) =>
+                            patchScheduledPushItem(index, { image_key: event.target.value, image_url: '' })
+                          }
+                          className="h-10 min-w-[220px] flex-1 bg-white"
+                          placeholder="可填写素材 file_key，也可以上传图片"
+                        />
+                        <input
+                          id={uploadId}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => uploadImageForScheduledPush(index, event)}
+                        />
+                        <Button type="button" variant="outline" className="h-10 rounded-md" asChild>
+                          <label htmlFor={uploadId} className="cursor-pointer">
+                            <Upload className="mr-1.5 inline size-4" />
+                            {uploading ? '上传中' : '上传图片'}
+                          </label>
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
+                      <FieldLabel>链接</FieldLabel>
+                      <Input
+                        value={item.link_title || ''}
+                        onChange={(event) => patchScheduledPushItem(index, { link_title: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="链接标题，例如：报名通道"
+                      />
+                      <Input
+                        value={item.link_url || ''}
+                        onChange={(event) => patchScheduledPushItem(index, { link_url: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="https://..."
+                      />
+                      <Input
+                        value={item.link_description || ''}
+                        onChange={(event) => patchScheduledPushItem(index, { link_description: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="链接说明，可不填"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {!scheduledItems.length && (
+              <div className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                暂无定时推送。添加后可设置第一天推送什么、第二天推送什么，并支持图片和链接。
+              </div>
+            )}
+          </div>
+        </Section>
+      </div>
+    );
+
     const salesLinks = config.sales_links || [];
     const defaultSalesLinkId =
       salesLinks.find((link) => link.radar_enabled !== false)?.id || salesLinks[0]?.id || '';
@@ -2377,6 +2610,216 @@ export default function PipelineTemplateConfigEditor({
               </label>
             </div>
           )}
+        </Section>
+      </div>
+    );
+  }
+
+  function renderFollowupSettings() {
+    const salesLinks = config.sales_links || [];
+    const defaultSalesLinkId =
+      salesLinks.find((link) => link.radar_enabled !== false)?.id || salesLinks[0]?.id || '';
+
+    return (
+      <div className="space-y-4">
+        <Section
+          icon={MessageSquareText}
+          title="跟进"
+          description="单独管理客户点击雷达、表达购买意向、沉默等场景后的跟进话术。"
+          right={
+            <Badge variant="outline" className="rounded-md">
+              {(config.followup_sequences || []).length} 个场景
+            </Badge>
+          }
+        >
+          <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addFollowupSequence}>
+            <Plus className="mr-1.5 size-4" />
+            新增跟进场景
+          </Button>
+          <div className="grid gap-3">
+            {(config.followup_sequences || []).map((sequence, index) => (
+              <div key={`${sequence.stage}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="block">
+                    <FieldLabel>跟进场景</FieldLabel>
+                    <Input
+                      value={sequence.label}
+                      onChange={(event) => patchFollowupSequence(index, { label: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="例如：客户点击报名后未支付"
+                    />
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="删除跟进场景"
+                    onClick={() => removeFollowupSequence(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  {(sequence.messages || []).map((message, messageIndex) => {
+                    const linkEnabled = Boolean(message.link_id || message.send_link_card);
+                    return (
+                      <div key={`${sequence.stage}-${messageIndex}`} className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_auto]">
+                          <label className="block">
+                            <FieldLabel>发送节奏</FieldLabel>
+                            <Select
+                              value={followupTimingValue(message)}
+                              onValueChange={(value) =>
+                                patchFollowupMessage(index, messageIndex, timingPatch(value))
+                              }
+                            >
+                              <SelectTrigger className="h-10 bg-white">
+                                <SelectValue placeholder="选择什么时候发送" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FOLLOWUP_TIMING_OPTIONS.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </label>
+                          {followupTimingValue(message) === 'custom' ? (
+                            <label className="block">
+                              <FieldLabel>几分钟后发送</FieldLabel>
+                              <Input
+                                type="number"
+                                min={0}
+                                value={message.delay_minutes}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    delay_minutes: Number(event.target.value || 0),
+                                    schedule_time: undefined,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                              />
+                            </label>
+                          ) : followupTimingValue(message) === 'evening' ? (
+                            <label className="block">
+                              <FieldLabel>固定发送时间</FieldLabel>
+                              <Input
+                                type="time"
+                                value={message.schedule_time || '21:30'}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    schedule_time: event.target.value,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                              />
+                            </label>
+                          ) : (
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                              系统会按所选节奏自动安排发送
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="删除这条话术"
+                            onClick={() => removeFollowupMessage(index, messageIndex)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                        <label className="block">
+                          <FieldLabel>跟进内容</FieldLabel>
+                          <Textarea
+                            value={message.message}
+                            onChange={(event) =>
+                              patchFollowupMessage(index, messageIndex, { message: event.target.value })
+                            }
+                            className="min-h-24 resize-none bg-white leading-6"
+                            placeholder="输入这一步要发送给客户的话术"
+                          />
+                        </label>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-slate-900">带链接卡片</p>
+                                <p className="text-xs leading-5 text-muted-foreground">
+                                  需要时自动附上报名页或资料页。
+                                </p>
+                              </div>
+                              <Switch
+                                checked={linkEnabled}
+                                onCheckedChange={(checked) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    link_id: checked ? message.link_id || defaultSalesLinkId || undefined : undefined,
+                                    send_link_card: checked && Boolean(message.link_id || defaultSalesLinkId),
+                                  })
+                                }
+                              />
+                            </div>
+                            {linkEnabled && salesLinks.length > 0 && (
+                              <Select
+                                value={message.link_id || defaultSalesLinkId}
+                                onValueChange={(value) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    link_id: value,
+                                    send_link_card: true,
+                                  })
+                                }
+                              >
+                                <SelectTrigger className="h-10 bg-white">
+                                  <SelectValue placeholder="选择要发送的链接" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {salesLinks.map((link) => (
+                                    <SelectItem key={link.id} value={link.id}>
+                                      {link.title || link.id}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                          <label className="block rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                            <FieldLabel>图片素材</FieldLabel>
+                            <Input
+                              value={message.image_key || ''}
+                              onChange={(event) =>
+                                patchFollowupMessage(index, messageIndex, {
+                                  image_key: event.target.value,
+                                })
+                              }
+                              className="h-10 bg-white"
+                              placeholder="如需附图，填写素材 file_key"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 w-full justify-center rounded-md bg-white"
+                  onClick={() => addFollowupMessage(index)}
+                >
+                  <Plus className="mr-1.5 size-4" />
+                  新增一条跟进步骤
+                </Button>
+              </div>
+            ))}
+            {!(config.followup_sequences || []).length && (
+              <div className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                暂无跟进场景。跟进会独立于定时推送，不会混进定时推送模块。
+              </div>
+            )}
+          </div>
         </Section>
       </div>
     );
@@ -3010,6 +3453,8 @@ export default function PipelineTemplateConfigEditor({
         return renderMemeSettings();
       case 'push':
         return renderPushSettings();
+      case 'followup':
+        return renderFollowupSettings();
       case 'handoff':
         return renderHandoffSettings();
       case 'media':

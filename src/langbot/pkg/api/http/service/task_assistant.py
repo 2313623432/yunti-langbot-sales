@@ -3385,7 +3385,7 @@ class TaskAssistantService:
         )
 
     async def _schedule_course_sales_broadcasts_for_target(self, target: dict[str, str], workflow: dict[str, Any]) -> None:
-        broadcasts = workflow.get('long_term_broadcasts') if isinstance(workflow.get('long_term_broadcasts'), list) else []
+        broadcasts, loop_days = self._course_scheduled_push_items(workflow)
         now = datetime.datetime.now()
         for index, broadcast in enumerate(broadcasts):
             if not isinstance(broadcast, dict):
@@ -3393,7 +3393,7 @@ class TaskAssistantService:
             message = str(broadcast.get('message') or '').strip()
             if not message:
                 continue
-            if self._contains_sop_image_reference(broadcast):
+            if not broadcast.get('_allow_image_push') and self._contains_sop_image_reference(broadcast):
                 continue
             day_offset = max(0, int(broadcast.get('day') or (index + 1)) - 1)
             scheduled_at = self._next_course_wall_clock(str(broadcast.get('time') or '10:05'), now) + datetime.timedelta(
@@ -3405,8 +3405,75 @@ class TaskAssistantService:
                 segment='course-sales:broadcast',
                 dedupe_parts=['broadcast', broadcast.get('day') or index + 1, broadcast.get('time') or '', index, target.get('session_id', '')],
                 scheduled_at=scheduled_at,
-                components=[{'type': 'plain', 'text': message}],
+                components=self._course_scheduled_push_components(broadcast),
+                interval_minutes=loop_days * 24 * 60 if loop_days > 0 else 0,
             )
+
+    def _course_scheduled_push_items(self, workflow: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+        scheduled_push = workflow.get('scheduled_push') if isinstance(workflow.get('scheduled_push'), dict) else {}
+        configured_items = scheduled_push.get('items') if isinstance(scheduled_push.get('items'), list) else []
+        if scheduled_push.get('enabled') is False:
+            return [], 0
+        if configured_items:
+            items = [{**item, '_allow_image_push': True} for item in configured_items if isinstance(item, dict)]
+            return items, self._course_scheduled_push_loop_days(scheduled_push, items)
+
+        legacy_broadcasts = workflow.get('long_term_broadcasts') if isinstance(workflow.get('long_term_broadcasts'), list) else []
+        if legacy_broadcasts:
+            return legacy_broadcasts, 0
+
+        message = str(scheduled_push.get('message') or scheduled_push.get('push_message') or '').strip()
+        if not message:
+            return [], 0
+        item = {
+            'day': 1,
+            'time': str(scheduled_push.get('time') or '10:00'),
+            'message': message,
+            'image_key': scheduled_push.get('image_key') or '',
+            'image_url': scheduled_push.get('image_url') or '',
+            'link_title': scheduled_push.get('link_title') or '',
+            'link_url': scheduled_push.get('link_url') or '',
+            'link_description': scheduled_push.get('link_description') or '',
+            '_allow_image_push': True,
+        }
+        return [item], self._course_scheduled_push_loop_days(scheduled_push, [item])
+
+    def _course_scheduled_push_loop_days(self, scheduled_push: dict[str, Any], items: list[dict[str, Any]]) -> int:
+        if not scheduled_push.get('loop_enabled'):
+            return 0
+        days = []
+        for index, item in enumerate(items):
+            try:
+                days.append(max(1, int(item.get('day') or index + 1)))
+            except (TypeError, ValueError):
+                days.append(index + 1)
+        return max(days) if days else 0
+
+    def _course_scheduled_push_components(self, item: dict[str, Any]) -> list[dict[str, Any]]:
+        components: list[dict[str, Any]] = []
+        message = str(item.get('message') or '').strip()
+        if message:
+            components.append({'type': 'plain', 'text': message})
+        image_key = str(item.get('image_key') or '').strip()
+        image_url = str(item.get('image_url') or '').strip()
+        if image_key or image_url:
+            image_component = {'type': 'image'}
+            if image_key:
+                image_component['file_key'] = image_key
+            if image_url:
+                image_component['image_url'] = image_url
+            components.append(image_component)
+        link_url = str(item.get('link_url') or item.get('url') or '').strip()
+        if link_url:
+            components.append(
+                {
+                    'type': 'link',
+                    'title': str(item.get('link_title') or item.get('title') or '查看链接'),
+                    'description': str(item.get('link_description') or item.get('description') or ''),
+                    'url': link_url,
+                }
+            )
+        return components
 
     async def _schedule_course_sales_followup_sequence(
         self,
@@ -3447,6 +3514,7 @@ class TaskAssistantService:
         dedupe_parts: list[Any],
         scheduled_at: datetime.datetime,
         components: list[dict[str, Any]],
+        interval_minutes: int = 0,
     ) -> None:
         sales_service = getattr(self.ap, 'sales_service', None)
         if sales_service is None:
@@ -3462,7 +3530,7 @@ class TaskAssistantService:
                 'dedupe_key': self._course_sales_dedupe_key(target, dedupe_parts),
                 'message_components': components,
                 'scheduled_at': scheduled_at,
-                'interval_minutes': 0,
+                'interval_minutes': max(0, int(interval_minutes or 0)),
                 'enabled': True,
             }
         )

@@ -116,6 +116,10 @@ HANDOFF_REASON_KEYWORDS = {
 }
 
 
+SCHEDULED_PUSH_OUTREACH_SEGMENTS = {'course-sales:broadcast'}
+FOLLOWUP_OUTREACH_SEGMENT_PREFIXES = ('course-sales:followup', 'course-sales:radar')
+
+
 class SalesService:
     ap: app.Application
 
@@ -1121,13 +1125,26 @@ class SalesService:
         updated = self._first_row(updated_result)
         return self._serialize(persistence_sales.SalesResourceIssue, updated)
 
-    async def get_outreach_plans(self) -> list[dict[str, Any]]:
+    async def get_outreach_plans(self, kind: str = 'all') -> list[dict[str, Any]]:
+        statement = sqlalchemy.select(persistence_sales.SalesOutreachPlan)
+        condition = self._outreach_kind_condition(kind)
+        if condition is not None:
+            statement = statement.where(condition)
         result = await self.ap.persistence_mgr.execute_async(
-            sqlalchemy.select(persistence_sales.SalesOutreachPlan).order_by(
-                persistence_sales.SalesOutreachPlan.created_at.desc()
-            )
+            statement.order_by(persistence_sales.SalesOutreachPlan.created_at.desc())
         )
         return [self._serialize(persistence_sales.SalesOutreachPlan, row) for row in result.all()]
+
+    async def get_followup_plans(self) -> list[dict[str, Any]]:
+        return await self.get_outreach_plans(kind='followup')
+
+    async def clear_scheduled_push_plans(self) -> int:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.delete(persistence_sales.SalesOutreachPlan).where(
+                self._outreach_kind_condition('scheduled_push')
+            )
+        )
+        return int(getattr(result, 'rowcount', 0) or 0)
 
     async def count_outreach_plans_for_target_segments(
         self,
@@ -1204,13 +1221,21 @@ class SalesService:
             .values(**updates)
         )
 
-    async def run_due_outreach_once(self) -> int:
+    async def run_due_outreach_once(self, kind: str = 'all') -> int:
         now = datetime.datetime.now()
-        result = await self.ap.persistence_mgr.execute_async(
+        statement = (
             sqlalchemy.select(persistence_sales.SalesOutreachPlan)
             .where(persistence_sales.SalesOutreachPlan.enabled.is_(True))
             .where(persistence_sales.SalesOutreachPlan.scheduled_at <= now)
-            .order_by(persistence_sales.SalesOutreachPlan.scheduled_at.asc(), persistence_sales.SalesOutreachPlan.id.asc())
+        )
+        condition = self._outreach_kind_condition(kind)
+        if condition is not None:
+            statement = statement.where(condition)
+        result = await self.ap.persistence_mgr.execute_async(
+            statement.order_by(
+                persistence_sales.SalesOutreachPlan.scheduled_at.asc(),
+                persistence_sales.SalesOutreachPlan.id.asc(),
+            )
         )
         sent = 0
         products = {p['uuid']: p for p in await self.get_products(enabled_only=True)}
@@ -1237,6 +1262,12 @@ class SalesService:
             await self._mark_outreach_plan_sent(plan, now)
             sent += 1
         return sent
+
+    async def run_due_scheduled_push_once(self) -> int:
+        return await self.run_due_outreach_once(kind='scheduled_push')
+
+    async def run_due_followup_once(self) -> int:
+        return await self.run_due_outreach_once(kind='followup')
 
     async def run_due_outreach_for_target(
         self,
@@ -1470,16 +1501,20 @@ class SalesService:
         products = await self.get_products()
         memories = await self.get_memories()
         handoffs = await self.get_handoffs(status='open')
-        outreach = await self.get_outreach_plans()
+        outreach = await self.get_outreach_plans(kind='scheduled_push')
+        followups = await self.get_followup_plans()
         return {
             'products_count': len(products),
             'customers_count': len(memories),
             'open_handoffs_count': len(handoffs),
             'outreach_plans_count': len(outreach),
+            'scheduled_push_plans_count': len(outreach),
+            'followup_plans_count': len(followups),
             'products': products[:5],
             'recent_memories': memories[:5],
             'open_handoffs': handoffs[:5],
             'outreach_plans': outreach[:5],
+            'followup_plans': followups[:5],
         }
 
     def _serialize(self, model, row: Any) -> dict[str, Any]:
@@ -1666,6 +1701,21 @@ class SalesService:
             'interval_minutes': int(data.get('interval_minutes') or 0),
             'enabled': bool(data.get('enabled', True)),
         }
+
+    def _outreach_kind_condition(self, kind: str | None):
+        normalized = str(kind or 'all').strip().lower()
+        if normalized in {'', 'all'}:
+            return None
+        if normalized in {'scheduled', 'scheduled_push', 'broadcast', 'push'}:
+            return persistence_sales.SalesOutreachPlan.segment.in_(SCHEDULED_PUSH_OUTREACH_SEGMENTS)
+        if normalized in {'followup', 'followups'}:
+            return sqlalchemy.or_(
+                *[
+                    persistence_sales.SalesOutreachPlan.segment.like(f'{prefix}%')
+                    for prefix in FOLLOWUP_OUTREACH_SEGMENT_PREFIXES
+                ]
+            )
+        return None
 
     def _normalize_message_components(self, value: Any) -> list[dict[str, Any]]:
         if not isinstance(value, list):

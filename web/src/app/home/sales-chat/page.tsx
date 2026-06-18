@@ -1630,19 +1630,25 @@ function WorkbenchView({
   products,
   handoffs,
   outreachPlans,
+  followupPlans,
   sessions,
   loading,
   onRefresh,
   onRunOutreach,
+  onRunFollowups,
+  onClearScheduledPush,
 }: {
   overview: SalesOverview | null;
   products: SalesProduct[];
   handoffs: SalesHandoff[];
   outreachPlans: SalesOutreachPlan[];
+  followupPlans: SalesOutreachPlan[];
   sessions: MonitoringSession[];
   loading: boolean;
   onRefresh: () => void;
   onRunOutreach: () => void;
+  onRunFollowups: () => void;
+  onClearScheduledPush: () => void;
 }) {
   const metrics = [
     {
@@ -1658,10 +1664,19 @@ function WorkbenchView({
       desc: '真实转人工队列',
     },
     {
-      label: '触达计划',
-      value: overview?.outreach_plans_count ?? outreachPlans.length,
+      label: '定时推送',
+      value:
+        overview?.scheduled_push_plans_count ??
+        overview?.outreach_plans_count ??
+        outreachPlans.length,
       icon: CalendarClock,
-      desc: '定时产品触达任务',
+      desc: '按第几天和指定时间循环推送',
+    },
+    {
+      label: '跟进计划',
+      value: overview?.followup_plans_count ?? followupPlans.length,
+      icon: History,
+      desc: '雷达点击和客户状态触发的跟进',
     },
     {
       label: '监控会话',
@@ -1700,7 +1715,7 @@ function WorkbenchView({
           </button>
         </div>
       </div>
-      <section className="grid w-[1180px] grid-cols-4 gap-5">
+      <section className="grid w-[1180px] grid-cols-5 gap-5">
         {metrics.map((metric) => (
           <div
             key={metric.label}
@@ -1720,7 +1735,7 @@ function WorkbenchView({
         ))}
       </section>
 
-      <section className="mt-6 grid w-[1180px] grid-cols-2 gap-5">
+      <section className="mt-6 grid w-[1180px] grid-cols-3 gap-5">
         <div className="rounded-2xl border border-[#d8deea] bg-white p-6">
           <div className="mb-4 flex items-center gap-2 text-xl font-semibold">
             <Handshake className="size-6 text-[#5f58ff]" />
@@ -1748,15 +1763,24 @@ function WorkbenchView({
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xl font-semibold">
               <CalendarClock className="size-6 text-[#5f58ff]" />
-              定时触达
+              定时推送
             </div>
-            <button
-              type="button"
-              onClick={onRunOutreach}
-              className="rounded-lg border border-[#5f58ff] px-3 py-1.5 text-[#5f58ff]"
-            >
-              执行到期任务
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onClearScheduledPush}
+                className="rounded-lg border border-red-200 px-3 py-1.5 text-red-600"
+              >
+                清空
+              </button>
+              <button
+                type="button"
+                onClick={onRunOutreach}
+                className="rounded-lg border border-[#5f58ff] px-3 py-1.5 text-[#5f58ff]"
+              >
+                执行到期
+              </button>
+            </div>
           </div>
           <div className="max-h-80 divide-y divide-[#edf0f5] overflow-auto">
             {outreachPlans.map((plan) => (
@@ -1777,11 +1801,61 @@ function WorkbenchView({
                 <div className="mt-1 text-sm text-[#687086]">
                   下次推送：{formatDate(plan.scheduled_at)}
                 </div>
+                <div className="mt-1 text-xs text-[#8b93a5]">
+                  {plan.interval_minutes > 0
+                    ? `循环周期：${Math.round(plan.interval_minutes / 1440)} 天`
+                    : '单次推送'}
+                </div>
               </div>
             ))}
             {!outreachPlans.length && (
               <div className="py-10 text-center text-sm text-[#8b93a5]">
-                暂无触达计划
+                暂无定时推送计划
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-[#d8deea] bg-white p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xl font-semibold">
+              <History className="size-6 text-[#5f58ff]" />
+              跟进
+            </div>
+            <button
+              type="button"
+              onClick={onRunFollowups}
+              className="rounded-lg border border-[#5f58ff] px-3 py-1.5 text-[#5f58ff]"
+            >
+              执行到期
+            </button>
+          </div>
+          <div className="max-h-80 divide-y divide-[#edf0f5] overflow-auto">
+            {followupPlans.map((plan) => (
+              <div key={plan.id || `${plan.segment}-${plan.target_id}`} className="py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-medium text-[#34415c]">{plan.name}</div>
+                  <span
+                    className={cn(
+                      'rounded-full px-2 py-0.5 text-xs',
+                      plan.enabled
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-slate-100 text-slate-500',
+                    )}
+                  >
+                    {plan.enabled ? '启用' : '停用'}
+                  </span>
+                </div>
+                <div className="mt-1 text-sm text-[#687086]">
+                  下次跟进：{formatDate(plan.scheduled_at)}
+                </div>
+                <div className="mt-1 text-xs text-[#8b93a5]">
+                  {plan.segment || 'followup'}
+                </div>
+              </div>
+            ))}
+            {!followupPlans.length && (
+              <div className="py-10 text-center text-sm text-[#8b93a5]">
+                暂无跟进计划
               </div>
             )}
           </div>
@@ -1800,6 +1874,7 @@ export default function SalesChatPage() {
   const [memories, setMemories] = useState<SalesCustomerMemory[]>([]);
   const [handoffs, setHandoffs] = useState<SalesHandoff[]>([]);
   const [outreachPlans, setOutreachPlans] = useState<SalesOutreachPlan[]>([]);
+  const [followupPlans, setFollowupPlans] = useState<SalesOutreachPlan[]>([]);
   const [sessions, setSessions] = useState<MonitoringSession[]>([]);
   const [salesConversations, setSalesConversations] = useState<
     SalesConversation[]
@@ -1874,6 +1949,7 @@ export default function SalesChatPage() {
           memoryResp,
           handoffResp,
           outreachResp,
+          followupResp,
           conversationResp,
           allConversationResp,
           monitoringResp,
@@ -1882,7 +1958,8 @@ export default function SalesChatPage() {
           httpClient.getSalesProducts(),
           httpClient.getSalesMemories(),
           httpClient.getSalesHandoffs('open'),
-          httpClient.getSalesOutreachPlans(),
+          httpClient.getSalesOutreachPlans('scheduled_push'),
+          httpClient.getSalesFollowupPlans(),
           httpClient.getSalesConversations({
             status: activeConversationTab,
             limit: 100,
@@ -1904,6 +1981,7 @@ export default function SalesChatPage() {
         setMemories(memoryResp.memories || []);
         setHandoffs(handoffResp.handoffs || []);
         setOutreachPlans(outreachResp.plans || []);
+        setFollowupPlans(followupResp.plans || []);
         setSalesConversations(conversationResp.conversations || []);
         setConversationStatusCounts(
           countConversationStatuses(allConversationResp.conversations || []),
@@ -2093,9 +2171,29 @@ export default function SalesChatPage() {
 
   const runOutreach = async () => {
     try {
-      const result = await httpClient.runDueSalesOutreach();
+      const result = await httpClient.runDueSalesOutreach('scheduled_push');
       await loadDashboard(false);
-      toast.success(`已执行 ${result.sent} 条到期触达`);
+      toast.success(`已执行 ${result.sent} 条到期定时推送`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  };
+
+  const runFollowups = async () => {
+    try {
+      const result = await httpClient.runDueSalesFollowups();
+      await loadDashboard(false);
+      toast.success(`已执行 ${result.sent} 条到期跟进`);
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  };
+
+  const clearScheduledPush = async () => {
+    try {
+      const result = await httpClient.clearSalesScheduledPushPlans();
+      await loadDashboard(false);
+      toast.success(`已清空 ${result.deleted} 条定时推送数据`);
     } catch (error) {
       toast.error(errorMessage(error));
     }
@@ -2123,10 +2221,13 @@ export default function SalesChatPage() {
           products={products}
           handoffs={handoffs}
           outreachPlans={outreachPlans}
+          followupPlans={followupPlans}
           sessions={sessions}
           loading={loading}
           onRefresh={() => void loadDashboard()}
           onRunOutreach={() => void runOutreach()}
+          onRunFollowups={() => void runFollowups()}
+          onClearScheduledPush={() => void clearScheduledPush()}
         />
       </Shell>
     );

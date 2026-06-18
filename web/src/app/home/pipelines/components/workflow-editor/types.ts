@@ -117,6 +117,17 @@ export interface PipelineTemplateBroadcast {
   image_key?: string;
 }
 
+export interface PipelineTemplateScheduledPushItem {
+  day: number;
+  time: string;
+  message: string;
+  image_key?: string;
+  image_url?: string;
+  link_title?: string;
+  link_url?: string;
+  link_description?: string;
+}
+
 export interface PipelineTemplateStopRules {
   stop_keywords: string[];
   stop_tags: string[];
@@ -251,6 +262,13 @@ export interface PipelineTemplateConfig {
     single_date: string;
     message: string;
     push_message?: string;
+    loop_enabled?: boolean;
+    items?: PipelineTemplateScheduledPushItem[];
+    image_key?: string;
+    image_url?: string;
+    link_title?: string;
+    link_url?: string;
+    link_description?: string;
   };
   interaction_radar: {
     enabled: boolean;

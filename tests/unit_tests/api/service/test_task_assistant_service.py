@@ -2908,6 +2908,61 @@ async def test_handle_course_sales_contact_added_schedules_opening_and_broadcast
 
 
 @pytest.mark.asyncio
+async def test_course_sales_scheduled_push_items_support_media_link_and_loop():
+    sales_service = _CourseOutreachSalesService(user_message_count=0)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    target = {
+        'bot_uuid': 'bot-uuid',
+        'target_type': 'person',
+        'target_id': 'ou_customer',
+        'session_id': 'person_ou_customer',
+        'pipeline_uuid': 'pipe-uuid',
+    }
+    workflow = {
+        'scheduled_push': {
+            'enabled': True,
+            'loop_enabled': True,
+            'items': [
+                {
+                    'day': 1,
+                    'time': '08:15',
+                    'message': '第一天推送资料',
+                    'image_key': 'course-sales/day1.png',
+                    'link_title': '领取资料',
+                    'link_url': 'https://example.com/day1',
+                },
+                {
+                    'day': 2,
+                    'time': '20:30',
+                    'message': '第二天提醒试听',
+                },
+            ],
+        },
+        'long_term_broadcasts': [
+            {'day': 1, 'time': '10:05', 'message': '旧群发不应混入新定时推送模块'},
+        ],
+    }
+
+    await service._schedule_course_sales_broadcasts_for_target(target, workflow)
+
+    broadcast_plans = [plan for plan in sales_service.plans if plan['segment'] == 'course-sales:broadcast']
+    assert len(broadcast_plans) == 2
+    first_plan = broadcast_plans[0]
+    assert first_plan['interval_minutes'] == 2 * 24 * 60
+    assert first_plan['message_components'] == [
+        {'type': 'plain', 'text': '第一天推送资料'},
+        {'type': 'image', 'file_key': 'course-sales/day1.png'},
+        {
+            'type': 'link',
+            'title': '领取资料',
+            'description': '',
+            'url': 'https://example.com/day1',
+        },
+    ]
+    assert broadcast_plans[1]['interval_minutes'] == 2 * 24 * 60
+
+
+@pytest.mark.asyncio
 async def test_handle_course_sales_contact_added_makes_opening_text_and_card_due_immediately():
     sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
     service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
