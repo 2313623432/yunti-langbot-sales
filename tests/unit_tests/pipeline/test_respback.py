@@ -869,6 +869,41 @@ async def test_respback_sends_course_sales_signup_link_as_separate_plain_reply()
 
 
 @pytest.mark.asyncio
+async def test_respback_sends_signup_link_for_course_sales_conflict_reply():
+    tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/conflict-token'
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(build_radar_tracking_url=lambda **_: tracking_link)
+    stage = get_respback_stage_class()(app)
+    raw_link = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641'
+    query = text_query('和其他课有冲突么')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'pipeline-uuid'
+    query.launcher_id = 'ou_customer'
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'course_conflict',
+        'confidence': 0.9,
+        'link_url': raw_link,
+    }
+    query.variables['course_sales_radar_link'] = raw_link
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='不冲突的，这个课更侧重教孩子拼读技巧和方法，支持回放')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == [
+        '不冲突的，这个课更侧重教孩子拼读技巧和方法，支持回放',
+        '猿辅导英语自然拼读9元体验课点这里👉',
+        tracking_link,
+    ]
+
+
+@pytest.mark.asyncio
 async def test_respback_does_not_append_signup_link_after_explicit_rejection():
     tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
     app = FakeApp()

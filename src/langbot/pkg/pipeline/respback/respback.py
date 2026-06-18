@@ -972,7 +972,7 @@ class SendResponseBackStage(stage.PipelineStage):
             return
 
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
-        if intent not in {'purchase', 'radar_clicked'} and not self._promises_course_sales_signup_link(current_text):
+        if intent not in {'purchase', 'radar_clicked', 'course_conflict'} and not self._promises_course_sales_signup_link(current_text):
             return
 
         if self._contains_course_sales_link(current_text):

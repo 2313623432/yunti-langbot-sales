@@ -2133,6 +2133,28 @@ async def test_course_sales_faq_short_answer_for_single_question():
 
 
 @pytest.mark.asyncio
+async def test_course_sales_conflict_context_pushes_gift_and_signup_link():
+    service = TaskAssistantService(SimpleNamespace())
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query = _query(text_chain('和其他课有冲突么'), '和其他课有冲突么', session_id='course-conflict')
+    query.pipeline_config = config
+    query.variables['_knowledge_base_uuids'] = [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'course_conflict'
+    assert intent.get('faq_short_answer')
+    assert '小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀' in intent['faq_short_answer']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '自然拼读报名链接卡片SOP' in context_text
+    assert '赠送实物名额就这一周有' in context_text
+    assert '报名链接卡片' in context_text
+
+
+@pytest.mark.asyncio
 async def test_prepare_query_does_not_inject_duplicate_system_prompt():
     service = TaskAssistantService(SimpleNamespace())
     config = service.build_course_sales_template_pipeline_config()
