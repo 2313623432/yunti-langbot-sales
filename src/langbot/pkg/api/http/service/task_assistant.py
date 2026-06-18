@@ -289,7 +289,7 @@ COURSE_FAQS = [{'intent': 'course_schedule',
   'keywords': ['什么时候', '几点', '上课时间', '课表', '回放']},
  {'intent': 'course_intro',
   'question': '这个是什么课/这是什么/你发是什么',
-  'answer': '这是猿辅导英语自然拼读集训营，9元5天10节，适合大班到小学4年级。主要带孩子学拼读规律、绘本阅读和开口表达，目标是见词能拼、听音能写，少靠死记硬背。',
+  'answer': '这是猿辅导英语自然拼读集训营，9元5天10节，专为大班到小学4年级设计。课程包含5次绘本阅读实践、180次开口练习、360分钟配套视频，重点教孩子拼读规律，鼓励孩子多表达，提升口语能力。报名链接我发您。',
   'keywords': ['什么课', '是什么', '自然拼读', '拼读', '发音', '9元课']},
  {'intent': 'reading_thinking_intro',
   'question': '阅读+思维是什么课',
@@ -941,7 +941,7 @@ COURSE_IMAGE_BINDINGS = [
         'title': '完课好礼海报',
         'text': '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
-        'trigger_intents': ['gift', 'objection', 'course_intro', 'purchase'],
+        'trigger_intents': ['gift', 'objection', 'purchase'],
         'requires_course_sales_signup_link': True,
         'enabled': True,
     },
@@ -1865,10 +1865,12 @@ class TaskAssistantService:
         selected_profile = self._select_course_sales_profile(workflow, normalized)
         step_ids = payload.get('step_ids') if isinstance(payload.get('step_ids'), list) else []
         step_ids = [str(step_id) for step_id in step_ids if str(step_id) in {'gift_poster', 'gift_qr'}]
+        if intent_name == 'course_intro':
+            step_ids = []
         if not step_ids:
             step_id = self._course_step_for_intent(intent_name)
             step_ids = [step_id] if step_id else []
-        include_link = payload.get('include_link') is True or intent_name in {'purchase', 'radar_clicked'}
+        include_link = payload.get('include_link') is True or intent_name in {'purchase', 'radar_clicked', 'course_intro'}
         intent = self._course_intent(
             intent_name,
             confidence,
@@ -2163,11 +2165,11 @@ class TaskAssistantService:
         return ''
 
     def _course_step_for_intent(self, intent: str) -> str:
-        if intent in {'purchase', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
+        if intent in {'purchase', 'course_intro', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
             return ''
         if intent in {'purchased', 'screenshot_help'}:
             return 'gift_qr'
-        if intent in {'gift', 'objection', 'course_intro', 'course_content', 'grade'}:
+        if intent in {'gift', 'objection', 'course_content', 'grade'}:
             return 'gift_poster'
         if intent in {'resource_help'}:
             return 'gift_qr'
@@ -3699,11 +3701,12 @@ class TaskAssistantService:
             or metadata.get('scenario') == COURSE_SALES_SCENARIO
         )
 
-    def _sync_course_conflict_faq_answer(self, config: dict[str, Any]) -> bool:
-        conflict_answer = self._faq_answer_for_intent('course_conflict', {'course_faqs': COURSE_FAQS})
-        if not conflict_answer:
-            return False
-
+    def _sync_course_sales_runtime_content(self, config: dict[str, Any]) -> bool:
+        seeded_answers = {
+            intent: self._faq_answer_for_intent(intent, {'course_faqs': COURSE_FAQS})
+            for intent in ('course_intro', 'course_conflict')
+        }
+        seeded_answers = {intent: answer for intent, answer in seeded_answers.items() if answer}
         changed = False
 
         def patch_faqs(container: dict[str, Any]) -> None:
@@ -3712,24 +3715,53 @@ class TaskAssistantService:
             if not isinstance(faqs, list):
                 return
             for faq in faqs:
-                if not isinstance(faq, dict) or faq.get('intent') != 'course_conflict':
+                if not isinstance(faq, dict):
                     continue
-                if faq.get('answer') == conflict_answer:
+                seeded_answer = seeded_answers.get(str(faq.get('intent') or ''))
+                if not seeded_answer:
                     continue
-                faq['answer'] = conflict_answer
+                if faq.get('answer') == seeded_answer:
+                    continue
+                faq['answer'] = seeded_answer
                 changed = True
 
+        def remove_course_intro_image_trigger(container: dict[str, Any]) -> None:
+            nonlocal changed
+            bindings = container.get('image_text_bindings')
+            if isinstance(bindings, list):
+                for binding in bindings:
+                    if not isinstance(binding, dict):
+                        continue
+                    intents = binding.get('trigger_intents')
+                    if isinstance(intents, list) and 'course_intro' in intents:
+                        binding['trigger_intents'] = [intent for intent in intents if intent != 'course_intro']
+                        changed = True
+            nodes = container.get('nodes')
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if not isinstance(node, dict) or node.get('type') != 'image':
+                        continue
+                    node_config = node.get('config') if isinstance(node.get('config'), dict) else {}
+                    intents = node_config.get('trigger_intents')
+                    if isinstance(intents, list) and 'course_intro' in intents:
+                        node_config['trigger_intents'] = [intent for intent in intents if intent != 'course_intro']
+                        changed = True
+
         patch_faqs(config)
+        remove_course_intro_image_trigger(config)
         template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
         patch_faqs(template_config)
+        remove_course_intro_image_trigger(template_config)
         workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
         patch_faqs(workflow)
+        remove_course_intro_image_trigger(workflow)
         workflow_template = (
             workflow.get('template_config')
             if isinstance(workflow.get('template_config'), dict)
             else {}
         )
         patch_faqs(workflow_template)
+        remove_course_intro_image_trigger(workflow_template)
         return changed
 
     def _apply_course_sales_runtime_defaults(self, config: dict[str, Any]) -> bool:
@@ -3752,7 +3784,7 @@ class TaskAssistantService:
         workflow['reference_rounds'] = max(0, min(reference_rounds, 20))
         config['workflow'] = workflow
 
-        self._sync_course_conflict_faq_answer(config)
+        self._sync_course_sales_runtime_content(config)
 
         return config != before
 

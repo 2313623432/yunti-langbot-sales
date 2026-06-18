@@ -413,6 +413,8 @@ class SendResponseBackStage(stage.PipelineStage):
             image_url = str(node_config.get('image_url') or '').strip()
             if not file_key and not image_url:
                 continue
+            if intent == 'course_intro' and file_key.endswith('gift_poster.jpeg'):
+                continue
 
             asset_key = (file_key, image_url)
             if asset_key in seen_assets:
@@ -972,7 +974,7 @@ class SendResponseBackStage(stage.PipelineStage):
             return
 
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
-        if intent not in {'purchase', 'radar_clicked', 'course_conflict'} and not self._promises_course_sales_signup_link(current_text):
+        if intent not in {'purchase', 'radar_clicked', 'course_conflict', 'course_intro'} and not self._promises_course_sales_signup_link(current_text):
             return
 
         if self._contains_course_sales_link(current_text):

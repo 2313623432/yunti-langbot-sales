@@ -904,6 +904,54 @@ async def test_respback_sends_signup_link_for_course_sales_conflict_reply():
 
 
 @pytest.mark.asyncio
+async def test_respback_sends_signup_link_without_gift_image_for_course_intro():
+    tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/intro-token'
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(build_radar_tracking_url=lambda **_: tracking_link)
+    stage = get_respback_stage_class()(app)
+    raw_link = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641'
+    query = text_query('这个是什么课')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'pipeline-uuid'
+    query.launcher_id = 'ou_customer'
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.pipeline_config['workflow']['nodes'] = [
+        {
+            'id': 'image_gift_poster',
+            'type': 'image',
+            'config': {
+                'file_key': 'course-sales/phonics/gift_poster.jpeg',
+                'trigger_intents': ['course_intro'],
+                'requires_course_sales_signup_link': True,
+            },
+        }
+    ]
+    query.variables['workflow_intent'] = {
+        'intent': 'course_intro',
+        'confidence': 0.9,
+        'link_url': raw_link,
+    }
+    query.variables['course_sales_radar_link'] = raw_link
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='这是英语自然拼读集训营，报名链接我发您')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [
+        kwargs['message']
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    sent_texts = [str(message) for message in sent_messages]
+    assert sent_texts[:3] == [
+        '这是英语自然拼读集训营，报名链接我发您',
+        '猿辅导英语自然拼读9元体验课点这里👉',
+        tracking_link,
+    ]
+    assert all(not any(isinstance(component, platform_message.Image) for component in message) for message in sent_messages)
+
+
+@pytest.mark.asyncio
 async def test_respback_does_not_append_signup_link_after_explicit_rejection():
     tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
     app = FakeApp()
