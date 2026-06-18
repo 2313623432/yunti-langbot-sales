@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-06-18T11:35:44",
+  "knowledge_base_uuid": "yuanfudao-sales-knowledge-base",
+  "documents": [
+    "01_yuanfudao_faq_ready.md",
+    "02_yuanfudao_talk_scripts_ready.md",
+    "03_yuanfudao_group_sop_ready.md"
+  ],
+  "faq_records": 311,
+  "sop_records": 98,
+  "known_gaps": [
+    "产品事实/完整课程货盘未纳入本版。",
+    "实时价格、赠品、包邮、名额、退款、排期需要以最新活动页、班主任通知、系统后台为准。",
+    "图片/视频素材未进入文本知识库。"
+  ],
+  "local_backup": {
+    "db_backup": "release\\yuanfudao-clean-knowledge-base\\_local_backups\\20260618-113421\\langbot.db",
+    "chroma_backup": "release\\yuanfudao-clean-knowledge-base\\_local_backups\\20260618-113421\\chroma"
+  },
+  "database_files": 3,
+  "chroma": {
+    "collection": "yuanfudao-sales-knowledge-base",
+    "files": 3,
+    "chunks": 961,
+    "vectors": 961,
+    "embedding_dim": 1024
+  },
+  "zip_path": "release\\yuanfudao-clean-knowledge-base.zip"
+}

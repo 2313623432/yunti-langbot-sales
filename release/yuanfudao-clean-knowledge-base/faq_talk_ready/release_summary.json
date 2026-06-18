@@ -1,0 +1,24 @@
+{
+  "output": "outputs\\yuanfudao-selected-faq-talk-cleaning\\knowledge_base_ready",
+  "faq_entries": 136,
+  "talk_script_entries": 175,
+  "total_entries": 311,
+  "products": [
+    "剑桥英语",
+    "学科",
+    "数学/思维",
+    "自然拼读",
+    "英语",
+    "通用"
+  ],
+  "files": [
+    "README_入库说明.md",
+    "yuanfudao_kb_combined.md",
+    "yuanfudao_faq_ready.md",
+    "yuanfudao_talk_scripts_ready.md",
+    "yuanfudao_kb_entries.jsonl",
+    "yuanfudao_kb_entries.csv",
+    "yuanfudao_kb_import.txt",
+    "by_product/"
+  ]
+}

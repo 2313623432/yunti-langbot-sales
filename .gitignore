@@ -65,3 +65,4 @@ deploy/vercel-proxy/.vercel/
 # Local tooling and generated outputs
 .codex/
 outputs/
+release/**/_local_backups/
