@@ -36,8 +36,30 @@ TASK_ASSISTANT_SCENARIO = 'task_assistant_ant_af'
 TASK_ASSISTANT_PIPELINE_UUID = 'task-assistant-ant-af-pipeline'
 TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID = 'task-assistant-ant-af-template-pipeline'
 DEFAULT_ASSISTANT_MODEL_UUID = ''
+COURSE_SALES_DOUBAO_PROVIDER_UUID = 'lnp-doubao'
+COURSE_SALES_DOUBAO_PROVIDER_NAME = '豆包'
+COURSE_SALES_DOUBAO_PROVIDER_REQUESTER = 'volcark-chat-completions'
+COURSE_SALES_DOUBAO_PROVIDER_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
 COURSE_SALES_REPLY_MODEL_UUID = 'doubao-seed-2-0-pro-260215'
 COURSE_SALES_INTENT_MODEL_UUID = 'doubao-seed-2-0-mini-260215'
+COURSE_SALES_DOUBAO_TEXT_MODELS = (
+    {
+        'uuid': COURSE_SALES_REPLY_MODEL_UUID,
+        'name': COURSE_SALES_REPLY_MODEL_UUID,
+        'provider_uuid': COURSE_SALES_DOUBAO_PROVIDER_UUID,
+        'abilities': ['vision', 'func_call'],
+        'extra_args': {'display_name': 'Doubao Seed 2.0 Pro'},
+        'prefered_ranking': 0,
+    },
+    {
+        'uuid': COURSE_SALES_INTENT_MODEL_UUID,
+        'name': COURSE_SALES_INTENT_MODEL_UUID,
+        'provider_uuid': COURSE_SALES_DOUBAO_PROVIDER_UUID,
+        'abilities': ['vision', 'func_call'],
+        'extra_args': {'display_name': 'Doubao Seed 2.0 Mini'},
+        'prefered_ranking': 0,
+    },
+)
 COURSE_SALES_REPLY_MODEL_EXTRA_ARGS = {
     'thinking': {'type': 'enabled'},
     'reasoning_effort': 'low',
@@ -3420,6 +3442,7 @@ class TaskAssistantService:
         await self._ensure_course_sales_template_pipeline()
         await self._ensure_yuanfudao_enhanced_template_pipeline()
         await self._ensure_builtin_pipeline_default_models()
+        await self._ensure_course_sales_doubao_text_models()
         await self._ensure_course_sales_doubao_model_defaults()
         await self._ensure_course_sales_runtime_defaults()
         await self._ensure_course_sales_product()
@@ -3524,6 +3547,7 @@ class TaskAssistantService:
             )
 
     async def _ensure_course_sales_doubao_model_defaults(self) -> None:
+        repaired_pipeline_uuids: set[str] = set()
         for pipeline_uuid in [
             COURSE_SALES_TEMPLATE_PIPELINE_UUID,
             YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
@@ -3539,13 +3563,82 @@ class TaskAssistantService:
                 if logger is not None:
                     logger.debug('[CourseSalesModelDefaults] Pipeline %s not found, skipping', pipeline_uuid)
                 continue
-            config = copy.deepcopy(pipeline.config) if isinstance(pipeline.config, dict) else {}
-            if not self._apply_course_sales_doubao_model_defaults(config):
+            await self._repair_course_sales_doubao_pipeline_models(pipeline, pipeline_uuid=pipeline_uuid)
+            repaired_pipeline_uuids.add(pipeline_uuid)
+
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_pipeline.LegacyPipeline))
+        for pipeline in result.all():
+            pipeline_uuid = str(getattr(pipeline, 'uuid', '') or '')
+            if pipeline_uuid in repaired_pipeline_uuids:
+                continue
+            config = copy.deepcopy(pipeline.config) if isinstance(getattr(pipeline, 'config', None), dict) else {}
+            if not config or not self._is_course_sales_pipeline_config(config):
+                continue
+            await self._repair_course_sales_doubao_pipeline_models(pipeline, config=config)
+
+    async def _repair_course_sales_doubao_pipeline_models(
+        self,
+        pipeline: Any,
+        *,
+        config: dict[str, Any] | None = None,
+        pipeline_uuid: str | None = None,
+    ) -> None:
+        resolved_pipeline_uuid = str(pipeline_uuid or getattr(pipeline, 'uuid', '') or '')
+        if not resolved_pipeline_uuid:
+            return
+        config = copy.deepcopy(config) if isinstance(config, dict) else copy.deepcopy(getattr(pipeline, 'config', None))
+        if not isinstance(config, dict):
+            return
+        if not self._apply_course_sales_doubao_model_defaults(config):
+            return
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+            .where(persistence_pipeline.LegacyPipeline.uuid == resolved_pipeline_uuid)
+            .values(config=config)
+        )
+
+    async def _ensure_course_sales_doubao_text_models(self) -> None:
+        provider_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == COURSE_SALES_DOUBAO_PROVIDER_UUID
+            )
+        )
+        provider = provider_result.first()
+        if provider is None:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.insert(persistence_model.ModelProvider).values(
+                    {
+                        'uuid': COURSE_SALES_DOUBAO_PROVIDER_UUID,
+                        'name': COURSE_SALES_DOUBAO_PROVIDER_NAME,
+                        'requester': COURSE_SALES_DOUBAO_PROVIDER_REQUESTER,
+                        'base_url': COURSE_SALES_DOUBAO_PROVIDER_BASE_URL,
+                        'api_keys': [],
+                    }
+                )
+            )
+        else:
+            provider_updates = {}
+            if getattr(provider, 'requester', '') != COURSE_SALES_DOUBAO_PROVIDER_REQUESTER:
+                provider_updates['requester'] = COURSE_SALES_DOUBAO_PROVIDER_REQUESTER
+            if not str(getattr(provider, 'base_url', '') or '').strip():
+                provider_updates['base_url'] = COURSE_SALES_DOUBAO_PROVIDER_BASE_URL
+            if provider_updates:
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.update(persistence_model.ModelProvider)
+                    .where(persistence_model.ModelProvider.uuid == COURSE_SALES_DOUBAO_PROVIDER_UUID)
+                    .values(**provider_updates)
+                )
+
+        for model_data in COURSE_SALES_DOUBAO_TEXT_MODELS:
+            existing = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_model.LLMModel).where(
+                    persistence_model.LLMModel.uuid == model_data['uuid']
+                )
+            )
+            if existing.first() is not None:
                 continue
             await self.ap.persistence_mgr.execute_async(
-                sqlalchemy.update(persistence_pipeline.LegacyPipeline)
-                .where(persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid)
-                .values(config=config)
+                sqlalchemy.insert(persistence_model.LLMModel).values(**copy.deepcopy(model_data))
             )
 
     def _apply_course_sales_doubao_model_defaults(self, config: dict[str, Any]) -> bool:

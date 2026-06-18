@@ -23,6 +23,7 @@ from langbot.pkg.api.http.service.task_assistant import (  # noqa: E402
     YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
     YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID,
 )
+from langbot.pkg.entity.persistence import model as persistence_model  # noqa: E402
 from langbot_plugin.api.entities.builtin.platform import message as platform_message  # noqa: E402
 from langbot_plugin.api.entities.builtin.provider import message as provider_message  # noqa: E402
 from tests.factories.message import image_chain, text_chain, voice_query  # noqa: E402
@@ -45,6 +46,17 @@ class _EmptyListResult:
 
     def all(self):
         return []
+
+
+class _ListResult:
+    def __init__(self, values):
+        self.values = values
+
+    def first(self):
+        return self.values[0] if self.values else None
+
+    def all(self):
+        return self.values
 
 
 def _query(message_chain, text='', session_id='user-1'):
@@ -911,6 +923,7 @@ async def test_course_sales_doubao_defaults_rebind_saved_course_pipeline_models(
                     _FirstResult(pipeline),
                     None,
                     _FirstResult(None),
+                    _EmptyListResult(),
                 ]
             )
         ),
@@ -925,6 +938,86 @@ async def test_course_sales_doubao_defaults_rebind_saved_course_pipeline_models(
     assert updated_config['template_config']['model_uuid'] == 'doubao-seed-2-0-pro-260215'
     assert updated_config['template_config']['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
     assert updated_config['ai']['local-agent']['model']['primary'] == 'doubao-seed-2-0-pro-260215'
+
+
+@pytest.mark.asyncio
+async def test_course_sales_doubao_defaults_repair_all_course_sales_pipelines():
+    blank_config = TaskAssistantService(SimpleNamespace()).build_course_sales_pipeline_config(
+        model_uuid='',
+        template_config={'scenario': COURSE_SALES_SCENARIO, 'model_uuid': '', 'intent_model_uuid': ''},
+    )
+    pipeline = SimpleNamespace(uuid='custom-course-sales-pipeline', config=blank_config)
+    updates = []
+
+    async def execute_async(statement):
+        params = statement.compile().params
+        if getattr(statement, 'is_select', False):
+            if params:
+                return _FirstResult(None)
+            return _ListResult([pipeline])
+        if getattr(statement, 'is_update', False):
+            updates.append(params)
+        return None
+
+    ap = SimpleNamespace(
+        logger=SimpleNamespace(info=Mock(), warning=Mock(), debug=Mock()),
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(side_effect=execute_async)),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_doubao_model_defaults()
+
+    assert updates
+    updated_config = updates[-1]['config']
+    assert updated_config['template_config']['model_uuid'] == 'doubao-seed-2-0-pro-260215'
+    assert updated_config['template_config']['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
+    assert updated_config['ai']['local-agent']['model']['primary'] == 'doubao-seed-2-0-pro-260215'
+
+
+@pytest.mark.asyncio
+async def test_course_sales_doubao_text_models_are_seeded_for_model_dropdowns():
+    inserted_providers = []
+    inserted_models = []
+
+    async def execute_async(statement):
+        params = statement.compile().params
+        if getattr(statement, 'is_select', False):
+            selected_table = statement.column_descriptions[0].get('entity')
+            if selected_table is persistence_model.ModelProvider:
+                return _EmptyListResult()
+            if selected_table is persistence_model.LLMModel:
+                return _EmptyListResult()
+        if getattr(statement, 'is_insert', False):
+            table_name = statement.table.name
+            if table_name == 'model_providers':
+                inserted_providers.append(params)
+            if table_name == 'llm_models':
+                inserted_models.append(params)
+        return None
+
+    ap = SimpleNamespace(
+        logger=SimpleNamespace(info=Mock(), warning=Mock(), debug=Mock()),
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(side_effect=execute_async)),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_doubao_text_models()
+
+    assert inserted_providers == [
+        {
+            'uuid': 'lnp-doubao',
+            'name': '豆包',
+            'requester': 'volcark-chat-completions',
+            'base_url': 'https://ark.cn-beijing.volces.com/api/v3',
+            'api_keys': [],
+        }
+    ]
+    assert {model['uuid'] for model in inserted_models} == {
+        'doubao-seed-2-0-pro-260215',
+        'doubao-seed-2-0-mini-260215',
+    }
+    assert all(model['provider_uuid'] == 'lnp-doubao' for model in inserted_models)
+    assert all('vision' in model['abilities'] for model in inserted_models)
 
 
 def test_task_assistant_template_pipeline_config_matches_workflow_capabilities():
