@@ -10,6 +10,7 @@ Tests cover:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 from importlib import import_module
 
@@ -17,6 +18,53 @@ from importlib import import_module
 def get_load_config_module():
     """Lazy import to avoid circular import issues."""
     return import_module('langbot.pkg.core.stages.load_config')
+
+
+class TestLoadLocalEnvFiles:
+    """Tests for local environment file loading."""
+
+    def test_loads_env_local_without_overriding_existing_environment(self, tmp_path, monkeypatch):
+        load_config = get_load_config_module()
+        env_file = tmp_path / '.env.local'
+        env_file.write_text(
+            '\n'.join(
+                [
+                    'DATABASE_PUBLIC_URL=postgresql://file_user:file_pass@localhost:5432/file_db',
+                    'API__PORT=5310',
+                ]
+            ),
+            encoding='utf-8',
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with patch.dict(os.environ, {'API__PORT': '5300'}, clear=True):
+            loaded = load_config._load_local_env_files()
+
+            assert loaded == [Path('.env.local')]
+            assert os.environ['DATABASE_PUBLIC_URL'] == 'postgresql://file_user:file_pass@localhost:5432/file_db'
+            assert os.environ['API__PORT'] == '5300'
+
+    def test_loads_quoted_env_values_and_ignores_comments(self, tmp_path, monkeypatch):
+        load_config = get_load_config_module()
+        (tmp_path / '.env').write_text(
+            '\n'.join(
+                [
+                    '# local config',
+                    'DATABASE_PUBLIC_URL="postgresql://user:pass@example.com:43901/postgres"',
+                    "SYSTEM__INSTANCE_ID='local-instance'",
+                    'INVALID_LINE',
+                ]
+            ),
+            encoding='utf-8',
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with patch.dict(os.environ, {}, clear=True):
+            loaded = load_config._load_local_env_files()
+
+            assert loaded == [Path('.env')]
+            assert os.environ['DATABASE_PUBLIC_URL'] == 'postgresql://user:pass@example.com:43901/postgres'
+            assert os.environ['SYSTEM__INSTANCE_ID'] == 'local-instance'
 
 
 class TestApplyEnvOverridesToConfig:
