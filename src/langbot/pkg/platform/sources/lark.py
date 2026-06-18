@@ -979,6 +979,7 @@ CARD_ID_CACHE_MAX_LIFETIME = 20 * 60  # 20分钟
 class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     bot: lark_oapi.ws.Client = pydantic.Field(exclude=True)
     api_client: lark_oapi.Client = pydantic.Field(exclude=True)
+    lark_ping_task: asyncio.Task | None = pydantic.Field(exclude=True, default=None)
 
     bot_account_id: str  # 用于在流水线中识别at是否是本bot，直接以bot_name作为标识
     lark_tenant_key: str = pydantic.Field(exclude=True, default='')  # 飞书企业key
@@ -2131,15 +2132,42 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
 
         if not enable_webhook:
             try:
+                try:
+                    import lark_oapi.ws.client as lark_ws_client
+
+                    lark_ws_client.loop = asyncio.get_running_loop()
+                except Exception:
+                    pass
+
                 await self.bot._connect()
+                if self.lark_ping_task is None or self.lark_ping_task.done():
+                    self.lark_ping_task = asyncio.create_task(self.bot._ping_loop())
+                await self.logger.info('Lark websocket connected and heartbeat started')
+
+                while True:
+                    await asyncio.sleep(1)
             except lark_oapi.ws.exception.ClientException as e:
                 raise e
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 await self.bot._disconnect()
                 if self.bot._auto_reconnect:
                     await self.bot._reconnect()
+                    if self.lark_ping_task is None or self.lark_ping_task.done():
+                        self.lark_ping_task = asyncio.create_task(self.bot._ping_loop())
+                    while True:
+                        await asyncio.sleep(1)
                 else:
                     raise e
+            finally:
+                if self.lark_ping_task is not None and not self.lark_ping_task.done():
+                    self.lark_ping_task.cancel()
+                    try:
+                        await self.lark_ping_task
+                    except asyncio.CancelledError:
+                        pass
+                self.lark_ping_task = None
         else:
             # 统一 webhook 模式下，不启动独立的 Quart 应用
             # 保持运行但不启动独立端口
@@ -2155,5 +2183,12 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         # 断开时lark.ws.Client的_receive_message_loop会打印error日志: receive message loop exit。然后进行重连，
         # 所以要设置_auto_reconnect=False,让其不重连。
         self.bot._auto_reconnect = False
+        if self.lark_ping_task is not None and not self.lark_ping_task.done():
+            self.lark_ping_task.cancel()
+            try:
+                await self.lark_ping_task
+            except asyncio.CancelledError:
+                pass
+        self.lark_ping_task = None
         await self.bot._disconnect()
         return False

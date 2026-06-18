@@ -1,88 +1,32 @@
-[37m[06-17 15:18:52.283] mgr.py (30) - [INFO] : Initialized local storage backend.[0m
-[37m[06-17 15:18:52.285] mgr.py (38) - [INFO] : Initializing database type: sqlite...[0m
-[37m[06-17 15:18:52.377] mgr.py (94) - [INFO] : Creating initial metadata...[0m
-[37m[06-17 15:18:53.105] mgr.py (158) - [INFO] : Alembic migrations completed.[0m
-[37m[06-17 15:18:53.355] task_assistant.py (3291) - [INFO] : [DefaultModel] Found 1 configured text models, using first: 24790c39-3240-480a-aee0-995e7c467baa[0m
-[37m[06-17 15:18:58.290] modelmgr.py (65) - [INFO] : Loading models from db...[0m
-[37m[06-17 15:19:41.154] modelmgr.py (54) - [INFO] : LangBot Space Models service is disabled, skipping sync.[0m
-[37m[06-17 15:19:41.693] mcp.py (294) - [INFO] : Loading MCP servers from db...[0m
-[37m[06-17 15:20:22.869] botmgr.py (503) - [INFO] : Loading bots from db...[0m
-[37m[06-17 15:20:22.885] pipelinemgr.py (409) - [INFO] : Loading pipelines from db...[0m
-[37m[06-17 15:20:22.914] kbmgr.py (595) - [INFO] : Loading knowledge bases from db...[0m
-[37m[06-17 15:20:25.588] mgr.py (23) - [INFO] : Initialized Chroma vector database backend.[0m
-[37m[06-17 15:20:25.645] connector.py (141) - [INFO] : (windows) use cmd to launch plugin runtime and communicate via ws[0m
-[33m[06-17 15:20:25.674] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
-[33m[06-17 15:20:25.687] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
-[37m[06-17 15:20:25.731] chroma.py (29) - [INFO] : Chroma collection 'yuanfudao-sales-knowledge-base' accessed/created.[0m
-[33m[06-17 15:20:27.380] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
-[33m[06-17 15:20:27.402] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
-[37m[06-17 15:20:28.323] task_assistant.py (4477) - [INFO] : Yuanfudao KB document import finished: queued 0 new files (58 available, 58 already present)[0m
-[37m[06-17 15:20:28.324] app.py (361) - [INFO] : =======================================[0m
-[37m[06-17 15:20:28.325] app.py (361) - [INFO] : ✨ Access WebUI / 访问管理面板[0m
-[37m[06-17 15:20:28.325] app.py (361) - [INFO] : [0m
-[37m[06-17 15:20:28.325] app.py (361) - [INFO] : 🏠 Local Address: http://127.0.0.1:5300/[0m
-[37m[06-17 15:20:28.326] app.py (361) - [INFO] : 🌐 Public Address: http://<Your Public IP>:5300/[0m
-[37m[06-17 15:20:28.326] app.py (361) - [INFO] : [0m
-[37m[06-17 15:20:28.327] app.py (361) - [INFO] : 📌 Running this program in a container? Please ensure that the 5300 port is exposed[0m
-[37m[06-17 15:20:28.327] app.py (361) - [INFO] : =======================================[0m
-[37m[06-17 15:20:29.696] show_notes.py (32) - [INFO] : New version available:
+[37m[06-17 17:59:03.590] mgr.py (30) - [INFO] : Initialized local storage backend.[0m
+[37m[06-17 17:59:03.590] mgr.py (38) - [INFO] : Initializing database type: sqlite...[0m
+[37m[06-17 17:59:03.623] mgr.py (94) - [INFO] : Creating initial metadata...[0m
+[37m[06-17 17:59:03.910] mgr.py (158) - [INFO] : Alembic migrations completed.[0m
+[37m[06-17 17:59:04.316] task_assistant.py (3421) - [INFO] : [DefaultModel] Found 1 configured text models, using first: 24790c39-3240-480a-aee0-995e7c467baa[0m
+[37m[06-17 17:59:07.689] modelmgr.py (65) - [INFO] : Loading models from db...[0m
+[37m[06-17 17:59:38.560] modelmgr.py (54) - [INFO] : LangBot Space Models service is disabled, skipping sync.[0m
+[37m[06-17 17:59:38.782] mcp.py (294) - [INFO] : Loading MCP servers from db...[0m
+[37m[06-17 18:00:04.353] botmgr.py (503) - [INFO] : Loading bots from db...[0m
+[37m[06-17 18:00:04.370] pipelinemgr.py (409) - [INFO] : Loading pipelines from db...[0m
+[37m[06-17 18:00:04.429] kbmgr.py (595) - [INFO] : Loading knowledge bases from db...[0m
+[37m[06-17 18:00:06.368] mgr.py (23) - [INFO] : Initialized Chroma vector database backend.[0m
+[37m[06-17 18:00:06.505] connector.py (141) - [INFO] : (windows) use cmd to launch plugin runtime and communicate via ws[0m
+[33m[06-17 18:00:06.556] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
+[33m[06-17 18:00:06.572] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
+[37m[06-17 18:00:06.624] chroma.py (29) - [INFO] : Chroma collection 'yuanfudao-sales-knowledge-base' accessed/created.[0m
+[37m[06-17 18:00:10.526] connector.py (111) - [INFO] : Connected to plugin runtime.[0m
+[37m[06-17 18:00:13.462] task_assistant.py (4679) - [INFO] : Yuanfudao KB document import finished: queued 0 new files (58 available, 58 already present)[0m
+[37m[06-17 18:00:13.474] app.py (361) - [INFO] : =======================================[0m
+[37m[06-17 18:00:13.476] app.py (361) - [INFO] : ✨ Access WebUI / 访问管理面板[0m
+[37m[06-17 18:00:13.477] app.py (361) - [INFO] : [0m
+[37m[06-17 18:00:13.478] app.py (361) - [INFO] : 🏠 Local Address: http://127.0.0.1:5300/[0m
+[37m[06-17 18:00:13.479] app.py (361) - [INFO] : 🌐 Public Address: http://<Your Public IP>:5300/[0m
+[37m[06-17 18:00:13.480] app.py (361) - [INFO] : [0m
+[37m[06-17 18:00:13.481] app.py (361) - [INFO] : 📌 Running this program in a container? Please ensure that the 5300 port is exposed[0m
+[37m[06-17 18:00:13.482] app.py (361) - [INFO] : =======================================[0m
+[37m[06-17 18:00:14.537] show_notes.py (32) - [INFO] : New version available:
 有新版本可用，根据文档更新: 
 https://link.langbot.app/zh/docs/update[0m
-[37m[06-17 15:20:29.697] show_notes.py (32) - [INFO] : 您正在使用 Windows 系统，若窗口左上角显示处于”选择“模式，程序将被暂停运行，此时请右键窗口中空白区域退出选择模式。[0m
-[37m[06-17 15:20:29.698] show_notes.py (32) - [INFO] : You are using Windows system, if the top left corner of the window displays "Selection" mode, the program will be paused running, please right-click on the blank area in the window to exit the selection mode.[0m
-[37m[06-17 15:20:29.698] show_notes.py (32) - [INFO] : Current Version: v4.9.7[0m
-[37m[06-17 15:20:30.274] connector.py (111) - [INFO] : Connected to plugin runtime.[0m
-
- _                   ___      _   
-| |   __ _ _ _  __ _| _ ) ___| |_ 
-| |__/ _` | ' \/ _` | _ \/ _ \  _|
-|____\__,_|_||_\__, |___/\___/\__|
-               |___/              
-
-⭐️ Open Source 开源地址: https://github.com/langbot-app/LangBot
-📖 Documentation 文档地址: https://docs.langbot.app
-
-LangBot instance id: instance_e7d43b5d-0ec5-4a52-ad63-839506797fb7
-LangBot edition: community
-Requesting app ticket for app_id: cli***bd1
-Requesting app ticket for app_id: cli***cd6
-[2026-06-17 15:20:32 +0800] [7436] [INFO] 127.0.0.1:62107 GET /api/v1/files/image/sales-memes/thanks/soft.png 1.1 200 243904 39621
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62164 GET /api/v1/sales/conversations/LauncherTypes.PERSON_ou_26bd1e35ee9080c67ce49964c53ded27/messages 1.1 401 86 1499
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62169 GET /api/v1/system/tasks 1.1 401 49 2718
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62170 GET /api/v1/survey/pending 1.1 401 49 3024
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62166 GET /api/v1/user/auto-login 1.1 200 268 8513
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62172 GET /api/v1/system/tasks 1.1 401 49 746
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62175 GET /api/v1/survey/pending 1.1 401 49 802
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62176 GET /api/v1/user/auto-login 1.1 200 268 3246
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62178 GET /api/v1/user/auto-login 1.1 200 268 2814
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62180 GET /api/v1/user/info 1.1 200 102 5305
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62184 GET /api/v1/user/auto-login 1.1 200 268 7462
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62186 GET /api/v1/system/tasks 1.1 200 56 7658
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62188 GET /api/v1/user/auto-login 1.1 200 268 11214
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62183 GET /api/v1/sales/conversations/LauncherTypes.PERSON_ou_26bd1e35ee9080c67ce49964c53ded27/messages 1.1 200 195576 28725
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62196 GET /api/v1/sales/handoffs 1.1 200 531 23785
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62193 GET /api/v1/sales/products 1.1 200 4705 49895
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62198 GET /api/v1/sales/outreach 1.1 200 85988 43900
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62204 GET /api/v1/survey/pending 1.1 200 45 10138
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62206 GET /api/v1/user/auto-login 1.1 200 268 6065
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62195 GET /api/v1/sales/memories 1.1 200 45 81073
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62208 GET /api/v1/system/tasks 1.1 200 56 8040
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62200 GET /api/v1/sales/conversations 1.1 200 702707 94801
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62191 GET /api/v1/sales/overview 1.1 200 9099 125298
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62212 GET /api/v1/survey/pending 1.1 200 45 38487
-[2026-06-17 15:21:13 +0800] [7436] [INFO] 127.0.0.1:62210 GET /api/v1/sales/conversations 1.1 200 702707 50862
-[2026-06-17 15:21:14 +0800] [7436] [INFO] 127.0.0.1:62202 GET /api/v1/monitoring/data 1.1 200 3907901 172790
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:51542 GET /api/v1/system/tasks 1.1 200 56 15271
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:51543 GET /api/v1/survey/pending 1.1 200 45 12898
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:51546 GET /api/v1/user/info 1.1 200 102 22723
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:51563 GET /api/v1/survey/pending 1.1 200 45 5524
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:51561 GET /api/v1/system/tasks 1.1 200 56 9871
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:51544 GET /api/v1/sales/conversations/LauncherTypes.PERSON_ou_26bd1e35ee9080c67ce49964c53ded27/messages 1.1 200 195576 37678
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:54117 GET /api/v1/sales/handoffs 1.1 200 531 12604
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:54118 GET /api/v1/sales/outreach 1.1 200 85988 24909
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:54113 GET /api/v1/sales/products 1.1 200 4705 39627
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:54116 GET /api/v1/sales/memories 1.1 200 45 46342
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:54119 GET /api/v1/sales/conversations 1.1 200 702707 64139
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:54107 GET /api/v1/sales/overview 1.1 200 9099 95399
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:54121 GET /api/v1/monitoring/data 1.1 200 3907901 107178
-[2026-06-17 15:22:13 +0800] [7436] [INFO] 127.0.0.1:54123 GET /api/v1/sales/conversations 1.1 200 702707 63377
+[37m[06-17 18:00:14.538] show_notes.py (32) - [INFO] : 您正在使用 Windows 系统，若窗口左上角显示处于”选择“模式，程序将被暂停运行，此时请右键窗口中空白区域退出选择模式。[0m
+[37m[06-17 18:00:14.539] show_notes.py (32) - [INFO] : You are using Windows system, if the top left corner of the window displays "Selection" mode, the program will be paused running, please right-click on the blank area in the window to exit the selection mode.[0m
+[37m[06-17 18:00:14.540] show_notes.py (32) - [INFO] : Current Version: v4.9.7[0m

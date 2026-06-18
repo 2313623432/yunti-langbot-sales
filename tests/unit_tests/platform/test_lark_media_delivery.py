@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
 from types import SimpleNamespace
@@ -7,6 +8,56 @@ from unittest.mock import AsyncMock
 from langbot.pkg.platform.sources.lark import LarkAdapter, LarkEventConverter, LarkMessageConverter
 from lark_oapi.core.enum import AccessTokenType, HttpMethod
 from lark_oapi.api.im.v1 import EventMessage
+
+
+@pytest.mark.asyncio
+async def test_lark_non_webhook_run_starts_and_cleans_ping_loop():
+    class FakeBot:
+        def __init__(self):
+            self._auto_reconnect = True
+            self.connected = False
+            self.disconnected = False
+            self.ping_started = asyncio.Event()
+            self.ping_cancelled = False
+
+        async def _connect(self):
+            self.connected = True
+
+        async def _disconnect(self):
+            self.disconnected = True
+
+        async def _reconnect(self):
+            self.connected = True
+
+        async def _ping_loop(self):
+            self.ping_started.set()
+            try:
+                while True:
+                    await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                self.ping_cancelled = True
+                raise
+
+    fake_bot = FakeBot()
+    adapter = LarkAdapter.model_construct(
+        config={'enable-webhook': False},
+        bot=fake_bot,
+        logger=SimpleNamespace(info=AsyncMock()),
+        lark_ping_task=None,
+    )
+
+    run_task = asyncio.create_task(adapter.run_async())
+    await asyncio.wait_for(fake_bot.ping_started.wait(), timeout=1)
+
+    assert fake_bot.connected is True
+    assert adapter.lark_ping_task is not None
+    assert adapter.lark_ping_task.done() is False
+
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    assert fake_bot.ping_cancelled is True
 
 
 def test_lark_base64_image_decoder_accepts_data_uri_whitespace_and_missing_padding():
