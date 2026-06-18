@@ -142,7 +142,11 @@ async def sync_sqlite_to_postgres(sqlite_path: Path, postgres_url: str, replace:
 def main() -> None:
     parser = argparse.ArgumentParser(description='Seed PostgreSQL from a bundled LangBot SQLite database.')
     parser.add_argument('--sqlite', default='data/langbot.db', help='Path to local SQLite database.')
-    parser.add_argument('--postgres-url', default=os.environ.get('DATABASE_URL', ''), help='PostgreSQL connection URL.')
+    parser.add_argument(
+        '--postgres-url',
+        default=os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_PUBLIC_URL', ''),
+        help='PostgreSQL connection URL.',
+    )
     parser.add_argument('--replace', action='store_true', help='Delete existing PostgreSQL rows before importing.')
     args = parser.parse_args()
 

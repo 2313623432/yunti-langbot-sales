@@ -116,7 +116,11 @@ def _apply_env_overrides_to_config(cfg: dict) -> dict:
 
 
 def _apply_database_url_to_config(cfg: dict) -> dict:
-    database_url = os.environ.get('DATABASE_URL', '').strip()
+    env_key = 'DATABASE_URL'
+    database_url = os.environ.get(env_key, '').strip()
+    if not database_url:
+        env_key = 'DATABASE_PUBLIC_URL'
+        database_url = os.environ.get(env_key, '').strip()
     if not database_url:
         return cfg
 
@@ -132,7 +136,7 @@ def _apply_database_url_to_config(cfg: dict) -> dict:
     postgresql_cfg['user'] = unquote(parsed.username or postgresql_cfg.get('user', 'postgres'))
     postgresql_cfg['password'] = unquote(parsed.password or postgresql_cfg.get('password', ''))
     postgresql_cfg['database'] = unquote(parsed.path.lstrip('/') or postgresql_cfg.get('database', 'postgres'))
-    print('apply DATABASE_URL to config: database.use=postgresql, env_value: ***')
+    print(f'apply {env_key} to config: database.use=postgresql, env_value: ***')
     return cfg
 
 

@@ -334,3 +334,22 @@ class TestApplyEnvOverridesToConfig:
             result = load_config._apply_database_url_to_config(cfg)
 
         assert result == {'database': {'use': 'sqlite'}}
+
+    def test_database_public_url_applies_postgresql_config_when_database_url_missing(self, capsys):
+        """DATABASE_PUBLIC_URL lets local Railway runs use the same PostgreSQL database as cloud."""
+        load_config = get_load_config_module()
+        cfg = {'database': {'use': 'sqlite', 'postgresql': {}}}
+        env = {'DATABASE_PUBLIC_URL': 'postgresql://public:secret%21456@proxy.example.com:43901/railway'}
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_database_url_to_config(cfg)
+
+        output = capsys.readouterr().out
+        assert result['database']['use'] == 'postgresql'
+        assert result['database']['postgresql']['host'] == 'proxy.example.com'
+        assert result['database']['postgresql']['port'] == 43901
+        assert result['database']['postgresql']['user'] == 'public'
+        assert result['database']['postgresql']['password'] == 'secret!456'
+        assert result['database']['postgresql']['database'] == 'railway'
+        assert 'DATABASE_PUBLIC_URL' in output
+        assert 'secret!456' not in output
