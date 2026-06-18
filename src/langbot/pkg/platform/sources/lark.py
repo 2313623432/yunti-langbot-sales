@@ -1182,6 +1182,73 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         except Exception:
             await self.logger.error(f'Error in lark {context} callback: {traceback.format_exc()}')
 
+    def _prepare_lark_ws_loop(self) -> None:
+        self.lark_event_loop = asyncio.get_running_loop()
+        try:
+            import lark_oapi.ws.client as lark_ws_client
+
+            lark_ws_client.loop = self.lark_event_loop
+        except Exception:
+            pass
+
+    def _lark_log_prefix(self) -> str:
+        bot_name = str(self.config.get('bot_name') or 'unknown')
+        app_id = str(self.config.get('app_id') or '')
+        safe_app_id = f'{app_id[:8]}...' if app_id else 'unknown-app'
+        return f'Lark bot={bot_name} app={safe_app_id}'
+
+    def _lark_websocket_alive(self) -> bool:
+        conn = getattr(self.bot, '_conn', None)
+        if conn is None:
+            return False
+        if getattr(conn, 'closed', False):
+            return False
+        if getattr(conn, 'close_code', None) is not None:
+            return False
+        state = getattr(conn, 'state', None)
+        state_name = getattr(state, 'name', None)
+        if state_name and state_name != 'OPEN':
+            return False
+        return True
+
+    def _reset_lark_websocket_state(self) -> None:
+        for attr, value in (
+            ('_conn', None),
+            ('_conn_url', ''),
+            ('_conn_id', ''),
+            ('_service_id', ''),
+        ):
+            if hasattr(self.bot, attr):
+                setattr(self.bot, attr, value)
+        if hasattr(self.bot, '_lock'):
+            self.bot._lock = asyncio.Lock()
+
+    async def _disconnect_stale_lark_websocket(self) -> None:
+        if getattr(self.bot, '_conn', None) is None:
+            return
+        try:
+            await asyncio.wait_for(self.bot._disconnect(), timeout=5)
+        except Exception as e:
+            print(f'{self._lark_log_prefix()} stale websocket disconnect failed: {e}')
+            self._reset_lark_websocket_state()
+
+    async def _ensure_lark_websocket_connected(self) -> None:
+        self._prepare_lark_ws_loop()
+
+        if not self._lark_websocket_alive():
+            await self._disconnect_stale_lark_websocket()
+            print(f'{self._lark_log_prefix()} websocket connecting')
+            try:
+                await asyncio.wait_for(self.bot._connect(), timeout=30)
+            except Exception:
+                self._reset_lark_websocket_state()
+                raise
+            print(f'{self._lark_log_prefix()} websocket connected')
+
+        if self.lark_ping_task is None or self.lark_ping_task.done():
+            self.lark_ping_task = asyncio.create_task(self.bot._ping_loop())
+            print(f'{self._lark_log_prefix()} heartbeat started')
+
     def request_app_ticket(self, api_client, config):
         app_id = config['app_id']
         app_secret = config['app_secret']
@@ -2169,35 +2236,26 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
 
         if not enable_webhook:
             try:
-                self.lark_event_loop = asyncio.get_running_loop()
                 try:
-                    import lark_oapi.ws.client as lark_ws_client
-
-                    lark_ws_client.loop = self.lark_event_loop
+                    self.bot.on_reconnecting = lambda: print(f'{self._lark_log_prefix()} websocket reconnecting')
+                    self.bot.on_reconnected = lambda: print(f'{self._lark_log_prefix()} websocket reconnected')
                 except Exception:
                     pass
 
-                await self.bot._connect()
-                if self.lark_ping_task is None or self.lark_ping_task.done():
-                    self.lark_ping_task = asyncio.create_task(self.bot._ping_loop())
-                await self.logger.info('Lark websocket connected and heartbeat started')
-
+                watchdog_interval = float(self.config.get('websocket-watchdog-interval', 10))
                 while True:
-                    await asyncio.sleep(1)
+                    try:
+                        await self._ensure_lark_websocket_connected()
+                    except lark_oapi.ws.exception.ClientException as e:
+                        raise e
+                    except Exception as e:
+                        await self.logger.error(f'Lark websocket connect failed: {e}\n{traceback.format_exc()}')
+                        print(f'{self._lark_log_prefix()} websocket connect failed: {e}')
+                    await asyncio.sleep(watchdog_interval)
             except lark_oapi.ws.exception.ClientException as e:
                 raise e
             except asyncio.CancelledError:
                 raise
-            except Exception as e:
-                await self.bot._disconnect()
-                if self.bot._auto_reconnect:
-                    await self.bot._reconnect()
-                    if self.lark_ping_task is None or self.lark_ping_task.done():
-                        self.lark_ping_task = asyncio.create_task(self.bot._ping_loop())
-                    while True:
-                        await asyncio.sleep(1)
-                else:
-                    raise e
             finally:
                 if self.lark_ping_task is not None and not self.lark_ping_task.done():
                     self.lark_ping_task.cancel()

@@ -62,6 +62,94 @@ async def test_lark_non_webhook_run_starts_and_cleans_ping_loop():
 
 
 @pytest.mark.asyncio
+async def test_lark_non_webhook_run_reconnects_when_connection_is_missing():
+    class FakeBot:
+        def __init__(self):
+            self._auto_reconnect = True
+            self._conn = None
+            self.connect_count = 0
+            self.connected_twice = asyncio.Event()
+
+        async def _connect(self):
+            self.connect_count += 1
+            self._conn = object()
+            if self.connect_count >= 2:
+                self.connected_twice.set()
+
+        async def _disconnect(self):
+            self._conn = None
+
+        async def _ping_loop(self):
+            while True:
+                await asyncio.sleep(0.01)
+
+    fake_bot = FakeBot()
+    adapter = LarkAdapter.model_construct(
+        config={'enable-webhook': False, 'websocket-watchdog-interval': 0.01},
+        bot=fake_bot,
+        logger=SimpleNamespace(info=AsyncMock(), error=AsyncMock()),
+        lark_ping_task=None,
+    )
+
+    run_task = asyncio.create_task(adapter.run_async())
+    try:
+        await asyncio.sleep(0.05)
+        assert fake_bot.connect_count == 1
+
+        fake_bot._conn = None
+        await asyncio.wait_for(fake_bot.connected_twice.wait(), timeout=1)
+
+        assert fake_bot.connect_count >= 2
+    finally:
+        run_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run_task
+
+
+@pytest.mark.asyncio
+async def test_lark_ensure_connection_reconnects_closed_socket():
+    class ClosedConn:
+        closed = True
+        close_code = 1000
+
+    class FakeBot:
+        def __init__(self):
+            self._conn = ClosedConn()
+            self.disconnect_count = 0
+            self.connect_count = 0
+
+        async def _disconnect(self):
+            self.disconnect_count += 1
+            self._conn = None
+
+        async def _connect(self):
+            self.connect_count += 1
+            self._conn = object()
+
+        async def _ping_loop(self):
+            while True:
+                await asyncio.sleep(0.01)
+
+    fake_bot = FakeBot()
+    adapter = LarkAdapter.model_construct(
+        config={'bot_name': 'test-bot', 'app_id': 'cli_test'},
+        bot=fake_bot,
+        logger=SimpleNamespace(info=AsyncMock(), error=AsyncMock()),
+        lark_ping_task=None,
+    )
+
+    await adapter._ensure_lark_websocket_connected()
+
+    assert fake_bot.disconnect_count == 1
+    assert fake_bot.connect_count == 1
+    assert adapter.lark_ping_task is not None
+
+    adapter.lark_ping_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await adapter.lark_ping_task
+
+
+@pytest.mark.asyncio
 async def test_lark_adapter_schedules_sdk_callbacks_on_captured_loop_from_other_thread():
     completed = asyncio.Event()
     adapter = LarkAdapter.model_construct(
