@@ -442,6 +442,165 @@ async def test_reset_sales_session_context_clears_chat_state_for_current_session
 
 
 @pytest.mark.asyncio
+async def test_outreach_module_filters_and_clears_scheduled_push_only(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 18, 10, 0, 0)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(
+            [
+                {
+                    'name': 'Day1 scheduled push',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:broadcast',
+                    'dedupe_key': 'scheduled-1',
+                    'message_template': 'day one',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+                {
+                    'name': 'Purchase followup',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:followup:purchase',
+                    'dedupe_key': 'followup-1',
+                    'message_template': 'follow up',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+                {
+                    'name': 'Opening resource card',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:opening:resource-card',
+                    'dedupe_key': 'opening-1',
+                    'message_template': 'opening',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+            ]
+        )
+    )
+
+    scheduled_push = await service.get_outreach_plans(kind='scheduled_push')
+    followups = await service.get_followup_plans()
+    deleted = await service.clear_scheduled_push_plans()
+    remaining = await service.get_outreach_plans()
+
+    assert [plan['segment'] for plan in scheduled_push] == ['course-sales:broadcast']
+    assert [plan['segment'] for plan in followups] == ['course-sales:followup:purchase']
+    assert deleted == 1
+    assert {plan['segment'] for plan in remaining} == {
+        'course-sales:followup:purchase',
+        'course-sales:opening:resource-card',
+    }
+
+
+@pytest.mark.asyncio
+async def test_scheduled_push_config_round_trips_real_outreach_plans(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(
+            [
+                {
+                    'name': 'D1 10:20',
+                    'product_uuid': 'product-1',
+                    'bot_uuid': 'bot-1',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:broadcast',
+                    'dedupe_key': 'scheduled-1',
+                    'message_template': 'first message',
+                    'message_components': [
+                        {'type': 'plain', 'text': 'first message'},
+                        {'type': 'image', 'file_key': 'data/scheduled-push/a.png', 'image_url': ''},
+                        {
+                            'type': 'link',
+                            'title': '报名通道',
+                            'description': '雷达链接',
+                            'url': 'https://example.com/radar',
+                        },
+                    ],
+                    'scheduled_at': datetime.datetime(2026, 6, 19, 10, 20),
+                    'interval_minutes': 2 * 24 * 60,
+                    'enabled': True,
+                },
+                {
+                    'name': 'D2 15:40',
+                    'product_uuid': 'product-1',
+                    'bot_uuid': 'bot-1',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:broadcast',
+                    'dedupe_key': 'scheduled-2',
+                    'message_template': 'second message',
+                    'message_components': [{'type': 'plain', 'text': 'second message'}],
+                    'scheduled_at': datetime.datetime(2026, 6, 20, 15, 40),
+                    'interval_minutes': 2 * 24 * 60,
+                    'enabled': True,
+                },
+            ]
+        )
+    )
+
+    config = await service.get_scheduled_push_config()
+
+    assert config['plans_count'] == 2
+    assert config['scheduled_push']['enabled'] is True
+    assert config['scheduled_push']['loop_enabled'] is True
+    assert config['scheduled_push']['loop_days'] == 2
+    assert config['scheduled_push']['start_date'] == '2026-06-19'
+    assert config['scheduled_push']['items'][0] == {
+        'day': 1,
+        'time': '10:20',
+        'message': 'first message',
+        'image_key': 'data/scheduled-push/a.png',
+        'image_url': '',
+        'link_title': '报名通道',
+        'link_url': 'https://example.com/radar',
+        'link_description': '雷达链接',
+    }
+    assert config['scheduled_push']['items'][1]['day'] == 2
+    assert config['scheduled_push']['items'][1]['time'] == '15:40'
+
+    result = await service.replace_scheduled_push_config(
+        {
+            'scheduled_push': {
+                'enabled': True,
+                'loop_enabled': True,
+                'loop_days': 3,
+                'start_date': '2026-07-01',
+                'items': [
+                    {
+                        'day': 1,
+                        'time': '09:30',
+                        'message': 'updated message',
+                        'image_key': '',
+                        'link_title': '新报名通道',
+                        'link_url': 'https://example.com/new-radar',
+                        'link_description': '新的雷达链接',
+                    }
+                ],
+            }
+        }
+    )
+    updated = await service.get_scheduled_push_config()
+
+    assert result == {'deleted': 2, 'inserted': 1}
+    assert updated['plans_count'] == 1
+    assert updated['scheduled_push']['loop_days'] == 3
+    assert updated['scheduled_push']['items'][0]['message'] == 'updated message'
+    assert updated['scheduled_push']['items'][0]['link_url'] == 'https://example.com/new-radar'
+
+
+@pytest.mark.asyncio
 async def test_get_memories_builds_customer_memory_from_monitoring_session_without_plugin(
     sales_service_with_db,
 ):

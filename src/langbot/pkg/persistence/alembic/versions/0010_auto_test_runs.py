@@ -1,7 +1,7 @@
 """add auto test runs
 
 Revision ID: 0010_auto_test_runs
-Revises: 0009_sales_resource_issues
+Revises: 0009_sales_resource_issues, 0009_auto_test_runs
 Create Date: 2026-06-12
 """
 
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = '0010_auto_test_runs'
-down_revision = '0009_sales_resource_issues'
+down_revision = ('0009_sales_resource_issues', '0009_auto_test_runs')
 branch_labels = None
 depends_on = None
 

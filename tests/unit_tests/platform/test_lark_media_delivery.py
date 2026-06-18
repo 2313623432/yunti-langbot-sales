@@ -1,4 +1,6 @@
 import pytest
+import asyncio
+import threading
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
 import langbot_plugin.api.entities.builtin.platform.entities as platform_entities
@@ -6,7 +8,164 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from langbot.pkg.platform.sources.lark import LarkAdapter, LarkEventConverter, LarkMessageConverter
+from lark_oapi.core.enum import AccessTokenType, HttpMethod
 from lark_oapi.api.im.v1 import EventMessage
+
+
+@pytest.mark.asyncio
+async def test_lark_non_webhook_run_starts_and_cleans_ping_loop():
+    class FakeBot:
+        def __init__(self):
+            self._auto_reconnect = True
+            self.connected = False
+            self.disconnected = False
+            self.ping_started = asyncio.Event()
+            self.ping_cancelled = False
+
+        async def _connect(self):
+            self.connected = True
+
+        async def _disconnect(self):
+            self.disconnected = True
+
+        async def _reconnect(self):
+            self.connected = True
+
+        async def _ping_loop(self):
+            self.ping_started.set()
+            try:
+                while True:
+                    await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                self.ping_cancelled = True
+                raise
+
+    fake_bot = FakeBot()
+    adapter = LarkAdapter.model_construct(
+        config={'enable-webhook': False},
+        bot=fake_bot,
+        logger=SimpleNamespace(info=AsyncMock()),
+        lark_ping_task=None,
+    )
+
+    run_task = asyncio.create_task(adapter.run_async())
+    await asyncio.wait_for(fake_bot.ping_started.wait(), timeout=1)
+
+    assert fake_bot.connected is True
+    assert adapter.lark_ping_task is not None
+    assert adapter.lark_ping_task.done() is False
+
+    run_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run_task
+
+    assert fake_bot.ping_cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_lark_non_webhook_run_reconnects_when_connection_is_missing():
+    class FakeBot:
+        def __init__(self):
+            self._auto_reconnect = True
+            self._conn = None
+            self.connect_count = 0
+            self.connected_twice = asyncio.Event()
+
+        async def _connect(self):
+            self.connect_count += 1
+            self._conn = object()
+            if self.connect_count >= 2:
+                self.connected_twice.set()
+
+        async def _disconnect(self):
+            self._conn = None
+
+        async def _ping_loop(self):
+            while True:
+                await asyncio.sleep(0.01)
+
+    fake_bot = FakeBot()
+    adapter = LarkAdapter.model_construct(
+        config={'enable-webhook': False, 'websocket-watchdog-interval': 0.01},
+        bot=fake_bot,
+        logger=SimpleNamespace(info=AsyncMock(), error=AsyncMock()),
+        lark_ping_task=None,
+    )
+
+    run_task = asyncio.create_task(adapter.run_async())
+    try:
+        await asyncio.sleep(0.05)
+        assert fake_bot.connect_count == 1
+
+        fake_bot._conn = None
+        await asyncio.wait_for(fake_bot.connected_twice.wait(), timeout=1)
+
+        assert fake_bot.connect_count >= 2
+    finally:
+        run_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run_task
+
+
+@pytest.mark.asyncio
+async def test_lark_ensure_connection_reconnects_closed_socket():
+    class ClosedConn:
+        closed = True
+        close_code = 1000
+
+    class FakeBot:
+        def __init__(self):
+            self._conn = ClosedConn()
+            self.disconnect_count = 0
+            self.connect_count = 0
+
+        async def _disconnect(self):
+            self.disconnect_count += 1
+            self._conn = None
+
+        async def _connect(self):
+            self.connect_count += 1
+            self._conn = object()
+
+        async def _ping_loop(self):
+            while True:
+                await asyncio.sleep(0.01)
+
+    fake_bot = FakeBot()
+    adapter = LarkAdapter.model_construct(
+        config={'bot_name': 'test-bot', 'app_id': 'cli_test'},
+        bot=fake_bot,
+        logger=SimpleNamespace(info=AsyncMock(), error=AsyncMock()),
+        lark_ping_task=None,
+    )
+
+    await adapter._ensure_lark_websocket_connected()
+
+    assert fake_bot.disconnect_count == 1
+    assert fake_bot.connect_count == 1
+    assert adapter.lark_ping_task is not None
+
+    adapter.lark_ping_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await adapter.lark_ping_task
+
+
+@pytest.mark.asyncio
+async def test_lark_adapter_schedules_sdk_callbacks_on_captured_loop_from_other_thread():
+    completed = asyncio.Event()
+    adapter = LarkAdapter.model_construct(
+        lark_event_loop=asyncio.get_running_loop(),
+        logger=SimpleNamespace(error=AsyncMock()),
+    )
+
+    async def callback():
+        completed.set()
+
+    thread = threading.Thread(target=lambda: adapter._schedule_lark_callback(callback(), 'test callback'))
+    thread.start()
+    thread.join(timeout=1)
+
+    await asyncio.wait_for(completed.wait(), timeout=1)
 
 
 def test_lark_base64_image_decoder_accepts_data_uri_whitespace_and_missing_padding():
@@ -116,6 +275,36 @@ async def test_lark_text_emoji_fallback_remains_plain_post_content():
 
     assert text_elements == [[{'tag': 'md', 'text': '😊 家长您好'}]]
     assert media_items == []
+
+
+@pytest.mark.asyncio
+async def test_lark_adapter_add_message_reaction_uses_feishu_reaction_api():
+    captured = {}
+
+    class FakeApiClient:
+        async def arequest(self, request, option):
+            captured['request'] = request
+            captured['option'] = option
+            return SimpleNamespace(success=lambda: True, code=0, msg='ok', raw=SimpleNamespace(content=b'{}'))
+
+    adapter = LarkAdapter.model_construct(
+        api_client=FakeApiClient(),
+        config={'app_type': 'self'},
+        app_ticket='ticket',
+        get_app_access_token=lambda: 'app-token',
+        logger=SimpleNamespace(warning=AsyncMock()),
+    )
+
+    sent = await adapter.add_message_reaction('om_user_msg', 'SMILE')
+
+    assert sent is True
+    request = captured['request']
+    assert request.http_method == HttpMethod.POST
+    assert request.uri == '/open-apis/im/v1/messages/om_user_msg/reactions'
+    assert request.token_types == {AccessTokenType.TENANT, AccessTokenType.USER}
+    assert request.body == {'reaction_type': {'emoji_type': 'SMILE'}}
+    assert captured['option'].app_ticket == 'ticket'
+    assert captured['option'].app_access_token is None
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import copy
+import inspect
 import typing
 from .. import runner
 from ..modelmgr import requester as modelmgr_requester
@@ -34,6 +35,15 @@ class LocalAgentRunner(runner.RequestRunner):
         """Customer-facing agent replies should never expose model reasoning."""
         _ = pipeline_config
         return True
+
+    @staticmethod
+    def _fallback_user_message(query: pipeline_query.Query) -> provider_message.Message:
+        text = ''
+        for component in query.message_chain or []:
+            component_text = getattr(component, 'text', None)
+            if isinstance(component_text, str):
+                text += component_text
+        return provider_message.Message(role='user', content=text)
 
     async def _get_model_candidates(
         self,
@@ -73,7 +83,7 @@ class LocalAgentRunner(runner.RequestRunner):
         last_error = None
         for model in candidates:
             try:
-                msg = await model.provider.invoke_llm(
+                result = model.provider.invoke_llm(
                     query,
                     model,
                     messages,
@@ -81,6 +91,7 @@ class LocalAgentRunner(runner.RequestRunner):
                     extra_args=model.model_entity.extra_args,
                     remove_think=remove_think,
                 )
+                msg = await result if inspect.isawaitable(result) else result
                 return msg, model
             except Exception as e:
                 last_error = e
@@ -142,7 +153,7 @@ class LocalAgentRunner(runner.RequestRunner):
         # may have been modified by plugins during PromptPreProcessing)
         kb_uuids = query.variables.get('_knowledge_base_uuids', [])
 
-        user_message = copy.deepcopy(query.user_message)
+        user_message = copy.deepcopy(query.user_message) if query.user_message is not None else self._fallback_user_message(query)
 
         user_message_text = ''
 
@@ -242,7 +253,8 @@ class LocalAgentRunner(runner.RequestRunner):
                     ce.text = final_user_message_text
                     break
 
-        req_messages = query.prompt.messages.copy() + query.messages.copy() + [user_message]
+        prompt_messages = getattr(query.prompt, 'messages', []) if query.prompt is not None else []
+        req_messages = list(prompt_messages or []) + list(query.messages or []) + [user_message]
 
         try:
             is_stream = await query.adapter.is_stream_output_supported()

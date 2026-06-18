@@ -1,5 +1,7 @@
 import {
   PipelineTemplateConfig,
+  PipelineTemplateMemeConfig,
+  PipelineTemplateMemeLibraryItem,
   PipelineWorkflow,
   PipelineWorkflowEdge,
   PipelineWorkflowNode,
@@ -275,10 +277,12 @@ export function createSalesWorkflowTemplate(): PipelineWorkflow {
       edge(memory, outreach),
       edge(outreach, end),
     ],
+    memes: courseMemeConfig,
     variables: {
       customer_stage: 'new',
       intent: '',
       selected_product_uuid: '',
+      memes: courseMemeConfig,
     },
   };
 }
@@ -331,9 +335,11 @@ export function createSupportWorkflowTemplate(): PipelineWorkflow {
       edge(handoff, memory),
       edge(memory, end),
     ],
+    memes: courseMemeConfig,
     variables: {
       customer_stage: 'supporting',
       intent: '',
+      memes: courseMemeConfig,
     },
   };
 }
@@ -353,7 +359,10 @@ export function createBlankWorkflow(): PipelineWorkflow {
     scenario: 'custom',
     nodes: [start, end],
     edges: [edge(start, end)],
-    variables: {},
+    memes: courseMemeConfig,
+    variables: {
+      memes: courseMemeConfig,
+    },
   };
 }
 
@@ -584,6 +593,7 @@ export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
       tts_provider: 'volcengine',
     },
     voice: templateConfig.voice,
+    memes: templateConfig.memes,
     nodes,
     edges,
     variables: {
@@ -592,6 +602,7 @@ export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
       scheduled_push: templateConfig.scheduled_push,
       interaction_radar: templateConfig.interaction_radar,
       image_text_bindings: templateConfig.image_text_bindings,
+      memes: templateConfig.memes,
     },
   };
 
@@ -760,6 +771,217 @@ const courseImageBindings = [
     enabled: true,
   },
 ];
+const courseMemeScenes: Array<[string, string, string[], string]> = [
+  ['happy', '开心回应', ['开心', '高兴', '太好了', '哈哈', '顺利'], '开心'],
+  ['thanks', '感谢回应', ['谢谢', '感谢', '辛苦了', '麻烦你', '拜托'], '感谢'],
+  ['like', '认可点赞', ['不错', '可以', '赞', '认可', '支持'], '点赞'],
+  ['success', '完成确认', ['完成', '搞定', '成功', '好了', '已处理'], '完成'],
+  ['morning', '早上好', ['早上好', '早安', '上午好', '新的一天', '早'], '早上好'],
+  ['noon', '中午好', ['中午好', '午安', '吃饭', '午休', '中午'], '中午好'],
+  ['evening', '晚上好', ['晚上好', '晚好', '下班', '今晚', '晚上'], '晚上好'],
+  ['night', '晚安提醒', ['晚安', '早点休息', '明天看', '夜里', '休息'], '晚安'],
+  ['ok', '好的收到', ['好的', '好嘞', 'OK', '可以的', '没问题'], '好的'],
+  ['received', '收到记录', ['收到', '已记录', '我记下了', '明白', '了解'], '收到'],
+  ['cheer', '加油鼓励', ['加油', '坚持', '鼓励', '别着急', '慢慢来'], '加油'],
+  ['welcome', '欢迎咨询', ['欢迎', '你好', '您好', '在的', '来了'], '欢迎'],
+  ['question', '温和疑问', ['怎么', '哪里', '为什么', '不清楚', '疑问'], '疑问'],
+  ['thinking', '正在思考', ['我看看', '确认下', '稍等', '查一下', '核对'], '思考'],
+  ['sorry', '礼貌抱歉', ['抱歉', '不好意思', '久等', '给您添麻烦', '稍晚'], '抱歉'],
+  ['wait', '稍等一下', ['稍等', '等我下', '马上', '一会儿', '别急'], '稍等'],
+  ['checking', '正在核实', ['核实', '确认', '查看', '检查', '帮您看'], '核实'],
+  ['reminder', '温和提醒', ['提醒', '记得', '别忘了', '可以看看', '留意'], '提醒'],
+  ['deal', '成交喜悦', ['成交', '下单', '购买', '订了', '买好了'], '成交'],
+  ['signup', '报名成功', ['报名', '已报名', '报好了', '提交', '领课'], '报名'],
+  ['payment', '支付确认', ['支付', '付款', '付好了', '订单', '缴费'], '支付'],
+  ['link', '链接指引', ['链接', '入口', '打开', '点击', '访问'], '链接'],
+  ['resource', '资料资源', ['资料', '资源', '二维码', '听力', '答案'], '资料'],
+  ['class_time', '上课时间', ['上课', '时间', '几点', '安排', '课程表'], '上课时间'],
+  ['replay', '回放说明', ['回放', '录播', '错过', '补看', '复习'], '回放'],
+  ['gift', '礼品赠品', ['礼品', '赠品', '资料包', '奖励', '福利'], '礼品'],
+  ['trial', '体验课', ['体验', '试听', '试试', '体验课', '先看看'], '体验课'],
+  ['discount', '优惠提醒', ['优惠', '活动', '价格', '9元', '名额'], '优惠'],
+  ['grade', '年级确认', ['年级', '几年级', '大班', '一年级', '孩子'], '年级'],
+  ['parent', '家长沟通', ['家长', '妈妈', '爸爸', '您家', '孩子家长'], '家长'],
+  ['child', '孩子鼓励', ['孩子', '小朋友', '学习', '兴趣', '基础'], '孩子'],
+  ['homework', '作业练习', ['作业', '练习', '打卡', '预习', '复习'], '练习'],
+  ['reading', '阅读写作', ['阅读', '写作', '作文', '理解', '表达'], '阅读'],
+  ['phonics', '自然拼读', ['自然拼读', '发音', '拼读', '单词', '英语'], '自然拼读'],
+  ['followup', '跟进关怀', ['跟进', '回访', '看看', '需要帮忙', '进展'], '跟进'],
+  ['congrats', '恭喜祝贺', ['恭喜', '太棒了', '祝贺', '好消息', '进步'], '恭喜'],
+  ['polite', '礼貌亲切', ['请', '您', '方便', '麻烦', '辛苦'], '礼貌'],
+  ['calm', '安抚情绪', ['别急', '不着急', '慢慢来', '我帮您', '放心'], '安抚'],
+  ['service', '服务承接', ['我来帮您', '帮您看', '处理', '安排', '登记'], '服务'],
+  ['handoff_ready', '准备人工协助', ['人工', '老师联系', '班主任', '电话', '专人'], '协助'],
+];
+const courseMemeVariants: Array<[string, string]> = [
+  ['soft', '温和友好'],
+  ['bright', '轻松明亮'],
+  ['steady', '稳妥专业'],
+  ['cute', '亲切可爱'],
+  ['clean', '简洁礼貌'],
+];
+const courseMemeUsageScenes: Record<string, string> = {
+  happy: '客户情绪轻松、表达开心、咨询进展顺利',
+  thanks: '客户配合、表达感谢、完成信息确认或下单后',
+  like: '客户做出正向回应、认可方案、完成操作',
+  success: '报名、支付、资料领取、问题处理完成后',
+  morning: '客户早上首次进线或早安问候',
+  noon: '中午轻松问候、午间跟进',
+  evening: '晚上轻量问候、结束前温和提醒',
+  night: '晚间收尾、提醒客户早点休息',
+  ok: '确认收到、答复客户“可以/好的/没问题”',
+  received: '记录客户信息、确认已收到截图/年级/需求',
+  cheer: '鼓励客户或孩子完成学习、打卡、报名动作',
+  welcome: '客户首次进线、问你好/在吗/想咨询',
+  question: '客户提出疑问，需要温和承接问题',
+  thinking: '需要确认、查询、核对资料或稍作思考',
+  sorry: '出现等待、误解、服务不便，需要礼貌道歉',
+  wait: '需要客户稍等、客服正在查找或处理',
+  checking: '正在核实报名、支付、资料、课程安排',
+  reminder: '温和提醒客户查看链接、截图、上课或支付',
+  deal: '客户明确购买、下单、成交、报名意愿强',
+  signup: '客户准备报名、领取课程名额、需要报名链接',
+  payment: '客户支付、订单、截图、付款确认相关',
+  link: '发送或解释报名链接、资源入口、访问入口',
+  resource: '图书资源、二维码、听力、答案、资料包相关',
+  class_time: '上课时间、排课、日程、几点上课相关',
+  replay: '回放、录播、错过课程、补看相关',
+  gift: '赠品、资料包、完课好礼、福利说明相关',
+  trial: '体验课、试听、先体验再决定相关',
+  discount: '优惠、活动价、名额、限时权益相关',
+  grade: '询问孩子年级、基础、学段、适合课程',
+  parent: '面向家长的礼貌沟通、确认孩子情况',
+  child: '鼓励孩子学习、兴趣、基础提升',
+  homework: '作业、练习、打卡、预习、复习相关',
+  reading: '阅读、写作、作文、表达训练相关',
+  phonics: '自然拼读、发音、英语启蒙、单词拼读相关',
+  followup: '跟进客户进展、轻量回访、确认是否打开',
+  congrats: '恭喜客户完成报名、支付、领取或孩子进步',
+  polite: '通用礼貌承接、轻松但不冒犯的客服表达',
+  calm: '客户着急、不满、情绪波动，需要安抚',
+  service: '客服承接处理、帮客户查看、安排下一步',
+  handoff_ready: '客户要求人工、需要老师/班主任/专人协助',
+};
+const courseMemeUsageInstructions: Record<string, string> = {
+  welcome: '客户首次进线、打招呼、问“在吗/你好”时可以发；不要用于客户投诉或严肃质疑。',
+  thanks: '客户配合、下单、发截图、提供信息或表达感谢时可以发；不要用于催单施压。',
+  sorry: '等待过久、解释不清、给客户带来不便时可以发；不要反复发送造成打扰。',
+  calm: '客户着急、情绪激动、遇到问题时用于先共情安抚；不要用于成交庆祝。',
+  question: '客户提问、表达疑惑、需要进一步解释时可以发；不要用于客户已经明确拒绝的场景。',
+  thinking: '需要查询、核对、确认资料或报名状态时可以发；发送后要继续给出明确答复。',
+  wait: '需要客户稍等、正在处理或转接前可以发；不要让客户只看到表情没有正文。',
+  checking: '正在核实支付、截图、课程安排、资源入口时可以发；必须搭配处理说明。',
+  reminder: '提醒客户看链接、发截图、完成报名或留意上课时可以发；语气必须轻，不要催促压迫。',
+  deal: '客户明确要买、已下单、报名成功时可以发；不要在客户犹豫或拒绝时发。',
+  signup: '客户询问怎么报名、报名链接、领取体验课时可以发；不要用于投诉、道歉或情绪激动场景。',
+  payment: '客户付款、订单、支付截图、确认支付状态时可以发；不要在未确认意愿时催付。',
+  link: '发送真实报名链接、资源入口、卡片入口时可以发；不得替代真实链接。',
+  resource: '客户问听力、答案、二维码、图书资源时可以发；先解决资源问题再承接课程。',
+  class_time: '客户问几点上课、课程安排、日程时可以发；不要自行编造时间。',
+  replay: '客户错过课程、询问回放或录播时可以发；要说明具体查看方式。',
+  gift: '说明赠品、资料包、完课好礼、福利时可以发；不要夸大权益。',
+  trial: '客户考虑体验课、试听、先看看时可以发；不要强迫报名。',
+  discount: '说明优惠、活动、名额时可以发；价格和时效必须以真实链接为准。',
+  grade: '询问或确认孩子年级、基础、学习阶段时可以发；不要套用成人口吻。',
+  parent: '对家长表达礼貌感谢、确认孩子情况时可以发；不要显得过度亲昵。',
+  child: '鼓励孩子学习、打卡、进步时可以发；避免对效果作绝对承诺。',
+  homework: '作业、练习、预习、复习、打卡相关时可以发；语气鼓励为主。',
+  reading: '阅读、写作、作文、表达训练相关时可以发；不要脱离课程事实。',
+  phonics: '自然拼读、发音、英语启蒙、单词拼读相关时可以发；要配合课程说明。',
+  followup: '轻量回访、确认能否打开、是否领取成功时可以发；不要频繁打扰。',
+  congrats: '客户完成报名、支付、领取资料或孩子取得进步时可以发；不要用于催单。',
+  polite: '通用礼貌收尾、承接和感谢时可以发；避免每句话都发。',
+  service: '表达“我帮您看/我来处理/这边安排”时可以发；必须跟具体动作。',
+  handoff_ready: '客户说转人工、找老师、班主任、电话联系时可以发；随后要进入人工协助流程。',
+};
+
+function memeUsageScene(code: string, meaning: string, searchKeyword: string) {
+  return courseMemeUsageScenes[code] || `${meaning}、${searchKeyword} 等相近客服销售场景`;
+}
+
+function memeUsageInstruction(code: string, meaning: string, keywords: string[], variantLabel: string) {
+  const fallback = `当客户表达 ${meaning}，或出现“${keywords.slice(0, 4).join('、')}”等相近语义时可以发；必须礼貌、克制、和正文语境一致。`;
+  return `${courseMemeUsageInstructions[code] || fallback} 推荐风格：${variantLabel}。`;
+}
+
+const courseMemeFeishuEmojis: Record<string, string[]> = {
+  happy: ['[微笑]', '[愉快]', '[大笑]', '[欢呼]', '[耶]'],
+  thanks: ['[双手合十]', '[感谢]', '[抱拳]'],
+  like: ['[赞]', '[+1]', '[我看行]', '[强]', '[完成]'],
+  success: ['[完成]', '[勾号]', '[100分]', '[鼓掌]'],
+  morning: ['[微笑]', '[咖啡]'],
+  noon: ['[咖啡]', '[愉快]'],
+  evening: ['[咖啡]', '[微笑]'],
+  night: ['[再见]', '[鼾睡]'],
+  ok: ['[OK]', '[了解]', '[完成]'],
+  received: ['[了解]', '[OK]', '[完成]'],
+  cheer: ['[加油]', '[奋斗]', '[冲！]', '[鼓掌]'],
+  welcome: ['[挥手]', '[微笑]', '[愉快]'],
+  question: ['[思考]', '[什么？]', '[啊？]'],
+  thinking: ['[思考]', '[思考中]', '[稍等]'],
+  sorry: ['[抱拳]', '[双手合十]'],
+  wait: ['[稍等]', '[在做了]', '[思考中]'],
+  checking: ['[在做了]', '[稍等]', '[思考]'],
+  reminder: ['[图钉]', '[闹钟]', '[点击]'],
+  deal: ['[鼓掌]', '[欢呼]', '[撒花]'],
+  signup: ['[完成]', '[鼓掌]', '[撒花]'],
+  payment: ['[完成]', '[勾号]', '[100分]'],
+  link: ['[点击]', '[OK]', '[了解]'],
+  resource: ['[图钉]', '[点击]', '[了解]'],
+  class_time: ['[日程]', '[闹钟]', '[了解]'],
+  replay: ['[电视]', '[了解]', '[OK]'],
+  gift: ['[礼物]', '[送你小红花]', '[撒花]'],
+  trial: ['[微笑]', '[愉快]', '[挥手]'],
+  discount: ['[礼物]', '[火]', '[点击]'],
+  grade: ['[了解]', '[思考]', '[OK]'],
+  parent: ['[微笑]', '[了解]', '[双手合十]'],
+  child: ['[送你小红花]', '[加油]', '[比心]'],
+  homework: ['[奋斗]', '[加油]', '[100分]'],
+  reading: ['[100分]', '[送你小红花]', '[加油]'],
+  phonics: ['[音乐]', '[100分]', '[加油]'],
+  followup: ['[图钉]', '[了解]', '[微笑]'],
+  congrats: ['[鼓掌]', '[欢呼]', '[撒花]'],
+  polite: ['[双手合十]', '[感谢]', '[微笑]'],
+  calm: ['[摸头]', '[抱拳]', '[稍等]'],
+  service: ['[在做了]', '[了解]', '[OK]'],
+  handoff_ready: ['[举手]', '[稍等]', '[了解]'],
+};
+
+function buildDefaultMemeLibrary(): PipelineTemplateMemeLibraryItem[] {
+  return courseMemeScenes.flatMap(([code, meaning, keywords, searchKeyword]) =>
+    courseMemeVariants.map(([variant, variantLabel], index) => ({
+      id: `${code}-${variant}`,
+      enabled: true,
+      source: 'builtin',
+      meaning: `${meaning} · ${variantLabel}`,
+      trigger_keyword: `{${code}}`,
+      code,
+      emotion: code,
+      search_keyword: searchKeyword,
+      usage_scene: memeUsageScene(code, meaning, searchKeyword),
+      usage_instruction: memeUsageInstruction(code, meaning, keywords, variantLabel),
+      feishu_emoji: courseMemeFeishuEmojis[code]?.[index % courseMemeFeishuEmojis[code].length] || '[微笑]',
+      keywords,
+      tags: [code, meaning, variantLabel, searchKeyword],
+      file_key: `sales-memes/${code}/${variant}.png`,
+      image_url: '',
+    })),
+  );
+}
+
+const courseMemeConfig: PipelineTemplateMemeConfig = {
+  enabled: true,
+  large_enabled: true,
+  feishu_native_enabled: true,
+  smart_judge_enabled: true,
+  small_interval_rounds: 3,
+  large_interval_rounds: 5,
+  library_enabled: true,
+  api_fallback_enabled: true,
+  oiapi_enabled: true,
+  oiapi_limit: 5,
+  library: buildDefaultMemeLibrary(),
+};
 const courseFollowupSequences = [
   {
     stage: 'purchase',
@@ -934,6 +1156,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       voice_type: 'zh_female_vv_uranus_bigtts',
       encoding: 'mp3',
     },
+    memes: courseMemeConfig,
     nodes,
     edges,
     variables: {
@@ -952,6 +1175,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       followup_sequences: courseFollowupSequences,
       long_term_broadcasts: courseLongTermBroadcasts,
       human_handoff: defaultHumanHandoff,
+      memes: courseMemeConfig,
       special_cases: [],
       stop_rules: courseStopRules,
       stop_policy: courseStopPolicy,
@@ -1043,6 +1267,8 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
       single_date: '',
       message: '',
       push_message: '',
+      loop_enabled: false,
+      items: [],
     },
     interaction_radar: {
       enabled: false,
@@ -1058,6 +1284,10 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
         enabled: false,
       })),
       notify_message: '',
+    },
+    memes: {
+      ...courseMemeConfig,
+      library: buildDefaultMemeLibrary(),
     },
     special_cases: [],
     image_text_bindings: [],
@@ -1141,6 +1371,14 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       single_date: '',
       message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
       push_message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+      loop_enabled: false,
+      items: [
+        {
+          day: 1,
+          time: '10:00',
+          message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+        },
+      ],
     },
     interaction_radar: {
       enabled: false,
@@ -1151,6 +1389,10 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       ...defaultHumanHandoff,
       enabled: false,
       notify_message: '我这边帮您记录好了，稍等我看下具体情况~',
+    },
+    memes: {
+      ...courseMemeConfig,
+      library: buildDefaultMemeLibrary(),
     },
     special_cases: [
       {
@@ -1194,6 +1436,7 @@ export function applyTemplateConfigToWorkflow(
       ...(workflow.voice || {}),
       ...templateConfig.voice,
     },
+    memes: templateConfig.memes,
     nodes: workflow.nodes.map((node) => {
       const stepId = typeof node.config?.step_id === 'string' ? node.config.step_id : '';
       const binding = bindingByStepId.get(stepId);
@@ -1244,6 +1487,7 @@ export function applyTemplateConfigToWorkflow(
       scheduled_push: templateConfig.scheduled_push,
       interaction_radar: templateConfig.interaction_radar,
       human_handoff: templateConfig.human_handoff,
+      memes: templateConfig.memes,
       special_cases: templateConfig.special_cases || [],
       opening_message: templateConfig.opening_message,
       recommended_questions: templateConfig.recommended_questions,

@@ -51,6 +51,7 @@ export interface PipelineWorkflow {
   scenario: 'sales' | 'support' | 'task' | 'custom';
   metadata?: Record<string, unknown>;
   voice?: Record<string, unknown>;
+  memes?: PipelineTemplateMemeConfig;
   special_cases?: PipelineTemplateSpecialCase[];
   nodes: PipelineWorkflowNode[];
   edges: PipelineWorkflowEdge[];
@@ -116,6 +117,17 @@ export interface PipelineTemplateBroadcast {
   image_key?: string;
 }
 
+export interface PipelineTemplateScheduledPushItem {
+  day: number;
+  time: string;
+  message: string;
+  image_key?: string;
+  image_url?: string;
+  link_title?: string;
+  link_url?: string;
+  link_description?: string;
+}
+
 export interface PipelineTemplateStopRules {
   stop_keywords: string[];
   stop_tags: string[];
@@ -160,6 +172,38 @@ export interface PipelineTemplateSpecialCase {
   ai_rewrite: boolean;
   file_key?: string;
   image_url?: string;
+}
+
+export interface PipelineTemplateMemeLibraryItem {
+  id: string;
+  enabled: boolean;
+  meaning: string;
+  trigger_keyword: string;
+  code?: string;
+  emotion?: string;
+  search_keyword?: string;
+  usage_scene?: string;
+  usage_instruction?: string;
+  feishu_emoji?: string;
+  keywords?: string[];
+  tags?: string[];
+  file_key?: string;
+  image_url?: string;
+  source?: string;
+}
+
+export interface PipelineTemplateMemeConfig {
+  enabled: boolean;
+  large_enabled: boolean;
+  feishu_native_enabled: boolean;
+  smart_judge_enabled: boolean;
+  small_interval_rounds: number;
+  large_interval_rounds: number;
+  library_enabled: boolean;
+  api_fallback_enabled: boolean;
+  oiapi_enabled?: boolean;
+  oiapi_limit?: number;
+  library: PipelineTemplateMemeLibraryItem[];
 }
 
 export interface PipelineTemplateReplyControls {
@@ -218,6 +262,15 @@ export interface PipelineTemplateConfig {
     single_date: string;
     message: string;
     push_message?: string;
+    loop_enabled?: boolean;
+    loop_days?: number;
+    start_date?: string;
+    items?: PipelineTemplateScheduledPushItem[];
+    image_key?: string;
+    image_url?: string;
+    link_title?: string;
+    link_url?: string;
+    link_description?: string;
   };
   interaction_radar: {
     enabled: boolean;
@@ -225,6 +278,7 @@ export interface PipelineTemplateConfig {
     click_reply: string;
   };
   human_handoff: PipelineTemplateHumanHandoff;
+  memes?: PipelineTemplateMemeConfig;
   special_cases: PipelineTemplateSpecialCase[];
   image_text_bindings: PipelineTemplateImageTextBinding[];
   course_profile?: Record<string, string>;

@@ -36,6 +36,7 @@ TASK_ASSISTANT_SCENARIO = 'task_assistant_ant_af'
 TASK_ASSISTANT_PIPELINE_UUID = 'task-assistant-ant-af-pipeline'
 TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID = 'task-assistant-ant-af-template-pipeline'
 DEFAULT_ASSISTANT_MODEL_UUID = ''
+TASK_ASSISTANT_FAILURE_HINT = 'AI回复失败，请检查模型配置、API地址或Key是否可用，然后再试一次'
 COURSE_SALES_DOUBAO_PROVIDER_UUID = 'lnp-doubao'
 COURSE_SALES_DOUBAO_PROVIDER_NAME = '豆包'
 COURSE_SALES_DOUBAO_PROVIDER_REQUESTER = 'volcark-chat-completions'
@@ -181,6 +182,233 @@ COURSE_REPLY_CONTROLS = {
     'merge_reply_enabled': True,
     'merge_delay_seconds': 10.0,
 }
+COURSE_MEME_SCENES = [
+    ('happy', '开心回应', ['开心', '高兴', '太好了', '哈哈', '顺利'], '开心'),
+    ('thanks', '感谢回应', ['谢谢', '感谢', '辛苦了', '麻烦你', '拜托'], '感谢'),
+    ('like', '认可点赞', ['不错', '可以', '赞', '认可', '支持'], '点赞'),
+    ('success', '完成确认', ['完成', '搞定', '成功', '好了', '已处理'], '完成'),
+    ('morning', '早上好', ['早上好', '早安', '上午好', '新的一天', '早'], '早上好'),
+    ('noon', '中午好', ['中午好', '午安', '吃饭', '午休', '中午'], '中午好'),
+    ('evening', '晚上好', ['晚上好', '晚好', '下班', '今晚', '晚上'], '晚上好'),
+    ('night', '晚安提醒', ['晚安', '早点休息', '明天看', '夜里', '休息'], '晚安'),
+    ('ok', '好的收到', ['好的', '好嘞', 'OK', '可以的', '没问题'], '好的'),
+    ('received', '收到记录', ['收到', '已记录', '我记下了', '明白', '了解'], '收到'),
+    ('cheer', '加油鼓励', ['加油', '坚持', '鼓励', '别着急', '慢慢来'], '加油'),
+    ('welcome', '欢迎咨询', ['欢迎', '你好', '您好', '在的', '来了'], '欢迎'),
+    ('question', '温和疑问', ['怎么', '哪里', '为什么', '不清楚', '疑问'], '疑问'),
+    ('thinking', '正在思考', ['我看看', '确认下', '稍等', '查一下', '核对'], '思考'),
+    ('sorry', '礼貌抱歉', ['抱歉', '不好意思', '久等', '给您添麻烦', '稍晚'], '抱歉'),
+    ('wait', '稍等一下', ['稍等', '等我下', '马上', '一会儿', '别急'], '稍等'),
+    ('checking', '正在核实', ['核实', '确认', '查看', '检查', '帮您看'], '核实'),
+    ('reminder', '温和提醒', ['提醒', '记得', '别忘了', '可以看看', '留意'], '提醒'),
+    ('deal', '成交喜悦', ['成交', '下单', '购买', '订了', '买好了'], '成交'),
+    ('signup', '报名成功', ['报名', '已报名', '报好了', '提交', '领课'], '报名'),
+    ('payment', '支付确认', ['支付', '付款', '付好了', '订单', '缴费'], '支付'),
+    ('link', '链接指引', ['链接', '入口', '打开', '点击', '访问'], '链接'),
+    ('resource', '资料资源', ['资料', '资源', '二维码', '听力', '答案'], '资料'),
+    ('class_time', '上课时间', ['上课', '时间', '几点', '安排', '课程表'], '上课时间'),
+    ('replay', '回放说明', ['回放', '录播', '错过', '补看', '复习'], '回放'),
+    ('gift', '礼品赠品', ['礼品', '赠品', '资料包', '奖励', '福利'], '礼品'),
+    ('trial', '体验课', ['体验', '试听', '试试', '体验课', '先看看'], '体验课'),
+    ('discount', '优惠提醒', ['优惠', '活动', '价格', '9元', '名额'], '优惠'),
+    ('grade', '年级确认', ['年级', '几年级', '大班', '一年级', '孩子'], '年级'),
+    ('parent', '家长沟通', ['家长', '妈妈', '爸爸', '您家', '孩子家长'], '家长'),
+    ('child', '孩子鼓励', ['孩子', '小朋友', '学习', '兴趣', '基础'], '孩子'),
+    ('homework', '作业练习', ['作业', '练习', '打卡', '预习', '复习'], '练习'),
+    ('reading', '阅读写作', ['阅读', '写作', '作文', '理解', '表达'], '阅读'),
+    ('phonics', '自然拼读', ['自然拼读', '发音', '拼读', '单词', '英语'], '自然拼读'),
+    ('followup', '跟进关怀', ['跟进', '回访', '看看', '需要帮忙', '进展'], '跟进'),
+    ('congrats', '恭喜祝贺', ['恭喜', '太棒了', '祝贺', '好消息', '进步'], '恭喜'),
+    ('polite', '礼貌亲切', ['请', '您', '方便', '麻烦', '辛苦'], '礼貌'),
+    ('calm', '安抚情绪', ['别急', '不着急', '慢慢来', '我帮您', '放心'], '安抚'),
+    ('service', '服务承接', ['我来帮您', '帮您看', '处理', '安排', '登记'], '服务'),
+    ('handoff_ready', '准备人工协助', ['人工', '老师联系', '班主任', '电话', '专人'], '协助'),
+]
+COURSE_MEME_VARIANTS = [
+    ('soft', '温和友好'),
+    ('bright', '轻松明亮'),
+    ('steady', '稳妥专业'),
+    ('cute', '亲切可爱'),
+    ('clean', '简洁礼貌'),
+]
+COURSE_MEME_USAGE_SCENES = {
+    'happy': '客户情绪轻松、表达开心、咨询进展顺利',
+    'thanks': '客户配合、表达感谢、完成信息确认或下单后',
+    'like': '客户做出正向回应、认可方案、完成操作',
+    'success': '报名、支付、资料领取、问题处理完成后',
+    'morning': '客户早上首次进线或早安问候',
+    'noon': '中午轻松问候、午间跟进',
+    'evening': '晚上轻量问候、结束前温和提醒',
+    'night': '晚间收尾、提醒客户早点休息',
+    'ok': '确认收到、答复客户“可以/好的/没问题”',
+    'received': '记录客户信息、确认已收到截图/年级/需求',
+    'cheer': '鼓励客户或孩子完成学习、打卡、报名动作',
+    'welcome': '客户首次进线、问你好/在吗/想咨询',
+    'question': '客户提出疑问，需要温和承接问题',
+    'thinking': '需要确认、查询、核对资料或稍作思考',
+    'sorry': '出现等待、误解、服务不便，需要礼貌道歉',
+    'wait': '需要客户稍等、客服正在查找或处理',
+    'checking': '正在核实报名、支付、资料、课程安排',
+    'reminder': '温和提醒客户查看链接、截图、上课或支付',
+    'deal': '客户明确购买、下单、成交、报名意愿强',
+    'signup': '客户准备报名、领取课程名额、需要报名链接',
+    'payment': '客户支付、订单、截图、付款确认相关',
+    'link': '发送或解释报名链接、资源入口、访问入口',
+    'resource': '图书资源、二维码、听力、答案、资料包相关',
+    'class_time': '上课时间、排课、日程、几点上课相关',
+    'replay': '回放、录播、错过课程、补看相关',
+    'gift': '赠品、资料包、完课好礼、福利说明相关',
+    'trial': '体验课、试听、先体验再决定相关',
+    'discount': '优惠、活动价、名额、限时权益相关',
+    'grade': '询问孩子年级、基础、学段、适合课程',
+    'parent': '面向家长的礼貌沟通、确认孩子情况',
+    'child': '鼓励孩子学习、兴趣、基础提升',
+    'homework': '作业、练习、打卡、预习、复习相关',
+    'reading': '阅读、写作、作文、表达训练相关',
+    'phonics': '自然拼读、发音、英语启蒙、单词拼读相关',
+    'followup': '跟进客户进展、轻量回访、确认是否打开',
+    'congrats': '恭喜客户完成报名、支付、领取或孩子进步',
+    'polite': '通用礼貌承接、轻松但不冒犯的客服表达',
+    'calm': '客户着急、不满、情绪波动，需要安抚',
+    'service': '客服承接处理、帮客户查看、安排下一步',
+    'handoff_ready': '客户要求人工、需要老师/班主任/专人协助',
+}
+COURSE_MEME_USAGE_INSTRUCTIONS = {
+    'welcome': '客户首次进线、打招呼、问“在吗/你好”时可以发；不要用于客户投诉或严肃质疑。',
+    'thanks': '客户配合、下单、发截图、提供信息或表达感谢时可以发；不要用于催单施压。',
+    'sorry': '等待过久、解释不清、给客户带来不便时可以发；不要反复发送造成打扰。',
+    'calm': '客户着急、情绪激动、遇到问题时用于先共情安抚；不要用于成交庆祝。',
+    'question': '客户提问、表达疑惑、需要进一步解释时可以发；不要用于客户已经明确拒绝的场景。',
+    'thinking': '需要查询、核对、确认资料或报名状态时可以发；发送后要继续给出明确答复。',
+    'wait': '需要客户稍等、正在处理或转接前可以发；不要让客户只看到表情没有正文。',
+    'checking': '正在核实支付、截图、课程安排、资源入口时可以发；必须搭配处理说明。',
+    'reminder': '提醒客户看链接、发截图、完成报名或留意上课时可以发；语气必须轻，不要催促压迫。',
+    'deal': '客户明确要买、已下单、报名成功时可以发；不要在客户犹豫或拒绝时发。',
+    'signup': '客户询问怎么报名、报名链接、领取体验课时可以发；不要用于投诉、道歉或情绪激动场景。',
+    'payment': '客户付款、订单、支付截图、确认支付状态时可以发；不要在未确认意愿时催付。',
+    'link': '发送真实报名链接、资源入口、卡片入口时可以发；不得替代真实链接。',
+    'resource': '客户问听力、答案、二维码、图书资源时可以发；先解决资源问题再承接课程。',
+    'class_time': '客户问几点上课、课程安排、日程时可以发；不要自行编造时间。',
+    'replay': '客户错过课程、询问回放或录播时可以发；要说明具体查看方式。',
+    'gift': '说明赠品、资料包、完课好礼、福利时可以发；不要夸大权益。',
+    'trial': '客户考虑体验课、试听、先看看时可以发；不要强迫报名。',
+    'discount': '说明优惠、活动、名额时可以发；价格和时效必须以真实链接为准。',
+    'grade': '询问或确认孩子年级、基础、学习阶段时可以发；不要套用成人口吻。',
+    'parent': '对家长表达礼貌感谢、确认孩子情况时可以发；不要显得过度亲昵。',
+    'child': '鼓励孩子学习、打卡、进步时可以发；避免对效果作绝对承诺。',
+    'homework': '作业、练习、预习、复习、打卡相关时可以发；语气鼓励为主。',
+    'reading': '阅读、写作、作文、表达训练相关时可以发；不要脱离课程事实。',
+    'phonics': '自然拼读、发音、英语启蒙、单词拼读相关时可以发；要配合课程说明。',
+    'followup': '轻量回访、确认能否打开、是否领取成功时可以发；不要频繁打扰。',
+    'congrats': '客户完成报名、支付、领取资料或孩子取得进步时可以发；不要用于催单。',
+    'polite': '通用礼貌收尾、承接和感谢时可以发；避免每句话都发。',
+    'service': '表达“我帮您看/我来处理/这边安排”时可以发；必须跟具体动作。',
+    'handoff_ready': '客户说转人工、找老师、班主任、电话联系时可以发；随后要进入人工协助流程。',
+}
+COURSE_MEME_FEISHU_EMOJIS = {
+    'happy': ['[微笑]', '[愉快]', '[大笑]', '[欢呼]', '[耶]'],
+    'thanks': ['[双手合十]', '[感谢]', '[抱拳]'],
+    'like': ['[赞]', '[+1]', '[我看行]', '[强]', '[完成]'],
+    'success': ['[完成]', '[勾号]', '[100分]', '[鼓掌]'],
+    'morning': ['[微笑]', '[咖啡]'],
+    'noon': ['[咖啡]', '[愉快]'],
+    'evening': ['[咖啡]', '[微笑]'],
+    'night': ['[再见]', '[鼾睡]'],
+    'ok': ['[OK]', '[了解]', '[完成]'],
+    'received': ['[了解]', '[OK]', '[完成]'],
+    'cheer': ['[加油]', '[奋斗]', '[冲！]', '[鼓掌]'],
+    'welcome': ['[挥手]', '[微笑]', '[愉快]'],
+    'question': ['[思考]', '[什么？]', '[啊？]'],
+    'thinking': ['[思考]', '[思考中]', '[稍等]'],
+    'sorry': ['[抱拳]', '[双手合十]'],
+    'wait': ['[稍等]', '[在做了]', '[思考中]'],
+    'checking': ['[在做了]', '[稍等]', '[思考]'],
+    'reminder': ['[图钉]', '[闹钟]', '[点击]'],
+    'deal': ['[鼓掌]', '[欢呼]', '[撒花]'],
+    'signup': ['[完成]', '[鼓掌]', '[撒花]'],
+    'payment': ['[完成]', '[勾号]', '[100分]'],
+    'link': ['[点击]', '[OK]', '[了解]'],
+    'resource': ['[图钉]', '[点击]', '[了解]'],
+    'class_time': ['[日程]', '[闹钟]', '[了解]'],
+    'replay': ['[电视]', '[了解]', '[OK]'],
+    'gift': ['[礼物]', '[送你小红花]', '[撒花]'],
+    'trial': ['[微笑]', '[愉快]', '[挥手]'],
+    'discount': ['[礼物]', '[火]', '[点击]'],
+    'grade': ['[了解]', '[思考]', '[OK]'],
+    'parent': ['[微笑]', '[了解]', '[双手合十]'],
+    'child': ['[送你小红花]', '[加油]', '[比心]'],
+    'homework': ['[奋斗]', '[加油]', '[100分]'],
+    'reading': ['[100分]', '[送你小红花]', '[加油]'],
+    'phonics': ['[音乐]', '[100分]', '[加油]'],
+    'followup': ['[图钉]', '[了解]', '[微笑]'],
+    'congrats': ['[鼓掌]', '[欢呼]', '[撒花]'],
+    'polite': ['[双手合十]', '[感谢]', '[微笑]'],
+    'calm': ['[摸头]', '[抱拳]', '[稍等]'],
+    'service': ['[在做了]', '[了解]', '[OK]'],
+    'handoff_ready': ['[举手]', '[稍等]', '[了解]'],
+}
+
+
+def _course_meme_usage_scene(code: str, meaning: str, search_keyword: str) -> str:
+    return COURSE_MEME_USAGE_SCENES.get(code, f'{meaning}、{search_keyword} 等相近客服销售场景')
+
+
+def _course_meme_usage_instruction(
+    code: str,
+    meaning: str,
+    keywords: list[str],
+    variant_label: str,
+) -> str:
+    fallback = (
+        f'当客户表达 {meaning}，或出现“{"、".join(keywords[:4])}”等相近语义时可以发；'
+        '必须礼貌、克制、和正文放在合适位置，不要在投诉、拒绝、严肃问题中乱用。'
+    )
+    base = COURSE_MEME_USAGE_INSTRUCTIONS.get(code, fallback)
+    return f'{base} 推荐风格：{variant_label}。'
+
+
+def _build_default_sales_meme_library() -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for code, meaning, keywords, search_keyword in COURSE_MEME_SCENES:
+        for variant_index, (variant, variant_label) in enumerate(COURSE_MEME_VARIANTS, 1):
+            items.append(
+                {
+                    'id': f'{code}-{variant}',
+                    'enabled': True,
+                    'source': 'builtin',
+                    'meaning': f'{meaning} · {variant_label}',
+                    'trigger_keyword': f'{{{code}}}',
+                    'code': code,
+                    'emotion': code,
+                    'search_keyword': search_keyword,
+                    'usage_scene': _course_meme_usage_scene(code, meaning, search_keyword),
+                    'usage_instruction': _course_meme_usage_instruction(code, meaning, keywords, variant_label),
+                    'feishu_emoji': COURSE_MEME_FEISHU_EMOJIS.get(code, ['[微笑]'])[
+                        (variant_index - 1) % len(COURSE_MEME_FEISHU_EMOJIS.get(code, ['[微笑]']))
+                    ],
+                    'keywords': keywords,
+                    'tags': [code, meaning, variant_label, search_keyword],
+                    'file_key': f'sales-memes/{code}/{variant}.png',
+                    'image_url': '',
+                }
+            )
+    return items
+
+
+DEFAULT_SALES_MEME_LIBRARY = _build_default_sales_meme_library()
+COURSE_MEME_CONFIG = {
+    'enabled': True,
+    'large_enabled': True,
+    'feishu_native_enabled': True,
+    'smart_judge_enabled': True,
+    'small_interval_rounds': 3,
+    'large_interval_rounds': 5,
+    'library_enabled': True,
+    'api_fallback_enabled': True,
+    'oiapi_enabled': True,
+    'oiapi_limit': 5,
+    'library': DEFAULT_SALES_MEME_LIBRARY,
+}
 COURSE_PAYMENT_SCREENSHOT_KEYWORDS = ['付款截图', '支付截图', '付款成功', '订单截图', '订单已支付', '收款成功']
 COURSE_SCREENSHOT_TEXT_KEYWORDS = ['截图', '截屏', '截个图', '截一下', '发图']
 COURSE_SMALLTALK_KEYWORDS = [
@@ -216,25 +444,6 @@ COURSE_RESOURCE_HISTORY_LINK = 'https://mp.bookln.cn/user/history/moment.htm'
 COURSE_RESOURCE_MINI_PROGRAM = '#小程序://教辅好帮手/la0KWwjPCx8S26C'
 COURSE_RESOURCE_GOODS_GROUP_LINK = 'https://d.codeup.cn/d/UVruQn'
 COURSE_RESOURCE_OPEN_CHECK_MESSAGE = '家长，您这边能打开吗？'
-COURSE_SALES_AFTER_LINK_OPEN_MESSAGE = (
-    '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功的短信，我给您登记开课并赠送资料'
-)
-COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE = '家长领取到了吗？'
-COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE = (
-    '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。'
-)
-COURSE_SALES_EVENING_FOLLOWUP_MESSAGE = (
-    '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~'
-)
-COURSE_SALES_CONVERSION_SOP_TEXT = (
-    '通用成交SOP：先解释用户当前问题，再自然问要不要给孩子试试；'
-    '接着说明现在报名还送结课礼物；发完结课礼物图后，再发雷达报名链接；'
-    '最后单独追问“这是报名链接，家长，您这边能打开吗？”。'
-    f'雷达链接打开后，回复“{COURSE_SALES_AFTER_LINK_OPEN_MESSAGE}”。'
-    f'若家长没发截图，5分钟后追问“{COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE}”；'
-    f'仍未回复，1小时后优先语音追问“{COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE}”；'
-    f'还未回复，白天触发则当晚21:30优先语音追问，21点后触发则次日10:00追问：“{COURSE_SALES_EVENING_FOLLOWUP_MESSAGE}”。'
-)
 
 COURSE_OPENING_MESSAGE = (
     '😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n'
@@ -304,11 +513,11 @@ COURSE_RESOURCE_FAQS = [
 
 COURSE_FAQS = [{'intent': 'course_schedule',
   'question': '什么时候上课',
-  'answer': '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。\n\n需要给孩子试试不，现在报名还送结课礼物。',
-  'keywords': ['什么时候', '几点', '上课时间', '课表']},
+  'answer': '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。',
+  'keywords': ['什么时候', '几点', '上课时间', '课表', '回放']},
  {'intent': 'course_intro',
   'question': '这个是什么课/这是什么/你发是什么',
-  'answer': '这是猿辅导英语自然拼读集训营，9元5天10节，专为大班到小学4年级设计。课程包含5次绘本阅读实践、180次开口练习、360分钟配套视频，重点教孩子拼读规律，鼓励孩子多表达，提升口语能力。报名链接我发您。',
+  'answer': '这是猿辅导英语自然拼读集训营，9元5天10节，适合大班到小学4年级。主要带孩子学拼读规律、绘本阅读和开口表达，目标是见词能拼、听音能写，少靠死记硬背。',
   'keywords': ['什么课', '是什么', '自然拼读', '拼读', '发音', '9元课']},
  {'intent': 'reading_thinking_intro',
   'question': '阅读+思维是什么课',
@@ -316,7 +525,7 @@ COURSE_FAQS = [{'intent': 'course_schedule',
   'keywords': ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通']},
  {'intent': 'course_content',
   'question': '学习内容',
-  'answer': '每个年级的学习内容不一样，具体上课后才可以看到亲，是根据孩子年级匹配的。\n\n需要给孩子试试不，现在报名还送结课礼物。',
+  'answer': '核心内容包括26个字母巧记、拼读规则、绘本阅读实践、开口跟读练习和配套视频。不同年级会匹配不同难度，重点帮孩子理解单词发音规律、提升口语和阅读兴趣。',
   'keywords': ['学习内容', '内容', '学啥', '学什么', '课表', '课程安排']},
  {'intent': 'teacher_service',
   'question': '老师伴学服务是什么老师',
@@ -324,11 +533,11 @@ COURSE_FAQS = [{'intent': 'course_schedule',
   'keywords': ['老师伴学', '伴学', '什么老师', '班主任', '指导老师', '老师服务']},
  {'intent': 'course_replay',
   'question': '支持回放吗',
-  'answer': '当然支持呀，3年内可以无限次看回放，手机和平板都能学。咱们课每次也就一小时左右，时间安排很灵活的。\n\n要不要试试看，现在报名，还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。',
+  'answer': '支持回放，3年内可以无限次看。孩子一次没听懂也可以反复看，没赶上直播也不影响学习。',
   'keywords': ['回放', '没时间', '错过', '直播没赶上']},
  {'intent': 'course_conflict',
   'question': '和其他课有冲突',
-  'answer': '不冲突的，这个课更侧重教孩子拼读技巧和方法，支持回放，可以给孩子试试哈。\n\n报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。\n\n主要是赠送实物的名额，就这一周有。我把报名链接发给您。',
+  'answer': '不冲突的，这个课更侧重拼读技巧和方法，而且支持回放。时间不方便也可以先报名，后面按老师安排和回放节奏学。',
   'keywords': ['冲突', '没空', '时间不方便', '有课', '上班']},
  {'intent': 'purchase',
   'question': '要买/怎么买',
@@ -455,20 +664,15 @@ COURSE_FOLLOWUP_SEQUENCES = [
         'stage': 'silence_revisit',
         'label': '沉默回访',
         'messages': [
-            {'delay_minutes': 5, 'message': COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE},
+            {'delay_minutes': 5, 'message': '家长领取到了吗？'},
             {
                 'delay_minutes': 60,
-                'message': COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
-                'voice_optional': True,
+                'message': '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。',
             },
             {
                 'delay_minutes': 0,
-                'schedule_policy': 'daytime_2130_else_next_1000',
-                'daytime_schedule_time': '21:30',
-                'night_schedule_time': '10:00',
-                'night_cutoff_time': '21:00',
-                'message': COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
-                'voice_optional': True,
+                'schedule_time': '21:30',
+                'message': '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~',
             },
         ],
     },
@@ -476,27 +680,22 @@ COURSE_FOLLOWUP_SEQUENCES = [
         'stage': 'radar_clicked',
         'label': '点雷达',
         'messages': [
-            {'delay_minutes': 0, 'message': COURSE_SALES_AFTER_LINK_OPEN_MESSAGE},
+            {'delay_minutes': 0, 'message': '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。'},
             {
                 'delay_minutes': 0,
                 'message': '预约通道已经发给您了👆，支付成功以后截图给我哦，给您登记发赠课~',
                 'link_id': 'phonics_radar_apply',
                 'send_link_card': True,
             },
-            {'delay_minutes': 5, 'message': COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE},
+            {'delay_minutes': 5, 'message': '家长领取到了吗？'},
             {
                 'delay_minutes': 60,
-                'message': COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
-                'voice_optional': True,
+                'message': '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。',
             },
             {
                 'delay_minutes': 0,
-                'schedule_policy': 'daytime_2130_else_next_1000',
-                'daytime_schedule_time': '21:30',
-                'night_schedule_time': '10:00',
-                'night_cutoff_time': '21:00',
-                'message': COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
-                'voice_optional': True,
+                'schedule_time': '21:30',
+                'message': '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~',
             },
         ],
     },
@@ -970,7 +1169,7 @@ COURSE_IMAGE_BINDINGS = [
         'title': '完课好礼海报',
         'text': '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
-        'trigger_intents': ['gift', 'objection', 'course_schedule', 'course_content', 'course_replay', 'course_conflict', 'purchase'],
+        'trigger_intents': ['gift', 'objection', 'course_intro', 'purchase'],
         'requires_course_sales_signup_link': True,
         'enabled': True,
     },
@@ -994,7 +1193,7 @@ COURSE_RADAR_CONFIG = {
         {
             'event': 'link_open',
             'delay_minutes': 0,
-            'message': COURSE_SALES_AFTER_LINK_OPEN_MESSAGE,
+            'message': '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。',
         },
         {
             'event': 'browse_30s',
@@ -1199,6 +1398,7 @@ class TaskAssistantService:
         intent = self.classify_intent(text, query.message_chain, previous_messages, progress, workflow)
         self._record_progress(session_key, intent)
         query.variables['workflow_intent'] = intent
+        self._apply_lark_reaction_for_intent(query, intent)
         query.variables['task_assistant_voice_reply'] = self._has_voice(query.message_chain)
         model_info = await self._resolve_primary_llm_model_info(query, workflow)
         supports_native_audio = audio_content.model_supports_native_audio(
@@ -1634,11 +1834,28 @@ class TaskAssistantService:
         await self._schedule_course_sales_outreach_for_query(query, workflow, intent)
         intent = self._apply_course_faq_short_answer(intent, text, workflow, query)
         query.variables['workflow_intent'] = intent
+        self._apply_lark_reaction_for_intent(query, intent)
         self._rewrite_user_message_for_course_sales(query, intent, supports_native_audio=supports_native_audio)
         self._append_course_sales_control_context(query, intent)
 
         return {'handled': True, 'intent': intent}
 
+    def _apply_lark_reaction_for_intent(self, query: pipeline_query.Query, intent: dict[str, Any]) -> None:
+        if not isinstance(intent, dict):
+            return
+        intent_name = str(intent.get('intent') or '').strip()
+        emoji_type = ''
+        meme_emotion = ''
+        if intent_name == 'resource_confirmed':
+            emoji_type = 'SMILE'
+            meme_emotion = '开心'
+        elif intent_name == 'purchased':
+            emoji_type = 'THUMBSUP'
+            meme_emotion = '赞同'
+        if emoji_type:
+            query.variables['lark_reaction_emoji_type'] = emoji_type
+        if meme_emotion:
+            query.variables['auto_meme_emotion'] = meme_emotion
     async def _classify_course_sales_intent(
         self,
         text: str,
@@ -1894,12 +2111,10 @@ class TaskAssistantService:
         selected_profile = self._select_course_sales_profile(workflow, normalized)
         step_ids = payload.get('step_ids') if isinstance(payload.get('step_ids'), list) else []
         step_ids = [str(step_id) for step_id in step_ids if str(step_id) in {'gift_poster', 'gift_qr'}]
-        if intent_name == 'course_intro':
-            step_ids = []
         if not step_ids:
             step_id = self._course_step_for_intent(intent_name)
             step_ids = [step_id] if step_id else []
-        include_link = payload.get('include_link') is True or intent_name in {'purchase', 'radar_clicked', 'course_intro'}
+        include_link = payload.get('include_link') is True or intent_name in {'purchase', 'radar_clicked'}
         intent = self._course_intent(
             intent_name,
             confidence,
@@ -2129,19 +2344,6 @@ class TaskAssistantService:
             if resource_issue_type:
                 intent['resource_issue_type'] = resource_issue_type
             return intent
-        if any(keyword in normalized for keyword in ['学习内容', '课程内容', '学什么', '学啥', '内容是什么', '课程安排']):
-            intent = self._course_intent(
-                'course_content',
-                0.86,
-                '优先命中课程学习内容问题',
-                step_ids=['gift_poster'],
-                selected_profile=selected_profile,
-            )
-            answer = self._faq_answer_for_intent('course_content', workflow)
-            if answer:
-                intent['faq_short_answer'] = answer
-                intent['reply_mode'] = 'faq_polish'
-            return intent
         for faq in course_faqs:
             if any(str(keyword).lower() in normalized for keyword in faq.get('keywords', [])):
                 intent = str(faq.get('intent') or 'course_intro')
@@ -2207,11 +2409,11 @@ class TaskAssistantService:
         return ''
 
     def _course_step_for_intent(self, intent: str) -> str:
-        if intent in {'purchase', 'course_intro', 'link_error', 'radar_clicked'}:
+        if intent in {'purchase', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
             return ''
         if intent in {'purchased', 'screenshot_help'}:
             return 'gift_qr'
-        if intent in {'gift', 'objection', 'course_schedule', 'course_replay', 'course_content', 'grade'}:
+        if intent in {'gift', 'objection', 'course_intro', 'course_content', 'grade'}:
             return 'gift_poster'
         if intent in {'resource_help'}:
             return 'gift_qr'
@@ -2789,46 +2991,6 @@ class TaskAssistantService:
                 '说明支付9元后截图或报名成功短信发来，用于登记开课和资料。'
                 '不得输出 xxx、XXXX、占位符或自编链接。'
             )
-        elif intent_name == 'course_schedule':
-            control_text = (
-                '\n\n[课程销售上下文]\n'
-                '用户询问什么时候上课。本轮先准确说明自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；'
-                '再说明没赶上也没关系，3年内可以反复看回放，手机和平板都能学；'
-                '然后自然、生动地催一下家长给孩子试试，说明现在报名还送结课礼物；'
-                '最后发送报名链接卡片。'
-                f'报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
-                '不得输出 xxx、XXXX、占位符或自编链接。'
-            )
-        elif intent_name == 'course_content':
-            control_text = (
-                '\n\n[课程销售上下文]\n'
-                '用户询问学习内容。本轮不要复述“这个是什么课”的课程介绍；'
-                '先说明每个年级的学习内容不一样，具体上课后才可以看到，是根据孩子年级匹配的；'
-                '然后自然承接“需要给孩子试试不，现在报名还送结课礼物”；'
-                '最后发送报名链接卡片。'
-                f'报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
-                '不得输出 xxx、XXXX、占位符或自编链接。'
-            )
-        elif intent_name == 'course_replay':
-            control_text = (
-                '\n\n[课程销售上下文]\n'
-                '用户询问是否支持回放。本轮先说明3年内可以无限次看回放，手机和平板都能学；'
-                '再说明每次课约1小时左右，时间安排很灵活；'
-                '然后自然承接“要不要试试看”，说明现在报名独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一；'
-                '最后发送报名链接卡片。'
-                f'报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
-                '不得输出 xxx、XXXX、占位符或自编链接。'
-            )
-        elif intent_name == 'course_conflict':
-            control_text = (
-                '\n\n[课程销售上下文]\n'
-                '用户担心和其他课冲突。本轮按自然拼读报名链接卡片SOP：'
-                '先说明不冲突、课程侧重拼读技巧和方法、支持回放；'
-                '紧接着说明报名独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一；'
-                '再强调赠送实物名额就这一周有；最后发送报名链接卡片。'
-                f'报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
-                '不得输出 xxx、XXXX、占位符或自编链接。'
-            )
         elif intent_name == 'handoff':
             handoff_config = intent.get('handoff_config') if isinstance(intent.get('handoff_config'), dict) else {}
             notify_message = self._safe_course_handoff_notify_message(handoff_config.get('notify_message'))
@@ -2875,18 +3037,11 @@ class TaskAssistantService:
 
         faq_short_answer = str(intent.get('faq_short_answer') or '').strip()
         if faq_short_answer:
-            if intent_name in {'course_schedule', 'course_content', 'course_replay', 'course_conflict'}:
-                control_text += (
-                    '\n\n[短答模板]\n'
-                    f'{faq_short_answer}\n'
-                    '请先以此为核心轻量润色回答用户当前问题，再按课程销售上下文自然、生动地承接报名和活动礼物。'
-                )
-            else:
-                control_text += (
-                    '\n\n[短答模板]\n'
-                    f'{faq_short_answer}\n'
-                    '请以此为核心轻量润色成真人客服口吻，不要扩写、不要堆话术，只答用户当前问题。'
-                )
+            control_text += (
+                '\n\n[短答模板]\n'
+                f'{faq_short_answer}\n'
+                '请以此为核心轻量润色成真人客服口吻，不要扩写、不要堆话术，只答用户当前问题。'
+            )
 
         course_profile = intent.get('course_profile') if isinstance(intent.get('course_profile'), dict) else {}
         product_key = str(intent.get('product_key') or '')
@@ -3230,7 +3385,7 @@ class TaskAssistantService:
         )
 
     async def _schedule_course_sales_broadcasts_for_target(self, target: dict[str, str], workflow: dict[str, Any]) -> None:
-        broadcasts = workflow.get('long_term_broadcasts') if isinstance(workflow.get('long_term_broadcasts'), list) else []
+        broadcasts, loop_days = self._course_scheduled_push_items(workflow)
         now = datetime.datetime.now()
         for index, broadcast in enumerate(broadcasts):
             if not isinstance(broadcast, dict):
@@ -3238,7 +3393,7 @@ class TaskAssistantService:
             message = str(broadcast.get('message') or '').strip()
             if not message:
                 continue
-            if self._contains_sop_image_reference(broadcast):
+            if not broadcast.get('_allow_image_push') and self._contains_sop_image_reference(broadcast):
                 continue
             day_offset = max(0, int(broadcast.get('day') or (index + 1)) - 1)
             scheduled_at = self._next_course_wall_clock(str(broadcast.get('time') or '10:05'), now) + datetime.timedelta(
@@ -3250,8 +3405,75 @@ class TaskAssistantService:
                 segment='course-sales:broadcast',
                 dedupe_parts=['broadcast', broadcast.get('day') or index + 1, broadcast.get('time') or '', index, target.get('session_id', '')],
                 scheduled_at=scheduled_at,
-                components=[{'type': 'plain', 'text': message}],
+                components=self._course_scheduled_push_components(broadcast),
+                interval_minutes=loop_days * 24 * 60 if loop_days > 0 else 0,
             )
+
+    def _course_scheduled_push_items(self, workflow: dict[str, Any]) -> tuple[list[dict[str, Any]], int]:
+        scheduled_push = workflow.get('scheduled_push') if isinstance(workflow.get('scheduled_push'), dict) else {}
+        configured_items = scheduled_push.get('items') if isinstance(scheduled_push.get('items'), list) else []
+        if scheduled_push.get('enabled') is False:
+            return [], 0
+        if configured_items:
+            items = [{**item, '_allow_image_push': True} for item in configured_items if isinstance(item, dict)]
+            return items, self._course_scheduled_push_loop_days(scheduled_push, items)
+
+        legacy_broadcasts = workflow.get('long_term_broadcasts') if isinstance(workflow.get('long_term_broadcasts'), list) else []
+        if legacy_broadcasts:
+            return legacy_broadcasts, 0
+
+        message = str(scheduled_push.get('message') or scheduled_push.get('push_message') or '').strip()
+        if not message:
+            return [], 0
+        item = {
+            'day': 1,
+            'time': str(scheduled_push.get('time') or '10:00'),
+            'message': message,
+            'image_key': scheduled_push.get('image_key') or '',
+            'image_url': scheduled_push.get('image_url') or '',
+            'link_title': scheduled_push.get('link_title') or '',
+            'link_url': scheduled_push.get('link_url') or '',
+            'link_description': scheduled_push.get('link_description') or '',
+            '_allow_image_push': True,
+        }
+        return [item], self._course_scheduled_push_loop_days(scheduled_push, [item])
+
+    def _course_scheduled_push_loop_days(self, scheduled_push: dict[str, Any], items: list[dict[str, Any]]) -> int:
+        if not scheduled_push.get('loop_enabled'):
+            return 0
+        days = []
+        for index, item in enumerate(items):
+            try:
+                days.append(max(1, int(item.get('day') or index + 1)))
+            except (TypeError, ValueError):
+                days.append(index + 1)
+        return max(days) if days else 0
+
+    def _course_scheduled_push_components(self, item: dict[str, Any]) -> list[dict[str, Any]]:
+        components: list[dict[str, Any]] = []
+        message = str(item.get('message') or '').strip()
+        if message:
+            components.append({'type': 'plain', 'text': message})
+        image_key = str(item.get('image_key') or '').strip()
+        image_url = str(item.get('image_url') or '').strip()
+        if image_key or image_url:
+            image_component = {'type': 'image'}
+            if image_key:
+                image_component['file_key'] = image_key
+            if image_url:
+                image_component['image_url'] = image_url
+            components.append(image_component)
+        link_url = str(item.get('link_url') or item.get('url') or '').strip()
+        if link_url:
+            components.append(
+                {
+                    'type': 'link',
+                    'title': str(item.get('link_title') or item.get('title') or '查看链接'),
+                    'description': str(item.get('link_description') or item.get('description') or ''),
+                    'url': link_url,
+                }
+            )
+        return components
 
     async def _schedule_course_sales_followup_sequence(
         self,
@@ -3292,6 +3514,7 @@ class TaskAssistantService:
         dedupe_parts: list[Any],
         scheduled_at: datetime.datetime,
         components: list[dict[str, Any]],
+        interval_minutes: int = 0,
     ) -> None:
         sales_service = getattr(self.ap, 'sales_service', None)
         if sales_service is None:
@@ -3307,7 +3530,7 @@ class TaskAssistantService:
                 'dedupe_key': self._course_sales_dedupe_key(target, dedupe_parts),
                 'message_components': components,
                 'scheduled_at': scheduled_at,
-                'interval_minutes': 0,
+                'interval_minutes': max(0, int(interval_minutes or 0)),
                 'enabled': True,
             }
         )
@@ -3381,12 +3604,6 @@ class TaskAssistantService:
         return f'course-sales:{uuid.uuid5(uuid.NAMESPACE_URL, raw).hex}'
 
     def _course_message_scheduled_at(self, message: dict[str, Any], now: datetime.datetime) -> datetime.datetime:
-        if str(message.get('schedule_policy') or '') == 'daytime_2130_else_next_1000':
-            cutoff = self._course_wall_clock_today(str(message.get('night_cutoff_time') or '21:00'), now)
-            if now >= cutoff:
-                return self._next_course_wall_clock(str(message.get('night_schedule_time') or '10:00'), now)
-            return self._next_course_wall_clock(str(message.get('daytime_schedule_time') or '21:30'), now)
-
         schedule_time = str(message.get('schedule_time') or '').strip()
         if schedule_time:
             return self._next_course_wall_clock(schedule_time, now)
@@ -3395,14 +3612,6 @@ class TaskAssistantService:
         except (TypeError, ValueError):
             delay_minutes = 0
         return now + datetime.timedelta(minutes=max(0, delay_minutes))
-
-    def _course_wall_clock_today(self, value: str, now: datetime.datetime) -> datetime.datetime:
-        hour, minute = 0, 0
-        match = re.match(r'^\s*(\d{1,2}):(\d{1,2})\s*$', value or '')
-        if match:
-            hour = max(0, min(23, int(match.group(1))))
-            minute = max(0, min(59, int(match.group(2))))
-        return now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
     def _next_course_wall_clock(self, value: str, now: datetime.datetime) -> datetime.datetime:
         hour, minute = 10, 5
@@ -3420,22 +3629,49 @@ class TaskAssistantService:
         combined = ' '.join(str(item) for item in value.values())
         return bool(image_key) or any(token in combined for token in ['sop_doc_media', 'image1.png', 'image2.png', 'image3.png'])
 
+    def _compose_meme_usage_prompt(self, workflow: dict[str, Any]) -> str:
+        raw_memes = workflow.get('memes') if isinstance(workflow.get('memes'), dict) else {}
+        memes = self._normalize_course_meme_config(raw_memes)
+        if memes.get('enabled') is False or not memes.get('library_enabled'):
+            return ''
+
+        lines: list[str] = []
+        seen_codes: set[str] = set()
+        for item in memes.get('library', []):
+            if not isinstance(item, dict) or item.get('enabled') is False:
+                continue
+            code = str(item.get('code') or item.get('trigger_keyword') or '').strip().strip('{}')
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            trigger = str(item.get('trigger_keyword') or f'{{{code}}}')
+            scene = str(item.get('usage_scene') or item.get('meaning') or '').strip()
+            instruction = str(item.get('usage_instruction') or '').strip()
+            lines.append(f'- {trigger}：使用场景：{scene}；使用说明：{instruction}')
+            if len(lines) >= 40:
+                break
+        if not lines:
+            return ''
+        return (
+            '\n\n表情包触发规则：\n'
+            '- 只有在语义、情绪和客服场景确实匹配时，才在回复中自然插入一个触发码；系统会自动把触发码替换成小表情或大表情包。\n'
+            '- 触发码要放在合适的位置，不要全部放开头；不要每句话都发；客户投诉、拒绝、严肃问题时优先解决问题。\n'
+            '- 只能使用下面列出的触发码，不要输出未配置的代码。\n'
+            + '\n'.join(lines)
+        )
+
     def compose_course_sales_prompt(self, workflow: dict[str, Any] | None = None) -> str:
         workflow = workflow if isinstance(workflow, dict) else {}
         stop_rules = workflow.get('stop_rules') if isinstance(workflow.get('stop_rules'), dict) else COURSE_STOP_RULES
         stop_keywords = '、'.join(stop_rules.get('stop_keywords', [])[:10])
+        meme_usage_prompt = self._compose_meme_usage_prompt(workflow)
         return f"""你是微信/企微私域里的真人课程客服兼销售，负责猿辅导体验课咨询。
 
 人设与口吻：
 - 不要自称 AI、机器人、智能助手。
-- 像真人客服：短句、直接、自然；先回答用户当前问题，再视情况引导成交。
+- 像真人客服：短句、直接、自然；先回答用户当前问题，再视情况引导。
 - 用户问图书资源，优先解决资源问题，不要急着推课。
 - 用户发来语音时先理解内容；若已启用语音回复，输出适合 TTS 的短句。
-
-成交SOP：
-- {COURSE_SALES_CONVERSION_SOP_TEXT}
-- 课程咨询默认遵循“先客服解释，再销售承接”；话术不必逐字固定，但动作顺序必须稳定。
-- 只有资源问题未解决、用户明确拒绝/投诉/转人工、无孩子/非目标、或用户已报名已支付时，才停止这条成交SOP。
 
 禁则：
 - 不承诺固定提分、效果翻倍、百分百有效等绝对化结果。
@@ -3447,16 +3683,17 @@ class TaskAssistantService:
 
 回复原则：
 0. 不要输出思考过程、推理过程、草稿、分析步骤或 <think> 标签；只输出给家长看的最终回复。
-1. 先答用户当前问题，不要整段塞话术；凡课程咨询且未命中停止边界，答完要自然承接“要不要给孩子试试”和“现在报名送结课礼物”。
+1. 只答用户当前问题，不要整段塞话术或主动背书未问到的内容。
 2. 最多 2 条短消息，必要时 3 条；每条 15-35 字左右，避免一大段。
 3. 不用“作为AI/建议您/希望能帮到您/如有其他问题”等机器腔；不要总结、不要讲大道理。
 4. 回复最后不要用句号结尾，也不要用“还有什么问题随时问我”收尾。
 5. 首次自然回复可以带一个轻松表情符号，不要堆表情。
 6. 涉及图书资源链接、资源卡片、扫码记录或小程序时，最后用单独短消息追问“家长，您这边能打开吗？”
 7. 用户确认资源能打开后，不要重复问能打开吗；先问孩子几年级，再按年级和基础承接。
-8. 需要报名或课程咨询进入成交承接时，先确认试课意愿和完课好礼，再由工作流发礼物图、雷达报名链接和打开确认。
+8. 需要报名时，先确认报名意愿和完课好礼，再发链接；不需要时不硬推。
 9. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
 10. 需要图片时由工作流追加素材，不要口头描述图片内容。
+{meme_usage_prompt}
 """.strip()
 
     async def synthesize_reply_voice(self, query: pipeline_query.Query, text: str) -> str | None:
@@ -3799,116 +4036,6 @@ class TaskAssistantService:
             or metadata.get('scenario') == COURSE_SALES_SCENARIO
         )
 
-    def _sync_course_sales_runtime_content(self, config: dict[str, Any]) -> bool:
-        seeded_answers = {
-            intent: self._faq_answer_for_intent(intent, {'course_faqs': COURSE_FAQS})
-            for intent in ('course_intro', 'course_schedule', 'course_content', 'course_replay', 'course_conflict')
-        }
-        seeded_answers = {intent: answer for intent, answer in seeded_answers.items() if answer}
-        changed = False
-
-        def patch_faqs(container: dict[str, Any]) -> None:
-            nonlocal changed
-            faqs = container.get('course_faqs')
-            if not isinstance(faqs, list):
-                return
-            for faq in faqs:
-                if not isinstance(faq, dict):
-                    continue
-                if str(faq.get('intent') or '') == 'course_schedule' and isinstance(faq.get('keywords'), list):
-                    next_keywords = [keyword for keyword in faq['keywords'] if str(keyword).strip() != '回放']
-                    if next_keywords != faq['keywords']:
-                        faq['keywords'] = next_keywords
-                        changed = True
-                seeded_answer = seeded_answers.get(str(faq.get('intent') or ''))
-                if not seeded_answer:
-                    continue
-                if faq.get('answer') == seeded_answer:
-                    continue
-                faq['answer'] = seeded_answer
-                changed = True
-
-        def sync_gift_poster_image_triggers(container: dict[str, Any]) -> None:
-            nonlocal changed
-
-            def sync_intents(holder: dict[str, Any]) -> None:
-                nonlocal changed
-                file_key = str(holder.get('file_key') or '').strip()
-                if not file_key.endswith('gift_poster.jpeg'):
-                    return
-                intents = holder.get('trigger_intents')
-                if not isinstance(intents, list):
-                    return
-                next_intents = [intent for intent in intents if intent != 'course_intro']
-                for required_intent in ('course_schedule', 'course_content', 'course_replay', 'course_conflict'):
-                    if required_intent not in next_intents:
-                        next_intents.append(required_intent)
-                if next_intents != intents:
-                    holder['trigger_intents'] = next_intents
-                    changed = True
-
-            bindings = container.get('image_text_bindings')
-            if isinstance(bindings, list):
-                for binding in bindings:
-                    if not isinstance(binding, dict):
-                        continue
-                    sync_intents(binding)
-            nodes = container.get('nodes')
-            if isinstance(nodes, list):
-                for node in nodes:
-                    if not isinstance(node, dict) or node.get('type') != 'image':
-                        continue
-                    node_config = node.get('config') if isinstance(node.get('config'), dict) else {}
-                    sync_intents(node_config)
-
-        def sync_sop_defaults(container: dict[str, Any]) -> None:
-            nonlocal changed
-            if not isinstance(container, dict):
-                return
-            if 'role_prompt' in container:
-                next_prompt = self.compose_course_sales_prompt(container)
-                if container.get('role_prompt') != next_prompt:
-                    container['role_prompt'] = next_prompt
-                    changed = True
-
-            radar = container.get('radar')
-            if isinstance(radar, dict):
-                rules = radar.get('rules')
-                if isinstance(rules, list):
-                    for rule in rules:
-                        if not isinstance(rule, dict) or rule.get('event') != 'link_open':
-                            continue
-                        if rule.get('message') != COURSE_SALES_AFTER_LINK_OPEN_MESSAGE:
-                            rule['message'] = COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
-                            changed = True
-                        break
-
-            before_followups = copy.deepcopy(container.get('followup_sequences'))
-            self._apply_course_sales_sop_followups(container)
-            if container.get('followup_sequences') != before_followups:
-                changed = True
-
-        patch_faqs(config)
-        sync_gift_poster_image_triggers(config)
-        sync_sop_defaults(config)
-        template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
-        patch_faqs(template_config)
-        sync_gift_poster_image_triggers(template_config)
-        sync_sop_defaults(template_config)
-        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
-        patch_faqs(workflow)
-        sync_gift_poster_image_triggers(workflow)
-        sync_sop_defaults(workflow)
-        workflow_template = (
-            workflow.get('template_config')
-            if isinstance(workflow.get('template_config'), dict)
-            else {}
-        )
-        patch_faqs(workflow_template)
-        sync_gift_poster_image_triggers(workflow_template)
-        sync_sop_defaults(workflow_template)
-        return changed
-
     def _apply_course_sales_runtime_defaults(self, config: dict[str, Any]) -> bool:
         if not self._is_course_sales_pipeline_config(config):
             return False
@@ -3928,8 +4055,6 @@ class TaskAssistantService:
             reference_rounds = 4
         workflow['reference_rounds'] = max(0, min(reference_rounds, 20))
         config['workflow'] = workflow
-
-        self._sync_course_sales_runtime_content(config)
 
         return config != before
 
@@ -3984,6 +4109,7 @@ class TaskAssistantService:
         ]
         config['output']['misc']['at-sender'] = False
         config['output']['misc']['quote-origin'] = True
+        config['output']['misc']['failure-hint'] = TASK_ASSISTANT_FAILURE_HINT
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else {}
         existing_voice = existing_workflow.get('voice') if isinstance(existing_workflow, dict) else {}
         config['workflow'] = self.build_workflow_config(
@@ -4012,7 +4138,17 @@ class TaskAssistantService:
         config['config_mode'] = 'template'
         config['template_config'] = template_config
         if isinstance(existing_workflow, dict) and existing_workflow:
-            config['workflow'] = existing_workflow
+            workflow = copy.deepcopy(existing_workflow)
+            workflow_metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
+            is_course_sales_workflow = (
+                workflow.get('scenario') == COURSE_SALES_SCENARIO
+                or workflow_metadata.get('scenario') == COURSE_SALES_SCENARIO
+            )
+            if is_course_sales_workflow:
+                memes = self._normalize_course_meme_config(workflow.get('memes') or template_config.get('memes'))
+                workflow['memes'] = copy.deepcopy(memes)
+                workflow.setdefault('variables', {})['memes'] = copy.deepcopy(memes)
+            config['workflow'] = workflow
         return config
 
     def _preserve_existing_basic_config(
@@ -4101,6 +4237,9 @@ class TaskAssistantService:
             'voice': voice,
             'scheduled_push': scheduled_push,
             'interaction_radar': interaction_radar,
+            'human_handoff': copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG),
+            'memes': copy.deepcopy(COURSE_MEME_CONFIG),
+            'special_cases': [],
             'image_text_bindings': [
                 {
                     'step_id': step['id'],
@@ -4121,10 +4260,23 @@ class TaskAssistantService:
                     template_config['scheduled_push'] = {**scheduled_push, **value}
                 elif key == 'interaction_radar' and isinstance(value, dict):
                     template_config['interaction_radar'] = {**interaction_radar, **value}
+                elif key == 'human_handoff' and isinstance(value, dict):
+                    current = template_config.get('human_handoff') if isinstance(template_config.get('human_handoff'), dict) else {}
+                    template_config['human_handoff'] = {**copy.deepcopy(COURSE_HUMAN_HANDOFF_CONFIG), **current, **value}
+                    template_config['human_handoff']['notify_message'] = self._safe_course_handoff_notify_message(
+                        template_config['human_handoff'].get('notify_message')
+                    )
                 elif key == 'image_text_bindings' and isinstance(value, list) and value:
                     template_config['image_text_bindings'] = value
+                elif key == 'memes' and isinstance(value, dict):
+                    template_config['memes'] = self._normalize_course_meme_config(value)
                 else:
                     template_config[key] = value
+        if isinstance(template_config.get('human_handoff'), dict):
+            template_config['human_handoff']['notify_message'] = self._safe_course_handoff_notify_message(
+                template_config['human_handoff'].get('notify_message')
+            )
+        template_config['memes'] = self._normalize_course_meme_config(template_config.get('memes'))
         return template_config
 
     def build_workflow_from_template_config(self, template_config: dict[str, Any]) -> dict[str, Any]:
@@ -4192,6 +4344,17 @@ class TaskAssistantService:
         if isinstance(interaction_radar, dict):
             workflow['interaction_radar'] = interaction_radar
             workflow.setdefault('variables', {})['interaction_radar'] = interaction_radar
+        human_handoff = template_config.get('human_handoff')
+        if isinstance(human_handoff, dict):
+            workflow['human_handoff'] = copy.deepcopy(human_handoff)
+            workflow.setdefault('variables', {})['human_handoff'] = copy.deepcopy(human_handoff)
+        special_cases = template_config.get('special_cases')
+        if isinstance(special_cases, list):
+            workflow['special_cases'] = copy.deepcopy(special_cases)
+            workflow.setdefault('variables', {})['special_cases'] = copy.deepcopy(special_cases)
+        memes = self._normalize_course_meme_config(template_config.get('memes'))
+        workflow['memes'] = copy.deepcopy(memes)
+        workflow.setdefault('variables', {})['memes'] = copy.deepcopy(memes)
         return workflow
 
     def build_workflow_config(
@@ -4213,6 +4376,7 @@ class TaskAssistantService:
             for key, value in voice_overrides.items():
                 if value is not None:
                     voice_config[key] = value
+        meme_config = self._normalize_course_meme_config({})
 
         nodes = [
             {
@@ -4454,6 +4618,10 @@ class TaskAssistantService:
             'nodes': nodes,
             'edges': edges,
             'voice': voice_config,
+            'memes': copy.deepcopy(meme_config),
+            'variables': {
+                'memes': copy.deepcopy(meme_config),
+            },
         }
 
     def _load_course_sales_template_by_slug(self, template_slug: str | None) -> dict[str, Any]:
@@ -4534,6 +4702,7 @@ class TaskAssistantService:
         config['output']['force-delay'] = {'min': 0, 'max': 0}
         config['output']['misc']['at-sender'] = False
         config['output']['misc']['quote-origin'] = True
+        config['output']['misc']['failure-hint'] = TASK_ASSISTANT_FAILURE_HINT
         existing_workflow = existing_config.get('workflow') if isinstance(existing_config, dict) else {}
         existing_voice = existing_workflow.get('voice') if isinstance(existing_workflow, dict) else {}
         config['workflow'] = self.build_course_sales_workflow_config(
@@ -4758,46 +4927,12 @@ class TaskAssistantService:
         if message.get('image_key'):
             return '礼品说明我发您一张图，方便时看看\n孩子现在几年级呀？'
         if stage == 'radar_clicked':
-            return COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
+            return '看到您打开报名入口了\n家长，您这边能打开吗？'
         if stage == 'purchased':
             return '报名后留意班主任短信或电话\n需要我帮您看下截图吗？'
         if broadcast:
             return '9元自然拼读专项课可以回放，含180次开口练习\n孩子现在几年级呀？'
         return '我这边简单跟您确认一下\n孩子现在几年级呀？'
-
-    def _apply_course_sales_sop_followups(self, template_config: dict[str, Any]) -> None:
-        sequences = template_config.get('followup_sequences')
-        if not isinstance(sequences, list):
-            return
-        for sequence in sequences:
-            if not isinstance(sequence, dict):
-                continue
-            stage = str(sequence.get('stage') or '')
-            if stage == 'silence_revisit':
-                sequence['messages'] = [
-                    {'delay_minutes': 5, 'message': COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE},
-                    {
-                        'delay_minutes': 60,
-                        'message': COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
-                        'voice_optional': True,
-                    },
-                    {
-                        'delay_minutes': 0,
-                        'schedule_policy': 'daytime_2130_else_next_1000',
-                        'daytime_schedule_time': '21:30',
-                        'night_schedule_time': '10:00',
-                        'night_cutoff_time': '21:00',
-                        'message': COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
-                        'voice_optional': True,
-                    },
-                ]
-            elif stage == 'radar_clicked':
-                messages = sequence.get('messages')
-                if not isinstance(messages, list) or not messages:
-                    sequence['messages'] = [{'delay_minutes': 0, 'message': COURSE_SALES_AFTER_LINK_OPEN_MESSAGE}]
-                else:
-                    messages[0]['delay_minutes'] = 0
-                    messages[0]['message'] = COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
 
     def _normalize_course_outreach_messages(self, template_config: dict[str, Any]) -> None:
         for sequence in template_config.get('followup_sequences', []):
@@ -4813,7 +4948,6 @@ class TaskAssistantService:
         for broadcast in template_config.get('long_term_broadcasts', []):
             if isinstance(broadcast, dict) and 'message' in broadcast:
                 broadcast['message'] = self._compact_course_outreach_message(broadcast, broadcast=True)
-        self._apply_course_sales_sop_followups(template_config)
 
     def _normalize_course_reply_controls(self, value: Any) -> dict[str, Any]:
         source = value if isinstance(value, dict) else {}
@@ -4825,6 +4959,83 @@ class TaskAssistantService:
         except (TypeError, ValueError):
             delay = float(COURSE_REPLY_CONTROLS['merge_delay_seconds'])
         normalized['merge_delay_seconds'] = max(1.0, delay)
+        return normalized
+
+    def _normalize_course_meme_library_item(self, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        item = copy.deepcopy(value)
+        trigger = str(item.get('trigger_keyword') or '').strip()
+        code = str(item.get('code') or trigger.strip('{}') or item.get('emotion') or '').strip()
+        item_id = str(item.get('id') or '').strip()
+        default_by_id = {str(default.get('id')): default for default in DEFAULT_SALES_MEME_LIBRARY}
+        default_by_code = {
+            (str(default.get('code')), str(default.get('file_key')).split('/')[-1].removesuffix('.png')): default
+            for default in DEFAULT_SALES_MEME_LIBRARY
+        }
+        variant = ''
+        file_key = str(item.get('file_key') or '')
+        if file_key.endswith('.png') and '/' in file_key:
+            variant = file_key.rsplit('/', 1)[-1].removesuffix('.png')
+        default = default_by_id.get(item_id) or default_by_code.get((code, variant)) or {}
+        meaning = str(item.get('meaning') or default.get('meaning') or code or '礼貌表情包')
+        keywords = item.get('keywords') if isinstance(item.get('keywords'), list) else default.get('keywords')
+        if not isinstance(keywords, list):
+            keywords = []
+
+        item.setdefault('meaning', meaning)
+        item.setdefault('trigger_keyword', trigger or f'{{{code or "happy"}}}')
+        item.setdefault('code', code or str(default.get('code') or '').strip() or 'happy')
+        item.setdefault('emotion', str(item.get('emotion') or default.get('emotion') or item.get('code') or 'happy'))
+        item.setdefault('search_keyword', str(item.get('search_keyword') or default.get('search_keyword') or meaning))
+        item.setdefault('usage_scene', str(item.get('scene') or default.get('usage_scene') or meaning))
+        item.setdefault(
+            'usage_instruction',
+            str(
+                item.get('usage_timing')
+                or item.get('timing')
+                or default.get('usage_instruction')
+                or f'当客户表达“{meaning}”或相近语义时可以发；必须礼貌、克制、和正文语境一致。'
+            ),
+        )
+        item.setdefault('keywords', keywords)
+        item.setdefault('tags', default.get('tags') if isinstance(default.get('tags'), list) else [])
+        item.setdefault('source', item.get('source') or default.get('source') or 'custom')
+        return item
+
+    def _normalize_course_meme_config(self, value: Any) -> dict[str, Any]:
+        source = value if isinstance(value, dict) else {}
+        normalized = {**copy.deepcopy(COURSE_MEME_CONFIG), **copy.deepcopy(source)}
+        for key in (
+            'enabled',
+            'large_enabled',
+            'feishu_native_enabled',
+            'smart_judge_enabled',
+            'library_enabled',
+            'api_fallback_enabled',
+            'oiapi_enabled',
+        ):
+            normalized[key] = normalized.get(key) is not False
+        try:
+            limit = int(normalized.get('oiapi_limit') or COURSE_MEME_CONFIG['oiapi_limit'])
+        except (TypeError, ValueError):
+            limit = int(COURSE_MEME_CONFIG['oiapi_limit'])
+        normalized['oiapi_limit'] = max(1, min(20, limit))
+        for key in ('small_interval_rounds', 'large_interval_rounds'):
+            try:
+                interval = int(normalized.get(key) or COURSE_MEME_CONFIG[key])
+            except (TypeError, ValueError):
+                interval = int(COURSE_MEME_CONFIG[key])
+            normalized[key] = max(1, min(99, interval))
+        if not isinstance(normalized.get('library'), list) or not normalized['library']:
+            normalized['library'] = copy.deepcopy(DEFAULT_SALES_MEME_LIBRARY)
+        normalized['library'] = [
+            item
+            for item in (self._normalize_course_meme_library_item(item) for item in normalized.get('library', []))
+            if item is not None
+        ]
+        if not normalized['library']:
+            normalized['library'] = copy.deepcopy(DEFAULT_SALES_MEME_LIBRARY)
         return normalized
 
     def _normalize_course_media_key(self, value: Any) -> Any:
@@ -5069,22 +5280,21 @@ class TaskAssistantService:
         logger: Any,
         import_targets: list[tuple[Path, str]] | None = None,
     ) -> None:
-        only_explicit_retired = import_targets is None
-        if import_targets is None:
-            import_targets = []
         existing_files = await knowledge_service.get_files_by_knowledge_base(
             YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
         )
-        active_names = {file_name for _, file_name in import_targets}
+        has_active_import_list = import_targets is not None
+        active_names = {file_name for _, file_name in import_targets or []}
         removed_count = 0
         for file in existing_files:
             raw_name = str(file.get('file_name') or '')
             base_name = Path(raw_name).name
             is_active = raw_name in active_names or base_name in active_names
             is_retired = raw_name in RETIRED_YUANFUDAO_SEED_DOCUMENTS or base_name in RETIRED_YUANFUDAO_SEED_DOCUMENTS
-            if only_explicit_retired and not is_retired:
-                continue
-            if is_active and not is_retired:
+            if has_active_import_list:
+                if is_active and not is_retired:
+                    continue
+            elif not is_retired:
                 continue
             file_uuid = str(file.get('uuid') or '').strip()
             if not file_uuid:
@@ -5257,6 +5467,7 @@ class TaskAssistantService:
                 'handoff': True,
             },
             'reply_controls': copy.deepcopy(COURSE_REPLY_CONTROLS),
+            'memes': copy.deepcopy(COURSE_MEME_CONFIG),
             'memory': {
                 'variables_enabled': True,
                 'table_enabled': True,
@@ -5308,6 +5519,9 @@ class TaskAssistantService:
                 elif key == 'reply_controls' and isinstance(value, dict):
                     current = template_config.get('reply_controls') if isinstance(template_config.get('reply_controls'), dict) else {}
                     template_config['reply_controls'] = self._normalize_course_reply_controls({**current, **value})
+                elif key == 'memes' and isinstance(value, dict):
+                    current = template_config.get('memes') if isinstance(template_config.get('memes'), dict) else {}
+                    template_config['memes'] = self._normalize_course_meme_config({**current, **value})
                 elif key == 'scheduled_push' and isinstance(value, dict):
                     template_config['scheduled_push'] = {**scheduled_push, **value}
                 elif key == 'radar' and isinstance(value, dict):
@@ -5366,9 +5580,16 @@ class TaskAssistantService:
                 template_config['human_handoff'].get('notify_message')
             )
         template_config['reply_controls'] = self._normalize_course_reply_controls(template_config.get('reply_controls'))
+        template_config['memes'] = self._normalize_course_meme_config(template_config.get('memes'))
         self._normalize_course_template_media_keys(template_config)
         self._normalize_course_outreach_messages(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
+        for sequence in template_config.get('followup_sequences', []):
+            if not isinstance(sequence, dict):
+                continue
+            for message in sequence.get('messages', []):
+                if isinstance(message, dict):
+                    message.pop('voice_optional', None)
         return template_config
 
     def build_course_sales_workflow_from_template_config(self, template_config: dict[str, Any]) -> dict[str, Any]:
@@ -5468,6 +5689,7 @@ class TaskAssistantService:
             if isinstance(template_config.get('radar'), dict)
             else copy.deepcopy(COURSE_RADAR_CONFIG)
         )
+        memes = self._normalize_course_meme_config(template_config.get('memes'))
         sales_links = (
             copy.deepcopy(template_config.get('sales_links'))
             if isinstance(template_config.get('sales_links'), list) and template_config.get('sales_links')
@@ -5492,6 +5714,11 @@ class TaskAssistantService:
             copy.deepcopy(template_config.get('image_text_bindings'))
             if isinstance(template_config.get('image_text_bindings'), list)
             else copy.deepcopy(COURSE_IMAGE_BINDINGS)
+        )
+        special_cases = (
+            copy.deepcopy(template_config.get('special_cases'))
+            if isinstance(template_config.get('special_cases'), list)
+            else copy.deepcopy(COURSE_SPECIAL_CASES)
         )
         for binding in image_bindings:
             if isinstance(binding, dict) and 'file_key' in binding:
@@ -5881,11 +6108,13 @@ class TaskAssistantService:
             'sales_links': sales_links,
             'radar': radar,
             'human_handoff': human_handoff,
+            'memes': memes,
             'special_cases': special_cases,
             'followup_sequences': followups,
             'long_term_broadcasts': broadcasts,
             'stop_rules': stop_rules,
             'stop_policy': stop_policy,
+            'special_cases': special_cases,
             'source_materials': source_materials,
             'nodes': nodes,
             'edges': edges,
@@ -5897,6 +6126,7 @@ class TaskAssistantService:
                 'selected_product_uuid': product_uuids[0],
                 'course_profiles': course_profiles,
                 'human_handoff': human_handoff,
+                'memes': memes,
                 'special_cases': special_cases,
                 'source_materials': source_materials,
             },
@@ -6316,12 +6546,6 @@ class TaskAssistantService:
     ) -> str:
         pipeline_config = getattr(query, 'pipeline_config', None)
         if isinstance(pipeline_config, dict):
-            template_config = pipeline_config.get('template_config')
-            if isinstance(template_config, dict):
-                model_uuid = str(template_config.get('model_uuid') or '').strip()
-                if model_uuid:
-                    return model_uuid
-
             ai_config = pipeline_config.get('ai')
             if isinstance(ai_config, dict):
                 local_agent = ai_config.get('local-agent')
@@ -6331,6 +6555,16 @@ class TaskAssistantService:
                         primary = str(model_config.get('primary') or '').strip()
                         if primary:
                             return primary
+                    elif isinstance(model_config, str):
+                        primary = model_config.strip()
+                        if primary:
+                            return primary
+
+            template_config = pipeline_config.get('template_config')
+            if isinstance(template_config, dict):
+                model_uuid = str(template_config.get('model_uuid') or '').strip()
+                if model_uuid:
+                    return model_uuid
 
         workflow = workflow if isinstance(workflow, dict) else {}
         for node in workflow.get('nodes', []):

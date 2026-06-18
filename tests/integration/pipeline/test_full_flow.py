@@ -683,7 +683,7 @@ class TestSendResponseBackStage:
         assert len(outbound) == 1
         components = outbound[0]['message']
         assert [component.type for component in components] == ['Plain', 'Plain', 'Image']
-        assert components[1].text == '\nPrice sheet'
+        assert components[1].text == 'Price sheet'
         assert str(components[2].path) == 'price-sheet.png'
 
     @pytest.mark.asyncio

@@ -1,0 +1,968 @@
+[
+  {
+    "day": 1,
+    "time": "10:20",
+    "message": "感谢您使用我们出版社的图书，我们联合【猿辅导】申请的9元【自然拼读专项课】，适合大班-3年级！\n\n🔤 单词突破：告别死记硬背，见词能拼、听音能写\n🗣️ 纯正发音：纠正发音不准，让孩子自信开口\n📖 阅读实战：掌握3步法，轻松搞定绘本与听力\n\n💪 9元 = 360分钟配套视频 + 5次绘本阅读实践 + 180次开口练习 + 14天专属辅导老师伴学服务\n\n🎁 完课随机包邮到家一件：【小猿宇航员文具盒、小猿篮球、小猿转笔刀、小猿减压护脊书包、小猿手办、桶装铅笔】\n\n要不要让孩子学习下？👇",
+    "image_key": "data/scheduled-push/9yuan-english/ID_B415B20F7D25473B8FD57BEF7BC13EC6.png",
+    "image_note": "ID_B415B20F7D25473B8FD57BEF7BC13EC6",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "感谢您使用我们出版社的图书，我们联合【猿辅导】申请的9元【自然拼读专项课】，适合大班-3年级！\n\n🔤 单词突破：告别死记硬背，见词能拼、听音能写\n🗣️ 纯正发音：纠正发音不准，让孩子自信开口\n📖 阅读实战：掌握3步法，轻松搞定绘本与听力\n\n💪 9元 = 360分钟配套视频 + 5次绘本阅读实践 + 180次开口练习 + 14天专属辅导老师伴学服务\n\n🎁 完课随机包邮到家一件：【小猿宇航员文具盒、小猿篮球、小猿转笔刀、小猿减压护脊书包、小猿手办、桶装铅笔】\n\n要不要让孩子学习下？👇"
+      },
+      {
+        "type": "image",
+        "file_key": "data/scheduled-push/9yuan-english/ID_B415B20F7D25473B8FD57BEF7BC13EC6.png",
+        "image_url": ""
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 1,
+    "time": "15:40",
+    "message": "只需9元，给孩子报一个吧！猿辅导的课程内容依据新课标设计，确保孩子所学知识符合最新教育标准，帮助孩子更好地掌握英语发音与拼读核心！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "只需9元，给孩子报一个吧！猿辅导的课程内容依据新课标设计，确保孩子所学知识符合最新教育标准，帮助孩子更好地掌握英语发音与拼读核心！"
+      }
+    ]
+  },
+  {
+    "day": 2,
+    "time": "10:20",
+    "message": "宝贝家长，咱们这个“9元英语课”是支持回放的，完课随机包邮到家一件：【小猿宇航员文具盒、小猿篮球、小猿转笔刀、小猿减压护脊书包、小猿手办、桶装铅笔】🎁，实在不想您错过！\n\n不少家长没时间的话，也完全可以等有空的时候看回放。因为1-2年级孩子学一次可能学不会，多看几次就会了（这点真的比线下课强太多）👍\n\n确实是我个人觉得特别好，又很适合孩子现在的阶段，所以多提醒了您一次。宝贝家长觉得可以的话，抽一分钟报名下~我立马给您登记！👇",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "宝贝家长，咱们这个“9元英语课”是支持回放的，完课随机包邮到家一件：【小猿宇航员文具盒、小猿篮球、小猿转笔刀、小猿减压护脊书包、小猿手办、桶装铅笔】🎁，实在不想您错过！\n\n不少家长没时间的话，也完全可以等有空的时候看回放。因为1-2年级孩子学一次可能学不会，多看几次就会了（这点真的比线下课强太多）👍\n\n确实是我个人觉得特别好，又很适合孩子现在的阶段，所以多提醒了您一次。宝贝家长觉得可以的话，抽一分钟报名下~我立马给您登记！👇"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 2,
+    "time": "15:40",
+    "message": "总共就9块钱10节课 9毛钱一回 还能三年无限制看回放 咱们完全可以让孩子试试  我们接触的多了 真的明白 自然拼读是孩子学习英语的基础",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "总共就9块钱10节课 9毛钱一回 还能三年无限制看回放 咱们完全可以让孩子试试  我们接触的多了 真的明白 自然拼读是孩子学习英语的基础"
+      }
+    ]
+  },
+  {
+    "day": 3,
+    "time": "10:20",
+    "message": "在嘛？家长，无论学不学，给我个答复就行🤝 这也不是那种几百上千的。\n\n9元也就是一顿早饭钱，让孩子来感受体验一下效果也是好的嘛~\n\n🔤 从单词到短句，带着孩子系统进行自然拼读；\n📺 支持回放不用担心没时间，高效率提升孩子英语技能。\n\n优惠马上要截止了，所以我这边和您确定一下这个名额！👇🏼",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "在嘛？家长，无论学不学，给我个答复就行🤝 这也不是那种几百上千的。\n\n9元也就是一顿早饭钱，让孩子来感受体验一下效果也是好的嘛~\n\n🔤 从单词到短句，带着孩子系统进行自然拼读；\n📺 支持回放不用担心没时间，高效率提升孩子英语技能。\n\n优惠马上要截止了，所以我这边和您确定一下这个名额！👇🏼"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 3,
+    "time": "15:40",
+    "message": "孩子也会压力大，作业也会拖拉、对英语也容易有畏难情绪。，所以咱们需要的不是做更多的作业 上更多的课 而是找寻一个方法 一个孩子喜欢的方式 来增加孩子学习的兴趣 恰巧这个课就是孩子喜欢的 9块钱买不到吃亏试一试  您觉得呢？",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "孩子也会压力大，作业也会拖拉、对英语也容易有畏难情绪。，所以咱们需要的不是做更多的作业 上更多的课 而是找寻一个方法 一个孩子喜欢的方式 来增加孩子学习的兴趣 恰巧这个课就是孩子喜欢的 9块钱买不到吃亏试一试  您觉得呢？"
+      }
+    ]
+  },
+  {
+    "day": 4,
+    "time": "10:20",
+    "message": "咱们猿辅导【5日自然拼读课】（专为5-12岁精心设计），只需9元，孩子特别喜欢学哟~\n\n学整整5天，相当于1节课才1块多。如果咱家孩子在单词发音、见词能拼、英语阅读方面需要加强的话，\n【要不要让孩子试着学一下？】\n\n⭐我直接发您专属报名通道，不需要您点复杂的链接就能领取。您也可以直接回复数字“1”，我先发您了解一下哦！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "咱们猿辅导【5日自然拼读课】（专为5-12岁精心设计），只需9元，孩子特别喜欢学哟~\n\n学整整5天，相当于1节课才1块多。如果咱家孩子在单词发音、见词能拼、英语阅读方面需要加强的话，\n【要不要让孩子试着学一下？】\n\n⭐我直接发您专属报名通道，不需要您点复杂的链接就能领取。您也可以直接回复数字“1”，我先发您了解一下哦！"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 4,
+    "time": "15:40",
+    "message": "家长，报名好了么？没时间可以看回放的，猿辅导作为大品牌，没有任何套路，没有其他额外收费了[爱心]",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "家长，报名好了么？没时间可以看回放的，猿辅导作为大品牌，没有任何套路，没有其他额外收费了[爱心]"
+      }
+    ]
+  },
+  {
+    "day": 5,
+    "time": "10:20",
+    "message": "咱们这边真心不考虑花9块钱，给孩子学习一些学习方法吗？要知道现在新教材改版了，难度升级！学习就更不能死记硬背！技巧最重要，学习方法技巧肯定没有错，花9元给孩子提升一下肯定没有错的宝贝家长！",
+    "image_key": "data/scheduled-push/9yuan-english/ID_B0C10FB6BCFE434BA842A63C2A2FBDC5.jpeg",
+    "image_note": "ID_B0C10FB6BCFE434BA842A63C2A2FBDC5",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "咱们这边真心不考虑花9块钱，给孩子学习一些学习方法吗？要知道现在新教材改版了，难度升级！学习就更不能死记硬背！技巧最重要，学习方法技巧肯定没有错，花9元给孩子提升一下肯定没有错的宝贝家长！"
+      },
+      {
+        "type": "image",
+        "file_key": "data/scheduled-push/9yuan-english/ID_B0C10FB6BCFE434BA842A63C2A2FBDC5.jpeg",
+        "image_url": ""
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 5,
+    "time": "15:40",
+    "message": "就9块钱因为划算，也希望咱家孩子也能试一试",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "就9块钱因为划算，也希望咱家孩子也能试一试"
+      }
+    ]
+  },
+  {
+    "day": 6,
+    "time": "10:10",
+    "message": "猿辅导自然拼读特训课程：\n26个字母巧记法\n48个音标拼读规则\n18次自拼大爆炸\n12次自然拼读\n5次阅读绘本实践\n14天贴心服务\n180次开口练习\n周末直播课(12课时)\n一课时30分钟\n课程三年有效\n以上内容仅需9元！9元！9元！\n\n随机包邮到家一件【小猿宇航员文具盒、小猿篮球、小猿转笔刀、小猿减压护脊书包、小猿手办、桶装铅笔】",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "猿辅导自然拼读特训课程：\n26个字母巧记法\n48个音标拼读规则\n18次自拼大爆炸\n12次自然拼读\n5次阅读绘本实践\n14天贴心服务\n180次开口练习\n周末直播课(12课时)\n一课时30分钟\n课程三年有效\n以上内容仅需9元！9元！9元！\n\n随机包邮到家一件【小猿宇航员文具盒、小猿篮球、小猿转笔刀、小猿减压护脊书包、小猿手办、桶装铅笔】"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 6,
+    "time": "15:40",
+    "message": "说一句心里话，其实9块钱给孩子买玩具，吃零食也就没有了，但知识不一样，知识是伴随孩子的一生的\n古话3岁看大，7岁看老，您要给孩子将来做打算孩子英语基础能力，学习习惯越早培养越好，您这边给孩子买了，我也好为孩子安排学习。",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "说一句心里话，其实9块钱给孩子买玩具，吃零食也就没有了，但知识不一样，知识是伴随孩子的一生的\n古话3岁看大，7岁看老，您要给孩子将来做打算孩子英语基础能力，学习习惯越早培养越好，您这边给孩子买了，我也好为孩子安排学习。"
+      }
+    ]
+  },
+  {
+    "day": 7,
+    "time": "15:15",
+    "message": "怕您太忙没看到消息，再跟你说一下9块钱值不值：\n\n👇👇👇\n\n🔶5次绘本阅读实践，提升孩子英语阅读兴趣；\n🔶180次开口练习，表达提升，鼓励孩子多表达，提升口语、拼读能力；\n🔶360分钟配套视频，课堂高频输出！\n🔶14天专属辅导老师伴学服务\n🔶单词口语双提升，走对英语第一步！ \n\n\n每天小半小时，不耽误其他课业还能学到外面学不到的阅读方法和技巧，何乐而不为呢？\n\n随机包邮到家一件【小猿宇航员文具盒、小猿篮球、小猿转笔刀、小猿减压护脊书包、小猿手办、桶装铅笔】\n\n其实很简单，您回复1⭐学五天咱们看看效果就知道了\n\n报名链接⬇️",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "怕您太忙没看到消息，再跟你说一下9块钱值不值：\n\n👇👇👇\n\n🔶5次绘本阅读实践，提升孩子英语阅读兴趣；\n🔶180次开口练习，表达提升，鼓励孩子多表达，提升口语、拼读能力；\n🔶360分钟配套视频，课堂高频输出！\n🔶14天专属辅导老师伴学服务\n🔶单词口语双提升，走对英语第一步！ \n\n\n每天小半小时，不耽误其他课业还能学到外面学不到的阅读方法和技巧，何乐而不为呢？\n\n随机包邮到家一件【小猿宇航员文具盒、小猿篮球、小猿转笔刀、小猿减压护脊书包、小猿手办、桶装铅笔】\n\n其实很简单，您回复1⭐学五天咱们看看效果就知道了\n\n报名链接⬇️"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 7,
+    "time": "21:20",
+    "message": "总共就9块钱  10节课 不到1块钱一回  咋们完全可以让孩子试试  我们接触的多了 真的明白 理解能力是孩子学习的基础",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "总共就9块钱  10节课 不到1块钱一回  咋们完全可以让孩子试试  我们接触的多了 真的明白 理解能力是孩子学习的基础"
+      }
+    ]
+  },
+  {
+    "day": 8,
+    "time": "10:20",
+    "message": "家长，再征求一下您的意见\n\n9元共 14天 的【英语课】，您还愿不愿意给孩子一个学习的机会啊~再不约就来不及了\n\n其实9块钱给孩子买玩具，吃零食也就没有了，但知识不一样，知识能伴随孩子的一生的，您这边给孩子预约上，我也好为孩子安排学习。\n\n需要的回复1，⭐今天预约，完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "家长，再征求一下您的意见\n\n9元共 14天 的【英语课】，您还愿不愿意给孩子一个学习的机会啊~再不约就来不及了\n\n其实9块钱给孩子买玩具，吃零食也就没有了，但知识不一样，知识能伴随孩子的一生的，您这边给孩子预约上，我也好为孩子安排学习。\n\n需要的回复1，⭐今天预约，完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！"
+      }
+    ]
+  },
+  {
+    "day": 8,
+    "time": "15:40",
+    "message": "家长，这会儿忙完了嘛，您可以忙完花一分钟预约一下，截图给我就可以哦，我这边给您发资料和赠课   一直等您麻烦看到的话回复我一下哦~[玫瑰]",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "家长，这会儿忙完了嘛，您可以忙完花一分钟预约一下，截图给我就可以哦，我这边给您发资料和赠课   一直等您麻烦看到的话回复我一下哦~[玫瑰]"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 9,
+    "time": "10:25",
+    "message": "👉家长，给您推荐的9元英语课程学不学给我说一声哈[合十]\n5次绘本阅读实践（180次开口练习+14个拼读组合）+14天的班主任贴心服务，[礼物]永久有效，反复回看\n\n您给小朋友报名学习一下，好吗？",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "👉家长，给您推荐的9元英语课程学不学给我说一声哈[合十]\n5次绘本阅读实践（180次开口练习+14个拼读组合）+14天的班主任贴心服务，[礼物]永久有效，反复回看\n\n您给小朋友报名学习一下，好吗？"
+      }
+    ]
+  },
+  {
+    "day": 9,
+    "time": "15:40",
+    "message": "孩子也会压力大，作业也会拖拉。对英语失去信心，所以咱们需要的不是做更多的作业 上更多的课 而是找寻一个方法 一个孩子喜欢的方式 来增加孩子学习的兴趣 恰巧这个课就是孩子喜欢的 9块钱买不到吃亏试一试  您觉得呢？\n\n点击卡片报名",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "孩子也会压力大，作业也会拖拉。对英语失去信心，所以咱们需要的不是做更多的作业 上更多的课 而是找寻一个方法 一个孩子喜欢的方式 来增加孩子学习的兴趣 恰巧这个课就是孩子喜欢的 9块钱买不到吃亏试一试  您觉得呢？\n\n点击卡片报名"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 10,
+    "time": "19:30",
+    "message": "因为孩子有可能学一次可能学不会，多看几次就会了，实在不想您错过\n\n不少家长没时间也可以空的时候看回放的（这点比线下强）\n\n确实个人觉得好，所以多提醒了一次，宝贝家长觉得可以的话，抽一分钟预约下～我给您登记发送实物礼品",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "因为孩子有可能学一次可能学不会，多看几次就会了，实在不想您错过\n\n不少家长没时间也可以空的时候看回放的（这点比线下强）\n\n确实个人觉得好，所以多提醒了一次，宝贝家长觉得可以的话，抽一分钟预约下～我给您登记发送实物礼品"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 10,
+    "time": "21:20",
+    "message": "总共就9块钱10节课 9毛钱一回 还能三年无限制看回放 咱们完全可以让孩子试试  我们接触的多了 真的明白 理解能力是孩子学习的基础",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "总共就9块钱10节课 9毛钱一回 还能三年无限制看回放 咱们完全可以让孩子试试  我们接触的多了 真的明白 理解能力是孩子学习的基础"
+      }
+    ]
+  },
+  {
+    "day": 11,
+    "time": "15:10",
+    "message": "家长，无论您预约不预约，给我个答复就行，这个课程也不是说那种上千的课程，就9元，优惠很快就截止了，所以我这边和您确定一下这个名额\n\n完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "家长，无论您预约不预约，给我个答复就行，这个课程也不是说那种上千的课程，就9元，优惠很快就截止了，所以我这边和您确定一下这个名额\n\n完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！"
+      }
+    ]
+  },
+  {
+    "day": 11,
+    "time": "21:20",
+    "message": "也能够明白家长的心情 对于孩子的教育还是有在考虑的。9块钱确实不是钱的问题 ，这个啊，真心是上下来百分之70的家长觉得好 我才一而再再而三的推荐的",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "G",
+    "components": [
+      {
+        "type": "plain",
+        "text": "也能够明白家长的心情 对于孩子的教育还是有在考虑的。9块钱确实不是钱的问题 ，这个啊，真心是上下来百分之70的家长觉得好 我才一而再再而三的推荐的"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 12,
+    "time": "10:25",
+    "message": "啥话都说尽了🤦，行与不行咱来了信儿吧，不学也是想跟您交个朋友，我自己是教小学的，这个英语课程确实好才推荐给您，内容也支持回放，您说有什么顾虑可以和我说，9元一顿早饭钱，给孩子提升一下也是好的呀家长。",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "啥话都说尽了🤦，行与不行咱来了信儿吧，不学也是想跟您交个朋友，我自己是教小学的，这个英语课程确实好才推荐给您，内容也支持回放，您说有什么顾虑可以和我说，9元一顿早饭钱，给孩子提升一下也是好的呀家长。"
+      }
+    ]
+  },
+  {
+    "day": 13,
+    "time": "10:30",
+    "message": "家长您好，看你没有回复这个也能够理解，平时真的也都是挺忙的，因为真的是不想咱们错过学的内容，9块钱真的不贵，如果是时间问题的话咱们学习时间是根据孩子时间来的，真的确实是对孩子有帮助的，您让孩子出去补习的话也要花不少钱呀，9块钱因为也比较的实惠，真心推荐给您，如果价格贵的话我也不会去强求您了，确实价格还是可以接受的啊，退一步讲试错成本也比较低，约一下让孩子试一下吧，真的不会失望的，期待您的回复，打扰您了！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "家长您好，看你没有回复这个也能够理解，平时真的也都是挺忙的，因为真的是不想咱们错过学的内容，9块钱真的不贵，如果是时间问题的话咱们学习时间是根据孩子时间来的，真的确实是对孩子有帮助的，您让孩子出去补习的话也要花不少钱呀，9块钱因为也比较的实惠，真心推荐给您，如果价格贵的话我也不会去强求您了，确实价格还是可以接受的啊，退一步讲试错成本也比较低，约一下让孩子试一下吧，真的不会失望的，期待您的回复，打扰您了！"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 14,
+    "time": "19:30",
+    "message": "有个事儿挺着急的，最后一次征求您的意见\n\n9块钱共5节的【自然拼读课】您还愿不愿意给孩子一个学习的机会啊再不报就来不及了💔      \n上课时间根据你休息的时候来!!!\n\n完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "有个事儿挺着急的，最后一次征求您的意见\n\n9块钱共5节的【自然拼读课】您还愿不愿意给孩子一个学习的机会啊再不报就来不及了💔      \n上课时间根据你休息的时候来!!!\n\n完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 15,
+    "time": "10:30",
+    "message": "咱学与不学都回应一下，我这边也好知道情况，给您做个标记，就不打扰您啦，不过这个自然拼读英语课确实不错，如果孩子不尝试，我说的再好都没用。\n\n9元=【14天线上互动英语】+完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n永久有效，反复回看，总共就9块钱，要给小朋友尝试一下嘛？",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "咱学与不学都回应一下，我这边也好知道情况，给您做个标记，就不打扰您啦，不过这个自然拼读英语课确实不错，如果孩子不尝试，我说的再好都没用。\n\n9元=【14天线上互动英语】+完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n永久有效，反复回看，总共就9块钱，要给小朋友尝试一下嘛？"
+      }
+    ]
+  },
+  {
+    "day": 16,
+    "time": "19:30",
+    "message": "家长，现在英语都教材改版了，难度大幅提升，孩子应该怎么学❓\n\n英语注重培养学生的👉阅读能力和英语应用能力\n但是❌死记硬背只会增加记忆负担，甚至让孩子越学越反感😭\n\n🏆猿辅导【自然拼读课】让孩子快速拿下小学英语‼词汇阅读一通百通\n\n💥💥仅需9元，就能获🉐：\n✅5次绘本阅读实践，让娃可以学以致用\n✅14天专属贴心服务，全程跟踪学习进度，让孩子爱上英语~\n\n⭕名额有限，先到先得，0基础也能学‼",
+    "image_key": "data/scheduled-push/9yuan-english/ID_A690D613699243CBA6A183388DD71276.jpeg",
+    "image_note": "ID_A690D613699243CBA6A183388DD71276",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "家长，现在英语都教材改版了，难度大幅提升，孩子应该怎么学❓\n\n英语注重培养学生的👉阅读能力和英语应用能力\n但是❌死记硬背只会增加记忆负担，甚至让孩子越学越反感😭\n\n🏆猿辅导【自然拼读课】让孩子快速拿下小学英语‼词汇阅读一通百通\n\n💥💥仅需9元，就能获🉐：\n✅5次绘本阅读实践，让娃可以学以致用\n✅14天专属贴心服务，全程跟踪学习进度，让孩子爱上英语~\n\n⭕名额有限，先到先得，0基础也能学‼"
+      },
+      {
+        "type": "image",
+        "file_key": "data/scheduled-push/9yuan-english/ID_A690D613699243CBA6A183388DD71276.jpeg",
+        "image_url": ""
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 17,
+    "time": "10:30",
+    "message": "家长只要9元，没有其他费用，购买链接上边发给您了[抱拳]学习内容永久有效可以反复回看～\n\n针对幼儿大班-6年级都可以学，趣味动画视频，语言充满童趣，搭配各种互动小游戏，指导师伴读，很能吸引孩子注意力~每课时30分钟左右，没有时间限制，支持回放可自己调整[握手]\n\n26个字母巧记+18次自拼爆炸+14个拼读组合+180次开口练习💪，现在购买只需9块钱，完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！给孩子安排上嘛👇？",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "家长只要9元，没有其他费用，购买链接上边发给您了[抱拳]学习内容永久有效可以反复回看～\n\n针对幼儿大班-6年级都可以学，趣味动画视频，语言充满童趣，搭配各种互动小游戏，指导师伴读，很能吸引孩子注意力~每课时30分钟左右，没有时间限制，支持回放可自己调整[握手]\n\n26个字母巧记+18次自拼爆炸+14个拼读组合+180次开口练习💪，现在购买只需9块钱，完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！给孩子安排上嘛👇？"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 18,
+    "time": "10:30",
+    "message": "宝贝家长，我知道您肯定能看到我给您发的消息🤗，咱不说别的，您看需不需要给我说一声就可以，我给您备注一下，以免下次打扰到您，给您推荐的说实话也确实适合咱们宝贝，不管需不需要可以回复我一下嘛❤",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "宝贝家长，我知道您肯定能看到我给您发的消息🤗，咱不说别的，您看需不需要给我说一声就可以，我给您备注一下，以免下次打扰到您，给您推荐的说实话也确实适合咱们宝贝，不管需不需要可以回复我一下嘛❤"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 19,
+    "time": "10:20",
+    "message": "孩子也会压力大，作业也会拖拉。学习兴趣不足，所以咱们需要的不是做更多的作业 上更多的课 而是找寻一个方法 一个孩子喜欢的方式 来增加孩子学习的兴趣 恰巧这个课就是孩子喜欢的 9块钱买不到吃亏试一试  您觉得呢？",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "孩子也会压力大，作业也会拖拉。学习兴趣不足，所以咱们需要的不是做更多的作业 上更多的课 而是找寻一个方法 一个孩子喜欢的方式 来增加孩子学习的兴趣 恰巧这个课就是孩子喜欢的 9块钱买不到吃亏试一试  您觉得呢？"
+      }
+    ]
+  },
+  {
+    "day": 20,
+    "time": "10:20",
+    "message": "孩子英语的“老大难”就两点：\n1️⃣ 单词：背得慢、忘得快，拼写总出错\n2️⃣ 语法：规则混淆，造句困难，考试总丢分\n我们用14天帮你一并解决！\n✅ 自然拼读法：搞定小学核心500词，见词能读、听音能写\n✅ 图解语法：精讲6大高频考点，告别死记硬背\n每天1小时，开学大不同！\n\n完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n👇点击卡片抢特训名额，完课更有实物好礼包邮赠送",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "孩子英语的“老大难”就两点：\n1️⃣ 单词：背得慢、忘得快，拼写总出错\n2️⃣ 语法：规则混淆，造句困难，考试总丢分\n我们用14天帮你一并解决！\n✅ 自然拼读法：搞定小学核心500词，见词能读、听音能写\n✅ 图解语法：精讲6大高频考点，告别死记硬背\n每天1小时，开学大不同！\n\n完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n👇点击卡片抢特训名额，完课更有实物好礼包邮赠送"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 21,
+    "time": "10:20",
+    "message": "00＋小学核心单词\n26个字母巧记法\n12次自然拼读\n300分钟配套视频\n5次阅读绘本实践\n14天贴心服务\n180次考口练习\n全部包括在内，之前官方正价99，现在仅需 9元，三年有效期，支持孩子反复观看学习\n\n报名回复 1",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "00＋小学核心单词\n26个字母巧记法\n12次自然拼读\n300分钟配套视频\n5次阅读绘本实践\n14天贴心服务\n180次考口练习\n全部包括在内，之前官方正价99，现在仅需 9元，三年有效期，支持孩子反复观看学习\n\n报名回复 1"
+      }
+    ]
+  },
+  {
+    "day": 22,
+    "time": "10:20",
+    "message": "怕您太忙没看到消息，再跟你说一下9块钱值不值：\n\n👇👇👇\n\n🔶5次绘本阅读实践，提升孩子英语阅读兴趣；\n🔶180次开口练习，表达提升，鼓励孩子多表达，提升口语、拼读能力；\n🔶360分钟配套视频，课堂高频输出！\n🔶14天专属辅导老师伴学服务\n🔶单词口语双提升，走对英语第一步！ \n\n每天小半小时，不耽误其他课业还能学到外面学不到的阅读方法和技巧，何乐而不为呢？\n\n其实很简单，您回复1⭐学五天咱们看看效果就知道了",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "怕您太忙没看到消息，再跟你说一下9块钱值不值：\n\n👇👇👇\n\n🔶5次绘本阅读实践，提升孩子英语阅读兴趣；\n🔶180次开口练习，表达提升，鼓励孩子多表达，提升口语、拼读能力；\n🔶360分钟配套视频，课堂高频输出！\n🔶14天专属辅导老师伴学服务\n🔶单词口语双提升，走对英语第一步！ \n\n每天小半小时，不耽误其他课业还能学到外面学不到的阅读方法和技巧，何乐而不为呢？\n\n其实很简单，您回复1⭐学五天咱们看看效果就知道了"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 23,
+    "time": "10:20",
+    "message": "孩子妈or爸，猿辅导自然拼读\n\n如有打扰回复不需要非常遗憾啊宝贝到现在还没机会体验一下，其实9块钱给孩子买玩具，吃零食也就没有了哇，但知识日积月累不一样，她是能陪伴孩子一辈子更是孩子成长的机会\n\n现在预约完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n  自然拼读不仅能养成见词能读听音能写的习惯，最最重要的是能锻炼孩子的拼读体系，通过观察发现理解能力是很重要的对数学应用题解答帮助甚大\n\n给孩子一个机会吧，预约回复报名截图领取上面资料",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "孩子妈or爸，猿辅导自然拼读\n\n如有打扰回复不需要非常遗憾啊宝贝到现在还没机会体验一下，其实9块钱给孩子买玩具，吃零食也就没有了哇，但知识日积月累不一样，她是能陪伴孩子一辈子更是孩子成长的机会\n\n现在预约完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n  自然拼读不仅能养成见词能读听音能写的习惯，最最重要的是能锻炼孩子的拼读体系，通过观察发现理解能力是很重要的对数学应用题解答帮助甚大\n\n给孩子一个机会吧，预约回复报名截图领取上面资料"
+      }
+    ]
+  },
+  {
+    "day": 24,
+    "time": "10:20",
+    "message": "怕您太忙没看到消息，再跟你说一下\n\n每天小半小时，不耽误其他课业还能学到外面学不到的阅读方法和技巧，何乐而不为呢？\n\n其实很简单，您回复1⭐学五天咱们看看效果就知道了\n\n已经报名过的，回复报名截图领取资料包\n\n报名链接👇🏼👇🏼👇🏼",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "怕您太忙没看到消息，再跟你说一下\n\n每天小半小时，不耽误其他课业还能学到外面学不到的阅读方法和技巧，何乐而不为呢？\n\n其实很简单，您回复1⭐学五天咱们看看效果就知道了\n\n已经报名过的，回复报名截图领取资料包\n\n报名链接👇🏼👇🏼👇🏼"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 25,
+    "time": "10:20",
+    "message": "🌟课程内容紧贴新课标\n🌟学科不用担心版本问题，老师都会分好\n\n🎁完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n只需9元！猿辅导独家设计3-12 岁学习方案\n✅【英语自然拼读训练营】\n✅【语数英薄弱点速补计划】\n\n英语打基础＋数学练思维＋语文抓阅读，三科协同才是小学提分王道！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "🌟课程内容紧贴新课标\n🌟学科不用担心版本问题，老师都会分好\n\n🎁完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n只需9元！猿辅导独家设计3-12 岁学习方案\n✅【英语自然拼读训练营】\n✅【语数英薄弱点速补计划】\n\n英语打基础＋数学练思维＋语文抓阅读，三科协同才是小学提分王道！"
+      }
+    ]
+  },
+  {
+    "day": 26,
+    "time": "10:20",
+    "message": "猿辅导现在报名处课程外\n\n🔴一、再送猿辅导精美学习用品（所有课程出勤达标后包邮到家）\n\n①小猿减压护脊书包 ②小猿篮球\n③小猿手办 ④小猿宇航员文具盒\n⑤桶装铅笔12支⑥小猿电动转笔刀\n完课后六种随机发货其一\n\n🔴二、3年内无限制看回放、14天猿辅导班主任伴学答疑，针对孩子情况制定学习规划\n\n\n学练考一站式搞定，稳稳提分💯\n\n报名链接👇🏼👇🏼👇🏼",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "猿辅导现在报名处课程外\n\n🔴一、再送猿辅导精美学习用品（所有课程出勤达标后包邮到家）\n\n①小猿减压护脊书包 ②小猿篮球\n③小猿手办 ④小猿宇航员文具盒\n⑤桶装铅笔12支⑥小猿电动转笔刀\n完课后六种随机发货其一\n\n🔴二、3年内无限制看回放、14天猿辅导班主任伴学答疑，针对孩子情况制定学习规划\n\n\n学练考一站式搞定，稳稳提分💯\n\n报名链接👇🏼👇🏼👇🏼"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 27,
+    "time": "10:20",
+    "message": "为满足孩子学习需求，这次准备了两种班型👇👇👇\n\n第1️⃣类：【猿辅导剑桥双优新英语】\n⚠️适合想英语启蒙、小学英语基础提升\n\n第2️⃣类：学科班【校内解题跟练课】\n⚠️适合已有英语基础，想要针对性查漏补缺、攻克学科重难点的孩子。\n\n报名链接👇👇👇",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "为满足孩子学习需求，这次准备了两种班型👇👇👇\n\n第1️⃣类：【猿辅导剑桥双优新英语】\n⚠️适合想英语启蒙、小学英语基础提升\n\n第2️⃣类：学科班【校内解题跟练课】\n⚠️适合已有英语基础，想要针对性查漏补缺、攻克学科重难点的孩子。\n\n报名链接👇👇👇"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 28,
+    "time": "10:20",
+    "message": "🌟课程内容紧贴新课标\n🌟学科不用担心版本问题，老师都会分好\n\n🎁报名赠送实物赠品，包邮到家\n\n只需9元！猿辅导独家设计3-12 岁学习方案\n✅【英语自然拼读训练营】\n✅【语数英薄弱点速补计划】\n\n英语打基础＋数学练思维＋语文抓阅读，三科协同才是小学提分王道！\n\n报.名.链.接👇🏼👇🏼👇🏼",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "🌟课程内容紧贴新课标\n🌟学科不用担心版本问题，老师都会分好\n\n🎁报名赠送实物赠品，包邮到家\n\n只需9元！猿辅导独家设计3-12 岁学习方案\n✅【英语自然拼读训练营】\n✅【语数英薄弱点速补计划】\n\n英语打基础＋数学练思维＋语文抓阅读，三科协同才是小学提分王道！\n\n报.名.链.接👇🏼👇🏼👇🏼"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 29,
+    "time": "10:20",
+    "message": "说一句心里话，其实9块钱给孩子买玩具，吃零食也就没有了，但知识不一样，知识是伴随孩子的一生的\n古话3岁看大，7岁看老，您要给孩子将来做打算孩子阅读能力，学习习惯越早培养越好，您这边给孩子买了，我也好为孩子安排学习。",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "说一句心里话，其实9块钱给孩子买玩具，吃零食也就没有了，但知识不一样，知识是伴随孩子的一生的\n古话3岁看大，7岁看老，您要给孩子将来做打算孩子阅读能力，学习习惯越早培养越好，您这边给孩子买了，我也好为孩子安排学习。"
+      }
+    ]
+  },
+  {
+    "day": 30,
+    "time": "10:20",
+    "message": "因为孩子有可能学一次可能学不会，多看几次就会了，实在不想您错过\n\n不少家长没时间也可以空的时候看回放的（这点比线下强）\n\n确实个人觉得好，所以多提醒了一次，宝贝家长觉得可以的话，抽一分钟预约下～完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n可以的话直接回复 1",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "因为孩子有可能学一次可能学不会，多看几次就会了，实在不想您错过\n\n不少家长没时间也可以空的时候看回放的（这点比线下强）\n\n确实个人觉得好，所以多提醒了一次，宝贝家长觉得可以的话，抽一分钟预约下～完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！\n\n可以的话直接回复 1"
+      }
+    ]
+  },
+  {
+    "day": 31,
+    "time": "10:20",
+    "message": "开学后 孩子周末在家我们要通过这几节课检查孩子的学习情况，您觉得呢9块钱可以让孩子试试对不对呢?\n\n⭐很多家长都直接报名的\n⭐上过的都说值送小学语文资料\n⭐等于你花9块钱 买了5天10节课+老师额外赠送的160首小学必备古诗词音频+40节少儿英语课\n\n您9块钱预约一回，我好为孩子安排课程。收到回复数字\"1\"  谢谢",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "开学后 孩子周末在家我们要通过这几节课检查孩子的学习情况，您觉得呢9块钱可以让孩子试试对不对呢?\n\n⭐很多家长都直接报名的\n⭐上过的都说值送小学语文资料\n⭐等于你花9块钱 买了5天10节课+老师额外赠送的160首小学必备古诗词音频+40节少儿英语课\n\n您9块钱预约一回，我好为孩子安排课程。收到回复数字\"1\"  谢谢"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 32,
+    "time": "10:20",
+    "message": "再问一下您的意见。👇👇\n\n九块钱【猿辅导自然拼读】   还愿意给宝贝一个学习的机会吗？（限时开放赠送名额）⚠⚠⚠\n\n可以永久回放，不用担心没有时间，不用固定时间在线，一节课30分钟左右，专门根据孩子集中注意力时间设定的。\n\n可以的话您回复1，⭐完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "再问一下您的意见。👇👇\n\n九块钱【猿辅导自然拼读】   还愿意给宝贝一个学习的机会吗？（限时开放赠送名额）⚠⚠⚠\n\n可以永久回放，不用担心没有时间，不用固定时间在线，一节课30分钟左右，专门根据孩子集中注意力时间设定的。\n\n可以的话您回复1，⭐完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！"
+      }
+    ]
+  },
+  {
+    "day": 33,
+    "time": "10:20",
+    "message": "在嘛家长？咱们报不报名给我说一声哈，就9元的英语课\n\n9块钱，从词句到绘本带着孩子进行自然拼读，9元=5次绘本阅读实践（180次开口练习+14个拼读组合）+16节英语自然拼读、音标、发音规则\n\n趣味动画的形式，从孩子发音开始，需要回复1 就行",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "在嘛家长？咱们报不报名给我说一声哈，就9元的英语课\n\n9块钱，从词句到绘本带着孩子进行自然拼读，9元=5次绘本阅读实践（180次开口练习+14个拼读组合）+16节英语自然拼读、音标、发音规则\n\n趣味动画的形式，从孩子发音开始，需要回复1 就行"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 34,
+    "time": "10:20",
+    "message": "给您发过很多消息，您都不回我\n\n也过去这么长时间了。孩子的英语课也耽误这么久了，看到其他宝贝在学，实在不忍心啊\n\n我觉得真的，让小孩试一试，9块钱便宜的，拿来给孩子学习也是好的嘛，如果你还能看到我这条消息的，恳求您回我一下，给宝贝买一个吧，学习不能再耽搁了",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "给您发过很多消息，您都不回我\n\n也过去这么长时间了。孩子的英语课也耽误这么久了，看到其他宝贝在学，实在不忍心啊\n\n我觉得真的，让小孩试一试，9块钱便宜的，拿来给孩子学习也是好的嘛，如果你还能看到我这条消息的，恳求您回我一下，给宝贝买一个吧，学习不能再耽搁了"
+      }
+    ]
+  },
+  {
+    "day": 35,
+    "time": "10:20",
+    "message": "咱学与不学都回应一下，老师这边也好知道情况，给您做个标记，就不打扰您啦，不过【9元猿辅导自然拼读课】确实不错，如果孩子不尝试，我说的再好都没用， 还送您如何写作文+162集（语文课+数学课）+16节英语自然拼读、发音规则永久有效，反复回看，总共就9块钱，要给小朋友尝试一下嘛？\n报名链接⬇️⬇️⬇️：",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "咱学与不学都回应一下，老师这边也好知道情况，给您做个标记，就不打扰您啦，不过【9元猿辅导自然拼读课】确实不错，如果孩子不尝试，我说的再好都没用， 还送您如何写作文+162集（语文课+数学课）+16节英语自然拼读、发音规则永久有效，反复回看，总共就9块钱，要给小朋友尝试一下嘛？\n报名链接⬇️⬇️⬇️："
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 36,
+    "time": "10:20",
+    "message": "宝贝家长，无论您回不回消息，而我从来都没有放弃与您的联系。时间一天天过去了，老师也着急想给孩子的英语能力做进一步提升\n\n现在猿辅导自然拼读仅需9块钱。趣味动画互动，指导师带着学，锻炼孩子的自然拼读能力，自然拼读能力提高了，孩子无论是学哪些知识，都会在知识理解上清晰很多，我真的不希望您错过了~，内容支持回放，您不用担心没时间的\n\n我们一起给孩子预约上可以吗，完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！没问题的话 链接一起发给您，您操作一下吧 好吗？\n报名链接⬇️⬇️⬇️：",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "宝贝家长，无论您回不回消息，而我从来都没有放弃与您的联系。时间一天天过去了，老师也着急想给孩子的英语能力做进一步提升\n\n现在猿辅导自然拼读仅需9块钱。趣味动画互动，指导师带着学，锻炼孩子的自然拼读能力，自然拼读能力提高了，孩子无论是学哪些知识，都会在知识理解上清晰很多，我真的不希望您错过了~，内容支持回放，您不用担心没时间的\n\n我们一起给孩子预约上可以吗，完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！没问题的话 链接一起发给您，您操作一下吧 好吗？\n报名链接⬇️⬇️⬇️："
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 37,
+    "time": "10:20",
+    "message": "宝贝家长，加您这么久了，不知道您认不认同，在教育与学习的路上，其实最先放弃的不是孩子，而是您，因为没有时间，因为孩子不愿意学，其实这些都不是理由，而是您的不坚持，9元我知道您担心，犹豫和彷徨，为何不放开自己的心让宝贝学习一下呢？昨天不理我，今天不想理我，明天我不知道您会不会理我，但是我想告诉您的是学总比不学强，孩子未来的学习成长是一点点积累的~您说呢？ 本期名额只有最后3个了，9元自然拼读，包含5节拼读额外，名额一直为您留着呢，咱们还要给孩子预约一个吗？重新给您发了一下预约链接",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "雷达",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "宝贝家长，加您这么久了，不知道您认不认同，在教育与学习的路上，其实最先放弃的不是孩子，而是您，因为没有时间，因为孩子不愿意学，其实这些都不是理由，而是您的不坚持，9元我知道您担心，犹豫和彷徨，为何不放开自己的心让宝贝学习一下呢？昨天不理我，今天不想理我，明天我不知道您会不会理我，但是我想告诉您的是学总比不学强，孩子未来的学习成长是一点点积累的~您说呢？ 本期名额只有最后3个了，9元自然拼读，包含5节拼读额外，名额一直为您留着呢，咱们还要给孩子预约一个吗？重新给您发了一下预约链接"
+      },
+      {
+        "type": "link",
+        "title": "猿辅导自然拼读9元体验课报名通道",
+        "description": "点击进入报名页面，系统会自动记录点击并触发雷达跟进。",
+        "url": "https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0",
+        "thumb_url": "",
+        "include_text_fallback": true
+      }
+    ]
+  },
+  {
+    "day": 38,
+    "time": "10:20",
+    "message": "我知道这两天发了很多消息给您。说一千道一万，学习这条路，我深知我一定会被误解，但是每次回想起来，宝贝说谢谢指导师的那一刻，我就能鼓起勇气，所以打扰你千千万万遍，只要能打动您一次，能让宝贝接受最好的阅读养成方式，我就觉得值得！预约链接上面发给您了，您点进去选择孩子年龄给孩子预约一个可以吗？9元完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！",
+    "image_key": "",
+    "image_note": "",
+    "link_marker": "",
+    "source_column": "C",
+    "components": [
+      {
+        "type": "plain",
+        "text": "我知道这两天发了很多消息给您。说一千道一万，学习这条路，我深知我一定会被误解，但是每次回想起来，宝贝说谢谢指导师的那一刻，我就能鼓起勇气，所以打扰你千千万万遍，只要能打动您一次，能让宝贝接受最好的阅读养成方式，我就觉得值得！预约链接上面发给您了，您点进去选择孩子年龄给孩子预约一个可以吗？9元完课还加赠随机礼品一件（书包、桶装铅笔、小猿转笔刀、文具盒、哪吒手办、篮球）包邮！"
+      }
+    ]
+  }
+]

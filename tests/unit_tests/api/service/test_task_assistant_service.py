@@ -9,10 +9,6 @@ import pytest
 sys.modules.setdefault('dashscope', types.ModuleType('dashscope'))
 
 from langbot.pkg.api.http.service.task_assistant import (  # noqa: E402
-    COURSE_SALES_AFTER_LINK_OPEN_MESSAGE,
-    COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
-    COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE,
-    COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
     COURSE_RESOURCE_CARD_LINK,
     COURSE_OPENING_MESSAGE,
     COURSE_SALES_SCENARIO,
@@ -79,6 +75,68 @@ def _query(message_chain, text='', session_id='user-1'):
         launcher_type=launcher_type,
         launcher_id=session_id,
     )
+
+
+def test_course_sales_template_includes_configurable_meme_library():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_config()
+    memes = config['memes']
+
+    assert memes['enabled'] is True
+    assert memes['large_enabled'] is True
+    assert memes['feishu_native_enabled'] is True
+    assert memes['library_enabled'] is True
+    assert memes['api_fallback_enabled'] is True
+    assert len(memes['library']) >= 200
+    assert any(item['trigger_keyword'] == '{happy}' for item in memes['library'])
+    assert any(item['trigger_keyword'] == '{thanks}' for item in memes['library'])
+    assert all(
+        {'meaning', 'trigger_keyword', 'file_key', 'tags', 'usage_scene', 'usage_instruction'} <= set(item)
+        for item in memes['library']
+    )
+    assert all(str(item['file_key']).startswith('sales-memes/') for item in memes['library'])
+    assert all(str(item.get('feishu_emoji', '')).startswith('[') for item in memes['library'])
+    assert any('客户首次进线' in item['usage_instruction'] for item in memes['library'])
+
+    workflow = service.build_course_sales_workflow_config(template_config=config)
+    assert workflow['memes']['library'][0]['trigger_keyword'].startswith('{')
+    assert workflow['variables']['memes']['library'][0]['trigger_keyword'].startswith('{')
+
+    prompt = service.compose_course_sales_prompt(config)
+    assert '表情包触发规则' in prompt
+    assert '{happy}' in prompt
+    assert '使用场景' in prompt
+
+
+def test_course_sales_pipeline_uses_actionable_failure_hint():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_pipeline_config(model_uuid='model-ok')
+
+    failure_hint = config['output']['misc']['failure-hint']
+    assert failure_hint != 'Request failed.'
+    assert 'AI' in failure_hint
+    assert '模型' in failure_hint
+
+
+def test_primary_model_resolution_prefers_runtime_local_agent_model():
+    service = TaskAssistantService(SimpleNamespace())
+    query = SimpleNamespace(
+        pipeline_config={
+            'template_config': {'model_uuid': 'stale-template-model'},
+            'ai': {
+                'local-agent': {
+                    'model': {
+                        'primary': 'runtime-model',
+                        'fallbacks': [],
+                    }
+                }
+            },
+        }
+    )
+
+    assert service._resolve_primary_model_uuid(query, {}) == 'runtime-model'
 
 
 @pytest.mark.asyncio
@@ -1044,6 +1102,10 @@ def test_task_assistant_template_pipeline_config_matches_workflow_capabilities()
     assert template_config['interaction_radar']['click_reply']
     assert template_config['voice']['voice_type'] == TASK_ASSISTANT_TTS_VOICE_TYPE
     assert template_config['voice']['encoding'] == 'ogg_opus'
+    assert template_config['memes']['enabled'] is True
+    assert len(template_config['memes']['library']) >= 200
+    assert config['workflow']['memes']['library'][0]['trigger_keyword'].startswith('{')
+    assert config['workflow']['variables']['memes']['library'][0]['trigger_keyword'].startswith('{')
     assert len(template_config['image_text_bindings']) == 8
     first_binding = template_config['image_text_bindings'][0]
     assert first_binding['step_id'] == 'download_qr'
@@ -1089,7 +1151,6 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert template['radar']['link_url'] == COURSE_SALES_RADAR_LINK
     assert len(template['radar']['rules']) >= 4
     assert any(rule['event'] == 'browse_30s' for rule in template['radar']['rules'])
-    assert template['radar']['rules'][0]['message'] == COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
     assert template['tools']['voice_reply'] is True
     assert template['voice']['enabled'] is True
     assert template['voice']['voice_type'] == COURSE_SALES_TTS_VOICE_TYPE
@@ -1097,9 +1158,6 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert '您的图书配套学习资源点击' in template['opening_message']
     assert COURSE_RESOURCE_CARD_LINK not in template['opening_message']
     assert COURSE_RESOURCE_CARD_LINK not in template['role_prompt']
-    assert '先解释用户当前问题，再自然问要不要给孩子试试' in template['role_prompt']
-    assert '发完结课礼物图后，再发雷达报名链接' in template['role_prompt']
-    assert COURSE_SALES_AFTER_LINK_OPEN_MESSAGE in template['role_prompt']
     assert 'https://mp.bookln.cn/user/history/moment.htm' in template['opening_message']
     assert '#小程序://教辅好帮手/la0KWwjPCx8S26C' in template['opening_message']
     assert 'https://d.codeup.cn/d/UVruQn' in template['opening_message']
@@ -1107,17 +1165,6 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     image_file_keys = {binding['file_key'] for binding in template['image_text_bindings']}
     assert 'course-sales/phonics/gift_poster.jpeg' in image_file_keys
     assert 'course-sales/phonics/gift_qr.jpeg' in image_file_keys
-    gift_binding = next(
-        binding for binding in template['image_text_bindings']
-        if binding['file_key'] == 'course-sales/phonics/gift_poster.jpeg'
-    )
-    schedule_faq = next(faq for faq in template['course_faqs'] if faq['intent'] == 'course_schedule')
-    assert '回放' not in schedule_faq['keywords']
-    assert 'course_intro' not in gift_binding['trigger_intents']
-    assert 'course_schedule' in gift_binding['trigger_intents']
-    assert 'course_content' in gift_binding['trigger_intents']
-    assert 'course_replay' in gift_binding['trigger_intents']
-    assert 'course_conflict' in gift_binding['trigger_intents']
     assert all('day1_' not in file_key and 'day2_' not in file_key and 'day3_' not in file_key for file_key in image_file_keys)
     broadcast_messages = '\n'.join(broadcast['message'] for broadcast in template['long_term_broadcasts'])
     assert '自然拼读专项课' in broadcast_messages
@@ -1156,35 +1203,15 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
         message.get('image_key') == 'course-sales/phonics/gift_qr.jpeg'
         for message in followups_by_stage['purchased']['messages']
     )
-    silence_messages = followups_by_stage['silence_revisit']['messages']
-    assert silence_messages[0]['delay_minutes'] == 5
-    assert silence_messages[0]['message'] == COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE
-    assert silence_messages[1]['delay_minutes'] == 60
-    assert silence_messages[1]['message'] == COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE
-    assert silence_messages[1]['voice_optional'] is True
-    assert silence_messages[2]['schedule_policy'] == 'daytime_2130_else_next_1000'
-    assert silence_messages[2]['message'] == COURSE_SALES_EVENING_FOLLOWUP_MESSAGE
-    assert silence_messages[2]['voice_optional'] is True
+    assert all(
+        not message.get('voice_optional')
+        for sequence in template['followup_sequences']
+        for message in sequence['messages']
+    )
     assert (
         followups_by_stage['radar_clicked']['messages'][0]['message']
-        == COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
+        == '看到您打开报名入口了\n家长，您这边能打开吗？'
     )
-
-
-def test_course_sales_dynamic_evening_followup_uses_2130_or_next_1000():
-    service = TaskAssistantService(SimpleNamespace())
-    message = {
-        'schedule_policy': 'daytime_2130_else_next_1000',
-        'daytime_schedule_time': '21:30',
-        'night_schedule_time': '10:00',
-        'night_cutoff_time': '21:00',
-    }
-
-    daytime = datetime.datetime(2026, 6, 18, 20, 15)
-    night = datetime.datetime(2026, 6, 18, 21, 5)
-
-    assert service._course_message_scheduled_at(message, daytime) == datetime.datetime(2026, 6, 18, 21, 30)
-    assert service._course_message_scheduled_at(message, night) == datetime.datetime(2026, 6, 19, 10, 0)
 
 
 def test_course_sales_runtime_defaults_update_copied_pipeline_config():
@@ -1198,87 +1225,6 @@ def test_course_sales_runtime_defaults_update_copied_pipeline_config():
     assert changed is True
     assert config['ai']['local-agent']['max-round'] == 12
     assert config['workflow']['reference_rounds'] == 4
-
-
-def test_course_sales_runtime_defaults_refresh_conflict_faq_answer():
-    service = TaskAssistantService(SimpleNamespace())
-    config = service.build_course_sales_template_pipeline_config()
-    old_answer = '不冲突的，这个课更侧重拼读技巧和方法，而且支持回放。时间不方便也可以先报名，后面按老师安排和回放节奏学。'
-    config['workflow']['template_config'] = {
-        'course_faqs': [
-            {'intent': 'course_conflict', 'question': '和其他课有冲突', 'answer': old_answer}
-        ]
-    }
-
-    changed = service._apply_course_sales_runtime_defaults(config)
-
-    assert changed is True
-    answer = config['workflow']['template_config']['course_faqs'][0]['answer']
-    assert '报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀' in answer
-    assert '主要是赠送实物的名额，就这一周有' in answer
-
-
-def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_image():
-    service = TaskAssistantService(SimpleNamespace())
-    config = service.build_course_sales_template_pipeline_config()
-    old_intro = '这是猿辅导英语自然拼读集训营，9元5天10节，适合大班到小学4年级。主要带孩子学拼读规律、绘本阅读和开口表达，目标是见词能拼、听音能写，少靠死记硬背。'
-    config['workflow']['template_config'] = {
-        'course_faqs': [
-            {'intent': 'course_schedule', 'question': '什么时候上课', 'answer': '晚上上课', 'keywords': ['几点', '回放']},
-            {'intent': 'course_intro', 'question': '这个是什么课', 'answer': old_intro},
-            {'intent': 'course_content', 'question': '学习内容', 'answer': '核心内容包括26个字母巧记、拼读规则和绘本阅读。'},
-            {'intent': 'course_replay', 'question': '支持回放吗', 'answer': '支持回放，3年内可以无限次看。'},
-        ],
-        'image_text_bindings': [
-            {
-                'file_key': 'course-sales/phonics/gift_poster.jpeg',
-                'trigger_intents': ['gift', 'course_intro', 'purchase'],
-            }
-        ],
-    }
-    config['workflow']['nodes'] = [
-        {
-            'type': 'image',
-            'config': {
-                'file_key': 'course-sales/phonics/gift_poster.jpeg',
-                'trigger_intents': ['course_intro', 'purchase'],
-            },
-        }
-    ]
-
-    changed = service._apply_course_sales_runtime_defaults(config)
-
-    assert changed is True
-    schedule_keywords = config['workflow']['template_config']['course_faqs'][0]['keywords']
-    assert '回放' not in schedule_keywords
-    schedule_answer = config['workflow']['template_config']['course_faqs'][0]['answer']
-    assert '晚上19点到20点' in schedule_answer
-    assert '需要给孩子试试不，现在报名还送结课礼物' in schedule_answer
-    answer = config['workflow']['template_config']['course_faqs'][1]['answer']
-    assert '5次绘本阅读实践' in answer
-    assert '180次开口练习' in answer
-    assert '360分钟配套视频' in answer
-    assert '报名链接我发您' in answer
-    content_answer = config['workflow']['template_config']['course_faqs'][2]['answer']
-    assert '每个年级的学习内容不一样' in content_answer
-    assert '根据孩子年级匹配' in content_answer
-    assert '需要给孩子试试不，现在报名还送结课礼物' in content_answer
-    replay_answer = config['workflow']['template_config']['course_faqs'][3]['answer']
-    assert '每次也就一小时左右' in replay_answer
-    assert '要不要试试看' in replay_answer
-    assert '小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀' in replay_answer
-    binding_intents = config['workflow']['template_config']['image_text_bindings'][0]['trigger_intents']
-    node_intents = config['workflow']['nodes'][0]['config']['trigger_intents']
-    assert 'course_intro' not in binding_intents
-    assert 'course_intro' not in node_intents
-    assert 'course_schedule' in binding_intents
-    assert 'course_schedule' in node_intents
-    assert 'course_content' in binding_intents
-    assert 'course_content' in node_intents
-    assert 'course_replay' in binding_intents
-    assert 'course_replay' in node_intents
-    assert 'course_conflict' in binding_intents
-    assert 'course_conflict' in node_intents
 
 
 def test_course_sales_runtime_defaults_skip_non_course_pipeline_config():
@@ -1522,19 +1468,13 @@ def test_course_sales_template_outreach_messages_are_short_and_low_pressure(temp
             if isinstance(message, dict) and message.get('action') != 'continue_long_term_broadcasts':
                 messages.append(str(message.get('message') or ''))
     messages.extend(str(broadcast.get('message') or '') for broadcast in template['long_term_broadcasts'])
-    conversion_followups = {
-        COURSE_SALES_AFTER_LINK_OPEN_MESSAGE,
-        COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
-        COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
-    }
-    low_pressure_messages = [message for message in messages if message not in conversion_followups]
 
     assert messages
-    assert all(len(message) <= 90 for message in low_pressure_messages)
-    assert all(not message.rstrip().endswith(('。', '．', '.')) for message in low_pressure_messages)
-    assert all(any(marker in message for marker in ('吗', '呀', '呢', '能打开吗')) for message in low_pressure_messages)
+    assert all(len(message) <= 90 for message in messages)
+    assert all(not message.rstrip().endswith(('。', '．', '.')) for message in messages)
+    assert all(any(marker in message for marker in ('吗', '呀', '呢', '能打开吗')) for message in messages)
     pressure_markers = ('名额不多', '一直等您', '恳求', '不忍心', '不能再耽搁', '最后3个', '打扰你千千万万遍')
-    assert all(not any(marker in message for marker in pressure_markers) for message in low_pressure_messages)
+    assert all(not any(marker in message for marker in pressure_markers) for message in messages)
 
 
 def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
@@ -2254,100 +2194,8 @@ async def test_course_sales_faq_short_answer_for_single_question():
     assert query.variables['_knowledge_base_uuids'] == []
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
     assert '[短答模板]' in context_text
-    assert '先准确说明自然拼读课分两周上' in context_text
-    assert '自然、生动地催一下家长给孩子试试' in context_text
-    assert '再按课程销售上下文自然、生动地承接报名和活动礼物' in context_text
+    assert '只答用户当前问题' in context_text
     assert '[猿辅导知识库参考]' not in context_text
-
-
-@pytest.mark.asyncio
-async def test_course_sales_conflict_context_pushes_gift_and_signup_link():
-    service = TaskAssistantService(SimpleNamespace())
-    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
-    query = _query(text_chain('和其他课有冲突么'), '和其他课有冲突么', session_id='course-conflict')
-    query.pipeline_config = config
-    query.variables['_knowledge_base_uuids'] = [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
-    query.prompt = SimpleNamespace(messages=[])
-
-    result = await service.prepare_query(query)
-
-    assert result['handled'] is True
-    intent = query.variables['workflow_intent']
-    assert intent['intent'] == 'course_conflict'
-    assert intent.get('faq_short_answer')
-    assert '小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀' in intent['faq_short_answer']
-    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '自然拼读报名链接卡片SOP' in context_text
-    assert '赠送实物名额就这一周有' in context_text
-    assert '报名链接卡片' in context_text
-
-
-@pytest.mark.asyncio
-async def test_course_sales_replay_context_pushes_gift_and_signup_link():
-    service = TaskAssistantService(SimpleNamespace())
-    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
-    query = _query(text_chain('支持回放么'), '支持回放么', session_id='course-replay')
-    query.pipeline_config = config
-    query.variables['_knowledge_base_uuids'] = [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
-    query.prompt = SimpleNamespace(messages=[])
-
-    result = await service.prepare_query(query)
-
-    assert result['handled'] is True
-    intent = query.variables['workflow_intent']
-    assert intent['intent'] == 'course_replay'
-    assert intent.get('faq_short_answer')
-    assert '每次也就一小时左右' in intent['faq_short_answer']
-    assert '要不要试试看' in intent['faq_short_answer']
-    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '用户询问是否支持回放' in context_text
-    assert '完课后随机发货其一' in context_text
-    assert '报名链接卡片' in context_text
-
-
-@pytest.mark.asyncio
-async def test_course_sales_content_context_pushes_gift_and_signup_link():
-    service = TaskAssistantService(SimpleNamespace())
-    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
-    query = _query(text_chain('学习内容是什么'), '学习内容是什么', session_id='course-content')
-    query.pipeline_config = config
-    query.variables['_knowledge_base_uuids'] = [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
-    query.prompt = SimpleNamespace(messages=[])
-
-    result = await service.prepare_query(query)
-
-    assert result['handled'] is True
-    intent = query.variables['workflow_intent']
-    assert intent['intent'] == 'course_content'
-    assert intent.get('faq_short_answer')
-    assert '每个年级的学习内容不一样' in intent['faq_short_answer']
-    assert '根据孩子年级匹配' in intent['faq_short_answer']
-    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '用户询问学习内容' in context_text
-    assert '不要复述“这个是什么课”的课程介绍' in context_text
-    assert '报名链接卡片' in context_text
-
-
-@pytest.mark.asyncio
-async def test_course_sales_intro_context_includes_details_and_signup_link():
-    service = TaskAssistantService(SimpleNamespace())
-    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
-    query = _query(text_chain('这个是什么课'), '这个是什么课', session_id='course-intro')
-    query.pipeline_config = config
-    query.variables['_knowledge_base_uuids'] = [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
-    query.prompt = SimpleNamespace(messages=[])
-
-    result = await service.prepare_query(query)
-
-    assert result['handled'] is True
-    intent = query.variables['workflow_intent']
-    assert intent['intent'] == 'course_intro'
-    assert intent.get('faq_short_answer')
-    assert intent.get('step_ids') == []
-    assert '5次绘本阅读实践' in intent['faq_short_answer']
-    assert '180次开口练习' in intent['faq_short_answer']
-    assert '360分钟配套视频' in intent['faq_short_answer']
-    assert '报名链接我发您' in intent['faq_short_answer']
 
 
 @pytest.mark.asyncio
@@ -2470,6 +2318,20 @@ async def test_course_sales_payment_screenshot_stops_promotional_outreach_before
             'segment_prefixes': ['course-sales:broadcast', 'course-sales:followup'],
         }
     ]
+    assert query.variables['lark_reaction_emoji_type'] == 'THUMBSUP'
+
+
+@pytest.mark.asyncio
+async def test_course_sales_open_confirmation_marks_lark_reaction():
+    service = TaskAssistantService(SimpleNamespace(sales_service=None, logger=SimpleNamespace(warning=lambda *_: None)))
+    query = _query(text_chain('可以打开'), '可以打开', session_id='customer-open-ok')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query.prompt = SimpleNamespace(messages=[])
+
+    await service.prepare_query(query)
+
+    assert query.variables['workflow_intent']['intent'] == 'resource_confirmed'
+    assert query.variables['lark_reaction_emoji_type'] == 'SMILE'
 
 
 @pytest.mark.asyncio
@@ -3046,6 +2908,61 @@ async def test_handle_course_sales_contact_added_schedules_opening_and_broadcast
 
 
 @pytest.mark.asyncio
+async def test_course_sales_scheduled_push_items_support_media_link_and_loop():
+    sales_service = _CourseOutreachSalesService(user_message_count=0)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    target = {
+        'bot_uuid': 'bot-uuid',
+        'target_type': 'person',
+        'target_id': 'ou_customer',
+        'session_id': 'person_ou_customer',
+        'pipeline_uuid': 'pipe-uuid',
+    }
+    workflow = {
+        'scheduled_push': {
+            'enabled': True,
+            'loop_enabled': True,
+            'items': [
+                {
+                    'day': 1,
+                    'time': '08:15',
+                    'message': '第一天推送资料',
+                    'image_key': 'course-sales/day1.png',
+                    'link_title': '领取资料',
+                    'link_url': 'https://example.com/day1',
+                },
+                {
+                    'day': 2,
+                    'time': '20:30',
+                    'message': '第二天提醒试听',
+                },
+            ],
+        },
+        'long_term_broadcasts': [
+            {'day': 1, 'time': '10:05', 'message': '旧群发不应混入新定时推送模块'},
+        ],
+    }
+
+    await service._schedule_course_sales_broadcasts_for_target(target, workflow)
+
+    broadcast_plans = [plan for plan in sales_service.plans if plan['segment'] == 'course-sales:broadcast']
+    assert len(broadcast_plans) == 2
+    first_plan = broadcast_plans[0]
+    assert first_plan['interval_minutes'] == 2 * 24 * 60
+    assert first_plan['message_components'] == [
+        {'type': 'plain', 'text': '第一天推送资料'},
+        {'type': 'image', 'file_key': 'course-sales/day1.png'},
+        {
+            'type': 'link',
+            'title': '领取资料',
+            'description': '',
+            'url': 'https://example.com/day1',
+        },
+    ]
+    assert broadcast_plans[1]['interval_minutes'] == 2 * 24 * 60
+
+
+@pytest.mark.asyncio
 async def test_handle_course_sales_contact_added_makes_opening_text_and_card_due_immediately():
     sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
     service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
@@ -3246,7 +3163,7 @@ async def test_course_sales_radar_event_does_not_resend_signup_link_followup():
     assert radar_plan['message_components'] == [
         {
             'type': 'plain',
-            'text': COURSE_SALES_AFTER_LINK_OPEN_MESSAGE,
+            'text': '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。',
         }
     ]
     assert sales_service.target_send == {

@@ -3,15 +3,20 @@ from __future__ import annotations
 import random
 import asyncio
 import base64
+from collections import deque
+import io
 import json
 import mimetypes
 import re
 from typing import Any
 
+import aiohttp
+from PIL import Image as PILImage
 
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.provider.message as provider_message
+from langbot.pkg.utils import httpclient
 
 from .. import stage, entities
 import langbot_plugin.api.entities.builtin.pipeline.query as pipeline_query
@@ -23,11 +28,160 @@ class SendResponseBackStage(stage.PipelineStage):
 
     _EXTRA_REPLY_CHAINS_KEY = '_respback_extra_reply_chains'
     _COURSE_SALES_LINK_OPEN_QUESTION = '家长，您这边能打开吗？'
-    _COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION = '这是报名链接，家长，您这边能打开吗？'
     _COURSE_SALES_CHILD_GRADE_QUESTION = '孩子现在几年级呀？'
     _COURSE_SALES_SIGNUP_LINK_QUEUED_KEY = '_course_sales_signup_link_queued'
     _COURSE_SALES_RESOURCE_LINK_QUEUED_KEY = '_course_sales_resource_link_queued'
-    _COURSE_SALES_GIFT_BEFORE_LINK_INTENTS = {'course_schedule', 'course_content', 'course_replay', 'course_conflict'}
+    _OIAPI_EMOTION_URL = 'https://oiapi.net/api/Emotion'
+    _MEME_PROVIDERS = [
+        {
+            'id': 'oiapi',
+            'url': 'https://oiapi.net/api/Emotion',
+            'params': {'msg': '{keyword}', '0': '{keyword}', 'limit': '{limit}'},
+        },
+        {
+            'id': 'doutula',
+            'url': 'https://www.doutula.com/api/search',
+            'params': {'keyword': '{keyword}', 'page': '1', 'mime': '0'},
+            'keywords': {'赞同': '点赞'},
+        },
+        {
+            'id': 'apihz_sogou',
+            'url': 'https://cn.apihz.cn/api/img/apihzbqbsougou.php',
+            'params': {'id': '88888888', 'key': '88888888', 'words': '{keyword}', 'page': '1'},
+            'keywords': {'赞同': '点赞'},
+        },
+        {
+            'id': 'yuanfen',
+            'url': 'https://api.yuanfen.top/doutu',
+            'params': {'msg': '{keyword}'},
+            'keywords': {'赞同': '点赞'},
+        },
+        {
+            'id': 'xiaokang',
+            'url': 'https://api.xiaokangsb.com/api/doutu',
+            'params': {'key': '{keyword}'},
+        },
+        {
+            'id': 'yunxiaomeng',
+            'url': 'https://api.yunxiaomeng.top/api/doutu',
+            'params': {'keyword': '{keyword}', 'page': '1'},
+        },
+        {
+            'id': 'miaotian',
+            'url': 'https://api.miaotian.top/api/doutu',
+            'params': {'msg': '{keyword}'},
+        },
+        {
+            'id': 'abaiyun',
+            'url': 'https://api.abaiyun.cn/api/doutu',
+            'params': {'word': '{keyword}'},
+        },
+        {
+            'id': 'ysapi',
+            'url': 'https://api.ysapi.top/doutu',
+            'params': {'keyword': '{keyword}'},
+        },
+        {
+            'id': 'qqsuu',
+            'url': 'https://api.qqsuu.cn/api/dm/doutu',
+            'params': {'msg': '{keyword}'},
+        },
+    ]
+    _FEISHU_NATIVE_EMOJIS_BY_KEY = {
+        'happy': ('[微笑]', '[愉快]', '[笑容满面]', '[大笑]', '[欢呼]', '[耶]'),
+        'thanks': ('[双手合十]', '[感谢]', '[抱拳]'),
+        'like': ('[赞]', '[+1]', '[我看行]', '[强]', '[完成]'),
+        'success': ('[完成]', '[勾号]', '[100分]', '[鼓掌]'),
+        'morning': ('[微笑]', '[咖啡]'),
+        'noon': ('[咖啡]', '[愉快]'),
+        'evening': ('[咖啡]', '[微笑]'),
+        'night': ('[再见]', '[鼾睡]'),
+        'ok': ('[OK]', '[了解]', '[完成]'),
+        'received': ('[了解]', '[OK]', '[完成]'),
+        'cheer': ('[加油]', '[奋斗]', '[冲！]', '[鼓掌]'),
+        'welcome': ('[挥手]', '[微笑]', '[愉快]'),
+        'question': ('[思考]', '[什么？]', '[啊？]'),
+        'thinking': ('[思考]', '[思考中]', '[稍等]'),
+        'sorry': ('[抱拳]', '[双手合十]'),
+        'wait': ('[稍等]', '[在做了]', '[思考中]'),
+        'checking': ('[在做了]', '[稍等]', '[思考]'),
+        'reminder': ('[图钉]', '[闹钟]', '[点击]'),
+        'deal': ('[鼓掌]', '[欢呼]', '[撒花]'),
+        'signup': ('[完成]', '[鼓掌]', '[撒花]'),
+        'payment': ('[完成]', '[勾号]', '[100分]'),
+        'link': ('[点击]', '[OK]', '[了解]'),
+        'resource': ('[图钉]', '[点击]', '[了解]'),
+        'class_time': ('[日程]', '[闹钟]', '[了解]'),
+        'replay': ('[电视]', '[了解]', '[OK]'),
+        'gift': ('[礼物]', '[送你小红花]', '[撒花]'),
+        'trial': ('[挥手]', '[微笑]', '[愉快]'),
+        'discount': ('[礼物]', '[火]', '[点击]'),
+        'grade': ('[了解]', '[思考]', '[OK]'),
+        'parent': ('[微笑]', '[了解]', '[双手合十]'),
+        'child': ('[送你小红花]', '[加油]', '[比心]'),
+        'homework': ('[奋斗]', '[加油]', '[100分]'),
+        'reading': ('[100分]', '[送你小红花]', '[加油]'),
+        'phonics': ('[音乐]', '[100分]', '[加油]'),
+        'followup': ('[图钉]', '[了解]', '[微笑]'),
+        'congrats': ('[鼓掌]', '[欢呼]', '[撒花]'),
+        'polite': ('[双手合十]', '[感谢]', '[微笑]'),
+        'calm': ('[摸头]', '[抱拳]', '[稍等]'),
+        'service': ('[在做了]', '[了解]', '[OK]'),
+        'handoff_ready': ('[举手]', '[稍等]', '[了解]'),
+    }
+    _FEISHU_NATIVE_KEY_ALIASES = {
+        '开心': 'happy',
+        '高兴': 'happy',
+        '愉快': 'happy',
+        '赞同': 'like',
+        '点赞': 'like',
+        '认可': 'like',
+        '完成': 'success',
+        '成功': 'success',
+        '感谢': 'thanks',
+        '谢谢': 'thanks',
+        '疑惑': 'question',
+        '疑问': 'question',
+        '思考': 'thinking',
+        '稍等': 'wait',
+        '核实': 'checking',
+        '收到': 'received',
+        '好的': 'ok',
+        '加油': 'cheer',
+        '欢迎': 'welcome',
+        '报名': 'signup',
+        '支付': 'payment',
+        '链接': 'link',
+        '资料': 'resource',
+        '上课时间': 'class_time',
+        '回放': 'replay',
+        '礼品': 'gift',
+        '体验课': 'trial',
+        '优惠': 'discount',
+        '年级': 'grade',
+        '家长': 'parent',
+        '孩子': 'child',
+        '练习': 'homework',
+        '阅读': 'reading',
+        '自然拼读': 'phonics',
+        '跟进': 'followup',
+        '恭喜': 'congrats',
+        '礼貌': 'polite',
+        '安抚': 'calm',
+        '服务': 'service',
+        '协助': 'handoff_ready',
+    }
+    _FEISHU_NATIVE_EMOJI_VALUES = frozenset(
+        emoji for options in _FEISHU_NATIVE_EMOJIS_BY_KEY.values() for emoji in options
+    )
+
+    _MEME_TRIGGER_RE = re.compile(r'\{([a-z][a-z0-9_-]{1,32})\}', re.IGNORECASE)
+    _DEFAULT_MEME_CODES = set(_FEISHU_NATIVE_EMOJIS_BY_KEY)
+    _BUILTIN_MEME_FILE_PREFIX = 'builtin:sales-meme:'
+
+    def __init__(self, ap):
+        super().__init__(ap)
+        self._meme_session_states: dict[str, dict[str, int]] = {}
     _COURSE_SALES_CHILD_GRADE_RE = re.compile(r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]年级|初[一二三]|高[一二三])')
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
@@ -57,7 +211,9 @@ class SendResponseBackStage(stage.PipelineStage):
                 return 0
         return 0
 
-    def _is_task_assistant_workflow(self, workflow: dict[str, Any]) -> bool:
+    def _is_task_assistant_workflow(self, workflow: dict[str, Any] | None) -> bool:
+        if not isinstance(workflow, dict):
+            return False
         metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
         return metadata.get('scenario') == 'task_assistant_ant_af'
 
@@ -335,8 +491,109 @@ class SendResponseBackStage(stage.PipelineStage):
             query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text=notice)])]
         return opened or bool(notice)
 
-    async def _image_component(self, file_key: str, image_url: str) -> platform_message.Image:
+    @staticmethod
+    def _tight_sticker_png(image_bytes: bytes) -> bytes:
+        try:
+            image = PILImage.open(io.BytesIO(image_bytes)).convert('RGBA')
+        except Exception:
+            return image_bytes
+
+        width, height = image.size
+        if width <= 0 or height <= 0:
+            return image_bytes
+
+        pixels = image.load()
+        visited = bytearray(width * height)
+        queue: deque[tuple[int, int]] = deque()
+
+        def index(x: int, y: int) -> int:
+            return y * width + x
+
+        def is_outer_background(x: int, y: int) -> bool:
+            r, g, b, alpha = pixels[x, y]
+            return alpha <= 10 or (r >= 245 and g >= 245 and b >= 245)
+
+        def push_if_background(x: int, y: int) -> None:
+            pos = index(x, y)
+            if visited[pos] or not is_outer_background(x, y):
+                return
+            visited[pos] = 1
+            queue.append((x, y))
+
+        for x in range(width):
+            push_if_background(x, 0)
+            push_if_background(x, height - 1)
+        for y in range(height):
+            push_if_background(0, y)
+            push_if_background(width - 1, y)
+
+        while queue:
+            x, y = queue.popleft()
+            r, g, b, _ = pixels[x, y]
+            pixels[x, y] = (r, g, b, 0)
+            if x > 0:
+                push_if_background(x - 1, y)
+            if x + 1 < width:
+                push_if_background(x + 1, y)
+            if y > 0:
+                push_if_background(x, y - 1)
+            if y + 1 < height:
+                push_if_background(x, y + 1)
+
+        bbox = image.getbbox()
+        if not bbox:
+            return image_bytes
+
+        cropped = image.crop(bbox)
+        padding = max(4, min(16, round(max(cropped.size) * 0.035)))
+        sticker = PILImage.new(
+            'RGBA',
+            (cropped.width + padding * 2, cropped.height + padding * 2),
+            (255, 255, 255, 0),
+        )
+        sticker.alpha_composite(cropped, (padding, padding))
+
+        max_side = 420
+        longest_side = max(sticker.size)
+        if longest_side > max_side:
+            scale = max_side / longest_side
+            sticker = sticker.resize(
+                (max(1, round(sticker.width * scale)), max(1, round(sticker.height * scale))),
+                PILImage.Resampling.LANCZOS,
+            )
+
+        output = io.BytesIO()
+        sticker.save(output, format='PNG', optimize=True)
+        return output.getvalue()
+
+    async def _download_image_bytes(self, image_url: str) -> bytes:
+        try:
+            timeout = aiohttp.ClientTimeout(total=8)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(image_url) as response:
+                    if response.status != 200:
+                        return b''
+                    content = await response.read()
+                    return content if len(content) <= 5 * 1024 * 1024 else b''
+        except Exception:
+            return b''
+
+    @staticmethod
+    def _is_image_bytes(image_bytes: bytes) -> bool:
+        try:
+            PILImage.open(io.BytesIO(image_bytes)).verify()
+            return True
+        except Exception:
+            return False
+
+    async def _image_component(self, file_key: str, image_url: str, *, sticker: bool = False) -> platform_message.Image:
         if image_url:
+            if sticker:
+                image_content = await self._download_image_bytes(image_url)
+                if image_content and self._is_image_bytes(image_content):
+                    image_content = self._tight_sticker_png(image_content)
+                    image_base64 = base64.b64encode(image_content).decode('utf-8')
+                    return platform_message.Image(base64=f'data:image/png;base64,{image_base64}')
             return platform_message.Image(url=image_url)
 
         storage_mgr = getattr(self.ap, 'storage_mgr', None)
@@ -344,7 +601,9 @@ class SendResponseBackStage(stage.PipelineStage):
         if storage_provider is not None:
             try:
                 file_content = await storage_provider.load(file_key)
-                mime_type = mimetypes.guess_type(file_key)[0] or 'image/png'
+                if sticker:
+                    file_content = self._tight_sticker_png(file_content)
+                mime_type = 'image/png' if sticker else mimetypes.guess_type(file_key)[0] or 'image/png'
                 image_base64 = base64.b64encode(file_content).decode('utf-8')
                 return platform_message.Image(base64=f'data:{mime_type};base64,{image_base64}')
             except Exception as exc:
@@ -409,14 +668,11 @@ class SendResponseBackStage(stage.PipelineStage):
             if link_bound_only is not None and requires_signup_link is not link_bound_only:
                 continue
             if requires_signup_link and not self._course_sales_signup_link_sent(query):
-                if intent not in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS or not self._course_sales_signup_link(query, intent_data):
-                    continue
+                continue
 
             file_key = str(node_config.get('file_key') or '').strip()
             image_url = str(node_config.get('image_url') or '').strip()
             if not file_key and not image_url:
-                continue
-            if intent == 'course_intro' and file_key.endswith('gift_poster.jpeg'):
                 continue
 
             asset_key = (file_key, image_url)
@@ -427,12 +683,7 @@ class SendResponseBackStage(stage.PipelineStage):
             caption = str(node_config.get('caption') or '').strip()
             if caption and not is_task_assistant_workflow and node_config.get('append_caption') is not False:
                 components.append(platform_message.Plain(text=f'\n{caption}'))
-            elif (
-                requires_signup_link
-                and self._is_course_sales_workflow(workflow)
-                and not is_task_assistant_workflow
-                and intent not in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS
-            ):
+            elif requires_signup_link and self._is_course_sales_workflow(workflow) and not is_task_assistant_workflow:
                 components.append(platform_message.Plain(text='报课后按活动规则有完课礼，礼品说明我发您看一下。'))
             components.append(await self._image_component(file_key, image_url))
 
@@ -482,9 +733,6 @@ class SendResponseBackStage(stage.PipelineStage):
         for raw_line in text.strip().replace('\r\n', '\n').split('\n'):
             line = raw_line.strip()
             if not line:
-                continue
-            if line.startswith(self._COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION):
-                chunks.append(line)
                 continue
             for marker in (
                 self._COURSE_SALES_LINK_OPEN_QUESTION,
@@ -783,19 +1031,11 @@ class SendResponseBackStage(stage.PipelineStage):
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         if self._course_sales_user_confirmed_open(query):
             return
-        if (
-            str(intent_data.get('intent') or '') in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS
-            and self._course_sales_signup_link_sent(query)
-        ):
-            question = self._COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION
-        else:
-            question = self._course_sales_open_question(current_text)
+        question = self._course_sales_open_question(current_text)
         if not question:
             return
         if question == self._COURSE_SALES_CHILD_GRADE_QUESTION and self._course_sales_child_grade_known(query):
             return
-        if question == self._COURSE_SALES_LINK_OPEN_QUESTION and self._course_sales_signup_link_sent(query):
-            question = self._COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION
         self._queue_extra_reply_chain(query, question)
 
     def _remove_course_sales_open_question_after_resource_failure(self, query: pipeline_query.Query) -> None:
@@ -872,6 +1112,764 @@ class SendResponseBackStage(stage.PipelineStage):
             component.text = f'😊 {text}'
             return
 
+    def _source_message_id(self, query: pipeline_query.Query) -> str:
+        message_chain = getattr(getattr(query, 'message_event', None), 'message_chain', None)
+        message_id = str(getattr(message_chain, 'message_id', '') or '').strip()
+        if message_id:
+            return message_id
+        for component in message_chain or []:
+            if isinstance(component, platform_message.Source):
+                return str(component.id or '').strip()
+        return ''
+
+    async def _add_platform_reaction(self, query: pipeline_query.Query) -> None:
+        emoji_type = str(query.variables.pop('lark_reaction_emoji_type', '') or '').strip()
+        if not emoji_type:
+            return
+        add_reaction = getattr(query.adapter, 'add_message_reaction', None)
+        if not callable(add_reaction):
+            return
+        message_id = self._source_message_id(query)
+        if not message_id:
+            return
+        try:
+            await add_reaction(message_id, emoji_type)
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to add platform reaction: %s', exc)
+
+    def _meme_config(self, query: pipeline_query.Query) -> dict[str, Any]:
+        pipeline_config = query.pipeline_config if isinstance(query.pipeline_config, dict) else {}
+        template_config = pipeline_config.get('template_config')
+        if isinstance(template_config, dict) and isinstance(template_config.get('memes'), dict):
+            return template_config['memes']
+
+        workflow = self._active_workflow(query)
+        if not isinstance(workflow, dict):
+            return {}
+        memes = workflow.get('memes')
+        if not isinstance(memes, dict):
+            variables = workflow.get('variables') if isinstance(workflow.get('variables'), dict) else {}
+            memes = variables.get('memes')
+        return memes if isinstance(memes, dict) else {}
+
+    def _has_explicit_meme_config(self, query: pipeline_query.Query) -> bool:
+        pipeline_config = query.pipeline_config if isinstance(query.pipeline_config, dict) else {}
+        template_config = pipeline_config.get('template_config')
+        if isinstance(template_config, dict) and isinstance(template_config.get('memes'), dict):
+            return True
+        workflow = self._active_workflow(query)
+        if not isinstance(workflow, dict):
+            return False
+        if isinstance(workflow.get('memes'), dict):
+            return True
+        variables = workflow.get('variables') if isinstance(workflow.get('variables'), dict) else {}
+        return isinstance(variables.get('memes'), dict)
+
+    def _meme_config_bool(self, query: pipeline_query.Query, key: str, default: bool) -> bool:
+        value = self._meme_config(query).get(key)
+        return value if isinstance(value, bool) else default
+
+    def _meme_config_int(self, query: pipeline_query.Query, key: str, default: int, minimum: int = 1, maximum: int = 99) -> int:
+        try:
+            value = int(self._meme_config(query).get(key) or default)
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
+
+    def _meme_master_enabled(self, query: pipeline_query.Query) -> bool:
+        return self._meme_config_bool(query, 'enabled', True)
+
+    def _large_meme_enabled(self, query: pipeline_query.Query) -> bool:
+        workflow = self._active_workflow(query)
+        if self._is_task_assistant_workflow(workflow) and not self._has_explicit_meme_config(query):
+            return False
+        if (
+            self._is_course_sales_workflow(workflow)
+            and not self._has_explicit_meme_config(query)
+            and not self._is_lark_query(query)
+            and not str(query.variables.get('lark_reaction_emoji_type') or '').strip()
+        ):
+            return False
+        return self._meme_config_bool(query, 'large_enabled', True)
+
+    def _feishu_native_emoji_enabled(self, query: pipeline_query.Query) -> bool:
+        return self._meme_config_bool(query, 'feishu_native_enabled', True)
+
+    def _is_lark_query(self, query: pipeline_query.Query) -> bool:
+        adapter = getattr(query, 'adapter', None)
+        adapter_class = getattr(adapter, '__class__', None)
+        adapter_name = str(getattr(adapter_class, '__name__', type(adapter).__name__)).lower()
+        return 'lark' in adapter_name or 'feishu' in adapter_name
+
+    def _meme_library_enabled(self, query: pipeline_query.Query) -> bool:
+        return self._meme_config_bool(query, 'library_enabled', True)
+
+    def _meme_api_fallback_enabled(self, query: pipeline_query.Query) -> bool:
+        config = self._meme_config(query)
+        return config.get('api_fallback_enabled') is not False and config.get('oiapi_enabled') is not False
+
+    def _meme_smart_judge_enabled(self, query: pipeline_query.Query) -> bool:
+        config = self._meme_config(query)
+        value = config.get('smart_judge_enabled')
+        if isinstance(value, bool):
+            return value
+        value = config.get('smart_enabled')
+        return value if isinstance(value, bool) else True
+
+    def _meme_interval_rounds(self, query: pipeline_query.Query, kind: str) -> int:
+        if kind == 'small':
+            return self._meme_config_int(query, 'small_interval_rounds', 3)
+        return self._meme_config_int(query, 'large_interval_rounds', 5)
+
+    def _meme_session_key(self, query: pipeline_query.Query) -> str:
+        session_id = str(query.variables.get('session_id') or '').strip()
+        launcher_type = getattr(getattr(query, 'launcher_type', ''), 'value', getattr(query, 'launcher_type', ''))
+        launcher_id = str(getattr(query, 'launcher_id', '') or '').strip()
+        session_key = session_id or f'{launcher_type}_{launcher_id}'
+        bot_uuid = str(getattr(query, 'bot_uuid', '') or '').strip()
+        pipeline_uuid = str(getattr(query, 'pipeline_uuid', '') or '').strip()
+        return f'{bot_uuid}:{pipeline_uuid}:{session_key}'
+
+    def _meme_session_state(self, query: pipeline_query.Query) -> dict[str, int]:
+        key = self._meme_session_key(query)
+        if len(self._meme_session_states) > 1000 and key not in self._meme_session_states:
+            self._meme_session_states.pop(next(iter(self._meme_session_states)), None)
+        return self._meme_session_states.setdefault(key, {'turn': 0})
+
+    def _prepare_meme_turn(self, query: pipeline_query.Query) -> None:
+        if query.variables.get('_meme_turn_prepared') is True:
+            return
+        state = self._meme_session_state(query)
+        state['turn'] = int(state.get('turn') or 0) + 1
+        query.variables['_meme_turn_prepared'] = True
+
+    def _meme_frequency_allows(self, query: pipeline_query.Query, kind: str) -> bool:
+        self._prepare_meme_turn(query)
+        state = self._meme_session_state(query)
+        turn = int(state.get('turn') or 0)
+        last_turn = state.get(f'last_{kind}_turn')
+        if last_turn is None:
+            return True
+        return turn - int(last_turn) >= self._meme_interval_rounds(query, kind)
+
+    def _meme_required_due(self, query: pipeline_query.Query, kind: str) -> bool:
+        self._prepare_meme_turn(query)
+        state = self._meme_session_state(query)
+        turn = int(state.get('turn') or 0)
+        last_turn = state.get(f'last_{kind}_turn')
+        required_within = self._meme_interval_rounds(query, kind)
+        if last_turn is None:
+            return turn >= required_within
+        return turn - int(last_turn) >= required_within
+
+    def _mark_meme_sent(self, query: pipeline_query.Query, kind: str) -> None:
+        self._prepare_meme_turn(query)
+        state = self._meme_session_state(query)
+        state[f'last_{kind}_turn'] = int(state.get('turn') or 0)
+
+    def _meme_suppressed_context(self, query: pipeline_query.Query) -> bool:
+        intent = str(self._current_intent_data(query).get('intent') or '').strip()
+        if intent in {'handoff', 'objection', 'explicit_rejection', 'stop'}:
+            return True
+        if not self._has_explicit_meme_config(query) and (
+            query.variables.get(self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY) is True
+            or query.variables.get(self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY) is True
+        ):
+            return True
+        reply_text = self._plain_text_from_chain(query.resp_message_chain[-1]) if query.resp_message_chain else ''
+        if not self._has_explicit_meme_config(query) and re.search(r'https?://', reply_text):
+            return True
+        text = str(query.variables.get('user_message_text') or self._query_user_text(query) or '').strip()
+        return any(marker in text for marker in ('转人工', '投诉', '生气', '不需要', '别发', '退钱', '拉黑'))
+
+    def _meme_emotion_for_dispatch(self, query: pipeline_query.Query, kind: str, emotion: str) -> str:
+        if not self._meme_master_enabled(query):
+            return ''
+        emotion = str(emotion or '').strip()
+        if emotion and self._meme_suppressed_context(query):
+            return ''
+        if emotion:
+            return emotion if self._meme_frequency_allows(query, kind) else ''
+        if self._meme_smart_judge_enabled(query):
+            return '礼貌' if self._meme_required_due(query, kind) else ''
+        if self._meme_suppressed_context(query):
+            return ''
+        if not self._meme_frequency_allows(query, kind):
+            return ''
+        return '礼貌'
+
+    def _meme_library_items(self, query: pipeline_query.Query) -> list[dict[str, Any]]:
+        if not self._meme_library_enabled(query):
+            return []
+        library = self._meme_config(query).get('library')
+        if not isinstance(library, list):
+            return []
+        return [item for item in library if isinstance(item, dict) and item.get('enabled') is not False]
+
+    def _meme_entry_codes(self, item: dict[str, Any]) -> set[str]:
+        codes: set[str] = set()
+        for key in ('code', 'trigger_keyword'):
+            value = str(item.get(key) or '').strip().lower()
+            if not value:
+                continue
+            match = self._MEME_TRIGGER_RE.fullmatch(value)
+            codes.add(match.group(1).lower() if match else value.strip('{}'))
+        for key in ('keywords', 'tags'):
+            values = item.get(key)
+            if isinstance(values, str):
+                values = re.split(r'[\s,，/]+', values)
+            if not isinstance(values, list):
+                continue
+            for value in values:
+                text = str(value or '').strip().lower()
+                if not text:
+                    continue
+                match = self._MEME_TRIGGER_RE.fullmatch(text)
+                if match:
+                    codes.add(match.group(1).lower())
+        return {code for code in codes if code}
+
+    def _known_meme_trigger_codes(self, query: pipeline_query.Query) -> set[str]:
+        codes = set(self._DEFAULT_MEME_CODES)
+        for item in self._meme_library_items(query):
+            codes.update(self._meme_entry_codes(item))
+        return codes
+
+    def _strip_meme_trigger_codes(self, query: pipeline_query.Query) -> str:
+        existing = str(query.variables.get('_auto_meme_trigger_code') or '').strip().lower()
+        if existing:
+            return existing
+
+        known_codes = self._known_meme_trigger_codes(query)
+        selected_code = ''
+
+        def replace(match: re.Match[str]) -> str:
+            nonlocal selected_code
+            code = match.group(1).lower()
+            if code not in known_codes:
+                return match.group(0)
+            if not selected_code:
+                selected_code = code
+            return ''
+
+        for chain in query.resp_message_chain or []:
+            for component in chain:
+                if not isinstance(component, platform_message.Plain):
+                    continue
+                text = self._MEME_TRIGGER_RE.sub(replace, component.text)
+                text = re.sub(r'[ \t]{2,}', ' ', text).strip()
+                component.text = text
+
+        if selected_code:
+            query.variables['_auto_meme_trigger_code'] = selected_code
+        return selected_code
+
+    def _peek_meme_trigger_code(self, query: pipeline_query.Query) -> str:
+        existing = str(query.variables.get('_auto_meme_trigger_code') or '').strip().lower()
+        if existing:
+            return existing
+        known_codes = self._known_meme_trigger_codes(query)
+        for chain in query.resp_message_chain or []:
+            for component in chain:
+                if not isinstance(component, platform_message.Plain):
+                    continue
+                for match in self._MEME_TRIGGER_RE.finditer(component.text):
+                    code = match.group(1).lower()
+                    if code in known_codes:
+                        return code
+        return ''
+
+    def _meme_entry_matches_code(self, item: dict[str, Any], code: str) -> bool:
+        return bool(code and code.lower() in self._meme_entry_codes(item))
+
+    def _meme_emotion_lookup_keys(self, emotion: str) -> set[str]:
+        needle = emotion.strip().lower()
+        normalized = emotion.strip()
+        aliases = {
+            '赞同': {'like', 'success', '点赞'},
+            '璧炲悓': {'like', 'success', '点赞'},
+            '开心': {'happy'},
+            '寮€蹇?': {'happy'},
+            '感谢': {'thanks'},
+            '鎰熻阿': {'thanks'},
+            '疑惑': {'question', 'thinking'},
+            '鐤戞儜': {'question', 'thinking'},
+        }
+        if normalized in self._FEISHU_NATIVE_KEY_ALIASES:
+            aliases.setdefault(normalized, set()).add(self._FEISHU_NATIVE_KEY_ALIASES[normalized])
+        if needle in self._FEISHU_NATIVE_EMOJIS_BY_KEY:
+            aliases.setdefault(normalized, set()).add(needle)
+        keys = {needle} if needle else set()
+        keys.update(alias.lower() for alias in aliases.get(normalized, set()))
+        return keys
+
+    def _meme_entry_matches_emotion(self, item: dict[str, Any], emotion: str) -> bool:
+        if not emotion:
+            return False
+        needles = self._meme_emotion_lookup_keys(emotion)
+        values: list[str] = [
+            str(item.get('emotion') or ''),
+            str(item.get('meaning') or ''),
+            str(item.get('search_keyword') or ''),
+            str(item.get('usage_scene') or ''),
+        ]
+        usage_instruction = str(item.get('usage_instruction') or item.get('usage_timing') or item.get('timing') or '')
+        if usage_instruction:
+            positive_instruction = re.split(r'(?:不要|避免|不适合|不用于|禁用|禁止)', usage_instruction, maxsplit=1)[0]
+            values.append(positive_instruction)
+        for key in ('keywords', 'tags'):
+            raw_values = item.get(key)
+            if isinstance(raw_values, str):
+                raw_values = re.split(r'[\s,，/]+', raw_values)
+            if isinstance(raw_values, list):
+                values.extend(str(value or '') for value in raw_values)
+        return any(needle and needle in value.lower() for needle in needles for value in values)
+
+    def _local_meme_entry(self, query: pipeline_query.Query, *, code: str = '', emotion: str = '') -> dict[str, Any] | None:
+        items = self._meme_library_items(query)
+        if not items:
+            return None
+        exact = [item for item in items if self._meme_entry_matches_code(item, code)]
+        if exact:
+            return random.choice(exact)
+        emotional = [item for item in items if self._meme_entry_matches_emotion(item, emotion)]
+        if emotional:
+            return random.choice(emotional)
+        return None
+
+    def _default_local_meme_entry(self, query: pipeline_query.Query, emotion: str) -> dict[str, Any] | None:
+        if not self._meme_library_enabled(query):
+            return None
+        for key in self._feishu_emoji_lookup_keys(emotion):
+            code = self._FEISHU_NATIVE_KEY_ALIASES.get(key, key)
+            if code in self._FEISHU_NATIVE_EMOJIS_BY_KEY:
+                return {
+                    'id': f'default-{code}',
+                    'enabled': True,
+                    'code': code,
+                    'emotion': code,
+                    'search_keyword': emotion,
+                    'file_key': f'sales-memes/{code}/soft.png',
+                }
+        return None
+
+    def _meme_emotion_from_entry(self, item: dict[str, Any], fallback: str) -> str:
+        return str(item.get('search_keyword') or item.get('emotion') or item.get('code') or fallback).strip()
+
+    async def _local_meme_component(self, item: dict[str, Any]) -> platform_message.Image | None:
+        image_url = str(item.get('image_url') or item.get('url') or '').strip()
+        file_key = str(item.get('file_key') or '').strip()
+        if image_url or (file_key and not file_key.startswith(self._BUILTIN_MEME_FILE_PREFIX)):
+            return await self._image_component(file_key, image_url, sticker=True)
+        return None
+
+    def _infer_generic_meme_emotion(self, query: pipeline_query.Query) -> str:
+        workflow = self._active_workflow(query)
+        if self._is_task_assistant_workflow(workflow):
+            return ''
+        text = str(query.variables.get('user_message_text') or self._query_user_text(query) or '').strip()
+        if not text and query.resp_message_chain:
+            text = self._plain_text_from_chain(query.resp_message_chain[-1])
+        if not text:
+            return ''
+        if any(marker in text for marker in ('转人工', '投诉', '生气', '不需要', '别发', '退钱', '拉黑')):
+            return ''
+        if any(marker in text for marker in ('报名了', '已报名', '支付成功', '付款了', '买了', '下单了')):
+            return '赞同'
+        if any(marker in text for marker in ('谢谢', '感谢')):
+            return '感谢'
+        if any(marker in text for marker in ('你好', '您好', '哈喽', '在吗', '早上好', '晚上好')):
+            return '欢迎'
+        if any(marker in text for marker in ('可以打开', '能打开', '打开了', '好的', '好哒', '开心')):
+            return '开心'
+        return ''
+
+    def _meme_emotion_for_query(self, query: pipeline_query.Query) -> str:
+        if not self._meme_master_enabled(query):
+            return ''
+        trigger_code = self._strip_meme_trigger_codes(query)
+        if trigger_code:
+            entry = self._local_meme_entry(query, code=trigger_code)
+            if entry:
+                return self._meme_emotion_from_entry(entry, trigger_code)
+            return trigger_code
+        explicit = str(query.variables.get('auto_meme_emotion') or '').strip()
+        if explicit:
+            return explicit
+        config = self._meme_config(query)
+        if config.get('enabled') is False:
+            return self._infer_generic_meme_emotion(query)
+        intent = str(self._current_intent_data(query).get('intent') or '').strip()
+        if intent in {'handoff', 'objection', 'explicit_rejection', 'stop'}:
+            return ''
+        if intent in {'purchased', 'purchase', 'radar_clicked'}:
+            return '赞同'
+        if intent in {'course_intro', 'course_question', 'product_intro', 'product_inquiry'}:
+            return '服务'
+        if intent in {'resource_confirmed', 'smalltalk'}:
+            return '开心'
+        if intent in {'resource_help', 'screenshot_help', 'clarification', 'link_error'}:
+            return '疑惑'
+        return self._infer_generic_meme_emotion(query)
+
+    def _configured_meme_url(self, query: pipeline_query.Query, emotion: str) -> str:
+        config = self._meme_config(query)
+        emotions = config.get('emotions') or config.get('images') or {}
+        if not isinstance(emotions, dict):
+            return ''
+        candidates = emotions.get(emotion) or emotions.get('*') or []
+        if isinstance(candidates, (str, dict)):
+            candidates = [candidates]
+        if not isinstance(candidates, list) or not candidates:
+            return ''
+        selected = random.choice(candidates)
+        if isinstance(selected, str):
+            return selected.strip()
+        if isinstance(selected, dict):
+            return str(selected.get('url') or selected.get('image_url') or '').strip()
+        return ''
+
+    def _meme_provider_keyword(self, provider: dict[str, Any], emotion: str) -> str:
+        keywords = provider.get('keywords') if isinstance(provider.get('keywords'), dict) else {}
+        return str(keywords.get(emotion) or emotion).strip()
+
+    def _provider_params(self, provider: dict[str, Any], keyword: str, limit: int) -> dict[str, str]:
+        params = provider.get('params') if isinstance(provider.get('params'), dict) else {}
+        return {
+            str(key): str(value).replace('{keyword}', keyword).replace('{limit}', str(limit))
+            for key, value in params.items()
+        }
+
+    def _candidate_url(self, candidate: dict[str, Any]) -> str:
+        for key in ('url', 'pic', 'image', 'img', 'src', 'path', 'gif', 'cover', 'face', 'murl'):
+            value = candidate.get(key)
+            if isinstance(value, str) and value.startswith(('http://', 'https://')):
+                return value.strip()
+        return ''
+
+    def _extract_meme_candidates(self, payload: Any) -> list[dict[str, Any]]:
+        candidates: list[dict[str, Any]] = []
+
+        def visit(value: Any, title_hint: str = '') -> None:
+            if isinstance(value, str):
+                if value.startswith(('http://', 'https://')):
+                    candidates.append({'url': value, 'title': title_hint})
+                return
+            if isinstance(value, list):
+                for item in value:
+                    visit(item, title_hint)
+                return
+            if not isinstance(value, dict):
+                return
+
+            local_title = str(
+                value.get('title')
+                or value.get('name')
+                or value.get('desc')
+                or value.get('description')
+                or title_hint
+                or ''
+            )
+            url = self._candidate_url(value)
+            if url:
+                item = dict(value)
+                item['url'] = url
+                item['title'] = local_title
+                candidates.append(item)
+            for key in ('data', 'result', 'results', 'list', 'items', 'images', 'imgs', 'rows'):
+                if key in value:
+                    visit(value[key], local_title)
+
+        visit(payload)
+        return candidates
+
+    def _is_safe_meme_candidate(self, candidate: dict[str, Any], emotion: str) -> bool:
+        if not self._candidate_url(candidate):
+            return False
+        text = ' '.join(
+            str(candidate.get(key) or '')
+            for key in ('title', 'name', 'desc', 'description', 'source', 'url')
+        ).lower()
+        unsafe_terms = (
+            '投降', '嘲讽', '鄙视', '垃圾', '骂', '咒', '滚', '傻', '笨', '爹', '妈',
+            '草', '死你', '约炮', '色图', '看垃圾', '拳头硬', '破防', '裂开',
+        )
+        if any(term.lower() in text for term in unsafe_terms):
+            return False
+
+        positive_terms = {
+            '赞同': ('赞', '点赞', '收到', '完成', '好的', 'ok', '+1', '可以', '支持'),
+            '开心': ('开心', '高兴', '微笑', '笑', '愉快', '好耶', '欢呼'),
+            '疑惑': ('疑惑', '疑问', '思考', '问号', '怎么', '无语', '懵'),
+            '感谢': ('谢谢', '感谢', '合十', '致谢'),
+        }
+        opposite_terms = {
+            '开心': ('不开心', '不高兴', '生气', '大哭'),
+            '赞同': ('投降', '不同意', '拒绝', '嘲讽'),
+            '感谢': ('不谢', '别谢'),
+        }
+        if any(term.lower() in text for term in opposite_terms.get(emotion, ())):
+            return False
+        title = str(candidate.get('title') or candidate.get('name') or candidate.get('desc') or '').strip()
+        terms = positive_terms.get(emotion, ())
+        if title and terms and not any(term.lower() in text for term in terms):
+            return False
+        return True
+
+    async def _fetch_oiapi_meme_url(self, emotion: str, limit: int) -> str:
+        session = httpclient.get_session()
+        params = {'msg': emotion, '0': emotion, 'limit': str(max(1, limit))}
+        async with session.get(
+            self._OIAPI_EMOTION_URL,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as response:
+            if response.status != 200:
+                return ''
+            payload = await response.json(content_type=None)
+        data = payload.get('data') if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            return ''
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get('pic') or item.get('url') or '').strip()
+            if url.startswith(('http://', 'https://')):
+                return url
+        return ''
+
+    async def _fetch_meme_provider_candidates(
+        self,
+        provider: dict[str, Any],
+        keyword: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if provider.get('id') == 'oiapi':
+            url = await self._fetch_oiapi_meme_url(keyword, limit)
+            return [{'url': url, 'title': keyword}] if url else []
+
+        session = httpclient.get_session()
+        async with session.get(
+            str(provider.get('url') or ''),
+            params=self._provider_params(provider, keyword, limit),
+            timeout=aiohttp.ClientTimeout(total=8),
+        ) as response:
+            if response.status != 200:
+                return []
+            text = await response.text()
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = text
+        return self._extract_meme_candidates(payload)
+
+    async def _fetch_provider_chain_meme_url(self, emotion: str, limit: int) -> str:
+        for provider in self._MEME_PROVIDERS:
+            keyword = self._meme_provider_keyword(provider, emotion)
+            try:
+                candidates = await self._fetch_meme_provider_candidates(provider, keyword, limit)
+            except Exception:
+                continue
+            for candidate in candidates:
+                if self._is_safe_meme_candidate(candidate, emotion):
+                    return self._candidate_url(candidate)
+        return ''
+
+    async def _meme_image_url(self, query: pipeline_query.Query, emotion: str) -> str:
+        configured = self._configured_meme_url(query, emotion)
+        if configured:
+            return configured
+        if not self._meme_api_fallback_enabled(query):
+            return ''
+        config = self._meme_config(query)
+        try:
+            limit = int(config.get('oiapi_limit') or 5)
+        except (TypeError, ValueError):
+            limit = 5
+        try:
+            return await self._fetch_provider_chain_meme_url(emotion, limit)
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to fetch OIAPI meme for %s: %s', emotion, exc)
+            return ''
+
+    async def _meme_image_component(self, query: pipeline_query.Query, emotion: str) -> platform_message.Image | None:
+        trigger_code = str(query.variables.get('_auto_meme_trigger_code') or '').strip().lower()
+        entry = self._local_meme_entry(query, code=trigger_code, emotion=emotion)
+        has_explicit_local_entry = entry is not None
+        if entry:
+            component = await self._local_meme_component(entry)
+            if component is not None:
+                return component
+            emotion = self._meme_emotion_from_entry(entry, emotion)
+
+        configured = self._configured_meme_url(query, emotion)
+        if configured:
+            return await self._image_component('', configured, sticker=True)
+
+        if not (trigger_code and has_explicit_local_entry):
+            default_entry = self._default_local_meme_entry(query, emotion)
+            if default_entry:
+                component = await self._local_meme_component(default_entry)
+                if component is not None:
+                    return component
+
+        if not self._meme_api_fallback_enabled(query):
+            return None
+        config = self._meme_config(query)
+        try:
+            limit = int(config.get('oiapi_limit') or 5)
+        except (TypeError, ValueError):
+            limit = 5
+        try:
+            url = await self._fetch_provider_chain_meme_url(emotion, limit)
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to fetch OIAPI meme for %s: %s', emotion, exc)
+            return None
+        if not url:
+            return None
+        return await self._image_component('', url, sticker=True)
+
+    async def _append_auto_meme(self, query: pipeline_query.Query) -> None:
+        if query.variables.get('_auto_meme_sent') is True:
+            return
+        if not self._large_meme_enabled(query):
+            return
+        emotion = self._meme_emotion_for_dispatch(query, 'large', self._meme_emotion_for_query(query))
+        if not emotion:
+            return
+        image = await self._meme_image_component(query, emotion)
+        if image is None:
+            return
+        extra_chains = query.variables.get(self._EXTRA_REPLY_CHAINS_KEY)
+        if not isinstance(extra_chains, list):
+            extra_chains = []
+            query.variables[self._EXTRA_REPLY_CHAINS_KEY] = extra_chains
+        insert_at = 0
+        for index, chain in enumerate(extra_chains):
+            if isinstance(chain, platform_message.MessageChain) and re.search(
+                r'https?://',
+                self._plain_text_from_chain(chain),
+            ):
+                insert_at = index + 1
+        extra_chains.insert(insert_at, platform_message.MessageChain([image]))
+        query.variables['_auto_meme_sent'] = True
+        self._mark_meme_sent(query, 'large')
+
+    def _feishu_emoji_lookup_keys(self, value: str) -> list[str]:
+        text = str(value or '').strip()
+        if not text:
+            return []
+        keys: list[str] = []
+        lowered = text.lower().strip('{} ')
+        if lowered:
+            keys.append(lowered)
+        if text in self._FEISHU_NATIVE_KEY_ALIASES:
+            keys.append(self._FEISHU_NATIVE_KEY_ALIASES[text])
+        for key in self._meme_emotion_lookup_keys(text):
+            keys.append(self._FEISHU_NATIVE_KEY_ALIASES.get(key, key))
+        seen: set[str] = set()
+        return [key for key in keys if key and not (key in seen or seen.add(key))]
+
+    def _feishu_native_emoji_for_entry(self, item: dict[str, Any] | None, fallback: str = '') -> str:
+        if item:
+            explicit = str(item.get('feishu_emoji') or item.get('native_emoji') or '').strip()
+            if explicit in self._FEISHU_NATIVE_EMOJI_VALUES:
+                return explicit
+            values: list[str] = [
+                str(item.get('code') or ''),
+                str(item.get('trigger_keyword') or ''),
+                str(item.get('emotion') or ''),
+                str(item.get('search_keyword') or ''),
+                str(item.get('meaning') or ''),
+            ]
+            for key in ('keywords', 'tags'):
+                raw_values = item.get(key)
+                if isinstance(raw_values, str):
+                    raw_values = re.split(r'[\s,，/]+', raw_values)
+                if isinstance(raw_values, list):
+                    values.extend(str(value or '') for value in raw_values)
+            for value in values:
+                for lookup_key in self._feishu_emoji_lookup_keys(value):
+                    options = self._FEISHU_NATIVE_EMOJIS_BY_KEY.get(lookup_key)
+                    if options:
+                        return random.choice(options)
+
+        for lookup_key in self._feishu_emoji_lookup_keys(fallback):
+            options = self._FEISHU_NATIVE_EMOJIS_BY_KEY.get(lookup_key)
+            if options:
+                return random.choice(options)
+        return ''
+
+    def _replace_meme_triggers_with_feishu_native_emoji(self, query: pipeline_query.Query) -> bool:
+        known_codes = self._known_meme_trigger_codes(query)
+        selected_code = str(query.variables.get('_auto_meme_trigger_code') or '').strip().lower()
+        replaced_any = False
+
+        def replacement(match: re.Match[str]) -> str:
+            nonlocal selected_code, replaced_any
+            code = match.group(1).lower()
+            if code not in known_codes:
+                return match.group(0)
+            entry = self._local_meme_entry(query, code=code)
+            emoji = self._feishu_native_emoji_for_entry(entry, code)
+            if not emoji:
+                return ''
+            if not selected_code:
+                selected_code = code
+            replaced_any = True
+            return emoji
+
+        for chain in query.resp_message_chain or []:
+            for component in chain:
+                if not isinstance(component, platform_message.Plain):
+                    continue
+                text = self._MEME_TRIGGER_RE.sub(replacement, component.text)
+                text = re.sub(r'[ \t]{2,}', ' ', text).strip()
+                component.text = text
+
+        if selected_code:
+            query.variables['_auto_meme_trigger_code'] = selected_code
+        return replaced_any
+
+    def _prepend_feishu_native_emoji(self, query: pipeline_query.Query) -> None:
+        if not self._meme_master_enabled(query) or not self._feishu_native_emoji_enabled(query):
+            return
+        if not self._is_lark_query(query) or not query.resp_message_chain:
+            return
+        trigger_code = self._peek_meme_trigger_code(query)
+        if trigger_code:
+            entry = self._local_meme_entry(query, code=trigger_code)
+            emotion = self._meme_emotion_from_entry(entry, trigger_code) if entry else trigger_code
+        else:
+            emotion = self._meme_emotion_for_query(query)
+        emotion = self._meme_emotion_for_dispatch(query, 'small', emotion)
+        if not emotion:
+            if trigger_code and not self._large_meme_enabled(query):
+                self._strip_meme_trigger_codes(query)
+            return
+        if self._replace_meme_triggers_with_feishu_native_emoji(query):
+            self._mark_meme_sent(query, 'small')
+            return
+        entry = self._local_meme_entry(query, code=str(query.variables.get('_auto_meme_trigger_code') or ''), emotion=emotion)
+        emoji = self._feishu_native_emoji_for_entry(entry, emotion)
+        if not emoji:
+            return
+        for component in query.resp_message_chain[-1]:
+            if not isinstance(component, platform_message.Plain):
+                continue
+            text = component.text.strip()
+            if not text or text.startswith('[') or text.endswith(']'):
+                return
+            component.text = f'{text} {emoji}'
+            self._mark_meme_sent(query, 'small')
+            return
+
     def _course_sales_signup_link(self, query: pipeline_query.Query, intent_data: dict[str, Any]) -> str:
         link = str(intent_data.get('link_url') or query.variables.get('course_sales_radar_link') or '').strip()
         if not link or '/api/v1/sales/radar/click/' in link:
@@ -910,43 +1908,6 @@ class SendResponseBackStage(stage.PipelineStage):
 
     def _contains_course_sales_link(self, text: str) -> bool:
         return 'yuanfudao.com/primary/templates/package' in text or '/api/v1/sales/radar/click/' in text
-
-    def _defer_embedded_course_sales_signup_link(self, query: pipeline_query.Query) -> None:
-        if not query.resp_message_chain:
-            return
-        intent_data = self._current_intent_data(query)
-        if str(intent_data.get('intent') or '') not in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS:
-            return
-
-        link = self._course_sales_signup_link(query, intent_data)
-        if not link:
-            return
-
-        removed = False
-        url_pattern = re.compile(r'https?://[^\s<>"\]\)】》>，。！？、；：]*')
-        for component in query.resp_message_chain[-1]:
-            if not isinstance(component, platform_message.Plain):
-                continue
-
-            lines: list[str] = []
-            for raw_line in component.text.replace('\r\n', '\n').split('\n'):
-                urls = [match.group(0) for match in url_pattern.finditer(raw_line)]
-                if urls and all(self._contains_course_sales_link(url) for url in urls):
-                    removed = True
-                    continue
-
-                next_line = raw_line
-                for url in urls:
-                    if self._contains_course_sales_link(url):
-                        next_line = next_line.replace(url, '')
-                        removed = True
-                lines.append(next_line.rstrip(' ：:，,、；;'))
-
-            component.text = '\n'.join(line for line in lines if line.strip())
-
-        if removed:
-            self._queue_extra_reply_chain(query, f'猿辅导英语自然拼读9元体验课点这里👉：{link}')
-            query.variables[self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY] = True
 
     def _replace_course_sales_link_placeholders(
         self,
@@ -1022,8 +1983,6 @@ class SendResponseBackStage(stage.PipelineStage):
         link = self._course_sales_signup_link(query, intent_data)
         if not link:
             return
-        if query.variables.get(self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY) is True:
-            return
 
         if self._replace_course_sales_link_placeholders(query.resp_message_chain[-1], link):
             return
@@ -1032,7 +1991,7 @@ class SendResponseBackStage(stage.PipelineStage):
             return
 
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
-        if intent not in {'purchase', 'radar_clicked', 'course_schedule', 'course_content', 'course_replay', 'course_conflict', 'course_intro'} and not self._promises_course_sales_signup_link(current_text):
+        if intent not in {'purchase', 'radar_clicked'} and not self._promises_course_sales_signup_link(current_text):
             return
 
         if self._contains_course_sales_link(current_text):
@@ -1065,6 +2024,7 @@ class SendResponseBackStage(stage.PipelineStage):
     async def _append_response_enrichments(self, query: pipeline_query.Query) -> None:
         if not query.resp_message_chain:
             return
+        self._prepare_meme_turn(query)
         if await self._apply_handoff_response(query):
             self._normalize_course_sales_text(query)
             return
@@ -1072,22 +2032,21 @@ class SendResponseBackStage(stage.PipelineStage):
             self._normalize_course_sales_text(query)
             self._prepend_course_sales_first_reply_emoji(query)
             self._append_course_sales_open_question(query)
+            self._prepend_feishu_native_emoji(query)
+            await self._append_auto_meme(query)
             return
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_workflow_images(query, link_bound_only=False)
         await self._append_task_assistant_voice(query, reply_text)
         self._remove_course_sales_open_question_after_resource_failure(query)
         self._append_course_sales_resource_link(query)
-        intent = str(self._current_intent_data(query).get('intent') or '')
-        self._defer_embedded_course_sales_signup_link(query)
-        if intent in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS:
-            await self._append_workflow_images(query, link_bound_only=True)
         self._append_course_sales_signup_link(query)
-        if intent not in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS:
-            await self._append_workflow_images(query, link_bound_only=True)
+        await self._append_workflow_images(query, link_bound_only=True)
         self._normalize_course_sales_text(query)
         self._prepend_course_sales_first_reply_emoji(query)
         self._append_course_sales_open_question(query)
+        self._prepend_feishu_native_emoji(query)
+        await self._append_auto_meme(query)
 
     async def process(self, query: pipeline_query.Query, stage_inst_name: str) -> entities.StageProcessResult:
         """处理"""
@@ -1118,6 +2077,7 @@ class SendResponseBackStage(stage.PipelineStage):
             if is_final:
                 await self._append_response_enrichments(query)
                 self._strip_thinking_from_response(query)
+                await self._add_platform_reaction(query)
             reply_chains = self._multi_reply_chains(query) if is_final else [query.resp_message_chain[-1]]
             await query.adapter.reply_message_chunk(
                 message_source=query.message_event,
@@ -1140,6 +2100,7 @@ class SendResponseBackStage(stage.PipelineStage):
             self._strip_thinking_from_response(query)
             await self._append_response_enrichments(query)
             self._strip_thinking_from_response(query)
+            await self._add_platform_reaction(query)
             reply_chains = [
                 *self._multi_reply_chains(query),
                 *self._pop_outgoing_extra_reply_chains(query),

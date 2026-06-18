@@ -34,7 +34,9 @@ bard.json
 !/docker-compose.yaml
 data/labels/instance_id.json
 .DS_Store
-/data
+/data/logs/
+/data/temp/
+/data/*.before-*.db
 botpy.log*
 /poc
 /libs/wecom_api/test.py
@@ -57,6 +59,8 @@ testsdk/
 # Next.js build cache (legacy)
 web/.next/
 .vercel
+.env
+.env.local
 node_modules/
 deploy/vercel-proxy/node_modules/
 deploy/vercel-proxy/.env.local
@@ -64,5 +68,11 @@ deploy/vercel-proxy/.vercel/
 
 # Local tooling and generated outputs
 .codex/
+.codex-runtime/
+.codex-*.log
+.railway-config-pull-*/
 outputs/
+shared-data/
+web/.codex-*.log
+/data/langbot-before-*.db
 release/**/_local_backups/

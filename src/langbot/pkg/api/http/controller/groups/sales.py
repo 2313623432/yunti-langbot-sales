@@ -238,14 +238,42 @@ class SalesRouterGroup(group.RouterGroup):
         @self.route('/outreach', methods=['GET', 'POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
             if quart.request.method == 'GET':
-                return self.success(data={'plans': await self.ap.sales_service.get_outreach_plans()})
+                kind = quart.request.args.get('kind', 'scheduled_push')
+                return self.success(data={'plans': await self.ap.sales_service.get_outreach_plans(kind=kind)})
             data = await quart.request.json
+            data = data or {}
+            data.setdefault('segment', 'course-sales:broadcast')
             plan_id = await self.ap.sales_service.create_outreach_plan(data)
             return self.success(data={'id': plan_id})
 
         @self.route('/outreach/run-due', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
-            sent = await self.ap.sales_service.run_due_outreach_once()
+            data = await quart.request.json if quart.request.is_json else {}
+            kind = (data or {}).get('kind') or quart.request.args.get('kind') or 'scheduled_push'
+            sent = await self.ap.sales_service.run_due_outreach_once(kind=kind)
+            return self.success(data={'sent': sent})
+
+        @self.route('/outreach/clear', methods=['POST', 'DELETE'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            deleted = await self.ap.sales_service.clear_scheduled_push_plans()
+            return self.success(data={'deleted': deleted})
+
+        @self.route('/outreach/scheduled-push-config', methods=['GET', 'PUT'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            if quart.request.method == 'GET':
+                return self.success(data=await self.ap.sales_service.get_scheduled_push_config())
+            data = await quart.request.json
+            result = await self.ap.sales_service.replace_scheduled_push_config(data or {})
+            config = await self.ap.sales_service.get_scheduled_push_config()
+            return self.success(data={**result, **config})
+
+        @self.route('/followups', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            return self.success(data={'plans': await self.ap.sales_service.get_followup_plans()})
+
+        @self.route('/followups/run-due', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            sent = await self.ap.sales_service.run_due_followup_once()
             return self.success(data={'sent': sent})
 
         @self.route('/radar/click/<token>', methods=['GET'], auth_type=group.AuthType.NONE)

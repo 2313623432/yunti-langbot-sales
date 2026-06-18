@@ -12,6 +12,7 @@ import {
   Plus,
   RadioTower,
   ShieldCheck,
+  SmilePlus,
   Trash2,
   Upload,
   UserRound,
@@ -21,7 +22,7 @@ import {
 } from 'lucide-react';
 import { httpClient } from '@/app/infra/http/HttpClient';
 import { useSidebarData } from '@/app/home/components/home-sidebar/SidebarDataContext';
-import { LLMModel, SalesProduct } from '@/app/infra/entities/api';
+import { LLMModel, SalesProduct, SalesScheduledPushConfig } from '@/app/infra/entities/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,6 +45,8 @@ import {
   PipelineTemplateCourseProfile,
   PipelineTemplateFollowupMessage,
   PipelineTemplateImageTextBinding,
+  PipelineTemplateMemeLibraryItem,
+  PipelineTemplateScheduledPushItem,
   PipelineTemplateSpecialCase,
 } from './types';
 import { groupProductsByLine } from '@/app/home/products/utils/productLineUtils';
@@ -72,7 +75,9 @@ type TemplateConfigTab =
   | 'memory'
   | 'radar'
   | 'specialCases'
+  | 'memes'
   | 'push'
+  | 'followup'
   | 'handoff'
   | 'media';
 
@@ -89,7 +94,9 @@ const CONFIG_TABS: Array<{
   { id: 'memory', label: '记忆', icon: Bot },
   { id: 'radar', label: '雷达跟进', icon: MousePointerClick },
   { id: 'specialCases', label: '特殊情况处理', icon: ShieldCheck },
+  { id: 'memes', label: '表情包', icon: SmilePlus },
   { id: 'push', label: '定时推送', icon: CalendarClock },
+  { id: 'followup', label: '跟进', icon: MessageSquareText },
   { id: 'handoff', label: '转人工', icon: UserRoundCheck },
   { id: 'media', label: '图文素材', icon: ImageIcon },
 ];
@@ -196,6 +203,43 @@ function voiceToneOptionsFromModel(model?: LLMModel): VoiceToneOption[] {
   return options;
 }
 
+function normalizeMemeLibraryItems(
+  items: PipelineTemplateMemeLibraryItem[] | undefined,
+  defaults: PipelineTemplateMemeLibraryItem[],
+) {
+  const sourceItems = items?.length ? items : defaults;
+  const defaultsById = new Map(defaults.map((item) => [item.id, item]));
+  const defaultsByCodeVariant = new Map(
+    defaults.map((item) => {
+      const code = item.code || item.trigger_keyword.replace(/[{}]/g, '');
+      const variant = (item.file_key || '').split('/').pop()?.replace(/\.png$/, '') || '';
+      return [`${code}:${variant}`, item];
+    }),
+  );
+
+  return sourceItems.map((item) => {
+    const code = item.code || item.trigger_keyword?.replace(/[{}]/g, '') || item.emotion || 'happy';
+    const variant = (item.file_key || '').split('/').pop()?.replace(/\.png$/, '') || '';
+    const fallback = defaultsById.get(item.id) || defaultsByCodeVariant.get(`${code}:${variant}`);
+    const meaning = item.meaning || fallback?.meaning || '礼貌表情包';
+    return {
+      ...item,
+      meaning,
+      trigger_keyword: item.trigger_keyword || fallback?.trigger_keyword || `{${code}}`,
+      code,
+      emotion: item.emotion || fallback?.emotion || code,
+      search_keyword: item.search_keyword || fallback?.search_keyword || meaning,
+      usage_scene: item.usage_scene || fallback?.usage_scene || meaning,
+      usage_instruction:
+        item.usage_instruction ||
+        fallback?.usage_instruction ||
+        `当客户表达“${meaning}”或相近语义时可以发；必须礼貌、克制、和正文语境一致。`,
+      keywords: item.keywords?.length ? item.keywords : fallback?.keywords || [],
+      tags: item.tags?.length ? item.tags : fallback?.tags || [],
+    };
+  });
+}
+
 function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTemplateConfig {
   const defaults = createBlankAgentTemplateConfig();
   return {
@@ -228,6 +272,15 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
     scheduled_push: {
       ...defaults.scheduled_push,
       ...(value?.scheduled_push || {}),
+      items:
+        value?.scheduled_push?.items?.length
+          ? value.scheduled_push.items
+          : (value?.long_term_broadcasts || []).map((broadcast) => ({
+              day: broadcast.day,
+              time: broadcast.time,
+              message: broadcast.message,
+              image_key: broadcast.image_key || '',
+            })),
     },
     interaction_radar: {
       ...defaults.interaction_radar,
@@ -242,6 +295,11 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
       semantic_triggers: value?.human_handoff?.semantic_triggers?.length
         ? value.human_handoff.semantic_triggers
         : defaults.human_handoff.semantic_triggers,
+    },
+    memes: {
+      ...defaults.memes!,
+      ...(value?.memes || {}),
+      library: normalizeMemeLibraryItems(value?.memes?.library, defaults.memes?.library || []),
     },
     special_cases: value?.special_cases ?? defaults.special_cases ?? [],
     image_text_bindings:
@@ -320,6 +378,7 @@ function ToggleRow({
   label,
   checked,
   onCheckedChange,
+  description,
 }: {
   label: string;
   checked: boolean;
@@ -330,6 +389,7 @@ function ToggleRow({
     <div className="flex items-center justify-between gap-4 rounded-md border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-indigo-200 hover:bg-indigo-50/30">
       <div className="min-w-0">
         <p className="text-sm font-medium text-slate-900">{label}</p>
+        {description && <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>}
       </div>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
@@ -362,6 +422,60 @@ function imageAssetUrl(fileKey: string) {
   const prefix = baseUrl === '/' ? '' : baseUrl.replace(/\/$/, '');
   const encodedKey = fileKey.split('/').map(encodeURIComponent).join('/');
   return `${prefix}/api/v1/files/image/${encodedKey}`;
+}
+
+function customMemePreviewSrc(item: PipelineTemplateMemeLibraryItem) {
+  const fileKey = item.file_key || '';
+  if (item.image_url) return item.image_url;
+  return fileKey && !fileKey.startsWith('builtin:') ? imageAssetUrl(fileKey) : '';
+}
+
+const MEME_PREVIEW_EMOJI_BY_CODE: Record<string, string> = {
+  happy: '[愉快]',
+  thanks: '[感谢]',
+  like: '[赞]',
+  success: '[完成]',
+  morning: '[咖啡]',
+  noon: '[愉快]',
+  evening: '[咖啡]',
+  night: '[再见]',
+  ok: '[OK]',
+  received: '[了解]',
+  cheer: '[加油]',
+  welcome: '[挥手]',
+  question: '[思考]',
+  thinking: '[思考中]',
+  sorry: '[抱拳]',
+  wait: '[稍等]',
+  checking: '[在做了]',
+  reminder: '[图钉]',
+  deal: '[鼓掌]',
+  signup: '[撒花]',
+  payment: '[勾号]',
+  link: '[点击]',
+  resource: '[图钉]',
+  class_time: '[日程]',
+  replay: '[电视]',
+  gift: '[礼物]',
+  trial: '[微笑]',
+  discount: '[火]',
+  grade: '[了解]',
+  parent: '[双手合十]',
+  child: '[送你小红花]',
+  homework: '[奋斗]',
+  reading: '[100分]',
+  phonics: '[音乐]',
+  followup: '[图钉]',
+  congrats: '[欢呼]',
+  polite: '[感谢]',
+  calm: '[摸头]',
+  service: '[在做了]',
+  handoff_ready: '[举手]',
+};
+
+function memeStickerPreviewLabel(item: PipelineTemplateMemeLibraryItem) {
+  const code = (item.code || item.trigger_keyword || '').replace(/[{}]/g, '');
+  return item.feishu_emoji || MEME_PREVIEW_EMOJI_BY_CODE[code] || item.trigger_keyword || '[微笑]';
 }
 
 function makeCustomImageBinding(): PipelineTemplateImageTextBinding {
@@ -402,6 +516,26 @@ function makeSpecialCase(): PipelineTemplateSpecialCase {
     ai_rewrite: true,
     file_key: '',
     image_url: '',
+  };
+}
+
+function makeMemeLibraryItem(): PipelineTemplateMemeLibraryItem {
+  const suffix = Date.now().toString(36);
+  return {
+    id: `meme_${suffix}`,
+    enabled: true,
+    meaning: '礼貌开心回应',
+    trigger_keyword: '{happy}',
+    code: 'happy',
+    emotion: 'happy',
+    search_keyword: '开心',
+    usage_scene: '客户表达开心、感谢、配合或轻松互动时',
+    usage_instruction: '当客户情绪轻松、表达感谢或完成一个正向动作时可以发；不要用于投诉、拒绝或严肃问题。',
+    keywords: ['开心', '谢谢'],
+    tags: ['happy', '销售'],
+    file_key: '',
+    image_url: '',
+    source: 'custom',
   };
 }
 
@@ -455,6 +589,16 @@ export default function PipelineTemplateConfigEditor({
   const [showAdvancedRadar, setShowAdvancedRadar] = useState(false);
   const [showAdvancedStopRules, setShowAdvancedStopRules] = useState(false);
   const [showAdvancedHandoffKeywords, setShowAdvancedHandoffKeywords] = useState(false);
+  const [scheduledPushMeta, setScheduledPushMeta] = useState<{
+    product_uuid: string;
+    bot_uuid: string;
+    target_type: 'person' | 'group';
+    target_id: string;
+    plans_count: number;
+  } | null>(null);
+  const [scheduledPushLoading, setScheduledPushLoading] = useState(false);
+  const [scheduledPushSaving, setScheduledPushSaving] = useState(false);
+  const [scheduledPushSynced, setScheduledPushSynced] = useState(false);
 
   useEffect(() => {
     httpClient
@@ -490,6 +634,13 @@ export default function PipelineTemplateConfigEditor({
       .catch((error) => console.warn('Failed to load ASR models', error));
   }, []);
 
+  useEffect(() => {
+    if (activeTab !== 'push' || scheduledPushSynced || scheduledPushLoading) {
+      return;
+    }
+    void loadBackendScheduledPushConfig(false);
+  }, [activeTab, scheduledPushSynced, scheduledPushLoading]);
+
   function patch(next: Partial<PipelineTemplateConfig>) {
     onChange({ ...config, ...next });
   }
@@ -513,6 +664,129 @@ export default function PipelineTemplateConfigEditor({
       scheduledPush.push_message = next.message;
     }
     patch({ scheduled_push: scheduledPush });
+  }
+
+  function patchScheduledPushItems(items: PipelineTemplateScheduledPushItem[]) {
+    patch({
+      scheduled_push: {
+        ...config.scheduled_push,
+        items,
+      },
+      long_term_broadcasts: items.map((item, index) => ({
+        day: Math.max(1, Number(item.day || index + 1)),
+        title: `第${Math.max(1, Number(item.day || index + 1))}天定时推送`,
+        time: item.time || '10:00',
+        message: item.message || '',
+        image_key: item.image_key || '',
+      })),
+    });
+  }
+
+  function applyBackendScheduledPushConfig(resp: SalesScheduledPushConfig) {
+    const items = resp.scheduled_push.items || [];
+    const backendContext = {
+      product_uuid: resp.product_uuid,
+      bot_uuid: resp.bot_uuid,
+      target_type: resp.target_type,
+      target_id: resp.target_id,
+    };
+    setScheduledPushMeta({
+      ...backendContext,
+      plans_count: resp.plans_count,
+    });
+    onChange({
+      ...config,
+      metadata: {
+        ...(config.metadata || {}),
+        scheduled_push_backend_synced: true,
+        scheduled_push_backend_context: backendContext,
+      },
+      scheduled_push: {
+        ...config.scheduled_push,
+        ...resp.scheduled_push,
+        items,
+      },
+      long_term_broadcasts: items.map((item, index) => ({
+        day: Math.max(1, Number(item.day || index + 1)),
+        title: `第${Math.max(1, Number(item.day || index + 1))}天定时推送`,
+        time: item.time || '10:00',
+        message: item.message || '',
+        image_key: item.image_key || '',
+      })),
+    });
+  }
+
+  async function loadBackendScheduledPushConfig(showToast = true) {
+    setScheduledPushLoading(true);
+    try {
+      const resp = await httpClient.getSalesScheduledPushConfig();
+      applyBackendScheduledPushConfig(resp);
+      setScheduledPushSynced(true);
+      if (showToast) {
+        toast.success(`已同步后端真实定时推送：${resp.plans_count} 条`);
+      }
+    } catch (error) {
+      console.warn('Failed to load scheduled push config', error);
+      if (showToast) {
+        toast.error('同步后端定时推送失败');
+      }
+    } finally {
+      setScheduledPushLoading(false);
+    }
+  }
+
+  async function saveBackendScheduledPushConfig() {
+    setScheduledPushSaving(true);
+    try {
+      const metadataContext =
+        (config.metadata?.scheduled_push_backend_context as
+          | Partial<SalesScheduledPushConfig>
+          | undefined) || {};
+      const resp = await httpClient.saveSalesScheduledPushConfig({
+        ...metadataContext,
+        ...(scheduledPushMeta || {}),
+        scheduled_push: config.scheduled_push,
+      });
+      applyBackendScheduledPushConfig(resp);
+      setScheduledPushSynced(true);
+      toast.success(`已保存到后端真实定时推送：${resp.inserted} 条`);
+    } catch (error) {
+      console.warn('Failed to save scheduled push config', error);
+      toast.error('保存到后端定时推送失败');
+    } finally {
+      setScheduledPushSaving(false);
+    }
+  }
+
+  function addScheduledPushItem() {
+    const nextDay = (config.scheduled_push.items?.length || 0) + 1;
+    patchScheduledPushItems([
+      ...(config.scheduled_push.items || []),
+      {
+        day: nextDay,
+        time: config.scheduled_push.time || '10:00',
+        message: '',
+        image_key: '',
+        image_url: '',
+        link_title: '',
+        link_url: '',
+        link_description: '',
+      },
+    ]);
+  }
+
+  function patchScheduledPushItem(index: number, next: Partial<PipelineTemplateScheduledPushItem>) {
+    patchScheduledPushItems(
+      (config.scheduled_push.items || []).map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...next } : item,
+      ),
+    );
+  }
+
+  function removeScheduledPushItem(index: number) {
+    patchScheduledPushItems(
+      (config.scheduled_push.items || []).filter((_, itemIndex) => itemIndex !== index),
+    );
   }
 
   function patchHumanHandoff(next: Partial<PipelineTemplateConfig['human_handoff']>) {
@@ -571,6 +845,32 @@ export default function PipelineTemplateConfigEditor({
 
   function patchReplyControls(next: Partial<PipelineTemplateConfig['reply_controls']>) {
     patch({ reply_controls: { ...config.reply_controls, ...next } });
+  }
+
+  function patchMemes(next: Partial<NonNullable<PipelineTemplateConfig['memes']>>) {
+    patch({ memes: { ...config.memes!, ...next } });
+  }
+
+  function patchMemeLibraryItem(index: number, next: Partial<PipelineTemplateMemeLibraryItem>) {
+    patchMemes({
+      library: (config.memes?.library || []).map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...next } : item,
+      ),
+    });
+  }
+
+  function addMemeLibraryItem() {
+    patchMemes({
+      library: [...(config.memes?.library || []), makeMemeLibraryItem()],
+    });
+  }
+
+  function removeMemeLibraryItem(index: number) {
+    patchMemes({
+      library: (config.memes?.library || []).filter(
+        (_, itemIndex) => itemIndex !== index,
+      ),
+    });
   }
 
   function patchBinding(index: number, next: Partial<PipelineTemplateImageTextBinding>) {
@@ -858,6 +1158,50 @@ export default function PipelineTemplateConfigEditor({
     } catch (error) {
       console.error('Template image upload failed:', error);
       toast.error('图片上传失败');
+    } finally {
+      setUploadingBindingId('');
+      event.target.value = '';
+    }
+  }
+
+  async function uploadImageForMeme(
+    index: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const meme = config.memes?.library?.[index];
+    const memeId = `meme-${meme?.id || index}`;
+    try {
+      setUploadingBindingId(memeId);
+      const result = await httpClient.uploadImage(file);
+      patchMemeLibraryItem(index, { file_key: result.file_key, image_url: '', source: 'custom' });
+      toast.success('表情包已上传');
+    } catch (error) {
+      console.error('Meme image upload failed:', error);
+      toast.error('表情包上传失败');
+    } finally {
+      setUploadingBindingId('');
+      event.target.value = '';
+    }
+  }
+
+  async function uploadImageForScheduledPush(
+    index: number,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const uploadId = `scheduled-push-${index}`;
+    try {
+      setUploadingBindingId(uploadId);
+      const result = await httpClient.uploadImage(file);
+      patchScheduledPushItem(index, { image_key: result.file_key, image_url: '' });
+      toast.success('定时推送图片已上传');
+    } catch (error) {
+      console.error('Scheduled push image upload failed:', error);
+      toast.error('定时推送图片上传失败');
     } finally {
       setUploadingBindingId('');
       event.target.value = '';
@@ -1774,6 +2118,185 @@ export default function PipelineTemplateConfigEditor({
   }
 
   function renderPushSettings() {
+    const scheduledItems = config.scheduled_push.items || [];
+
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          <span>
+            已联动真实后端定时推送：后端 {scheduledPushMeta?.plans_count ?? scheduledItems.length} 条。打开本 tab 会自动同步，修改后点击保存才会替换真实发送计划。
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-md bg-white"
+              disabled={scheduledPushLoading}
+              onClick={() => loadBackendScheduledPushConfig(true)}
+            >
+              {scheduledPushLoading ? '同步中' : '同步后端'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 rounded-md"
+              disabled={scheduledPushSaving}
+              onClick={saveBackendScheduledPushConfig}
+            >
+              {scheduledPushSaving ? '保存中' : '保存到后端'}
+            </Button>
+          </div>
+        </div>
+        <Section
+          icon={CalendarClock}
+          title="定时推送"
+          description="只管理按第几天、指定时间自动发送的推送内容；跟进已拆到单独模块。"
+          right={
+            <SummaryPill active={config.scheduled_push.enabled}>
+              {config.scheduled_push.enabled ? '已启用' : '未启用'}
+            </SummaryPill>
+          }
+        >
+          <ToggleRow
+            label="启用定时推送"
+            description="开启后，数字员工会按下面的第 X 天和时间创建真实发送计划。"
+            checked={config.scheduled_push.enabled}
+            onCheckedChange={(checked) => patchScheduledPush({ enabled: checked })}
+          />
+          <ToggleRow
+            label="开始循环"
+            description="开启后，最后一天结束后会按当前天数周期继续循环。"
+            checked={Boolean(config.scheduled_push.loop_enabled)}
+            onCheckedChange={(checked) => patchScheduledPush({ loop_enabled: checked })}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 w-full justify-center rounded-md"
+            onClick={addScheduledPushItem}
+          >
+            <Plus className="mr-1.5 size-4" />
+            新增第 X 天推送
+          </Button>
+          <div className="grid gap-3">
+            {scheduledItems.map((item, index) => {
+              const uploadId = `scheduled-push-upload-${index}`;
+              const uploading = uploadingBindingId === `scheduled-push-${index}`;
+              return (
+                <div key={`${item.day}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="grid gap-3 md:grid-cols-[100px_140px_minmax(0,1fr)_auto]">
+                    <label className="block">
+                      <FieldLabel>第几天</FieldLabel>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={item.day || index + 1}
+                        onChange={(event) =>
+                          patchScheduledPushItem(index, { day: Number(event.target.value || 1) })
+                        }
+                        className="h-10 bg-white"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>推送时间</FieldLabel>
+                      <Input
+                        type="time"
+                        value={item.time || '10:00'}
+                        onChange={(event) => patchScheduledPushItem(index, { time: event.target.value })}
+                        className="h-10 bg-white"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>标题</FieldLabel>
+                      <Input
+                        value={`第${item.day || index + 1}天推送`}
+                        readOnly
+                        className="h-10 bg-white text-slate-500"
+                      />
+                    </label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="删除这条定时推送"
+                      onClick={() => removeScheduledPushItem(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                  <label className="block">
+                    <FieldLabel>推送内容</FieldLabel>
+                    <Textarea
+                      value={item.message || ''}
+                      onChange={(event) => patchScheduledPushItem(index, { message: event.target.value })}
+                      className="min-h-24 resize-none bg-white leading-6"
+                      placeholder="例如：家长，今天可以继续看一下课程资料，有打不开的页面直接发我。"
+                    />
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
+                      <FieldLabel>图片</FieldLabel>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          value={item.image_key || item.image_url || ''}
+                          onChange={(event) =>
+                            patchScheduledPushItem(index, { image_key: event.target.value, image_url: '' })
+                          }
+                          className="h-10 min-w-[220px] flex-1 bg-white"
+                          placeholder="可填写素材 file_key，也可以上传图片"
+                        />
+                        <input
+                          id={uploadId}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => uploadImageForScheduledPush(index, event)}
+                        />
+                        <Button type="button" variant="outline" className="h-10 rounded-md" asChild>
+                          <label htmlFor={uploadId} className="cursor-pointer">
+                            <Upload className="mr-1.5 inline size-4" />
+                            {uploading ? '上传中' : '上传图片'}
+                          </label>
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
+                      <FieldLabel>链接</FieldLabel>
+                      <Input
+                        value={item.link_title || ''}
+                        onChange={(event) => patchScheduledPushItem(index, { link_title: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="链接标题，例如：报名通道"
+                      />
+                      <Input
+                        value={item.link_url || ''}
+                        onChange={(event) => patchScheduledPushItem(index, { link_url: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="https://..."
+                      />
+                      <Input
+                        value={item.link_description || ''}
+                        onChange={(event) => patchScheduledPushItem(index, { link_description: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="链接说明，可不填"
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {!scheduledItems.length && (
+              <div className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                暂无定时推送。添加后可设置第一天推送什么、第二天推送什么，并支持图片和链接。
+              </div>
+            )}
+          </div>
+        </Section>
+      </div>
+    );
+
     const salesLinks = config.sales_links || [];
     const defaultSalesLinkId =
       salesLinks.find((link) => link.radar_enabled !== false)?.id || salesLinks[0]?.id || '';
@@ -2211,6 +2734,216 @@ export default function PipelineTemplateConfigEditor({
     );
   }
 
+  function renderFollowupSettings() {
+    const salesLinks = config.sales_links || [];
+    const defaultSalesLinkId =
+      salesLinks.find((link) => link.radar_enabled !== false)?.id || salesLinks[0]?.id || '';
+
+    return (
+      <div className="space-y-4">
+        <Section
+          icon={MessageSquareText}
+          title="跟进"
+          description="单独管理客户点击雷达、表达购买意向、沉默等场景后的跟进话术。"
+          right={
+            <Badge variant="outline" className="rounded-md">
+              {(config.followup_sequences || []).length} 个场景
+            </Badge>
+          }
+        >
+          <Button type="button" variant="outline" className="h-10 w-full justify-center rounded-md" onClick={addFollowupSequence}>
+            <Plus className="mr-1.5 size-4" />
+            新增跟进场景
+          </Button>
+          <div className="grid gap-3">
+            {(config.followup_sequences || []).map((sequence, index) => (
+              <div key={`${sequence.stage}-${index}`} className="space-y-3 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                  <label className="block">
+                    <FieldLabel>跟进场景</FieldLabel>
+                    <Input
+                      value={sequence.label}
+                      onChange={(event) => patchFollowupSequence(index, { label: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="例如：客户点击报名后未支付"
+                    />
+                  </label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    title="删除跟进场景"
+                    onClick={() => removeFollowupSequence(index)}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  {(sequence.messages || []).map((message, messageIndex) => {
+                    const linkEnabled = Boolean(message.link_id || message.send_link_card);
+                    return (
+                      <div key={`${sequence.stage}-${messageIndex}`} className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.2fr)_auto]">
+                          <label className="block">
+                            <FieldLabel>发送节奏</FieldLabel>
+                            <Select
+                              value={followupTimingValue(message)}
+                              onValueChange={(value) =>
+                                patchFollowupMessage(index, messageIndex, timingPatch(value))
+                              }
+                            >
+                              <SelectTrigger className="h-10 bg-white">
+                                <SelectValue placeholder="选择什么时候发送" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {FOLLOWUP_TIMING_OPTIONS.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </label>
+                          {followupTimingValue(message) === 'custom' ? (
+                            <label className="block">
+                              <FieldLabel>几分钟后发送</FieldLabel>
+                              <Input
+                                type="number"
+                                min={0}
+                                value={message.delay_minutes}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    delay_minutes: Number(event.target.value || 0),
+                                    schedule_time: undefined,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                              />
+                            </label>
+                          ) : followupTimingValue(message) === 'evening' ? (
+                            <label className="block">
+                              <FieldLabel>固定发送时间</FieldLabel>
+                              <Input
+                                type="time"
+                                value={message.schedule_time || '21:30'}
+                                onChange={(event) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    schedule_time: event.target.value,
+                                  })
+                                }
+                                className="h-10 bg-white"
+                              />
+                            </label>
+                          ) : (
+                            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                              系统会按所选节奏自动安排发送
+                            </div>
+                          )}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="mt-6 size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="删除这条话术"
+                            onClick={() => removeFollowupMessage(index, messageIndex)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </div>
+                        <label className="block">
+                          <FieldLabel>跟进内容</FieldLabel>
+                          <Textarea
+                            value={message.message}
+                            onChange={(event) =>
+                              patchFollowupMessage(index, messageIndex, { message: event.target.value })
+                            }
+                            className="min-h-24 resize-none bg-white leading-6"
+                            placeholder="输入这一步要发送给客户的话术"
+                          />
+                        </label>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-medium text-slate-900">带链接卡片</p>
+                                <p className="text-xs leading-5 text-muted-foreground">
+                                  需要时自动附上报名页或资料页。
+                                </p>
+                              </div>
+                              <Switch
+                                checked={linkEnabled}
+                                onCheckedChange={(checked) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    link_id: checked ? message.link_id || defaultSalesLinkId || undefined : undefined,
+                                    send_link_card: checked && Boolean(message.link_id || defaultSalesLinkId),
+                                  })
+                                }
+                              />
+                            </div>
+                            {linkEnabled && salesLinks.length > 0 && (
+                              <Select
+                                value={message.link_id || defaultSalesLinkId}
+                                onValueChange={(value) =>
+                                  patchFollowupMessage(index, messageIndex, {
+                                    link_id: value,
+                                    send_link_card: true,
+                                  })
+                                }
+                              >
+                                <SelectTrigger className="h-10 bg-white">
+                                  <SelectValue placeholder="选择要发送的链接" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {salesLinks.map((link) => (
+                                    <SelectItem key={link.id} value={link.id}>
+                                      {link.title || link.id}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </div>
+                          <label className="block rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                            <FieldLabel>图片素材</FieldLabel>
+                            <Input
+                              value={message.image_key || ''}
+                              onChange={(event) =>
+                                patchFollowupMessage(index, messageIndex, {
+                                  image_key: event.target.value,
+                                })
+                              }
+                              className="h-10 bg-white"
+                              placeholder="如需附图，填写素材 file_key"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-10 w-full justify-center rounded-md bg-white"
+                  onClick={() => addFollowupMessage(index)}
+                >
+                  <Plus className="mr-1.5 size-4" />
+                  新增一条跟进步骤
+                </Button>
+              </div>
+            ))}
+            {!(config.followup_sequences || []).length && (
+              <div className="rounded-md border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                暂无跟进场景。跟进会独立于定时推送，不会混进定时推送模块。
+              </div>
+            )}
+          </div>
+        </Section>
+      </div>
+    );
+  }
+
   function renderHandoffSettings() {
     return (
       <div className="space-y-4">
@@ -2408,6 +3141,304 @@ export default function PipelineTemplateConfigEditor({
     );
   }
 
+  function renderMemeSettings() {
+    const memes = config.memes!;
+    const library = memes.library || [];
+    const previewItems = library.filter((item) => item.enabled !== false).slice(0, 12);
+    return (
+      <div className="space-y-4">
+        <Section
+          icon={SmilePlus}
+          title="表情包发送"
+          description="配置 AI 在合适时机输出触发码后自动发送的表情包。"
+          right={<Badge variant="outline" className="rounded-md">{library.length} 条</Badge>}
+        >
+          <div className="grid gap-3 md:grid-cols-2">
+            <ToggleRow
+              label="开启表情包"
+              checked={memes.enabled}
+              onCheckedChange={(checked) => patchMemes({ enabled: checked })}
+            />
+            <ToggleRow
+              label="开启大表情包"
+              checked={memes.large_enabled}
+              onCheckedChange={(checked) => patchMemes({ large_enabled: checked })}
+            />
+            <ToggleRow
+              label="开启飞书官方表情"
+              checked={memes.feishu_native_enabled}
+              onCheckedChange={(checked) => patchMemes({ feishu_native_enabled: checked })}
+            />
+            <ToggleRow
+              label="智能判断发送时机"
+              description="开启后优先挑合适时机；连续未命中时按下方轮数兜底。"
+              checked={memes.smart_judge_enabled ?? true}
+              onCheckedChange={(checked) => patchMemes({ smart_judge_enabled: checked })}
+            />
+            <label className="block">
+              <FieldLabel>小表情最多几轮必须出现一次</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={99}
+                value={memes.small_interval_rounds ?? 3}
+                onChange={(event) =>
+                  patchMemes({ small_interval_rounds: Math.max(1, Math.min(99, Number(event.target.value) || 3)) })
+                }
+                className="h-10 bg-white"
+              />
+            </label>
+            <label className="block">
+              <FieldLabel>大表情最多几轮必须出现一次</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={99}
+                value={memes.large_interval_rounds ?? 5}
+                onChange={(event) =>
+                  patchMemes({ large_interval_rounds: Math.max(1, Math.min(99, Number(event.target.value) || 5)) })
+                }
+                className="h-10 bg-white"
+              />
+            </label>
+            <ToggleRow
+              label="优先使用本地表情包库"
+              checked={memes.library_enabled}
+              onCheckedChange={(checked) => patchMemes({ library_enabled: checked })}
+            />
+            <ToggleRow
+              label="本地无匹配时调用表情包接口"
+              checked={memes.api_fallback_enabled}
+              onCheckedChange={(checked) =>
+                patchMemes({ api_fallback_enabled: checked, oiapi_enabled: checked })
+              }
+            />
+            <label className="block">
+              <FieldLabel>接口候选数量</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={memes.oiapi_limit ?? 5}
+                onChange={(event) => patchMemes({ oiapi_limit: Number(event.target.value) || 5 })}
+                className="h-10 bg-white"
+              />
+            </label>
+          </div>
+        </Section>
+
+        <Section
+          icon={SmilePlus}
+          title="常用表情预览"
+          description="这里展示的是会真实发送给客户的表情包效果。"
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {previewItems.map((item) => {
+              const previewSrc = customMemePreviewSrc(item);
+              const stickerLabel = memeStickerPreviewLabel(item);
+              return (
+                <div key={`preview-${item.id}`} className="rounded-md border border-slate-200 bg-white p-2">
+                  {previewSrc ? (
+                    <img
+                      src={previewSrc}
+                      alt={item.meaning}
+                      className="h-28 w-full rounded bg-slate-50 object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-28 w-full items-center justify-center rounded bg-amber-50 text-3xl font-semibold text-amber-700">
+                      {stickerLabel}
+                    </div>
+                  )}
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium text-slate-900">{item.meaning}</span>
+                    <Badge variant="outline" className="shrink-0 rounded font-mono">
+                      {stickerLabel}
+                    </Badge>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+
+        <Section
+          icon={SmilePlus}
+          title="表情包库"
+          description="触发关键词使用 {happy} 这类代码，AI 发出代码后系统自动替换为对应表情。"
+          right={<Badge variant="outline" className="rounded-md">{library.filter((item) => item.enabled !== false).length} 条启用</Badge>}
+        >
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 w-full justify-center rounded-md"
+            onClick={addMemeLibraryItem}
+          >
+            <Plus className="mr-1.5 size-4" />
+            新增表情包
+          </Button>
+          <div className="grid gap-3">
+            {library.map((item, index) => {
+              const builtin = item.source === 'builtin';
+              const previewSrc = customMemePreviewSrc(item);
+              const stickerLabel = memeStickerPreviewLabel(item);
+              const uploadId = `meme-upload-${item.id || index}`;
+              return (
+                <div key={item.id || index} className="rounded-md border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="mb-3 flex items-center gap-3">
+                    <Badge variant="outline" className="rounded bg-white">
+                      {String(index + 1).padStart(3, '0')}
+                    </Badge>
+                    <Input
+                      value={item.meaning}
+                      onChange={(event) => patchMemeLibraryItem(index, { meaning: event.target.value })}
+                      className="h-10 bg-white"
+                      placeholder="表情包含义"
+                    />
+                    <Switch
+                      checked={item.enabled !== false}
+                      onCheckedChange={(checked) => patchMemeLibraryItem(index, { enabled: checked })}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-10 shrink-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      title="删除表情包"
+                      onClick={() => removeMemeLibraryItem(index)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-4">
+                    <label className="block">
+                      <FieldLabel>触发关键词</FieldLabel>
+                      <Input
+                        value={item.trigger_keyword}
+                        onChange={(event) => {
+                          const trigger = event.target.value;
+                          patchMemeLibraryItem(index, {
+                            trigger_keyword: trigger,
+                            code: trigger.replace(/[{}]/g, ''),
+                          });
+                        }}
+                        className="h-10 bg-white font-mono"
+                        placeholder="{happy}"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>接口搜索词</FieldLabel>
+                      <Input
+                        value={item.search_keyword || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { search_keyword: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="开心"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>标签</FieldLabel>
+                      <Input
+                        value={(item.tags || []).join(',')}
+                        onChange={(event) => patchMemeLibraryItem(index, { tags: textToList(event.target.value) })}
+                        className="h-10 bg-white"
+                        placeholder="happy,销售"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>飞书官方表情</FieldLabel>
+                      <Input
+                        value={item.feishu_emoji || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { feishu_emoji: event.target.value })}
+                        className="h-10 bg-white font-mono"
+                        placeholder="[感谢]"
+                      />
+                    </label>
+                  </div>
+                  <label className="mt-3 block">
+                    <FieldLabel>触发语义关键词</FieldLabel>
+                    <Input
+                      value={(item.keywords || []).join(',')}
+                      onChange={(event) => patchMemeLibraryItem(index, { keywords: textToList(event.target.value) })}
+                      className="h-10 bg-white"
+                      placeholder="开心,谢谢,收到"
+                    />
+                  </label>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="block">
+                      <FieldLabel>使用场景</FieldLabel>
+                      <Input
+                        value={item.usage_scene || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { usage_scene: event.target.value })}
+                        className="h-10 bg-white"
+                        placeholder="客户询问报名链接、领取体验课时"
+                      />
+                    </label>
+                    <label className="block">
+                      <FieldLabel>使用说明</FieldLabel>
+                      <Textarea
+                        value={item.usage_instruction || ''}
+                        onChange={(event) => patchMemeLibraryItem(index, { usage_instruction: event.target.value })}
+                        className="min-h-20 bg-white"
+                        placeholder="什么时候可以发、什么时候不要发，给 AI 做判断依据"
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)]">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 justify-center rounded-md bg-white"
+                      asChild
+                      disabled={uploadingBindingId === `meme-${item.id || index}`}
+                    >
+                      <label htmlFor={uploadId} className="cursor-pointer">
+                        <input
+                          id={uploadId}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => uploadImageForMeme(index, event)}
+                        />
+                        <Upload className="mr-1.5 inline size-4" />
+                        {uploadingBindingId === `meme-${item.id || index}` ? '替换中' : '替换表情包'}
+                      </label>
+                    </Button>
+                    <Input
+                      value={item.image_url || ''}
+                      onChange={(event) => patchMemeLibraryItem(index, { image_url: event.target.value, source: 'custom' })}
+                      className="h-10 bg-white"
+                      placeholder="大表情包 URL"
+                    />
+                  </div>
+                  <Input
+                    value={item.file_key || ''}
+                    onChange={(event) => patchMemeLibraryItem(index, { file_key: event.target.value, source: 'custom' })}
+                    className="mt-3 h-10 bg-white"
+                    placeholder="大表情包 file_key 或本地素材路径"
+                  />
+                  {previewSrc && (
+                    <div className="mt-3 overflow-hidden rounded-md border bg-white">
+                      <img
+                        src={previewSrc}
+                        alt={item.meaning}
+                        className="max-h-36 w-full object-contain"
+                      />
+                    </div>
+                  )}
+                  {builtin && (
+                    <div className="mt-3 flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      <span>内置安全表情包</span>
+                      <span className="font-mono text-base">{stickerLabel}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      </div>
+    );
+  }
+
   function renderMediaSettings() {
     return (
       <div className="space-y-4">
@@ -2537,8 +3568,12 @@ export default function PipelineTemplateConfigEditor({
         return renderRadarSettings();
       case 'specialCases':
         return renderSpecialCaseSettings();
+      case 'memes':
+        return renderMemeSettings();
       case 'push':
         return renderPushSettings();
+      case 'followup':
+        return renderFollowupSettings();
       case 'handoff':
         return renderHandoffSettings();
       case 'media':

@@ -12,7 +12,11 @@ from typing import Any
 import sqlalchemy
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from langbot.pkg.entity import persistence as persistence_entities
 from langbot.pkg.entity.persistence.base import Base
+from langbot.pkg.utils import importutil
+
+importutil.import_modules_in_pkg(persistence_entities)
 
 
 def _normalize_postgres_url(url: str) -> str:
@@ -138,7 +142,11 @@ async def sync_sqlite_to_postgres(sqlite_path: Path, postgres_url: str, replace:
 def main() -> None:
     parser = argparse.ArgumentParser(description='Seed PostgreSQL from a bundled LangBot SQLite database.')
     parser.add_argument('--sqlite', default='data/langbot.db', help='Path to local SQLite database.')
-    parser.add_argument('--postgres-url', default=os.environ.get('DATABASE_URL', ''), help='PostgreSQL connection URL.')
+    parser.add_argument(
+        '--postgres-url',
+        default=os.environ.get('DATABASE_URL') or os.environ.get('DATABASE_PUBLIC_URL', ''),
+        help='PostgreSQL connection URL.',
+    )
     parser.add_argument('--replace', action='store_true', help='Delete existing PostgreSQL rows before importing.')
     args = parser.parse_args()
 

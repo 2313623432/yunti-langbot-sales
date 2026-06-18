@@ -141,6 +141,24 @@ function applyRolePromptToWorkflow(
   return nextWorkflow;
 }
 
+async function syncRealScheduledPushBackend(templateConfig: PipelineTemplateConfig) {
+  const backendSynced = templateConfig.metadata?.scheduled_push_backend_synced === true;
+  const scheduledPush = templateConfig.scheduled_push;
+  const items = scheduledPush?.items || [];
+  if (!backendSynced || !items.length) {
+    return;
+  }
+
+  const backendContext =
+    (templateConfig.metadata?.scheduled_push_backend_context as
+      | Record<string, unknown>
+      | undefined) || {};
+  await httpClient.saveSalesScheduledPushConfig({
+    ...backendContext,
+    scheduled_push: scheduledPush,
+  });
+}
+
 export default function PipelineFormComponent({
   onFinish,
   onNewPipelineCreated,
@@ -480,7 +498,8 @@ export default function PipelineFormComponent({
       };
       httpClient
         .createPipeline(pipeline)
-        .then((resp) => {
+        .then(async (resp) => {
+          await syncRealScheduledPushBackend(templateConfig);
           onFinish();
           onNewPipelineCreated(resp.uuid);
           toast.success(t('pipelines.createSuccess'));
@@ -491,15 +510,16 @@ export default function PipelineFormComponent({
       return;
     }
 
+    const templateConfig =
+      (values.template_config as PipelineTemplateConfig | undefined) ||
+      createBlankAgentTemplateConfig();
     const pipeline: Pipeline = {
       config: {
         basic: {
           avatar: values.basic.avatar || DEFAULT_AGENT_AVATAR,
         },
         config_mode: 'template',
-        template_config:
-          (values.template_config as PipelineTemplateConfig | undefined) ||
-          createBlankAgentTemplateConfig(),
+        template_config: templateConfig,
         workflow: (values.workflow as PipelineWorkflow | undefined) || createDefaultWorkflow(),
       },
       description: values.basic.description ?? '',
@@ -508,7 +528,8 @@ export default function PipelineFormComponent({
     };
     httpClient
       .createPipeline(pipeline)
-      .then((resp) => {
+      .then(async (resp) => {
+        await syncRealScheduledPushBackend(templateConfig);
         onFinish();
         onNewPipelineCreated(resp.uuid);
         toast.success(t('pipelines.createSuccess'));
@@ -553,7 +574,8 @@ export default function PipelineFormComponent({
       };
       httpClient
         .updatePipeline(pipelineId || '', pipeline)
-        .then(() => {
+        .then(async () => {
+          await syncRealScheduledPushBackend(templateConfig);
           savedSnapshotRef.current = JSON.stringify(form.getValues());
           onFinish();
           toast.success(t('pipelines.saveSuccess'));
@@ -596,7 +618,8 @@ export default function PipelineFormComponent({
     };
     httpClient
       .updatePipeline(pipelineId || '', pipeline)
-      .then(() => {
+      .then(async () => {
+        await syncRealScheduledPushBackend(templateConfig);
         savedSnapshotRef.current = JSON.stringify(form.getValues());
         onFinish();
         toast.success(t('pipelines.saveSuccess'));

@@ -645,11 +645,42 @@ export interface SalesOutreachPlan {
   target_type: 'person' | 'group';
   target_id: string;
   segment: string;
+  dedupe_key?: string;
   message_template: string;
+  message_components?: Array<Record<string, unknown>>;
   scheduled_at?: string;
   interval_minutes: number;
   enabled: boolean;
   last_sent_at?: string | null;
+}
+
+export interface SalesScheduledPushConfig {
+  plans_count: number;
+  product_uuid: string;
+  bot_uuid: string;
+  target_type: 'person' | 'group';
+  target_id: string;
+  scheduled_push: {
+    enabled: boolean;
+    mode: 'daily' | 'single_day';
+    time: string;
+    single_date: string;
+    message: string;
+    push_message?: string;
+    loop_enabled?: boolean;
+    loop_days?: number;
+    start_date?: string;
+    items?: Array<{
+      day: number;
+      time: string;
+      message: string;
+      image_key?: string;
+      image_url?: string;
+      link_title?: string;
+      link_url?: string;
+      link_description?: string;
+    }>;
+  };
 }
 
 export interface SalesOverview {
@@ -657,10 +688,13 @@ export interface SalesOverview {
   customers_count: number;
   open_handoffs_count: number;
   outreach_plans_count: number;
+  scheduled_push_plans_count?: number;
+  followup_plans_count?: number;
   products: SalesProduct[];
   recent_memories: SalesCustomerMemory[];
   open_handoffs: SalesHandoff[];
   outreach_plans: SalesOutreachPlan[];
+  followup_plans?: SalesOutreachPlan[];
 }
 
 export interface SalesPitchResp {

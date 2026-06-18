@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 from langbot.pkg.utils import constants
@@ -14,6 +15,46 @@ from ..bootutils import config
 
 
 _SENSITIVE_ENV_KEY_PARTS = ('password', 'secret', 'token', 'key')
+_LOCAL_ENV_FILES = ('.env.local', '.env')
+
+
+def _parse_local_env_line(line: str) -> tuple[str, str] | None:
+    line = line.strip()
+    if not line or line.startswith('#') or '=' not in line:
+        return None
+
+    key, value = line.split('=', 1)
+    key = key.strip()
+    if not key:
+        return None
+
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    return key, value
+
+
+def _load_local_env_files() -> list[Path]:
+    """Load local .env files without overriding real environment variables."""
+    loaded: list[Path] = []
+    for env_file_name in _LOCAL_ENV_FILES:
+        env_file = Path(env_file_name)
+        if not env_file.is_file():
+            continue
+
+        with env_file.open('r', encoding='utf-8') as f:
+            for line in f:
+                parsed = _parse_local_env_line(line)
+                if parsed is None:
+                    continue
+                key, value = parsed
+                os.environ.setdefault(key, value)
+        loaded.append(env_file)
+
+    if loaded:
+        loaded_names = ', '.join(str(path) for path in loaded)
+        print(f'loaded local env files: {loaded_names}')
+    return loaded
 
 
 def _mask_env_value_for_log(env_key: str, env_value: str) -> str:
@@ -116,7 +157,11 @@ def _apply_env_overrides_to_config(cfg: dict) -> dict:
 
 
 def _apply_database_url_to_config(cfg: dict) -> dict:
-    database_url = os.environ.get('DATABASE_URL', '').strip()
+    env_key = 'DATABASE_URL'
+    database_url = os.environ.get(env_key, '').strip()
+    if not database_url:
+        env_key = 'DATABASE_PUBLIC_URL'
+        database_url = os.environ.get(env_key, '').strip()
     if not database_url:
         return cfg
 
@@ -132,7 +177,7 @@ def _apply_database_url_to_config(cfg: dict) -> dict:
     postgresql_cfg['user'] = unquote(parsed.username or postgresql_cfg.get('user', 'postgres'))
     postgresql_cfg['password'] = unquote(parsed.password or postgresql_cfg.get('password', ''))
     postgresql_cfg['database'] = unquote(parsed.path.lstrip('/') or postgresql_cfg.get('database', 'postgres'))
-    print('apply DATABASE_URL to config: database.use=postgresql, env_value: ***')
+    print(f'apply {env_key} to config: database.use=postgresql, env_value: ***')
     return cfg
 
 
@@ -182,6 +227,7 @@ class LoadConfigStage(stage.BootingStage):
         # # ======= deprecated =======
 
         ap.instance_config = await config.load_yaml_config('data/config.yaml', 'config.yaml', completion=False)
+        _load_local_env_files()
 
         # Apply environment variable overrides to data/config.yaml
         ap.instance_config.data = _apply_database_url_to_config(ap.instance_config.data)

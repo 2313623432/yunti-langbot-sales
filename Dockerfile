@@ -15,6 +15,9 @@ COPY . .
 COPY --from=node /app/web/dist ./web/dist
 COPY deploy/render/start.sh /app/deploy/render/start.sh
 
+COPY data ./render-seed-data
+COPY deploy/render/start.sh /app/deploy/render/start.sh
+
 RUN apt update \
     && apt install gcc curl unzip -y \
     && python -m pip install --no-cache-dir uv \

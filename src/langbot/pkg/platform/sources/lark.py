@@ -25,6 +25,7 @@ import pydantic
 from lark_oapi.api.cardkit.v1 import *
 from lark_oapi.api.auth.v3 import *
 from lark_oapi.api.contact.v3 import GetUserRequest
+from lark_oapi.core.enum import AccessTokenType, HttpMethod
 from lark_oapi.core.model import *
 
 import langbot_plugin.api.definition.abstract.platform.adapter as abstract_platform_adapter
@@ -978,6 +979,8 @@ CARD_ID_CACHE_MAX_LIFETIME = 20 * 60  # 20分钟
 class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     bot: lark_oapi.ws.Client = pydantic.Field(exclude=True)
     api_client: lark_oapi.Client = pydantic.Field(exclude=True)
+    lark_ping_task: asyncio.Task | None = pydantic.Field(exclude=True, default=None)
+    lark_event_loop: asyncio.AbstractEventLoop | None = pydantic.Field(exclude=True, default=None)
 
     bot_account_id: str  # 用于在流水线中识别at是否是本bot，直接以bot_name作为标识
     lark_tenant_key: str = pydantic.Field(exclude=True, default='')  # 飞书企业key
@@ -1020,6 +1023,7 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         quart_app = quart.Quart(__name__)
 
         async def on_message(event: lark_oapi.im.v1.P2ImMessageReceiveV1):
+            await self.logger.info('Lark inbound message event received')
             lb_event = await self.event_converter.target2yiri(event, self.api_client, self.logger)
 
             await self.listeners[type(lb_event)](lb_event, self)
@@ -1030,9 +1034,12 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             message_id = getattr(message, 'message_id', None)
             event_id = getattr(header, 'event_id', None)
             if self._is_duplicate_lark_message(message_id, event_id):
-                asyncio.create_task(self.logger.info(f'Skipped duplicate Lark message event: message_id={message_id}'))
+                self._schedule_lark_callback(
+                    self.logger.info(f'Skipped duplicate Lark message event: message_id={message_id}'),
+                    'duplicate message log',
+                )
                 return
-            asyncio.create_task(on_message(event))
+            self._schedule_lark_callback(on_message(event), 'message')
 
         def sync_on_p2p_chat_access(event, event_type: str):
             try:
@@ -1047,9 +1054,12 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                         }
                     if hasattr(event.event, 'user_id'):
                         event_payload['user_id'] = getattr(event.event, 'user_id', None)
-                asyncio.create_task(self._handle_contact_added_event(event_payload))
+                self._schedule_lark_callback(self._handle_contact_added_event(event_payload), 'p2p chat access')
             except Exception:
-                asyncio.create_task(self.logger.error(f'Error in lark p2p chat created callback: {traceback.format_exc()}'))
+                self._schedule_lark_callback(
+                    self.logger.error(f'Error in lark p2p chat created callback: {traceback.format_exc()}'),
+                    'p2p chat access error',
+                )
 
         def sync_on_p2p_chat_created(event):
             sync_on_p2p_chat_access(event, 'im.chat.access_event.bot_p2p_chat_created_v1')
@@ -1102,17 +1112,19 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 )
 
                 if platform_events.FeedbackEvent in self.listeners:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(self.listeners[platform_events.FeedbackEvent](feedback_event, self))
-                    else:
-                        loop.run_until_complete(self.listeners[platform_events.FeedbackEvent](feedback_event, self))
+                    self._schedule_lark_callback(
+                        self.listeners[platform_events.FeedbackEvent](feedback_event, self),
+                        'card feedback',
+                    )
 
                 from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
 
                 return P2CardActionTriggerResponse({'toast': {'type': 'success', 'content': '感谢您的反馈'}})
             except Exception:
-                asyncio.create_task(self.logger.error(f'Error in lark card action callback: {traceback.format_exc()}'))
+                self._schedule_lark_callback(
+                    self.logger.error(f'Error in lark card action callback: {traceback.format_exc()}'),
+                    'card action error',
+                )
                 from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
 
                 return P2CardActionTriggerResponse({'toast': {'type': 'error', 'content': '反馈处理失败'}})
@@ -1146,6 +1158,7 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             seq=1,
             listeners={},
             contact_added_callback=None,
+            lark_event_loop=None,
             quart_app=quart_app,
             bot=bot,
             api_client=api_client,
@@ -1154,6 +1167,101 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             **kwargs,
         )
 
+    def _schedule_lark_callback(self, coroutine: typing.Coroutine, context: str) -> bool:
+        loop = self.lark_event_loop
+
+        if loop is None or not loop.is_running():
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                coroutine.close()
+                return False
+            asyncio.create_task(self._run_lark_callback(coroutine, context))
+            return True
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is loop:
+            asyncio.create_task(self._run_lark_callback(coroutine, context))
+        else:
+            loop.call_soon_threadsafe(lambda: loop.create_task(self._run_lark_callback(coroutine, context)))
+        return True
+
+    async def _run_lark_callback(self, coroutine: typing.Coroutine, context: str) -> None:
+        try:
+            await coroutine
+        except Exception:
+            await self.logger.error(f'Error in lark {context} callback: {traceback.format_exc()}')
+
+    def _prepare_lark_ws_loop(self) -> None:
+        self.lark_event_loop = asyncio.get_running_loop()
+        try:
+            import lark_oapi.ws.client as lark_ws_client
+
+            lark_ws_client.loop = self.lark_event_loop
+        except Exception:
+            pass
+
+    def _lark_log_prefix(self) -> str:
+        bot_name = str(self.config.get('bot_name') or 'unknown')
+        app_id = str(self.config.get('app_id') or '')
+        safe_app_id = f'{app_id[:8]}...' if app_id else 'unknown-app'
+        return f'Lark bot={bot_name} app={safe_app_id}'
+
+    def _lark_websocket_alive(self) -> bool:
+        conn = getattr(self.bot, '_conn', None)
+        if conn is None:
+            return False
+        if getattr(conn, 'closed', False):
+            return False
+        if getattr(conn, 'close_code', None) is not None:
+            return False
+        state = getattr(conn, 'state', None)
+        state_name = getattr(state, 'name', None)
+        if state_name and state_name != 'OPEN':
+            return False
+        return True
+
+    def _reset_lark_websocket_state(self) -> None:
+        for attr, value in (
+            ('_conn', None),
+            ('_conn_url', ''),
+            ('_conn_id', ''),
+            ('_service_id', ''),
+        ):
+            if hasattr(self.bot, attr):
+                setattr(self.bot, attr, value)
+        if hasattr(self.bot, '_lock'):
+            self.bot._lock = asyncio.Lock()
+
+    async def _disconnect_stale_lark_websocket(self) -> None:
+        if getattr(self.bot, '_conn', None) is None:
+            return
+        try:
+            await asyncio.wait_for(self.bot._disconnect(), timeout=5)
+        except Exception as e:
+            print(f'{self._lark_log_prefix()} stale websocket disconnect failed: {e}')
+            self._reset_lark_websocket_state()
+
+    async def _ensure_lark_websocket_connected(self) -> None:
+        self._prepare_lark_ws_loop()
+
+        if not self._lark_websocket_alive():
+            await self._disconnect_stale_lark_websocket()
+            print(f'{self._lark_log_prefix()} websocket connecting')
+            try:
+                await asyncio.wait_for(self.bot._connect(), timeout=30)
+            except Exception:
+                self._reset_lark_websocket_state()
+                raise
+            print(f'{self._lark_log_prefix()} websocket connected')
+
+        if self.lark_ping_task is None or self.lark_ping_task.done():
+            self.lark_ping_task = asyncio.create_task(self.bot._ping_loop())
+            print(f'{self._lark_log_prefix()} heartbeat started')
     def _prune_processed_message_cache(self, now: typing.Optional[float] = None) -> None:
         if now is None:
             now = time.time()
@@ -1423,6 +1531,43 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 raise Exception(
                     f'client.im.v1.message.create ({media["msg_type"]}) failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}, resp: \n{json.dumps(json.loads(response.raw.content), indent=4, ensure_ascii=False)}'
                 )
+
+    async def add_message_reaction(self, message_id: str, emoji_type: str) -> bool:
+        message_id = str(message_id or '').strip()
+        emoji_type = str(emoji_type or '').strip()
+        if not message_id or not emoji_type:
+            return False
+
+        request = (
+            BaseRequest.builder()
+            .http_method(HttpMethod.POST)
+            .uri(f'/open-apis/im/v1/messages/{message_id}/reactions')
+            .token_types({AccessTokenType.TENANT, AccessTokenType.USER})
+            .body({'reaction_type': {'emoji_type': emoji_type}})
+            .build()
+        )
+
+        app_access_token = self.get_app_access_token()
+        req_opt: RequestOption = RequestOption.builder().app_ticket(self.app_ticket).app_access_token(app_access_token).build()
+        response = await self.api_client.arequest(request, req_opt)
+        if response.success():
+            return True
+
+        logger = getattr(self, 'logger', None)
+        if logger is not None:
+            warning = getattr(logger, 'warning', None)
+            if callable(warning):
+                raw_content = getattr(getattr(response, 'raw', None), 'content', b'')
+                try:
+                    raw_text = raw_content.decode('utf-8') if isinstance(raw_content, bytes) else str(raw_content or '')
+                except Exception:
+                    raw_text = ''
+                result = warning(
+                    f'client.im.v1.message.reaction.create failed, code: {response.code}, msg: {response.msg}, resp: {raw_text}'
+                )
+                if asyncio.iscoroutine(result):
+                    await result
+        return False
 
     async def is_stream_output_supported(self) -> bool:
         is_stream = False
@@ -2155,15 +2300,34 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
 
         if not enable_webhook:
             try:
-                await self.bot._connect()
+                try:
+                    self.bot.on_reconnecting = lambda: print(f'{self._lark_log_prefix()} websocket reconnecting')
+                    self.bot.on_reconnected = lambda: print(f'{self._lark_log_prefix()} websocket reconnected')
+                except Exception:
+                    pass
+
+                watchdog_interval = float(self.config.get('websocket-watchdog-interval', 10))
+                while True:
+                    try:
+                        await self._ensure_lark_websocket_connected()
+                    except lark_oapi.ws.exception.ClientException as e:
+                        raise e
+                    except Exception as e:
+                        await self.logger.error(f'Lark websocket connect failed: {e}\n{traceback.format_exc()}')
+                        print(f'{self._lark_log_prefix()} websocket connect failed: {e}')
+                    await asyncio.sleep(watchdog_interval)
             except lark_oapi.ws.exception.ClientException as e:
                 raise e
-            except Exception as e:
-                await self.bot._disconnect()
-                if self.bot._auto_reconnect:
-                    await self.bot._reconnect()
-                else:
-                    raise e
+            except asyncio.CancelledError:
+                raise
+            finally:
+                if self.lark_ping_task is not None and not self.lark_ping_task.done():
+                    self.lark_ping_task.cancel()
+                    try:
+                        await self.lark_ping_task
+                    except asyncio.CancelledError:
+                        pass
+                self.lark_ping_task = None
         else:
             # 统一 webhook 模式下，不启动独立的 Quart 应用
             # 保持运行但不启动独立端口
@@ -2179,5 +2343,12 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         # 断开时lark.ws.Client的_receive_message_loop会打印error日志: receive message loop exit。然后进行重连，
         # 所以要设置_auto_reconnect=False,让其不重连。
         self.bot._auto_reconnect = False
+        if self.lark_ping_task is not None and not self.lark_ping_task.done():
+            self.lark_ping_task.cancel()
+            try:
+                await self.lark_ping_task
+            except asyncio.CancelledError:
+                pass
+        self.lark_ping_task = None
         await self.bot._disconnect()
         return False

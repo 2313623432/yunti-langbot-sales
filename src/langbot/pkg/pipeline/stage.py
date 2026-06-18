@@ -3,9 +3,11 @@ from __future__ import annotations
 import abc
 import typing
 
-from ..core import app
 from . import entities
 import langbot_plugin.api.entities.builtin.pipeline.query as pipeline_query
+
+if typing.TYPE_CHECKING:
+    from ..core import app
 
 
 preregistered_stages: dict[str, type[PipelineStage]] = {}

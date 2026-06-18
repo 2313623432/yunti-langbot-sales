@@ -1198,8 +1198,10 @@ export class BackendClient extends BaseHttpClient {
     });
   }
 
-  public getSalesOutreachPlans(): Promise<{ plans: SalesOutreachPlan[] }> {
-    return this.get('/api/v1/sales/outreach');
+  public getSalesOutreachPlans(
+    kind: 'all' | 'scheduled_push' | 'followup' = 'scheduled_push',
+  ): Promise<{ plans: SalesOutreachPlan[] }> {
+    return this.get(`/api/v1/sales/outreach?kind=${encodeURIComponent(kind)}`);
   }
 
   public createSalesOutreachPlan(
@@ -1208,8 +1210,32 @@ export class BackendClient extends BaseHttpClient {
     return this.post('/api/v1/sales/outreach', plan);
   }
 
-  public runDueSalesOutreach(): Promise<{ sent: number }> {
-    return this.post('/api/v1/sales/outreach/run-due');
+  public runDueSalesOutreach(
+    kind: 'all' | 'scheduled_push' | 'followup' = 'scheduled_push',
+  ): Promise<{ sent: number }> {
+    return this.post('/api/v1/sales/outreach/run-due', { kind });
+  }
+
+  public clearSalesScheduledPushPlans(): Promise<{ deleted: number }> {
+    return this.post('/api/v1/sales/outreach/clear');
+  }
+
+  public getSalesScheduledPushConfig(): Promise<import('@/app/infra/entities/api').SalesScheduledPushConfig> {
+    return this.get('/api/v1/sales/outreach/scheduled-push-config');
+  }
+
+  public saveSalesScheduledPushConfig(
+    config: Partial<import('@/app/infra/entities/api').SalesScheduledPushConfig>,
+  ): Promise<import('@/app/infra/entities/api').SalesScheduledPushConfig & { deleted: number; inserted: number }> {
+    return this.put('/api/v1/sales/outreach/scheduled-push-config', config);
+  }
+
+  public getSalesFollowupPlans(): Promise<{ plans: SalesOutreachPlan[] }> {
+    return this.get('/api/v1/sales/followups');
+  }
+
+  public runDueSalesFollowups(): Promise<{ sent: number }> {
+    return this.post('/api/v1/sales/followups/run-due');
   }
 
   public getSpaceCredits(): Promise<{ credits: number | null }> {
