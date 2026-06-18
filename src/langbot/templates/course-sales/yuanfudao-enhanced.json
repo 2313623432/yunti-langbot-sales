@@ -991,6 +991,7 @@
       "trigger_intents": [
         "gift",
         "objection",
+        "course_conflict",
         "reading_thinking_intro",
         "purchase"
       ],

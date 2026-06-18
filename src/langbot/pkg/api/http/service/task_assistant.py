@@ -941,7 +941,7 @@ COURSE_IMAGE_BINDINGS = [
         'title': '完课好礼海报',
         'text': '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
-        'trigger_intents': ['gift', 'objection', 'purchase'],
+        'trigger_intents': ['gift', 'objection', 'course_conflict', 'purchase'],
         'requires_course_sales_signup_link': True,
         'enabled': True,
     },
@@ -3725,43 +3725,53 @@ class TaskAssistantService:
                 faq['answer'] = seeded_answer
                 changed = True
 
-        def remove_course_intro_image_trigger(container: dict[str, Any]) -> None:
+        def sync_gift_poster_image_triggers(container: dict[str, Any]) -> None:
             nonlocal changed
+
+            def sync_intents(holder: dict[str, Any]) -> None:
+                nonlocal changed
+                file_key = str(holder.get('file_key') or '').strip()
+                if not file_key.endswith('gift_poster.jpeg'):
+                    return
+                intents = holder.get('trigger_intents')
+                if not isinstance(intents, list):
+                    return
+                next_intents = [intent for intent in intents if intent != 'course_intro']
+                if 'course_conflict' not in next_intents:
+                    next_intents.append('course_conflict')
+                if next_intents != intents:
+                    holder['trigger_intents'] = next_intents
+                    changed = True
+
             bindings = container.get('image_text_bindings')
             if isinstance(bindings, list):
                 for binding in bindings:
                     if not isinstance(binding, dict):
                         continue
-                    intents = binding.get('trigger_intents')
-                    if isinstance(intents, list) and 'course_intro' in intents:
-                        binding['trigger_intents'] = [intent for intent in intents if intent != 'course_intro']
-                        changed = True
+                    sync_intents(binding)
             nodes = container.get('nodes')
             if isinstance(nodes, list):
                 for node in nodes:
                     if not isinstance(node, dict) or node.get('type') != 'image':
                         continue
                     node_config = node.get('config') if isinstance(node.get('config'), dict) else {}
-                    intents = node_config.get('trigger_intents')
-                    if isinstance(intents, list) and 'course_intro' in intents:
-                        node_config['trigger_intents'] = [intent for intent in intents if intent != 'course_intro']
-                        changed = True
+                    sync_intents(node_config)
 
         patch_faqs(config)
-        remove_course_intro_image_trigger(config)
+        sync_gift_poster_image_triggers(config)
         template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
         patch_faqs(template_config)
-        remove_course_intro_image_trigger(template_config)
+        sync_gift_poster_image_triggers(template_config)
         workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
         patch_faqs(workflow)
-        remove_course_intro_image_trigger(workflow)
+        sync_gift_poster_image_triggers(workflow)
         workflow_template = (
             workflow.get('template_config')
             if isinstance(workflow.get('template_config'), dict)
             else {}
         )
         patch_faqs(workflow_template)
-        remove_course_intro_image_trigger(workflow_template)
+        sync_gift_poster_image_triggers(workflow_template)
         return changed
 
     def _apply_course_sales_runtime_defaults(self, config: dict[str, Any]) -> bool:

@@ -1104,6 +1104,7 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
         if binding['file_key'] == 'course-sales/phonics/gift_poster.jpeg'
     )
     assert 'course_intro' not in gift_binding['trigger_intents']
+    assert 'course_conflict' in gift_binding['trigger_intents']
     assert all('day1_' not in file_key and 'day2_' not in file_key and 'day3_' not in file_key for file_key in image_file_keys)
     broadcast_messages = '\n'.join(broadcast['message'] for broadcast in template['long_term_broadcasts'])
     assert '自然拼读专项课' in broadcast_messages
@@ -1221,6 +1222,8 @@ def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_i
     node_intents = config['workflow']['nodes'][0]['config']['trigger_intents']
     assert 'course_intro' not in binding_intents
     assert 'course_intro' not in node_intents
+    assert 'course_conflict' in binding_intents
+    assert 'course_conflict' in node_intents
 
 
 def test_course_sales_runtime_defaults_skip_non_course_pipeline_config():
