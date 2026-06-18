@@ -684,15 +684,23 @@ export default function PipelineTemplateConfigEditor({
 
   function applyBackendScheduledPushConfig(resp: SalesScheduledPushConfig) {
     const items = resp.scheduled_push.items || [];
-    setScheduledPushMeta({
+    const backendContext = {
       product_uuid: resp.product_uuid,
       bot_uuid: resp.bot_uuid,
       target_type: resp.target_type,
       target_id: resp.target_id,
+    };
+    setScheduledPushMeta({
+      ...backendContext,
       plans_count: resp.plans_count,
     });
     onChange({
       ...config,
+      metadata: {
+        ...(config.metadata || {}),
+        scheduled_push_backend_synced: true,
+        scheduled_push_backend_context: backendContext,
+      },
       scheduled_push: {
         ...config.scheduled_push,
         ...resp.scheduled_push,
@@ -730,7 +738,12 @@ export default function PipelineTemplateConfigEditor({
   async function saveBackendScheduledPushConfig() {
     setScheduledPushSaving(true);
     try {
+      const metadataContext =
+        (config.metadata?.scheduled_push_backend_context as
+          | Partial<SalesScheduledPushConfig>
+          | undefined) || {};
       const resp = await httpClient.saveSalesScheduledPushConfig({
+        ...metadataContext,
         ...(scheduledPushMeta || {}),
         scheduled_push: config.scheduled_push,
       });

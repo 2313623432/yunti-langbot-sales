@@ -101,6 +101,17 @@ def test_template_mode_keeps_template_and_workflow_configs_independent():
     assert "selectedConfigMode === 'template'" not in form_source
 
 
+def test_pipeline_save_also_syncs_real_scheduled_push_backend():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    form_source = PIPELINE_FORM_PATH.read_text(encoding='utf-8')
+
+    assert 'scheduled_push_backend_synced' in template_source
+    assert 'scheduled_push_backend_context' in template_source
+    assert 'syncRealScheduledPushBackend' in form_source
+    assert 'saveSalesScheduledPushConfig' in form_source
+    assert 'await syncRealScheduledPushBackend(templateConfig)' in form_source
+
+
 def test_pipeline_form_reload_effect_tracks_selected_pipeline_id():
     form_source = PIPELINE_FORM_PATH.read_text(encoding='utf-8')
 
