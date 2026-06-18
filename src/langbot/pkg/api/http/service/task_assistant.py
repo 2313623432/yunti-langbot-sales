@@ -216,6 +216,25 @@ COURSE_RESOURCE_HISTORY_LINK = 'https://mp.bookln.cn/user/history/moment.htm'
 COURSE_RESOURCE_MINI_PROGRAM = '#小程序://教辅好帮手/la0KWwjPCx8S26C'
 COURSE_RESOURCE_GOODS_GROUP_LINK = 'https://d.codeup.cn/d/UVruQn'
 COURSE_RESOURCE_OPEN_CHECK_MESSAGE = '家长，您这边能打开吗？'
+COURSE_SALES_AFTER_LINK_OPEN_MESSAGE = (
+    '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功的短信，我给您登记开课并赠送资料'
+)
+COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE = '家长领取到了吗？'
+COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE = (
+    '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。'
+)
+COURSE_SALES_EVENING_FOLLOWUP_MESSAGE = (
+    '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~'
+)
+COURSE_SALES_CONVERSION_SOP_TEXT = (
+    '通用成交SOP：先解释用户当前问题，再自然问要不要给孩子试试；'
+    '接着说明现在报名还送结课礼物；发完结课礼物图后，再发雷达报名链接；'
+    '最后单独追问“这是报名链接，家长，您这边能打开吗？”。'
+    f'雷达链接打开后，回复“{COURSE_SALES_AFTER_LINK_OPEN_MESSAGE}”。'
+    f'若家长没发截图，5分钟后追问“{COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE}”；'
+    f'仍未回复，1小时后优先语音追问“{COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE}”；'
+    f'还未回复，白天触发则当晚21:30优先语音追问，21点后触发则次日10:00追问：“{COURSE_SALES_EVENING_FOLLOWUP_MESSAGE}”。'
+)
 
 COURSE_OPENING_MESSAGE = (
     '😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n'
@@ -436,15 +455,20 @@ COURSE_FOLLOWUP_SEQUENCES = [
         'stage': 'silence_revisit',
         'label': '沉默回访',
         'messages': [
-            {'delay_minutes': 5, 'message': '家长领取到了吗？'},
+            {'delay_minutes': 5, 'message': COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE},
             {
                 'delay_minutes': 60,
-                'message': '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。',
+                'message': COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
+                'voice_optional': True,
             },
             {
                 'delay_minutes': 0,
-                'schedule_time': '21:30',
-                'message': '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~',
+                'schedule_policy': 'daytime_2130_else_next_1000',
+                'daytime_schedule_time': '21:30',
+                'night_schedule_time': '10:00',
+                'night_cutoff_time': '21:00',
+                'message': COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
+                'voice_optional': True,
             },
         ],
     },
@@ -452,22 +476,27 @@ COURSE_FOLLOWUP_SEQUENCES = [
         'stage': 'radar_clicked',
         'label': '点雷达',
         'messages': [
-            {'delay_minutes': 0, 'message': '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。'},
+            {'delay_minutes': 0, 'message': COURSE_SALES_AFTER_LINK_OPEN_MESSAGE},
             {
                 'delay_minutes': 0,
                 'message': '预约通道已经发给您了👆，支付成功以后截图给我哦，给您登记发赠课~',
                 'link_id': 'phonics_radar_apply',
                 'send_link_card': True,
             },
-            {'delay_minutes': 5, 'message': '家长领取到了吗？'},
+            {'delay_minutes': 5, 'message': COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE},
             {
                 'delay_minutes': 60,
-                'message': '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。',
+                'message': COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
+                'voice_optional': True,
             },
             {
                 'delay_minutes': 0,
-                'schedule_time': '21:30',
-                'message': '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~',
+                'schedule_policy': 'daytime_2130_else_next_1000',
+                'daytime_schedule_time': '21:30',
+                'night_schedule_time': '10:00',
+                'night_cutoff_time': '21:00',
+                'message': COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
+                'voice_optional': True,
             },
         ],
     },
@@ -965,7 +994,7 @@ COURSE_RADAR_CONFIG = {
         {
             'event': 'link_open',
             'delay_minutes': 0,
-            'message': '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。',
+            'message': COURSE_SALES_AFTER_LINK_OPEN_MESSAGE,
         },
         {
             'event': 'browse_30s',
@@ -3352,6 +3381,12 @@ class TaskAssistantService:
         return f'course-sales:{uuid.uuid5(uuid.NAMESPACE_URL, raw).hex}'
 
     def _course_message_scheduled_at(self, message: dict[str, Any], now: datetime.datetime) -> datetime.datetime:
+        if str(message.get('schedule_policy') or '') == 'daytime_2130_else_next_1000':
+            cutoff = self._course_wall_clock_today(str(message.get('night_cutoff_time') or '21:00'), now)
+            if now >= cutoff:
+                return self._next_course_wall_clock(str(message.get('night_schedule_time') or '10:00'), now)
+            return self._next_course_wall_clock(str(message.get('daytime_schedule_time') or '21:30'), now)
+
         schedule_time = str(message.get('schedule_time') or '').strip()
         if schedule_time:
             return self._next_course_wall_clock(schedule_time, now)
@@ -3360,6 +3395,14 @@ class TaskAssistantService:
         except (TypeError, ValueError):
             delay_minutes = 0
         return now + datetime.timedelta(minutes=max(0, delay_minutes))
+
+    def _course_wall_clock_today(self, value: str, now: datetime.datetime) -> datetime.datetime:
+        hour, minute = 0, 0
+        match = re.match(r'^\s*(\d{1,2}):(\d{1,2})\s*$', value or '')
+        if match:
+            hour = max(0, min(23, int(match.group(1))))
+            minute = max(0, min(59, int(match.group(2))))
+        return now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
     def _next_course_wall_clock(self, value: str, now: datetime.datetime) -> datetime.datetime:
         hour, minute = 10, 5
@@ -3385,9 +3428,14 @@ class TaskAssistantService:
 
 人设与口吻：
 - 不要自称 AI、机器人、智能助手。
-- 像真人客服：短句、直接、自然；先回答用户当前问题，再视情况引导。
+- 像真人客服：短句、直接、自然；先回答用户当前问题，再视情况引导成交。
 - 用户问图书资源，优先解决资源问题，不要急着推课。
 - 用户发来语音时先理解内容；若已启用语音回复，输出适合 TTS 的短句。
+
+成交SOP：
+- {COURSE_SALES_CONVERSION_SOP_TEXT}
+- 课程咨询默认遵循“先客服解释，再销售承接”；话术不必逐字固定，但动作顺序必须稳定。
+- 只有资源问题未解决、用户明确拒绝/投诉/转人工、无孩子/非目标、或用户已报名已支付时，才停止这条成交SOP。
 
 禁则：
 - 不承诺固定提分、效果翻倍、百分百有效等绝对化结果。
@@ -3399,14 +3447,14 @@ class TaskAssistantService:
 
 回复原则：
 0. 不要输出思考过程、推理过程、草稿、分析步骤或 <think> 标签；只输出给家长看的最终回复。
-1. 只答用户当前问题，不要整段塞话术或主动背书未问到的内容。
+1. 先答用户当前问题，不要整段塞话术；凡课程咨询且未命中停止边界，答完要自然承接“要不要给孩子试试”和“现在报名送结课礼物”。
 2. 最多 2 条短消息，必要时 3 条；每条 15-35 字左右，避免一大段。
 3. 不用“作为AI/建议您/希望能帮到您/如有其他问题”等机器腔；不要总结、不要讲大道理。
 4. 回复最后不要用句号结尾，也不要用“还有什么问题随时问我”收尾。
 5. 首次自然回复可以带一个轻松表情符号，不要堆表情。
 6. 涉及图书资源链接、资源卡片、扫码记录或小程序时，最后用单独短消息追问“家长，您这边能打开吗？”
 7. 用户确认资源能打开后，不要重复问能打开吗；先问孩子几年级，再按年级和基础承接。
-8. 需要报名时，先确认报名意愿和完课好礼，再发链接；不需要时不硬推。
+8. 需要报名或课程咨询进入成交承接时，先确认试课意愿和完课好礼，再由工作流发礼物图、雷达报名链接和打开确认。
 9. 课程事实、FAQ、产品口径、雷达规则由运行时上下文按需注入，勿自行编造。
 10. 需要图片时由工作流追加素材，不要口头描述图片内容。
 """.strip()
@@ -3813,14 +3861,44 @@ class TaskAssistantService:
                     node_config = node.get('config') if isinstance(node.get('config'), dict) else {}
                     sync_intents(node_config)
 
+        def sync_sop_defaults(container: dict[str, Any]) -> None:
+            nonlocal changed
+            if not isinstance(container, dict):
+                return
+            if 'role_prompt' in container:
+                next_prompt = self.compose_course_sales_prompt(container)
+                if container.get('role_prompt') != next_prompt:
+                    container['role_prompt'] = next_prompt
+                    changed = True
+
+            radar = container.get('radar')
+            if isinstance(radar, dict):
+                rules = radar.get('rules')
+                if isinstance(rules, list):
+                    for rule in rules:
+                        if not isinstance(rule, dict) or rule.get('event') != 'link_open':
+                            continue
+                        if rule.get('message') != COURSE_SALES_AFTER_LINK_OPEN_MESSAGE:
+                            rule['message'] = COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
+                            changed = True
+                        break
+
+            before_followups = copy.deepcopy(container.get('followup_sequences'))
+            self._apply_course_sales_sop_followups(container)
+            if container.get('followup_sequences') != before_followups:
+                changed = True
+
         patch_faqs(config)
         sync_gift_poster_image_triggers(config)
+        sync_sop_defaults(config)
         template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
         patch_faqs(template_config)
         sync_gift_poster_image_triggers(template_config)
+        sync_sop_defaults(template_config)
         workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
         patch_faqs(workflow)
         sync_gift_poster_image_triggers(workflow)
+        sync_sop_defaults(workflow)
         workflow_template = (
             workflow.get('template_config')
             if isinstance(workflow.get('template_config'), dict)
@@ -3828,6 +3906,7 @@ class TaskAssistantService:
         )
         patch_faqs(workflow_template)
         sync_gift_poster_image_triggers(workflow_template)
+        sync_sop_defaults(workflow_template)
         return changed
 
     def _apply_course_sales_runtime_defaults(self, config: dict[str, Any]) -> bool:
@@ -4679,12 +4758,46 @@ class TaskAssistantService:
         if message.get('image_key'):
             return '礼品说明我发您一张图，方便时看看\n孩子现在几年级呀？'
         if stage == 'radar_clicked':
-            return '看到您打开报名入口了\n家长，您这边能打开吗？'
+            return COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
         if stage == 'purchased':
             return '报名后留意班主任短信或电话\n需要我帮您看下截图吗？'
         if broadcast:
             return '9元自然拼读专项课可以回放，含180次开口练习\n孩子现在几年级呀？'
         return '我这边简单跟您确认一下\n孩子现在几年级呀？'
+
+    def _apply_course_sales_sop_followups(self, template_config: dict[str, Any]) -> None:
+        sequences = template_config.get('followup_sequences')
+        if not isinstance(sequences, list):
+            return
+        for sequence in sequences:
+            if not isinstance(sequence, dict):
+                continue
+            stage = str(sequence.get('stage') or '')
+            if stage == 'silence_revisit':
+                sequence['messages'] = [
+                    {'delay_minutes': 5, 'message': COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE},
+                    {
+                        'delay_minutes': 60,
+                        'message': COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
+                        'voice_optional': True,
+                    },
+                    {
+                        'delay_minutes': 0,
+                        'schedule_policy': 'daytime_2130_else_next_1000',
+                        'daytime_schedule_time': '21:30',
+                        'night_schedule_time': '10:00',
+                        'night_cutoff_time': '21:00',
+                        'message': COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
+                        'voice_optional': True,
+                    },
+                ]
+            elif stage == 'radar_clicked':
+                messages = sequence.get('messages')
+                if not isinstance(messages, list) or not messages:
+                    sequence['messages'] = [{'delay_minutes': 0, 'message': COURSE_SALES_AFTER_LINK_OPEN_MESSAGE}]
+                else:
+                    messages[0]['delay_minutes'] = 0
+                    messages[0]['message'] = COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
 
     def _normalize_course_outreach_messages(self, template_config: dict[str, Any]) -> None:
         for sequence in template_config.get('followup_sequences', []):
@@ -4700,6 +4813,7 @@ class TaskAssistantService:
         for broadcast in template_config.get('long_term_broadcasts', []):
             if isinstance(broadcast, dict) and 'message' in broadcast:
                 broadcast['message'] = self._compact_course_outreach_message(broadcast, broadcast=True)
+        self._apply_course_sales_sop_followups(template_config)
 
     def _normalize_course_reply_controls(self, value: Any) -> dict[str, Any]:
         source = value if isinstance(value, dict) else {}
@@ -4953,8 +5067,11 @@ class TaskAssistantService:
         self,
         knowledge_service: Any,
         logger: Any,
-        import_targets: list[tuple[Path, str]],
+        import_targets: list[tuple[Path, str]] | None = None,
     ) -> None:
+        only_explicit_retired = import_targets is None
+        if import_targets is None:
+            import_targets = []
         existing_files = await knowledge_service.get_files_by_knowledge_base(
             YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
         )
@@ -4965,6 +5082,8 @@ class TaskAssistantService:
             base_name = Path(raw_name).name
             is_active = raw_name in active_names or base_name in active_names
             is_retired = raw_name in RETIRED_YUANFUDAO_SEED_DOCUMENTS or base_name in RETIRED_YUANFUDAO_SEED_DOCUMENTS
+            if only_explicit_retired and not is_retired:
+                continue
             if is_active and not is_retired:
                 continue
             file_uuid = str(file.get('uuid') or '').strip()
@@ -5250,12 +5369,6 @@ class TaskAssistantService:
         self._normalize_course_template_media_keys(template_config)
         self._normalize_course_outreach_messages(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
-        for sequence in template_config.get('followup_sequences', []):
-            if not isinstance(sequence, dict):
-                continue
-            for message in sequence.get('messages', []):
-                if isinstance(message, dict):
-                    message.pop('voice_optional', None)
         return template_config
 
     def build_course_sales_workflow_from_template_config(self, template_config: dict[str, Any]) -> dict[str, Any]:

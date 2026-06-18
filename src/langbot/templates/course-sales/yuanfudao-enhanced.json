@@ -370,7 +370,7 @@
       {
         "event": "link_open",
         "delay_minutes": 0,
-        "message": "家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。"
+        "message": "家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功的短信，我给您登记开课并赠送资料"
       },
       {
         "event": "browse_30s",
@@ -411,12 +411,17 @@
         },
         {
           "delay_minutes": 60,
-          "message": "孩子家长，您这边给孩子领取好了吗？如果卡在报名页，截图发我我帮您看。"
+          "message": "孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。",
+          "voice_optional": true
         },
         {
           "delay_minutes": 0,
-          "schedule_time": "21:30",
-          "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送名额还给您保留着呢。"
+          "schedule_policy": "daytime_2130_else_next_1000",
+          "daytime_schedule_time": "21:30",
+          "night_schedule_time": "10:00",
+          "night_cutoff_time": "21:00",
+          "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~",
+          "voice_optional": true
         }
       ]
     },
@@ -436,12 +441,17 @@
         },
         {
           "delay_minutes": 60,
-          "message": "这个课主要帮孩子打通底层逻辑，阅读写作和数学思维都能练，您可以先让孩子试一轮。"
+          "message": "孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。",
+          "voice_optional": true
         },
         {
           "delay_minutes": 0,
-          "schedule_time": "21:30",
-          "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~"
+          "schedule_policy": "daytime_2130_else_next_1000",
+          "daytime_schedule_time": "21:30",
+          "night_schedule_time": "10:00",
+          "night_cutoff_time": "21:00",
+          "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~",
+          "voice_optional": true
         }
       ]
     },
@@ -480,12 +490,17 @@
         },
         {
           "delay_minutes": 60,
-          "message": "孩子家长，您这边给孩子领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。"
+          "message": "孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。",
+          "voice_optional": true
         },
         {
           "delay_minutes": 0,
-          "schedule_time": "21:30",
-          "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~"
+          "schedule_policy": "daytime_2130_else_next_1000",
+          "daytime_schedule_time": "21:30",
+          "night_schedule_time": "10:00",
+          "night_cutoff_time": "21:00",
+          "message": "晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~",
+          "voice_optional": true
         }
       ]
     },
@@ -495,7 +510,7 @@
       "messages": [
         {
           "delay_minutes": 0,
-          "message": "家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。"
+          "message": "家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功的短信，我给您登记开课并赠送资料"
         },
         {
           "delay_minutes": 0,
@@ -509,7 +524,8 @@
         },
         {
           "delay_minutes": 60,
-          "message": "孩子家长，您这边给孩子领取好了吗？如果卡住了，截图发我我帮您看。"
+          "message": "孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。",
+          "voice_optional": true
         }
       ]
     }

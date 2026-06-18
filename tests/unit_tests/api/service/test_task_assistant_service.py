@@ -9,6 +9,10 @@ import pytest
 sys.modules.setdefault('dashscope', types.ModuleType('dashscope'))
 
 from langbot.pkg.api.http.service.task_assistant import (  # noqa: E402
+    COURSE_SALES_AFTER_LINK_OPEN_MESSAGE,
+    COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
+    COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE,
+    COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
     COURSE_RESOURCE_CARD_LINK,
     COURSE_OPENING_MESSAGE,
     COURSE_SALES_SCENARIO,
@@ -1085,6 +1089,7 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert template['radar']['link_url'] == COURSE_SALES_RADAR_LINK
     assert len(template['radar']['rules']) >= 4
     assert any(rule['event'] == 'browse_30s' for rule in template['radar']['rules'])
+    assert template['radar']['rules'][0]['message'] == COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
     assert template['tools']['voice_reply'] is True
     assert template['voice']['enabled'] is True
     assert template['voice']['voice_type'] == COURSE_SALES_TTS_VOICE_TYPE
@@ -1092,6 +1097,9 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert '您的图书配套学习资源点击' in template['opening_message']
     assert COURSE_RESOURCE_CARD_LINK not in template['opening_message']
     assert COURSE_RESOURCE_CARD_LINK not in template['role_prompt']
+    assert '先解释用户当前问题，再自然问要不要给孩子试试' in template['role_prompt']
+    assert '发完结课礼物图后，再发雷达报名链接' in template['role_prompt']
+    assert COURSE_SALES_AFTER_LINK_OPEN_MESSAGE in template['role_prompt']
     assert 'https://mp.bookln.cn/user/history/moment.htm' in template['opening_message']
     assert '#小程序://教辅好帮手/la0KWwjPCx8S26C' in template['opening_message']
     assert 'https://d.codeup.cn/d/UVruQn' in template['opening_message']
@@ -1148,15 +1156,35 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
         message.get('image_key') == 'course-sales/phonics/gift_qr.jpeg'
         for message in followups_by_stage['purchased']['messages']
     )
-    assert all(
-        not message.get('voice_optional')
-        for sequence in template['followup_sequences']
-        for message in sequence['messages']
-    )
+    silence_messages = followups_by_stage['silence_revisit']['messages']
+    assert silence_messages[0]['delay_minutes'] == 5
+    assert silence_messages[0]['message'] == COURSE_SALES_FIVE_MIN_FOLLOWUP_MESSAGE
+    assert silence_messages[1]['delay_minutes'] == 60
+    assert silence_messages[1]['message'] == COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE
+    assert silence_messages[1]['voice_optional'] is True
+    assert silence_messages[2]['schedule_policy'] == 'daytime_2130_else_next_1000'
+    assert silence_messages[2]['message'] == COURSE_SALES_EVENING_FOLLOWUP_MESSAGE
+    assert silence_messages[2]['voice_optional'] is True
     assert (
         followups_by_stage['radar_clicked']['messages'][0]['message']
-        == '看到您打开报名入口了\n家长，您这边能打开吗？'
+        == COURSE_SALES_AFTER_LINK_OPEN_MESSAGE
     )
+
+
+def test_course_sales_dynamic_evening_followup_uses_2130_or_next_1000():
+    service = TaskAssistantService(SimpleNamespace())
+    message = {
+        'schedule_policy': 'daytime_2130_else_next_1000',
+        'daytime_schedule_time': '21:30',
+        'night_schedule_time': '10:00',
+        'night_cutoff_time': '21:00',
+    }
+
+    daytime = datetime.datetime(2026, 6, 18, 20, 15)
+    night = datetime.datetime(2026, 6, 18, 21, 5)
+
+    assert service._course_message_scheduled_at(message, daytime) == datetime.datetime(2026, 6, 18, 21, 30)
+    assert service._course_message_scheduled_at(message, night) == datetime.datetime(2026, 6, 19, 10, 0)
 
 
 def test_course_sales_runtime_defaults_update_copied_pipeline_config():
@@ -1494,13 +1522,19 @@ def test_course_sales_template_outreach_messages_are_short_and_low_pressure(temp
             if isinstance(message, dict) and message.get('action') != 'continue_long_term_broadcasts':
                 messages.append(str(message.get('message') or ''))
     messages.extend(str(broadcast.get('message') or '') for broadcast in template['long_term_broadcasts'])
+    conversion_followups = {
+        COURSE_SALES_AFTER_LINK_OPEN_MESSAGE,
+        COURSE_SALES_ONE_HOUR_FOLLOWUP_MESSAGE,
+        COURSE_SALES_EVENING_FOLLOWUP_MESSAGE,
+    }
+    low_pressure_messages = [message for message in messages if message not in conversion_followups]
 
     assert messages
-    assert all(len(message) <= 90 for message in messages)
-    assert all(not message.rstrip().endswith(('。', '．', '.')) for message in messages)
-    assert all(any(marker in message for marker in ('吗', '呀', '呢', '能打开吗')) for message in messages)
+    assert all(len(message) <= 90 for message in low_pressure_messages)
+    assert all(not message.rstrip().endswith(('。', '．', '.')) for message in low_pressure_messages)
+    assert all(any(marker in message for marker in ('吗', '呀', '呢', '能打开吗')) for message in low_pressure_messages)
     pressure_markers = ('名额不多', '一直等您', '恳求', '不忍心', '不能再耽搁', '最后3个', '打扰你千千万万遍')
-    assert all(not any(marker in message for marker in pressure_markers) for message in messages)
+    assert all(not any(marker in message for marker in pressure_markers) for message in low_pressure_messages)
 
 
 def test_course_sales_workflow_visualizes_template_capabilities_as_nodes():
@@ -3212,7 +3246,7 @@ async def test_course_sales_radar_event_does_not_resend_signup_link_followup():
     assert radar_plan['message_components'] == [
         {
             'type': 'plain',
-            'text': '家长，看到您点我们的报名链接了，支付9元以后，请给我截图哟，我给您登记开课并赠送学习资料~。',
+            'text': COURSE_SALES_AFTER_LINK_OPEN_MESSAGE,
         }
     ]
     assert sales_service.target_send == {
