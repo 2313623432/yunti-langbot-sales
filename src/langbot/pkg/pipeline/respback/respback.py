@@ -23,6 +23,7 @@ class SendResponseBackStage(stage.PipelineStage):
 
     _EXTRA_REPLY_CHAINS_KEY = '_respback_extra_reply_chains'
     _COURSE_SALES_LINK_OPEN_QUESTION = '家长，您这边能打开吗？'
+    _COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION = '这是报名链接，家长，您这边能打开吗？'
     _COURSE_SALES_CHILD_GRADE_QUESTION = '孩子现在几年级呀？'
     _COURSE_SALES_SIGNUP_LINK_QUEUED_KEY = '_course_sales_signup_link_queued'
     _COURSE_SALES_RESOURCE_LINK_QUEUED_KEY = '_course_sales_resource_link_queued'
@@ -407,7 +408,8 @@ class SendResponseBackStage(stage.PipelineStage):
             if link_bound_only is not None and requires_signup_link is not link_bound_only:
                 continue
             if requires_signup_link and not self._course_sales_signup_link_sent(query):
-                continue
+                if intent != 'course_conflict' or not self._course_sales_signup_link(query, intent_data):
+                    continue
 
             file_key = str(node_config.get('file_key') or '').strip()
             image_url = str(node_config.get('image_url') or '').strip()
@@ -424,7 +426,12 @@ class SendResponseBackStage(stage.PipelineStage):
             caption = str(node_config.get('caption') or '').strip()
             if caption and not is_task_assistant_workflow and node_config.get('append_caption') is not False:
                 components.append(platform_message.Plain(text=f'\n{caption}'))
-            elif requires_signup_link and self._is_course_sales_workflow(workflow) and not is_task_assistant_workflow:
+            elif (
+                requires_signup_link
+                and self._is_course_sales_workflow(workflow)
+                and not is_task_assistant_workflow
+                and intent != 'course_conflict'
+            ):
                 components.append(platform_message.Plain(text='报课后按活动规则有完课礼，礼品说明我发您看一下。'))
             components.append(await self._image_component(file_key, image_url))
 
@@ -474,6 +481,9 @@ class SendResponseBackStage(stage.PipelineStage):
         for raw_line in text.strip().replace('\r\n', '\n').split('\n'):
             line = raw_line.strip()
             if not line:
+                continue
+            if line.startswith(self._COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION):
+                chunks.append(line)
                 continue
             for marker in (
                 self._COURSE_SALES_LINK_OPEN_QUESTION,
@@ -777,6 +787,8 @@ class SendResponseBackStage(stage.PipelineStage):
             return
         if question == self._COURSE_SALES_CHILD_GRADE_QUESTION and self._course_sales_child_grade_known(query):
             return
+        if question == self._COURSE_SALES_LINK_OPEN_QUESTION and self._course_sales_signup_link_sent(query):
+            question = self._COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION
         self._queue_extra_reply_chain(query, question)
 
     def _remove_course_sales_open_question_after_resource_failure(self, query: pipeline_query.Query) -> None:
@@ -1020,8 +1032,12 @@ class SendResponseBackStage(stage.PipelineStage):
         await self._append_task_assistant_voice(query, reply_text)
         self._remove_course_sales_open_question_after_resource_failure(query)
         self._append_course_sales_resource_link(query)
+        intent = str(self._current_intent_data(query).get('intent') or '')
+        if intent == 'course_conflict':
+            await self._append_workflow_images(query, link_bound_only=True)
         self._append_course_sales_signup_link(query)
-        await self._append_workflow_images(query, link_bound_only=True)
+        if intent != 'course_conflict':
+            await self._append_workflow_images(query, link_bound_only=True)
         self._normalize_course_sales_text(query)
         self._prepend_course_sales_first_reply_emoji(query)
         self._append_course_sales_open_question(query)

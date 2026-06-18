@@ -880,6 +880,17 @@ async def test_respback_sends_signup_link_for_course_sales_conflict_reply():
     query.pipeline_uuid = 'pipeline-uuid'
     query.launcher_id = 'ou_customer'
     query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.pipeline_config['workflow']['nodes'] = [
+        {
+            'id': 'image_gift_poster',
+            'type': 'image',
+            'config': {
+                'file_key': 'course-sales/phonics/gift_poster.jpeg',
+                'trigger_intents': ['course_conflict'],
+                'requires_course_sales_signup_link': True,
+            },
+        }
+    ]
     query.variables['workflow_intent'] = {
         'intent': 'course_conflict',
         'confidence': 0.9,
@@ -887,19 +898,35 @@ async def test_respback_sends_signup_link_for_course_sales_conflict_reply():
     }
     query.variables['course_sales_radar_link'] = raw_link
     query.resp_message_chain = [
-        platform_message.MessageChain([platform_message.Plain(text='不冲突的，这个课更侧重教孩子拼读技巧和方法，支持回放')])
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(
+                    text='不冲突的，这个课更侧重教孩子拼读技巧和方法，还支持回放，时间很灵活\n\n'
+                    '现在报名还送小猿周边实物礼品，完课就发，名额这周就截止哦\n\n'
+                    '我把报名链接发给您'
+                )
+            ]
+        )
     ]
 
     await stage.process(query, 'SendResponseBackStage')
 
-    sent_texts = [
-        str(kwargs['message'])
+    sent_messages = [
+        kwargs['message']
         for _, kwargs in query.adapter.reply_message.await_args_list
     ]
-    assert sent_texts == [
-        '不冲突的，这个课更侧重教孩子拼读技巧和方法，支持回放',
+    sent_texts = [str(message) for message in sent_messages]
+    image_index = next(index for index, message in enumerate(sent_messages) if isinstance(message[0], platform_message.Image))
+    assert sent_texts[:3] == [
+        '不冲突的，这个课更侧重教孩子拼读技巧和方法，还支持回放，时间很灵活',
+        '现在报名还送小猿周边实物礼品，完课就发，名额这周就截止哦',
+        '我把报名链接发给您',
+    ]
+    assert image_index == 3
+    assert sent_texts[4:] == [
         '猿辅导英语自然拼读9元体验课点这里👉',
         tracking_link,
+        '这是报名链接，家长，您这边能打开吗？',
     ]
 
 
