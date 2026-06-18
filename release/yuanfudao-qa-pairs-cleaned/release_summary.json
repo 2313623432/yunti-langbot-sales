@@ -1,0 +1,16 @@
+{
+  "generated_at": "2026-06-18T11:57:49",
+  "total_qa_pairs": 466,
+  "by_source_type": {
+    "FAQ": 136,
+    "销售话术": 175,
+    "群发SOP": 98,
+    "课程货盘": 57
+  },
+  "files": [
+    "yuanfudao_qa_pairs_ready.md",
+    "yuanfudao_qa_pairs_for_kb.txt",
+    "yuanfudao_qa_pairs.csv",
+    "yuanfudao_qa_pairs.jsonl"
+  ]
+}

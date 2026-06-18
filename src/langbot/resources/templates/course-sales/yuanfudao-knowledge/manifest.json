@@ -1,10 +1,10 @@
 {
   "knowledge_base": {
     "name": "猿辅导销售知识库",
-    "description": "猿辅导已审阅 FAQ、销售话术与 1天2次群发 SOP 清洗版。",
+    "description": "猿辅导已审阅 FAQ、销售话术、1天2次群发 SOP、课程货盘与 QA 对清洗版。",
     "freshness_policy": {
       "range": "cleaned-2026-06-18",
-      "answering_rule": "价格、排期、权益、赠品、活动有效期、退款政策以最新活动页、班主任通知、系统后台为准；本知识库用于 FAQ、话术和 SOP 检索。"
+      "answering_rule": "价格、排期、权益、赠品、活动有效期、退款政策以最新活动页、班主任通知、系统后台为准；本知识库用于 FAQ、话术、SOP、课程货盘和 QA 对检索。"
     },
     "rag_files": [
       "rag/yuanfudao_knowledge_index.md",
@@ -12,9 +12,9 @@
       "rag/yuanfudao_spreadsheet_catalog.md"
     ]
   },
-  "generated_at": "2026-06-18T11:34:21",
-  "source_label": "yuanfudao-clean-faq-talk-sop",
-  "total_files": 3,
+  "generated_at": "2026-06-18T11:58:02",
+  "source_label": "yuanfudao-clean-faq-talk-sop-course-qa",
+  "total_files": 5,
   "document_files": [
     {
       "path": "documents/01_yuanfudao_faq_ready.md",
@@ -39,6 +39,22 @@
       "kind": "markdown",
       "category": "群发SOP",
       "size_bytes": 131591
+    },
+    {
+      "path": "documents/04_yuanfudao_course_catalog_ready.md",
+      "source_name": "yuanfudao_course_catalog_ready.md",
+      "storage_name": "04_yuanfudao_course_catalog_ready.md",
+      "kind": "markdown",
+      "category": "课程货盘/产品事实",
+      "size_bytes": 41248
+    },
+    {
+      "path": "documents/05_yuanfudao_qa_pairs_ready.md",
+      "source_name": "yuanfudao_qa_pairs_ready.md",
+      "storage_name": "05_yuanfudao_qa_pairs_ready.md",
+      "kind": "markdown",
+      "category": "QA对",
+      "size_bytes": 406075
     }
   ],
   "files": [
@@ -71,10 +87,29 @@
       "indexed": true,
       "upload_ready": true,
       "note": "已审阅清洗，可入库。"
+    },
+    {
+      "name": "04_yuanfudao_course_catalog_ready.md",
+      "extension": ".md",
+      "kind": "markdown",
+      "category": "课程货盘/产品事实",
+      "size_bytes": 41248,
+      "indexed": true,
+      "upload_ready": true,
+      "note": "已审阅清洗，可入库。"
+    },
+    {
+      "name": "05_yuanfudao_qa_pairs_ready.md",
+      "extension": ".md",
+      "kind": "markdown",
+      "category": "QA对",
+      "size_bytes": 406075,
+      "indexed": true,
+      "upload_ready": true,
+      "note": "已审阅清洗，可入库。"
     }
   ],
   "known_gaps": [
-    "完整产品事实/课程货盘暂未纳入本版。",
     "实时价格、赠品、包邮、名额、退款、排期仍需以最新活动页、班主任通知和系统后台为准。",
     "图片/视频素材未进入文本知识库。"
   ]

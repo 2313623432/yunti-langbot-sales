@@ -21,6 +21,8 @@ from openai import OpenAI
 KB_UUID = "yuanfudao-sales-knowledge-base"
 DEFAULT_FAQ_TALK_DIR = Path("outputs/yuanfudao-selected-faq-talk-cleaning/knowledge_base_ready")
 DEFAULT_SOP_DIR = Path("outputs/yuanfudao-selected-faq-talk-cleaning/sop_ready")
+DEFAULT_COURSE_DIR = Path("release/yuanfudao-course-catalog-cleaned")
+DEFAULT_QA_DIR = Path("release/yuanfudao-qa-pairs-cleaned")
 DEFAULT_TEMPLATE_DIR = Path("src/langbot/resources/templates/course-sales/yuanfudao-knowledge")
 DEFAULT_DB_PATH = Path("data/langbot.db")
 DEFAULT_CHROMA_PATH = Path("data/chroma")
@@ -105,7 +107,12 @@ def embed_texts(client: OpenAI, model_args: dict[str, Any], texts: list[str]) ->
     return vectors
 
 
-def build_release_documents(faq_talk_dir: Path, sop_dir: Path) -> list[ReleaseDocument]:
+def build_release_documents(
+    faq_talk_dir: Path,
+    sop_dir: Path,
+    course_dir: Path,
+    qa_dir: Path,
+) -> list[ReleaseDocument]:
     return [
         ReleaseDocument(
             filename="01_yuanfudao_faq_ready.md",
@@ -124,6 +131,18 @@ def build_release_documents(faq_talk_dir: Path, sop_dir: Path) -> list[ReleaseDo
             title="猿辅导 1天2次群发 SOP 知识库",
             category="群发SOP",
             source_path=sop_dir / "yuanfudao_group_sop_combined.md",
+        ),
+        ReleaseDocument(
+            filename="04_yuanfudao_course_catalog_ready.md",
+            title="猿辅导课程货盘知识库",
+            category="课程货盘/产品事实",
+            source_path=course_dir / "yuanfudao_course_catalog_ready.md",
+        ),
+        ReleaseDocument(
+            filename="05_yuanfudao_qa_pairs_ready.md",
+            title="猿辅导 QA 对知识库",
+            category="QA对",
+            source_path=qa_dir / "yuanfudao_qa_pairs_ready.md",
         ),
     ]
 
@@ -145,14 +164,14 @@ def write_template_pack(template_dir: Path, documents: list[ReleaseDocument]) ->
     combined_sections = [
         "# 猿辅导清洗版销售知识库语料",
         "",
-        "> 本语料仅包含已审阅的话术、FAQ、群发 SOP。产品事实、实时价格、排期、赠品和退款政策仍需以最新活动页、班主任通知和系统后台为准。",
+        "> 本语料包含已审阅的话术、FAQ、群发 SOP、课程货盘和 QA 对。实时价格、排期、赠品和退款政策仍需以最新活动页、班主任通知和系统后台为准。",
         "",
     ]
     index_lines = [
         "# 猿辅导清洗版销售知识库索引",
         "",
-        "- 当前版本：FAQ + 销售话术 + 1天2次群发 SOP",
-        "- 不含：完整产品货盘、实时活动政策、价格排期权威口径",
+        "- 当前版本：FAQ + 销售话术 + 1天2次群发 SOP + 课程货盘 + QA 对",
+        "- 不含：实时活动政策、价格排期权威口径、图片/视频素材本体",
         "- 使用规则：涉及价格、赠品、包邮、名额、链接、退款、排期时，必须以最新活动页/班主任通知/系统后台为准。",
         "",
         "## 入库文件",
@@ -194,10 +213,10 @@ def write_template_pack(template_dir: Path, documents: list[ReleaseDocument]) ->
     manifest = {
         "knowledge_base": {
             "name": "猿辅导销售知识库",
-            "description": "猿辅导已审阅 FAQ、销售话术与 1天2次群发 SOP 清洗版。",
+            "description": "猿辅导已审阅 FAQ、销售话术、1天2次群发 SOP、课程货盘与 QA 对清洗版。",
             "freshness_policy": {
                 "range": "cleaned-2026-06-18",
-                "answering_rule": "价格、排期、权益、赠品、活动有效期、退款政策以最新活动页、班主任通知、系统后台为准；本知识库用于 FAQ、话术和 SOP 检索。",
+                "answering_rule": "价格、排期、权益、赠品、活动有效期、退款政策以最新活动页、班主任通知、系统后台为准；本知识库用于 FAQ、话术、SOP、课程货盘和 QA 对检索。",
             },
             "rag_files": [
                 "rag/yuanfudao_knowledge_index.md",
@@ -206,7 +225,7 @@ def write_template_pack(template_dir: Path, documents: list[ReleaseDocument]) ->
             ],
         },
         "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "source_label": "yuanfudao-clean-faq-talk-sop",
+        "source_label": "yuanfudao-clean-faq-talk-sop-course-qa",
         "total_files": len(documents),
         "document_files": manifest_docs,
         "files": [
@@ -223,7 +242,6 @@ def write_template_pack(template_dir: Path, documents: list[ReleaseDocument]) ->
             for doc in documents
         ],
         "known_gaps": [
-            "完整产品事实/课程货盘暂未纳入本版。",
             "实时价格、赠品、包邮、名额、退款、排期仍需以最新活动页、班主任通知和系统后台为准。",
             "图片/视频素材未进入文本知识库。",
         ],
@@ -234,7 +252,7 @@ def write_template_pack(template_dir: Path, documents: list[ReleaseDocument]) ->
     )
     (template_dir / "README.md").write_text(
         "# 猿辅导销售知识库\n\n"
-        "这个目录是清洗后的 FAQ、销售话术和 1天2次群发 SOP 入库包。\n\n"
+        "这个目录是清洗后的 FAQ、销售话术、1天2次群发 SOP、课程货盘和 QA 对入库包。\n\n"
         "## 自动导入到知识库文档\n\n"
         f"- `documents/` 目录包含 {len(documents)} 个 Markdown 入库文件。\n"
         "- 后端启动时会自动把这些文件导入「猿辅导销售知识库」。\n\n"
@@ -243,7 +261,6 @@ def write_template_pack(template_dir: Path, documents: list[ReleaseDocument]) ->
         "- `rag/yuanfudao_markdown_corpus.md`\n"
         "- `rag/yuanfudao_spreadsheet_catalog.md`\n\n"
         "## 缺口说明\n\n"
-        "- 产品事实/课程货盘暂未纳入本版。\n"
         "- 价格、赠品、包邮、名额、退款、排期等强时效内容需以后续最新口径为准。\n",
         encoding="utf-8",
     )
@@ -268,7 +285,7 @@ def reset_db_file_records(db_path: Path, documents: list[ReleaseDocument]) -> li
     conn.execute(
         "UPDATE knowledge_bases SET description = ?, updated_at = ? WHERE uuid = ?",
         (
-            "猿辅导已审阅 FAQ、销售话术与 1天2次群发 SOP 清洗版。",
+            "猿辅导已审阅 FAQ、销售话术、1天2次群发 SOP、课程货盘与 QA 对清洗版。",
             now,
             KB_UUID,
         ),
@@ -353,6 +370,8 @@ def write_release_package(
     release_dir: Path,
     faq_talk_dir: Path,
     sop_dir: Path,
+    course_dir: Path,
+    qa_dir: Path,
     template_dir: Path,
     summary: dict[str, Any],
 ) -> Path:
@@ -367,6 +386,8 @@ def write_release_package(
     release_dir.mkdir(parents=True, exist_ok=True)
     copy_tree_files(faq_talk_dir, release_dir / "faq_talk_ready")
     copy_tree_files(sop_dir, release_dir / "sop_ready")
+    copy_tree_files(course_dir, release_dir / "course_catalog_ready")
+    copy_tree_files(qa_dir, release_dir / "qa_pairs_ready")
     copy_tree_files(template_dir, release_dir / "langbot_template_pack")
     (release_dir / "release_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
@@ -374,13 +395,12 @@ def write_release_package(
     )
     (release_dir / "README.md").write_text(
         "# 猿辅导清洗版知识库交付包\n\n"
-        "包含 FAQ、销售话术、1天2次群发 SOP 的正式入库文件，以及 LangBot 模板目录。\n\n"
+        "包含 FAQ、销售话术、1天2次群发 SOP、课程货盘、QA 对的正式入库文件，以及 LangBot 模板目录。\n\n"
         "## 推荐用法\n\n"
         "1. 文档型知识库：上传 `langbot_template_pack/documents/*.md` 或 `faq_talk_ready` / `sop_ready` 中的 Markdown。\n"
         "2. 结构化知识库：使用 `faq_talk_ready/*.jsonl`、`faq_talk_ready/*.csv`、`sop_ready/*.jsonl`、`sop_ready/*.csv`。\n"
         "3. LangBot 项目：本仓库已把 `src/langbot/resources/templates/course-sales/yuanfudao-knowledge` 替换为清洗版模板。\n\n"
         "## 缺口\n\n"
-        "- 产品事实/完整课程货盘未纳入本版。\n"
         "- 价格、赠品、包邮、名额、退款、排期需要以后续最新活动页/班主任通知/系统后台为准。\n",
         encoding="utf-8",
     )
@@ -405,6 +425,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--faq-talk-dir", type=Path, default=DEFAULT_FAQ_TALK_DIR)
     parser.add_argument("--sop-dir", type=Path, default=DEFAULT_SOP_DIR)
+    parser.add_argument("--course-dir", type=Path, default=DEFAULT_COURSE_DIR)
+    parser.add_argument("--qa-dir", type=Path, default=DEFAULT_QA_DIR)
     parser.add_argument("--template-dir", type=Path, default=DEFAULT_TEMPLATE_DIR)
     parser.add_argument("--db-path", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--chroma-path", type=Path, default=DEFAULT_CHROMA_PATH)
@@ -412,7 +434,7 @@ def main() -> None:
     parser.add_argument("--skip-db", action="store_true")
     args = parser.parse_args()
 
-    documents = build_release_documents(args.faq_talk_dir, args.sop_dir)
+    documents = build_release_documents(args.faq_talk_dir, args.sop_dir, args.course_dir, args.qa_dir)
     write_template_pack(args.template_dir, documents)
     backup = {}
     db_files: list[dict[str, str]] = []
@@ -428,8 +450,9 @@ def main() -> None:
         "documents": [doc.filename for doc in documents],
         "faq_records": count_csv(args.faq_talk_dir / "yuanfudao_kb_entries.csv"),
         "sop_records": count_csv(args.sop_dir / "yuanfudao_group_sop_entries.csv"),
+        "course_catalog_records": count_csv(args.course_dir / "yuanfudao_course_catalog_entries.csv"),
+        "qa_pairs": count_csv(args.qa_dir / "yuanfudao_qa_pairs.csv"),
         "known_gaps": [
-            "产品事实/完整课程货盘未纳入本版。",
             "实时价格、赠品、包邮、名额、退款、排期需要以最新活动页、班主任通知、系统后台为准。",
             "图片/视频素材未进入文本知识库。",
         ],
@@ -437,7 +460,15 @@ def main() -> None:
         "database_files": len(db_files),
         "chroma": chroma_summary,
     }
-    zip_path = write_release_package(args.release_dir, args.faq_talk_dir, args.sop_dir, args.template_dir, summary)
+    zip_path = write_release_package(
+        args.release_dir,
+        args.faq_talk_dir,
+        args.sop_dir,
+        args.course_dir,
+        args.qa_dir,
+        args.template_dir,
+        summary,
+    )
     summary["zip_path"] = str(zip_path)
     (args.release_dir / "release_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
