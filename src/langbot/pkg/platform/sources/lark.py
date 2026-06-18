@@ -980,6 +980,7 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     bot: lark_oapi.ws.Client = pydantic.Field(exclude=True)
     api_client: lark_oapi.Client = pydantic.Field(exclude=True)
     lark_ping_task: asyncio.Task | None = pydantic.Field(exclude=True, default=None)
+    lark_event_loop: asyncio.AbstractEventLoop | None = pydantic.Field(exclude=True, default=None)
 
     bot_account_id: str  # 用于在流水线中识别at是否是本bot，直接以bot_name作为标识
     lark_tenant_key: str = pydantic.Field(exclude=True, default='')  # 飞书企业key
@@ -1019,12 +1020,13 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         quart_app = quart.Quart(__name__)
 
         async def on_message(event: lark_oapi.im.v1.P2ImMessageReceiveV1):
+            await self.logger.info('Lark inbound message event received')
             lb_event = await self.event_converter.target2yiri(event, self.api_client, self.logger)
 
             await self.listeners[type(lb_event)](lb_event, self)
 
         def sync_on_message(event: lark_oapi.im.v1.P2ImMessageReceiveV1):
-            asyncio.create_task(on_message(event))
+            self._schedule_lark_callback(on_message(event), 'message')
 
         def sync_on_p2p_chat_access(event, event_type: str):
             try:
@@ -1039,9 +1041,12 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                         }
                     if hasattr(event.event, 'user_id'):
                         event_payload['user_id'] = getattr(event.event, 'user_id', None)
-                asyncio.create_task(self._handle_contact_added_event(event_payload))
+                self._schedule_lark_callback(self._handle_contact_added_event(event_payload), 'p2p chat access')
             except Exception:
-                asyncio.create_task(self.logger.error(f'Error in lark p2p chat created callback: {traceback.format_exc()}'))
+                self._schedule_lark_callback(
+                    self.logger.error(f'Error in lark p2p chat created callback: {traceback.format_exc()}'),
+                    'p2p chat access error',
+                )
 
         def sync_on_p2p_chat_created(event):
             sync_on_p2p_chat_access(event, 'im.chat.access_event.bot_p2p_chat_created_v1')
@@ -1094,17 +1099,19 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 )
 
                 if platform_events.FeedbackEvent in self.listeners:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(self.listeners[platform_events.FeedbackEvent](feedback_event, self))
-                    else:
-                        loop.run_until_complete(self.listeners[platform_events.FeedbackEvent](feedback_event, self))
+                    self._schedule_lark_callback(
+                        self.listeners[platform_events.FeedbackEvent](feedback_event, self),
+                        'card feedback',
+                    )
 
                 from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
 
                 return P2CardActionTriggerResponse({'toast': {'type': 'success', 'content': '感谢您的反馈'}})
             except Exception:
-                asyncio.create_task(self.logger.error(f'Error in lark card action callback: {traceback.format_exc()}'))
+                self._schedule_lark_callback(
+                    self.logger.error(f'Error in lark card action callback: {traceback.format_exc()}'),
+                    'card action error',
+                )
                 from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
 
                 return P2CardActionTriggerResponse({'toast': {'type': 'error', 'content': '反馈处理失败'}})
@@ -1137,6 +1144,7 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             seq=1,
             listeners={},
             contact_added_callback=None,
+            lark_event_loop=None,
             quart_app=quart_app,
             bot=bot,
             api_client=api_client,
@@ -1144,6 +1152,35 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             cipher=cipher,
             **kwargs,
         )
+
+    def _schedule_lark_callback(self, coroutine: typing.Coroutine, context: str) -> bool:
+        loop = self.lark_event_loop
+
+        if loop is None or not loop.is_running():
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                coroutine.close()
+                return False
+            asyncio.create_task(self._run_lark_callback(coroutine, context))
+            return True
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is loop:
+            asyncio.create_task(self._run_lark_callback(coroutine, context))
+        else:
+            loop.call_soon_threadsafe(lambda: loop.create_task(self._run_lark_callback(coroutine, context)))
+        return True
+
+    async def _run_lark_callback(self, coroutine: typing.Coroutine, context: str) -> None:
+        try:
+            await coroutine
+        except Exception:
+            await self.logger.error(f'Error in lark {context} callback: {traceback.format_exc()}')
 
     def request_app_ticket(self, api_client, config):
         app_id = config['app_id']
@@ -2132,10 +2169,11 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
 
         if not enable_webhook:
             try:
+                self.lark_event_loop = asyncio.get_running_loop()
                 try:
                     import lark_oapi.ws.client as lark_ws_client
 
-                    lark_ws_client.loop = asyncio.get_running_loop()
+                    lark_ws_client.loop = self.lark_event_loop
                 except Exception:
                     pass
 

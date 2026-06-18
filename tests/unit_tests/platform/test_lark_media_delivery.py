@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import threading
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
 from types import SimpleNamespace
@@ -58,6 +59,24 @@ async def test_lark_non_webhook_run_starts_and_cleans_ping_loop():
         await run_task
 
     assert fake_bot.ping_cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_lark_adapter_schedules_sdk_callbacks_on_captured_loop_from_other_thread():
+    completed = asyncio.Event()
+    adapter = LarkAdapter.model_construct(
+        lark_event_loop=asyncio.get_running_loop(),
+        logger=SimpleNamespace(error=AsyncMock()),
+    )
+
+    async def callback():
+        completed.set()
+
+    thread = threading.Thread(target=lambda: adapter._schedule_lark_callback(callback(), 'test callback'))
+    thread.start()
+    thread.join(timeout=1)
+
+    await asyncio.wait_for(completed.wait(), timeout=1)
 
 
 def test_lark_base64_image_decoder_accepts_data_uri_whitespace_and_missing_padding():
