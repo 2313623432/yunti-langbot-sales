@@ -4768,7 +4768,9 @@ class TaskAssistantService:
                 )
             return
 
-        await self._delete_retired_yuanfudao_seed_documents(knowledge_service, logger)
+        import_targets = self._iter_yuanfudao_document_import_targets()
+
+        await self._delete_retired_yuanfudao_seed_documents(knowledge_service, logger, import_targets)
         await self._retry_failed_yuanfudao_seed_documents(knowledge_service, logger)
 
         existing_files = await knowledge_service.get_files_by_knowledge_base(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
@@ -4779,7 +4781,6 @@ class TaskAssistantService:
                 existing_names.add(raw_name)
                 existing_names.add(Path(raw_name).name)
 
-        import_targets = self._iter_yuanfudao_document_import_targets()
         queued_count = 0
         for full_path, file_name in import_targets:
             if file_name in existing_names:
@@ -4809,14 +4810,19 @@ class TaskAssistantService:
         self,
         knowledge_service: Any,
         logger: Any,
+        import_targets: list[tuple[Path, str]],
     ) -> None:
         existing_files = await knowledge_service.get_files_by_knowledge_base(
             YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
         )
+        active_names = {file_name for _, file_name in import_targets}
         removed_count = 0
         for file in existing_files:
             raw_name = str(file.get('file_name') or '')
-            if raw_name not in RETIRED_YUANFUDAO_SEED_DOCUMENTS and Path(raw_name).name not in RETIRED_YUANFUDAO_SEED_DOCUMENTS:
+            base_name = Path(raw_name).name
+            is_active = raw_name in active_names or base_name in active_names
+            is_retired = raw_name in RETIRED_YUANFUDAO_SEED_DOCUMENTS or base_name in RETIRED_YUANFUDAO_SEED_DOCUMENTS
+            if is_active and not is_retired:
                 continue
             file_uuid = str(file.get('uuid') or '').strip()
             if not file_uuid:
@@ -4826,9 +4832,9 @@ class TaskAssistantService:
                 removed_count += 1
             except Exception as exc:
                 if logger is not None:
-                    logger.warning('Failed to delete retired Yuanfudao seed document %s: %s', raw_name, exc)
+                    logger.warning('Failed to delete stale Yuanfudao seed document %s: %s', raw_name, exc)
         if logger is not None and removed_count > 0:
-            logger.info('Deleted %s retired Yuanfudao seed documents', removed_count)
+            logger.info('Deleted %s stale Yuanfudao seed documents', removed_count)
 
     async def _retry_failed_yuanfudao_seed_documents(
         self,
