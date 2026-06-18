@@ -70,3 +70,6 @@ deploy/vercel-proxy/.vercel/
 .codex-*.log
 .railway-config-pull-*/
 outputs/
+shared-data/
+web/.codex-*.log
+/data/langbot-before-*.db
