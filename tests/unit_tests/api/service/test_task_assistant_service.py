@@ -1106,6 +1106,7 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     schedule_faq = next(faq for faq in template['course_faqs'] if faq['intent'] == 'course_schedule')
     assert '回放' not in schedule_faq['keywords']
     assert 'course_intro' not in gift_binding['trigger_intents']
+    assert 'course_schedule' in gift_binding['trigger_intents']
     assert 'course_content' in gift_binding['trigger_intents']
     assert 'course_replay' in gift_binding['trigger_intents']
     assert 'course_conflict' in gift_binding['trigger_intents']
@@ -1222,6 +1223,9 @@ def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_i
     assert changed is True
     schedule_keywords = config['workflow']['template_config']['course_faqs'][0]['keywords']
     assert '回放' not in schedule_keywords
+    schedule_answer = config['workflow']['template_config']['course_faqs'][0]['answer']
+    assert '晚上19点到20点' in schedule_answer
+    assert '需要给孩子试试不，现在报名还送结课礼物' in schedule_answer
     answer = config['workflow']['template_config']['course_faqs'][1]['answer']
     assert '5次绘本阅读实践' in answer
     assert '180次开口练习' in answer
@@ -1239,6 +1243,8 @@ def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_i
     node_intents = config['workflow']['nodes'][0]['config']['trigger_intents']
     assert 'course_intro' not in binding_intents
     assert 'course_intro' not in node_intents
+    assert 'course_schedule' in binding_intents
+    assert 'course_schedule' in node_intents
     assert 'course_content' in binding_intents
     assert 'course_content' in node_intents
     assert 'course_replay' in binding_intents
@@ -2214,7 +2220,9 @@ async def test_course_sales_faq_short_answer_for_single_question():
     assert query.variables['_knowledge_base_uuids'] == []
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
     assert '[短答模板]' in context_text
-    assert '只答用户当前问题' in context_text
+    assert '先准确说明自然拼读课分两周上' in context_text
+    assert '自然、生动地催一下家长给孩子试试' in context_text
+    assert '再按课程销售上下文自然、生动地承接报名和活动礼物' in context_text
     assert '[猿辅导知识库参考]' not in context_text
 
 

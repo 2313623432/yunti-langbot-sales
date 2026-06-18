@@ -164,7 +164,7 @@
     {
       "intent": "course_schedule",
       "question": "什么时候上课",
-      "answer": "自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。",
+      "answer": "自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。\n\n需要给孩子试试不，现在报名还送结课礼物。",
       "keywords": [
         "什么时候",
         "几点",
@@ -990,6 +990,7 @@
       "trigger_intents": [
         "gift",
         "objection",
+        "course_schedule",
         "course_content",
         "course_replay",
         "course_conflict",

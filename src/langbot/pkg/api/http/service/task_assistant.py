@@ -285,7 +285,7 @@ COURSE_RESOURCE_FAQS = [
 
 COURSE_FAQS = [{'intent': 'course_schedule',
   'question': '什么时候上课',
-  'answer': '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。',
+  'answer': '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。\n\n需要给孩子试试不，现在报名还送结课礼物。',
   'keywords': ['什么时候', '几点', '上课时间', '课表']},
  {'intent': 'course_intro',
   'question': '这个是什么课/这是什么/你发是什么',
@@ -941,7 +941,7 @@ COURSE_IMAGE_BINDINGS = [
         'title': '完课好礼海报',
         'text': '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
-        'trigger_intents': ['gift', 'objection', 'course_content', 'course_replay', 'course_conflict', 'purchase'],
+        'trigger_intents': ['gift', 'objection', 'course_schedule', 'course_content', 'course_replay', 'course_conflict', 'purchase'],
         'requires_course_sales_signup_link': True,
         'enabled': True,
     },
@@ -2178,11 +2178,11 @@ class TaskAssistantService:
         return ''
 
     def _course_step_for_intent(self, intent: str) -> str:
-        if intent in {'purchase', 'course_intro', 'course_schedule', 'link_error', 'radar_clicked'}:
+        if intent in {'purchase', 'course_intro', 'link_error', 'radar_clicked'}:
             return ''
         if intent in {'purchased', 'screenshot_help'}:
             return 'gift_qr'
-        if intent in {'gift', 'objection', 'course_replay', 'course_content', 'grade'}:
+        if intent in {'gift', 'objection', 'course_schedule', 'course_replay', 'course_content', 'grade'}:
             return 'gift_poster'
         if intent in {'resource_help'}:
             return 'gift_qr'
@@ -2760,6 +2760,16 @@ class TaskAssistantService:
                 '说明支付9元后截图或报名成功短信发来，用于登记开课和资料。'
                 '不得输出 xxx、XXXX、占位符或自编链接。'
             )
+        elif intent_name == 'course_schedule':
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户询问什么时候上课。本轮先准确说明自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；'
+                '再说明没赶上也没关系，3年内可以反复看回放，手机和平板都能学；'
+                '然后自然、生动地催一下家长给孩子试试，说明现在报名还送结课礼物；'
+                '最后发送报名链接卡片。'
+                f'报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
+                '不得输出 xxx、XXXX、占位符或自编链接。'
+            )
         elif intent_name == 'course_content':
             control_text = (
                 '\n\n[课程销售上下文]\n'
@@ -2836,11 +2846,18 @@ class TaskAssistantService:
 
         faq_short_answer = str(intent.get('faq_short_answer') or '').strip()
         if faq_short_answer:
-            control_text += (
-                '\n\n[短答模板]\n'
-                f'{faq_short_answer}\n'
-                '请以此为核心轻量润色成真人客服口吻，不要扩写、不要堆话术，只答用户当前问题。'
-            )
+            if intent_name in {'course_schedule', 'course_content', 'course_replay', 'course_conflict'}:
+                control_text += (
+                    '\n\n[短答模板]\n'
+                    f'{faq_short_answer}\n'
+                    '请先以此为核心轻量润色回答用户当前问题，再按课程销售上下文自然、生动地承接报名和活动礼物。'
+                )
+            else:
+                control_text += (
+                    '\n\n[短答模板]\n'
+                    f'{faq_short_answer}\n'
+                    '请以此为核心轻量润色成真人客服口吻，不要扩写、不要堆话术，只答用户当前问题。'
+                )
 
         course_profile = intent.get('course_profile') if isinstance(intent.get('course_profile'), dict) else {}
         product_key = str(intent.get('product_key') or '')
@@ -3737,7 +3754,7 @@ class TaskAssistantService:
     def _sync_course_sales_runtime_content(self, config: dict[str, Any]) -> bool:
         seeded_answers = {
             intent: self._faq_answer_for_intent(intent, {'course_faqs': COURSE_FAQS})
-            for intent in ('course_intro', 'course_content', 'course_replay', 'course_conflict')
+            for intent in ('course_intro', 'course_schedule', 'course_content', 'course_replay', 'course_conflict')
         }
         seeded_answers = {intent: answer for intent, answer in seeded_answers.items() if answer}
         changed = False
@@ -3775,7 +3792,7 @@ class TaskAssistantService:
                 if not isinstance(intents, list):
                     return
                 next_intents = [intent for intent in intents if intent != 'course_intro']
-                for required_intent in ('course_content', 'course_replay', 'course_conflict'):
+                for required_intent in ('course_schedule', 'course_content', 'course_replay', 'course_conflict'):
                     if required_intent not in next_intents:
                         next_intents.append(required_intent)
                 if next_intents != intents:
