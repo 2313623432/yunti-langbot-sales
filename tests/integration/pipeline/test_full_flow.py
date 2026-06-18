@@ -770,9 +770,16 @@ class TestSendResponseBackStage:
         assert result.result_type == entities.ResultType.CONTINUE
         outbound = platform.get_outbound_messages()
         components = outbound[0]['message']
-        assert [component.type for component in components] == ['Plain', 'Image']
-        assert str(components[1].path) == 'course-sales/phonics/gift_poster.jpeg'
-        link_components = outbound[1]['message']
+        assert [component.type for component in components] == ['Plain']
+        gift_intro_components = outbound[1]['message']
+        assert [component.type for component in gift_intro_components] == ['Plain']
+        assert '完课礼' in gift_intro_components[0].text
+        image_components = outbound[2]['message']
+        assert [component.type for component in image_components] == ['Image']
+        assert str(image_components[0].path) == 'course-sales/phonics/gift_poster.jpeg'
+        link_title_components = outbound[3]['message']
+        assert [component.type for component in link_title_components] == ['Plain']
+        link_components = outbound[4]['message']
         assert [component.type for component in link_components] == ['Plain']
         assert signup_link in link_components[0].text
 

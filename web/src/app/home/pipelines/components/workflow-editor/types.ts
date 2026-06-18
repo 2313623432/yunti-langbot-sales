@@ -217,6 +217,9 @@ export interface PipelineTemplateConfig {
   opening_message: string;
   recommended_questions: string[];
   model_uuid: string;
+  model_extra_args?: Record<string, unknown>;
+  intent_model_uuid: string;
+  intent_model_extra_args?: Record<string, unknown>;
   max_reasoning_steps: number;
   reference_rounds: number;
   response_diversity: number;

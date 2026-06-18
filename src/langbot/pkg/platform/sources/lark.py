@@ -1008,6 +1008,9 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     # Final: reply Lark message ID → (monitoring_message_id, timestamp) (used by feedback callbacks)
     reply_to_monitoring_msg: dict[str, tuple[str, float]]
     _MONITORING_MAPPING_TTL = 600  # 10 minutes
+    processed_message_ids: dict[str, float] = pydantic.Field(default_factory=dict, exclude=True)
+    _PROCESSED_MESSAGE_CACHE_TTL_SECONDS: typing.ClassVar[int] = 10 * 60
+    _PROCESSED_MESSAGE_CACHE_MAX_SIZE: typing.ClassVar[int] = 2000
 
     seq: int  # 用于在发送卡片消息中识别消息顺序，直接以seq作为标识
     bot_uuid: str = None  # 机器人UUID
@@ -1026,6 +1029,16 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             await self.listeners[type(lb_event)](lb_event, self)
 
         def sync_on_message(event: lark_oapi.im.v1.P2ImMessageReceiveV1):
+            message = getattr(getattr(event, 'event', None), 'message', None)
+            header = getattr(event, 'header', None)
+            message_id = getattr(message, 'message_id', None)
+            event_id = getattr(header, 'event_id', None)
+            if self._is_duplicate_lark_message(message_id, event_id):
+                self._schedule_lark_callback(
+                    self.logger.info(f'Skipped duplicate Lark message event: message_id={message_id}'),
+                    'duplicate message log',
+                )
+                return
             self._schedule_lark_callback(on_message(event), 'message')
 
         def sync_on_p2p_chat_access(event, event_type: str):
@@ -1141,6 +1154,7 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             card_id_dict={},
             pending_monitoring_msg={},
             reply_to_monitoring_msg={},
+            processed_message_ids={},
             seq=1,
             listeners={},
             contact_added_callback=None,
@@ -1248,6 +1262,41 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         if self.lark_ping_task is None or self.lark_ping_task.done():
             self.lark_ping_task = asyncio.create_task(self.bot._ping_loop())
             print(f'{self._lark_log_prefix()} heartbeat started')
+    def _prune_processed_message_cache(self, now: typing.Optional[float] = None) -> None:
+        if now is None:
+            now = time.time()
+
+        expire_before = now - self._PROCESSED_MESSAGE_CACHE_TTL_SECONDS
+        while self.processed_message_ids:
+            oldest_key, oldest_ts = next(iter(self.processed_message_ids.items()))
+            if oldest_ts >= expire_before:
+                break
+            self.processed_message_ids.pop(oldest_key, None)
+
+        while len(self.processed_message_ids) > self._PROCESSED_MESSAGE_CACHE_MAX_SIZE:
+            oldest_key = next(iter(self.processed_message_ids))
+            self.processed_message_ids.pop(oldest_key, None)
+
+    def _is_duplicate_lark_message(
+        self,
+        message_id: typing.Optional[str],
+        event_id: typing.Optional[str] = None,
+    ) -> bool:
+        key = str(message_id or event_id or '').strip()
+        if not key:
+            return False
+
+        if not isinstance(getattr(self, 'processed_message_ids', None), dict):
+            self.processed_message_ids = {}
+
+        now = time.time()
+        self._prune_processed_message_cache(now)
+        if key in self.processed_message_ids:
+            return True
+
+        self.processed_message_ids[key] = now
+        self._prune_processed_message_cache(now)
+        return False
 
     def request_app_ticket(self, api_client, config):
         app_id = config['app_id']
@@ -1803,6 +1852,14 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     ):
         # 不再需要了，因为message_id已经被包含到message_chain中
         # lark_event = await self.event_converter.yiri2target(message_source)
+        if not quote_origin:
+            if isinstance(message_source, platform_events.FriendMessage):
+                await self.send_message('person', message_source.sender.id, message)
+                return
+            if isinstance(message_source, platform_events.GroupMessage):
+                await self.send_message('group', message_source.sender.group.id, message)
+                return
+
         text_elements, media_items = await self.message_converter.yiri2target(message, self.api_client)
 
         # Send text message if there are text elements
@@ -2108,10 +2165,17 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 self.app_ticket = context.event['app_ticket']
             elif 'im.message.receive_v1' == type:
                 try:
+                    message_payload = context.event['message']
+                    message_id = message_payload.get('message_id') if isinstance(message_payload, dict) else None
+                    event_id = data.get('header', {}).get('event_id') if isinstance(data.get('header'), dict) else None
+                    if self._is_duplicate_lark_message(message_id, event_id):
+                        await self.logger.info(f'Skipped duplicate Lark message event: message_id={message_id}')
+                        return {'code': 200, 'message': 'ok'}
+
                     p2v1 = P2ImMessageReceiveV1()
                     p2v1.header = context.header
                     event = P2ImMessageReceiveV1Data()
-                    event.message = EventMessage(context.event['message'])
+                    event.message = EventMessage(message_payload)
                     event.sender = EventSender(context.event['sender'])
                     p2v1.event = event
                     p2v1.schema = context.schema

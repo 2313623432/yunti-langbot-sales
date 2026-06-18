@@ -37,6 +37,38 @@ TASK_ASSISTANT_PIPELINE_UUID = 'task-assistant-ant-af-pipeline'
 TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID = 'task-assistant-ant-af-template-pipeline'
 DEFAULT_ASSISTANT_MODEL_UUID = ''
 TASK_ASSISTANT_FAILURE_HINT = 'AI回复失败，请检查模型配置、API地址或Key是否可用，然后再试一次'
+COURSE_SALES_DOUBAO_PROVIDER_UUID = 'lnp-doubao'
+COURSE_SALES_DOUBAO_PROVIDER_NAME = '豆包'
+COURSE_SALES_DOUBAO_PROVIDER_REQUESTER = 'volcark-chat-completions'
+COURSE_SALES_DOUBAO_PROVIDER_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+COURSE_SALES_REPLY_MODEL_UUID = 'doubao-seed-2-0-pro-260215'
+COURSE_SALES_INTENT_MODEL_UUID = 'doubao-seed-2-0-mini-260215'
+COURSE_SALES_DOUBAO_TEXT_MODELS = (
+    {
+        'uuid': COURSE_SALES_REPLY_MODEL_UUID,
+        'name': COURSE_SALES_REPLY_MODEL_UUID,
+        'provider_uuid': COURSE_SALES_DOUBAO_PROVIDER_UUID,
+        'abilities': ['vision', 'func_call'],
+        'extra_args': {'display_name': 'Doubao Seed 2.0 Pro'},
+        'prefered_ranking': 0,
+    },
+    {
+        'uuid': COURSE_SALES_INTENT_MODEL_UUID,
+        'name': COURSE_SALES_INTENT_MODEL_UUID,
+        'provider_uuid': COURSE_SALES_DOUBAO_PROVIDER_UUID,
+        'abilities': ['vision', 'func_call'],
+        'extra_args': {'display_name': 'Doubao Seed 2.0 Mini'},
+        'prefered_ranking': 0,
+    },
+)
+COURSE_SALES_REPLY_MODEL_EXTRA_ARGS = {
+    'thinking': {'type': 'enabled'},
+    'reasoning_effort': 'low',
+}
+COURSE_SALES_INTENT_MODEL_EXTRA_ARGS = {
+    'thinking': {'type': 'disabled'},
+    'reasoning_effort': 'minimal',
+}
 TASK_ASSISTANT_TTS_VOICE_TYPE = 'zh_female_yuanqinvyou_moon_bigtts'
 COURSE_SALES_SCENARIO = 'course_sales_yuanfudao_phonics'
 COURSE_SALES_WORKFLOW_PIPELINE_UUID = 'course-sales-workflow-pipeline'
@@ -1793,7 +1825,9 @@ class TaskAssistantService:
                 query.variables['user_message_text'] = asr_text
                 text = asr_text
 
-        intent = self.classify_course_sales_intent(text, query.message_chain, workflow)
+        intent = await self._classify_course_sales_intent(text, query.message_chain, workflow, query)
+        if intent is None:
+            intent = self.classify_course_sales_intent(text, query.message_chain, workflow)
         intent = await self._apply_course_sales_rejection_policy(intent, text, workflow, session_key, query)
         await self._record_course_resource_issue_for_query(query, intent, text)
         query.variables['course_sales_radar_link'] = intent.get('link_url') or COURSE_SALES_RADAR_LINK
@@ -1822,6 +1856,301 @@ class TaskAssistantService:
             query.variables['lark_reaction_emoji_type'] = emoji_type
         if meme_emotion:
             query.variables['auto_meme_emotion'] = meme_emotion
+    async def _classify_course_sales_intent(
+        self,
+        text: str,
+        message_chain: platform_message.MessageChain | list[platform_message.MessageComponent],
+        workflow: dict[str, Any],
+        query: pipeline_query.Query,
+    ) -> dict[str, Any] | None:
+        model_uuid = self._resolve_course_sales_intent_model_uuid(query, workflow)
+        if not model_uuid:
+            return None
+
+        model_mgr = getattr(self.ap, 'model_mgr', None)
+        if model_mgr is None or not hasattr(model_mgr, 'get_model_by_uuid'):
+            return None
+
+        try:
+            runtime_model = await model_mgr.get_model_by_uuid(model_uuid)
+        except Exception as exc:
+            self._warn_course_intent_model_failure('resolve', exc)
+            return None
+        if runtime_model is None:
+            return None
+
+        messages = [
+            provider_message.Message(role='system', content=self._course_sales_intent_prompt(workflow)),
+            provider_message.Message(
+                role='user',
+                content=self._course_sales_intent_user_text(
+                    text,
+                    message_chain,
+                    reference_history=self._course_sales_intent_reference_history(query, workflow),
+                ),
+            ),
+        ]
+        extra_args = self._resolve_course_sales_intent_model_extra_args(query, runtime_model)
+        try:
+            response, _usage = await runtime_model.provider.invoke_llm(
+                query=query,
+                model=runtime_model,
+                messages=messages,
+                funcs=[],
+                extra_args=extra_args,
+                remove_think=True,
+            )
+        except Exception as exc:
+            self._warn_course_intent_model_failure('invoke', exc)
+            return None
+
+        parsed = self._parse_course_sales_model_intent(self._message_text(response), workflow, text)
+        if parsed is None:
+            return None
+        parsed['source'] = 'model'
+        parsed['model_uuid'] = model_uuid
+        return parsed
+
+    def _resolve_course_sales_intent_model_uuid(
+        self,
+        query: pipeline_query.Query,
+        workflow: dict[str, Any] | None = None,
+    ) -> str:
+        pipeline_config = getattr(query, 'pipeline_config', None)
+        if isinstance(pipeline_config, dict):
+            template_config = pipeline_config.get('template_config')
+            if isinstance(template_config, dict):
+                model_uuid = str(template_config.get('intent_model_uuid') or '').strip()
+                if model_uuid:
+                    return model_uuid
+
+        workflow = workflow if isinstance(workflow, dict) else {}
+        for node in workflow.get('nodes', []):
+            if not isinstance(node, dict) or node.get('type') != 'intent':
+                continue
+            config = node.get('config') if isinstance(node.get('config'), dict) else {}
+            model_uuid = str(config.get('model_uuid') or '').strip()
+            if model_uuid:
+                return model_uuid
+        return ''
+
+    def _resolve_course_sales_intent_model_extra_args(self, query: pipeline_query.Query, runtime_model: Any) -> dict[str, Any]:
+        extra_args = copy.deepcopy(getattr(getattr(runtime_model, 'model_entity', None), 'extra_args', {}) or {})
+        pipeline_config = getattr(query, 'pipeline_config', None)
+        if isinstance(pipeline_config, dict):
+            template_config = pipeline_config.get('template_config')
+            if isinstance(template_config, dict) and isinstance(template_config.get('intent_model_extra_args'), dict):
+                extra_args.update(copy.deepcopy(template_config['intent_model_extra_args']))
+        return extra_args
+
+    def _course_sales_intent_prompt(self, workflow: dict[str, Any]) -> str:
+        course_faqs = workflow.get('course_faqs') if isinstance(workflow.get('course_faqs'), list) else COURSE_FAQS
+        faq_intents = [str(faq.get('intent')) for faq in course_faqs if isinstance(faq, dict) and faq.get('intent')]
+        allowed_intents = [
+            'resource_help',
+            'resource_confirmed',
+            'course_intro',
+            'course_schedule',
+            'course_replay',
+            'course_content',
+            'reading_thinking_intro',
+            'purchase',
+            'purchased',
+            'objection',
+            'explicit_rejection',
+            'gift',
+            'grade',
+            'link_error',
+            'radar_clicked',
+            'handoff',
+            'stop',
+            'screenshot_help',
+            'no_reply',
+            'smalltalk',
+            'clarification',
+            *faq_intents,
+        ]
+        unique_intents = []
+        for intent in allowed_intents:
+            if intent and intent not in unique_intents:
+                unique_intents.append(intent)
+        return (
+            '你是课程销售客服的意图识别器，只做分类，不回复用户。\n'
+            '不要输出思考过程，不要输出解释段落，只输出一个 JSON 对象。\n'
+            f'可选 intent：{", ".join(unique_intents)}。\n'
+            'JSON 字段：intent, confidence, reason, step_ids, include_link。\n'
+            'confidence 为 0 到 1；step_ids 只能用 gift_poster 或 gift_qr，没有则空数组；'
+            '用户明确报名/要链接时 include_link 为 true。'
+        )
+
+    def _course_sales_intent_user_text(
+        self,
+        text: str,
+        message_chain: platform_message.MessageChain | list[platform_message.MessageComponent],
+        reference_history: str = '',
+    ) -> str:
+        media_hints = []
+        if self._has_image(message_chain):
+            media_hints.append('用户本轮包含图片/截图')
+        if self._has_voice(message_chain):
+            media_hints.append('用户本轮包含语音')
+        media_text = f"\n媒体：{'，'.join(media_hints)}" if media_hints else ''
+        history_text = f'{reference_history}\n' if reference_history else ''
+        return f'{history_text}用户消息：{text or ""}{media_text}'
+
+    def _course_sales_reference_rounds(self, workflow: dict[str, Any]) -> int:
+        try:
+            rounds = int(workflow.get('reference_rounds') or 0)
+        except (TypeError, ValueError):
+            return 0
+        return max(0, min(rounds, 20))
+
+    def _provider_message_role_value(self, message: Any) -> str:
+        role = getattr(message, 'role', '')
+        return str(getattr(role, 'value', role)).lower()
+
+    def _provider_message_content_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
+            return ''
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get('type') == 'text':
+                    parts.append(str(item.get('text') or ''))
+                continue
+            if getattr(item, 'type', None) == 'text':
+                parts.append(str(getattr(item, 'text', '') or ''))
+        return ''.join(parts)
+
+    def _compact_course_sales_history_line(self, text: str) -> str:
+        line = re.sub(r'\s+', ' ', text).strip()
+        return f'{line[:300]}...' if len(line) > 300 else line
+
+    def _course_sales_intent_reference_history(self, query: pipeline_query.Query, workflow: dict[str, Any]) -> str:
+        reference_rounds = self._course_sales_reference_rounds(workflow)
+        if reference_rounds <= 0:
+            return ''
+        messages = getattr(query, 'messages', [])
+        if not isinstance(messages, list) or not messages:
+            return ''
+
+        selected: list[Any] = []
+        user_rounds = 0
+        for message in reversed(messages):
+            selected.append(message)
+            if self._provider_message_role_value(message) == 'user':
+                user_rounds += 1
+                if user_rounds >= reference_rounds:
+                    break
+        selected.reverse()
+
+        lines: list[str] = []
+        for message in selected:
+            role = self._provider_message_role_value(message)
+            if role not in {'user', 'assistant'}:
+                continue
+            text = self._compact_course_sales_history_line(
+                self._provider_message_content_text(getattr(message, 'content', ''))
+            )
+            if not text:
+                continue
+            label = '用户' if role == 'user' else '助手'
+            lines.append(f'{label}：{text}')
+        if not lines:
+            return ''
+        return f'历史对话（最近{reference_rounds}轮）：\n' + '\n'.join(lines)
+
+    def _parse_course_sales_model_intent(
+        self,
+        raw_text: str,
+        workflow: dict[str, Any],
+        user_text: str,
+    ) -> dict[str, Any] | None:
+        payload = self._extract_json_object(raw_text)
+        if not isinstance(payload, dict):
+            return None
+
+        intent_name = str(payload.get('intent') or '').strip()
+        allowed_intents = {
+            'resource_help',
+            'resource_confirmed',
+            'course_intro',
+            'course_schedule',
+            'course_replay',
+            'course_content',
+            'reading_thinking_intro',
+            'purchase',
+            'purchased',
+            'objection',
+            'explicit_rejection',
+            'gift',
+            'grade',
+            'link_error',
+            'radar_clicked',
+            'handoff',
+            'stop',
+            'screenshot_help',
+            'no_reply',
+            'smalltalk',
+            'clarification',
+        }
+        if intent_name not in allowed_intents:
+            return None
+
+        try:
+            confidence = float(payload.get('confidence', 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        confidence = max(0.0, min(confidence, 1.0))
+        if confidence < 0.55:
+            return None
+
+        normalized = (user_text or '').strip().lower()
+        selected_profile = self._select_course_sales_profile(workflow, normalized)
+        step_ids = payload.get('step_ids') if isinstance(payload.get('step_ids'), list) else []
+        step_ids = [str(step_id) for step_id in step_ids if str(step_id) in {'gift_poster', 'gift_qr'}]
+        if not step_ids:
+            step_id = self._course_step_for_intent(intent_name)
+            step_ids = [step_id] if step_id else []
+        include_link = payload.get('include_link') is True or intent_name in {'purchase', 'radar_clicked'}
+        intent = self._course_intent(
+            intent_name,
+            confidence,
+            str(payload.get('reason') or '模型识别课程销售意图'),
+            step_ids=step_ids,
+            include_link=include_link,
+            selected_profile=selected_profile,
+        )
+        for key in ('resource_issue_type', 'handoff_reason'):
+            if payload.get(key):
+                intent[key] = str(payload[key])
+        if intent_name == 'handoff':
+            intent['handoff_config'] = self._course_handoff_config(workflow)
+        return intent
+
+    def _extract_json_object(self, raw_text: str) -> dict[str, Any] | None:
+        text = (raw_text or '').strip()
+        if not text:
+            return None
+        if text.startswith('```'):
+            text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE)
+            text = re.sub(r'\s*```$', '', text)
+        start = text.find('{')
+        end = text.rfind('}')
+        if start == -1 or end == -1 or end < start:
+            return None
+        try:
+            payload = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def _warn_course_intent_model_failure(self, stage: str, exc: Exception) -> None:
+        logger = getattr(self.ap, 'logger', None)
+        if logger is not None and hasattr(logger, 'warning'):
+            logger.warning('Course sales intent model %s failed: %s', stage, exc)
 
     async def _reset_sales_context_if_requested(
         self,
@@ -3285,6 +3614,7 @@ class TaskAssistantService:
 - 停发关键词（命中即停止打扰）：{stop_keywords}
 
 回复原则：
+0. 不要输出思考过程、推理过程、草稿、分析步骤或 <think> 标签；只输出给家长看的最终回复。
 1. 只答用户当前问题，不要整段塞话术或主动背书未问到的内容。
 2. 最多 2 条短消息，必要时 3 条；每条 15-35 字左右，避免一大段。
 3. 不用“作为AI/建议您/希望能帮到您/如有其他问题”等机器腔；不要总结、不要讲大道理。
@@ -3391,6 +3721,9 @@ class TaskAssistantService:
         await self._ensure_course_sales_template_pipeline()
         await self._ensure_yuanfudao_enhanced_template_pipeline()
         await self._ensure_builtin_pipeline_default_models()
+        await self._ensure_course_sales_doubao_text_models()
+        await self._ensure_course_sales_doubao_model_defaults()
+        await self._ensure_course_sales_runtime_defaults()
         await self._ensure_course_sales_product()
         await self._ensure_course_sales_outreach_for_chatted_users()
 
@@ -3492,6 +3825,184 @@ class TaskAssistantService:
                 .values(config=config)
             )
 
+    async def _ensure_course_sales_doubao_model_defaults(self) -> None:
+        repaired_pipeline_uuids: set[str] = set()
+        for pipeline_uuid in [
+            COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+            YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
+        ]:
+            result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                    persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
+                )
+            )
+            pipeline = result.first()
+            if pipeline is None:
+                logger = getattr(self.ap, 'logger', None)
+                if logger is not None:
+                    logger.debug('[CourseSalesModelDefaults] Pipeline %s not found, skipping', pipeline_uuid)
+                continue
+            await self._repair_course_sales_doubao_pipeline_models(pipeline, pipeline_uuid=pipeline_uuid)
+            repaired_pipeline_uuids.add(pipeline_uuid)
+
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_pipeline.LegacyPipeline))
+        for pipeline in result.all():
+            pipeline_uuid = str(getattr(pipeline, 'uuid', '') or '')
+            if pipeline_uuid in repaired_pipeline_uuids:
+                continue
+            config = copy.deepcopy(pipeline.config) if isinstance(getattr(pipeline, 'config', None), dict) else {}
+            if not config or not self._is_course_sales_pipeline_config(config):
+                continue
+            await self._repair_course_sales_doubao_pipeline_models(pipeline, config=config)
+
+    async def _repair_course_sales_doubao_pipeline_models(
+        self,
+        pipeline: Any,
+        *,
+        config: dict[str, Any] | None = None,
+        pipeline_uuid: str | None = None,
+    ) -> None:
+        resolved_pipeline_uuid = str(pipeline_uuid or getattr(pipeline, 'uuid', '') or '')
+        if not resolved_pipeline_uuid:
+            return
+        config = copy.deepcopy(config) if isinstance(config, dict) else copy.deepcopy(getattr(pipeline, 'config', None))
+        if not isinstance(config, dict):
+            return
+        if not self._apply_course_sales_doubao_model_defaults(config):
+            return
+        await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+            .where(persistence_pipeline.LegacyPipeline.uuid == resolved_pipeline_uuid)
+            .values(config=config)
+        )
+
+    async def _ensure_course_sales_doubao_text_models(self) -> None:
+        provider_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_model.ModelProvider).where(
+                persistence_model.ModelProvider.uuid == COURSE_SALES_DOUBAO_PROVIDER_UUID
+            )
+        )
+        provider = provider_result.first()
+        if provider is None:
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.insert(persistence_model.ModelProvider).values(
+                    {
+                        'uuid': COURSE_SALES_DOUBAO_PROVIDER_UUID,
+                        'name': COURSE_SALES_DOUBAO_PROVIDER_NAME,
+                        'requester': COURSE_SALES_DOUBAO_PROVIDER_REQUESTER,
+                        'base_url': COURSE_SALES_DOUBAO_PROVIDER_BASE_URL,
+                        'api_keys': [],
+                    }
+                )
+            )
+        else:
+            provider_updates = {}
+            if getattr(provider, 'requester', '') != COURSE_SALES_DOUBAO_PROVIDER_REQUESTER:
+                provider_updates['requester'] = COURSE_SALES_DOUBAO_PROVIDER_REQUESTER
+            if not str(getattr(provider, 'base_url', '') or '').strip():
+                provider_updates['base_url'] = COURSE_SALES_DOUBAO_PROVIDER_BASE_URL
+            if provider_updates:
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.update(persistence_model.ModelProvider)
+                    .where(persistence_model.ModelProvider.uuid == COURSE_SALES_DOUBAO_PROVIDER_UUID)
+                    .values(**provider_updates)
+                )
+
+        for model_data in COURSE_SALES_DOUBAO_TEXT_MODELS:
+            existing = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_model.LLMModel).where(
+                    persistence_model.LLMModel.uuid == model_data['uuid']
+                )
+            )
+            if existing.first() is not None:
+                continue
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.insert(persistence_model.LLMModel).values(**copy.deepcopy(model_data))
+            )
+
+    def _apply_course_sales_doubao_model_defaults(self, config: dict[str, Any]) -> bool:
+        before = copy.deepcopy(config)
+        template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
+        template_config['model_uuid'] = COURSE_SALES_REPLY_MODEL_UUID
+        template_config['model_extra_args'] = copy.deepcopy(COURSE_SALES_REPLY_MODEL_EXTRA_ARGS)
+        template_config['intent_model_uuid'] = COURSE_SALES_INTENT_MODEL_UUID
+        template_config['intent_model_extra_args'] = copy.deepcopy(COURSE_SALES_INTENT_MODEL_EXTRA_ARGS)
+        template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
+        config['template_config'] = template_config
+
+        ai_config = config.get('ai') if isinstance(config.get('ai'), dict) else {}
+        local_agent = ai_config.get('local-agent') if isinstance(ai_config.get('local-agent'), dict) else {}
+        local_agent['model'] = {'primary': COURSE_SALES_REPLY_MODEL_UUID, 'fallbacks': []}
+        local_agent['max-round'] = 12
+        local_agent['prompt'] = [{'role': 'system', 'content': template_config['role_prompt']}]
+        ai_config['local-agent'] = local_agent
+        config['ai'] = ai_config
+
+        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
+        for node in workflow.get('nodes', []):
+            if not isinstance(node, dict):
+                continue
+            node_config = node.get('config') if isinstance(node.get('config'), dict) else {}
+            node_type = node.get('type')
+            if node_type == 'intent':
+                node_config['model_uuid'] = COURSE_SALES_INTENT_MODEL_UUID
+                node_config['model_extra_args'] = copy.deepcopy(COURSE_SALES_INTENT_MODEL_EXTRA_ARGS)
+            elif node_type in {'llm', 'vision'}:
+                node_config['model_uuid'] = COURSE_SALES_REPLY_MODEL_UUID
+                if node_type == 'llm':
+                    node_config['model_extra_args'] = copy.deepcopy(COURSE_SALES_REPLY_MODEL_EXTRA_ARGS)
+                    node_config['prompt'] = template_config['role_prompt']
+            node['config'] = node_config
+        if workflow:
+            config['workflow'] = workflow
+
+        return config != before
+
+    def _is_course_sales_pipeline_config(self, config: dict[str, Any]) -> bool:
+        template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
+        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
+        metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
+        return (
+            template_config.get('scenario') == COURSE_SALES_SCENARIO
+            or workflow.get('scenario') == COURSE_SALES_SCENARIO
+            or metadata.get('scenario') == COURSE_SALES_SCENARIO
+        )
+
+    def _apply_course_sales_runtime_defaults(self, config: dict[str, Any]) -> bool:
+        if not self._is_course_sales_pipeline_config(config):
+            return False
+        before = copy.deepcopy(config)
+        template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
+
+        ai_config = config.get('ai') if isinstance(config.get('ai'), dict) else {}
+        local_agent = ai_config.get('local-agent') if isinstance(ai_config.get('local-agent'), dict) else {}
+        local_agent['max-round'] = 12
+        ai_config['local-agent'] = local_agent
+        config['ai'] = ai_config
+
+        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
+        try:
+            reference_rounds = int(template_config.get('reference_rounds') or workflow.get('reference_rounds') or 4)
+        except (TypeError, ValueError):
+            reference_rounds = 4
+        workflow['reference_rounds'] = max(0, min(reference_rounds, 20))
+        config['workflow'] = workflow
+
+        return config != before
+
+    async def _ensure_course_sales_runtime_defaults(self) -> None:
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_pipeline.LegacyPipeline))
+        pipelines = result.all()
+        for pipeline in pipelines:
+            config = copy.deepcopy(pipeline.config) if isinstance(getattr(pipeline, 'config', None), dict) else {}
+            if not config or not self._apply_course_sales_runtime_defaults(config):
+                continue
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_pipeline.LegacyPipeline)
+                .where(persistence_pipeline.LegacyPipeline.uuid == pipeline.uuid)
+                .values(config=config)
+            )
+
     async def _remove_seeded_workflow_mode_pipelines(self) -> None:
         pipeline_uuids = [
             TASK_ASSISTANT_PIPELINE_UUID,
@@ -3524,7 +4035,7 @@ class TaskAssistantService:
         config['ai']['runner']['runner'] = 'local-agent'
         config['ai']['runner']['expire-time'] = 0
         config['ai']['local-agent']['model'] = {'primary': model_uuid, 'fallbacks': []}
-        config['ai']['local-agent']['max-round'] = 8
+        config['ai']['local-agent']['max-round'] = 12
         config['ai']['local-agent']['prompt'] = [
             {'role': 'system', 'content': self.compose_system_prompt()},
         ]
@@ -3560,9 +4071,15 @@ class TaskAssistantService:
         config['template_config'] = template_config
         if isinstance(existing_workflow, dict) and existing_workflow:
             workflow = copy.deepcopy(existing_workflow)
-            memes = self._normalize_course_meme_config(workflow.get('memes') or template_config.get('memes'))
-            workflow['memes'] = copy.deepcopy(memes)
-            workflow.setdefault('variables', {})['memes'] = copy.deepcopy(memes)
+            workflow_metadata = workflow.get('metadata') if isinstance(workflow.get('metadata'), dict) else {}
+            is_course_sales_workflow = (
+                workflow.get('scenario') == COURSE_SALES_SCENARIO
+                or workflow_metadata.get('scenario') == COURSE_SALES_SCENARIO
+            )
+            if is_course_sales_workflow:
+                memes = self._normalize_course_meme_config(workflow.get('memes') or template_config.get('memes'))
+                workflow['memes'] = copy.deepcopy(memes)
+                workflow.setdefault('variables', {})['memes'] = copy.deepcopy(memes)
             config['workflow'] = workflow
         return config
 
@@ -4056,6 +4573,8 @@ class TaskAssistantService:
     def _merge_course_template_data(self, base: dict[str, Any], loaded: dict[str, Any]) -> dict[str, Any]:
         merged = copy.deepcopy(base)
         for key, value in loaded.items():
+            if key in {'model_uuid', 'intent_model_uuid'} and not str(value or '').strip():
+                continue
             if key == 'voice' and isinstance(value, dict):
                 current = merged.get('voice') if isinstance(merged.get('voice'), dict) else {}
                 merged['voice'] = {**current, **copy.deepcopy(value)}
@@ -4098,7 +4617,7 @@ class TaskAssistantService:
         config['ai']['runner']['runner'] = 'local-agent'
         config['ai']['runner']['expire-time'] = 0
         config['ai']['local-agent']['model'] = {'primary': model_uuid, 'fallbacks': []}
-        config['ai']['local-agent']['max-round'] = 8
+        config['ai']['local-agent']['max-round'] = 12
         config['ai']['local-agent']['prompt'] = [
             {'role': 'system', 'content': self.compose_course_sales_prompt(active_template)},
         ]
@@ -4649,7 +5168,9 @@ class TaskAssistantService:
                 )
             return
 
-        await self._delete_retired_yuanfudao_seed_documents(knowledge_service, logger)
+        import_targets = self._iter_yuanfudao_document_import_targets()
+
+        await self._delete_retired_yuanfudao_seed_documents(knowledge_service, logger, import_targets)
         await self._retry_failed_yuanfudao_seed_documents(knowledge_service, logger)
 
         existing_files = await knowledge_service.get_files_by_knowledge_base(YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID)
@@ -4660,7 +5181,6 @@ class TaskAssistantService:
                 existing_names.add(raw_name)
                 existing_names.add(Path(raw_name).name)
 
-        import_targets = self._iter_yuanfudao_document_import_targets()
         queued_count = 0
         for full_path, file_name in import_targets:
             if file_name in existing_names:
@@ -4690,14 +5210,23 @@ class TaskAssistantService:
         self,
         knowledge_service: Any,
         logger: Any,
+        import_targets: list[tuple[Path, str]] | None = None,
     ) -> None:
         existing_files = await knowledge_service.get_files_by_knowledge_base(
             YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID
         )
+        has_active_import_list = import_targets is not None
+        active_names = {file_name for _, file_name in import_targets or []}
         removed_count = 0
         for file in existing_files:
             raw_name = str(file.get('file_name') or '')
-            if raw_name not in RETIRED_YUANFUDAO_SEED_DOCUMENTS and Path(raw_name).name not in RETIRED_YUANFUDAO_SEED_DOCUMENTS:
+            base_name = Path(raw_name).name
+            is_active = raw_name in active_names or base_name in active_names
+            is_retired = raw_name in RETIRED_YUANFUDAO_SEED_DOCUMENTS or base_name in RETIRED_YUANFUDAO_SEED_DOCUMENTS
+            if has_active_import_list:
+                if is_active and not is_retired:
+                    continue
+            elif not is_retired:
                 continue
             file_uuid = str(file.get('uuid') or '').strip()
             if not file_uuid:
@@ -4707,9 +5236,9 @@ class TaskAssistantService:
                 removed_count += 1
             except Exception as exc:
                 if logger is not None:
-                    logger.warning('Failed to delete retired Yuanfudao seed document %s: %s', raw_name, exc)
+                    logger.warning('Failed to delete stale Yuanfudao seed document %s: %s', raw_name, exc)
         if logger is not None and removed_count > 0:
-            logger.info('Deleted %s retired Yuanfudao seed documents', removed_count)
+            logger.info('Deleted %s stale Yuanfudao seed documents', removed_count)
 
     async def _retry_failed_yuanfudao_seed_documents(
         self,
@@ -4851,7 +5380,10 @@ class TaskAssistantService:
                 '我想报名，怎么操作？',
                 '我点了链接但卡住了怎么办？',
             ],
-            'model_uuid': DEFAULT_ASSISTANT_MODEL_UUID,
+            'model_uuid': COURSE_SALES_REPLY_MODEL_UUID,
+            'model_extra_args': copy.deepcopy(COURSE_SALES_REPLY_MODEL_EXTRA_ARGS),
+            'intent_model_uuid': COURSE_SALES_INTENT_MODEL_UUID,
+            'intent_model_extra_args': copy.deepcopy(COURSE_SALES_INTENT_MODEL_EXTRA_ARGS),
             'max_reasoning_steps': 3,
             'reference_rounds': 4,
             'knowledge_base_uuids': [],
@@ -5131,6 +5663,7 @@ class TaskAssistantService:
                     message['image_key'] = self._normalize_course_media_key(message.get('image_key'))
         opening_message = str(template_config.get('opening_message') or COURSE_OPENING_MESSAGE)
         model_uuid = str(template_config.get('model_uuid') or model_uuid)
+        intent_model_uuid = str(template_config.get('intent_model_uuid') or COURSE_SALES_INTENT_MODEL_UUID)
         asr_config = template_config.get('asr') if isinstance(template_config.get('asr'), dict) else {}
         screenshot_config = (
             template_config.get('screenshot_input') if isinstance(template_config.get('screenshot_input'), dict) else {}
@@ -5143,6 +5676,11 @@ class TaskAssistantService:
             if isinstance(profile, dict) and str(profile.get('product_uuid') or '')
         ] or [COURSE_SALES_PRODUCT_UUID]
         template_name = str(template_config.get('name') or '课程销售模板')
+        try:
+            reference_rounds = int(template_config.get('reference_rounds') or 0)
+        except (TypeError, ValueError):
+            reference_rounds = 0
+        reference_rounds = max(0, min(reference_rounds, 20))
         template_kb_uuids = [
             str(kb_uuid) for kb_uuid in (template_config.get('knowledge_base_uuids') or []) if str(kb_uuid)
         ]
@@ -5254,6 +5792,12 @@ class TaskAssistantService:
                 'description': '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态',
                 'position': {'x': 1460, 'y': 320},
                 'config': {
+                    'model_uuid': intent_model_uuid,
+                    'model_extra_args': copy.deepcopy(
+                        template_config.get('intent_model_extra_args')
+                        if isinstance(template_config.get('intent_model_extra_args'), dict)
+                        else COURSE_SALES_INTENT_MODEL_EXTRA_ARGS
+                    ),
                     'intents': [
                         'resource_help',
                         'resource_confirmed',
@@ -5368,6 +5912,11 @@ class TaskAssistantService:
                 'position': {'x': 3240, 'y': 320},
                 'config': {
                     'model_uuid': model_uuid,
+                    'model_extra_args': copy.deepcopy(
+                        template_config.get('model_extra_args')
+                        if isinstance(template_config.get('model_extra_args'), dict)
+                        else COURSE_SALES_REPLY_MODEL_EXTRA_ARGS
+                    ),
                     'tone': '真人客服、短句、先服务后转化',
                     'prompt': self.compose_course_sales_prompt(
                         {
@@ -5487,6 +6036,7 @@ class TaskAssistantService:
             'course_profiles': course_profiles,
             'resource_faqs': resource_faqs,
             'course_faqs': course_faqs,
+            'reference_rounds': reference_rounds,
             'sales_links': sales_links,
             'radar': radar,
             'human_handoff': human_handoff,
@@ -5967,6 +6517,8 @@ class TaskAssistantService:
     ) -> dict[str, Any]:
         model_uuid = self._resolve_primary_model_uuid(query, workflow)
         if not model_uuid:
+            return {}
+        if not hasattr(self.ap, 'persistence_mgr'):
             return {}
 
         model_result = await self.ap.persistence_mgr.execute_async(

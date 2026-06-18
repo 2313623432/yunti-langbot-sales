@@ -73,3 +73,4 @@ outputs/
 shared-data/
 web/.codex-*.log
 /data/langbot-before-*.db
+release/**/_local_backups/

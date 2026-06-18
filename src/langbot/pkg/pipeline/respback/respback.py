@@ -28,6 +28,7 @@ class SendResponseBackStage(stage.PipelineStage):
 
     _EXTRA_REPLY_CHAINS_KEY = '_respback_extra_reply_chains'
     _COURSE_SALES_LINK_OPEN_QUESTION = '家长，您这边能打开吗？'
+    _COURSE_SALES_CHILD_GRADE_QUESTION = '孩子现在几年级呀？'
     _COURSE_SALES_SIGNUP_LINK_QUEUED_KEY = '_course_sales_signup_link_queued'
     _COURSE_SALES_RESOURCE_LINK_QUEUED_KEY = '_course_sales_resource_link_queued'
     _OIAPI_EMOTION_URL = 'https://oiapi.net/api/Emotion'
@@ -181,6 +182,7 @@ class SendResponseBackStage(stage.PipelineStage):
     def __init__(self, ap):
         super().__init__(ap)
         self._meme_session_states: dict[str, dict[str, int]] = {}
+    _COURSE_SALES_CHILD_GRADE_RE = re.compile(r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]年级|初[一二三]|高[一二三])')
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
         intent_data = query.variables.get('sales_intent') or query.variables.get('workflow_intent') or {}
@@ -681,6 +683,8 @@ class SendResponseBackStage(stage.PipelineStage):
             caption = str(node_config.get('caption') or '').strip()
             if caption and not is_task_assistant_workflow and node_config.get('append_caption') is not False:
                 components.append(platform_message.Plain(text=f'\n{caption}'))
+            elif requires_signup_link and self._is_course_sales_workflow(workflow) and not is_task_assistant_workflow:
+                components.append(platform_message.Plain(text='报课后按活动规则有完课礼，礼品说明我发您看一下。'))
             components.append(await self._image_component(file_key, image_url))
 
             if max_images is not None and sum(isinstance(component, platform_message.Image) for component in components) >= max_images:
@@ -730,9 +734,63 @@ class SendResponseBackStage(stage.PipelineStage):
             line = raw_line.strip()
             if not line:
                 continue
-            parts = re.findall(r'.+?(?:[。！？!?]+|$)', line)
+            for marker in (
+                self._COURSE_SALES_LINK_OPEN_QUESTION,
+                self._COURSE_SALES_CHILD_GRADE_QUESTION,
+                '方便发我一张截图吗？',
+            ):
+                if marker in line and not line.startswith(marker):
+                    line = line.replace(marker, f'\n{marker}')
+            if '\n' in line:
+                chunks.extend(self._split_natural_sentences(line))
+                continue
+            parts = re.findall(r'.+?(?:[。！？!?；;]+|$)', line)
             chunks.extend(part.strip() for part in parts if part.strip())
         return chunks
+
+    def _split_course_sales_reply_text(self, text: str) -> list[str]:
+        chunks: list[str] = []
+        url_pattern = re.compile(r'https?://[^\s<>"\]\)】》>，。！？、；：]*')
+        for raw_line in text.strip().replace('\r\n', '\n').split('\n'):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            cursor = 0
+            for match in url_pattern.finditer(line):
+                before = line[cursor:match.start()].strip().rstrip('：:，,、；; ')
+                chunks.extend(self._split_natural_sentences(before))
+                chunks.append(match.group(0).strip())
+                cursor = match.end()
+
+            after = re.sub(r'^[，,、；;：:\s]+', '', line[cursor:].strip())
+            chunks.extend(self._split_natural_sentences(after))
+
+        normalized: list[str] = []
+        for chunk in chunks:
+            if chunk.startswith(('http://', 'https://')):
+                normalized.append(chunk)
+            else:
+                stripped = self._strip_course_sales_final_periods(chunk)
+                if stripped:
+                    normalized.append(stripped)
+        return normalized
+
+    def _course_sales_reply_chains(
+        self,
+        message_chain: platform_message.MessageChain,
+    ) -> list[platform_message.MessageChain]:
+        chains: list[platform_message.MessageChain] = []
+        for component in message_chain:
+            if isinstance(component, platform_message.Plain):
+                for chunk in self._split_course_sales_reply_text(component.text):
+                    chains.append(platform_message.MessageChain([platform_message.Plain(text=chunk)]))
+                continue
+            if isinstance(component, platform_message.Image):
+                chains.append(platform_message.MessageChain([component]))
+                continue
+            return [message_chain]
+        return chains or [message_chain]
 
     def _split_plain_text(self, text: str, threshold: int, *, natural_sentences: bool = False) -> list[str]:
         stripped = text.strip()
@@ -771,23 +829,30 @@ class SendResponseBackStage(stage.PipelineStage):
         workflow = self._active_workflow(query)
         is_course_sales = self._is_course_sales_workflow(workflow)
         message_chain = query.resp_message_chain[-1]
-        if not enabled:
-            return [message_chain]
 
         components = list(message_chain)
-        if not components or any(not isinstance(component, platform_message.Plain) for component in components):
+        if not components:
             return [message_chain]
 
         text = self._plain_text_from_chain(message_chain)
-        if 'http://' in text or 'https://' in text or len(text.strip()) <= threshold:
-            if not is_course_sales or 'http://' in text or 'https://' in text:
+        if is_course_sales:
+            if any(not isinstance(component, (platform_message.Plain, platform_message.Image)) for component in components):
                 return [message_chain]
-            chunks = self._split_plain_text(text, threshold, natural_sentences=True)
-            if len(chunks) <= 1:
+            chains = self._course_sales_reply_chains(message_chain)
+            if len(chains) <= 1 and text:
                 return [platform_message.MessageChain([platform_message.Plain(text=self._strip_course_sales_final_periods(text))])]
-            return [platform_message.MessageChain([platform_message.Plain(text=chunk)]) for chunk in chunks]
+            return chains
 
-        chunks = self._split_plain_text(text, threshold, natural_sentences=is_course_sales)
+        if any(not isinstance(component, platform_message.Plain) for component in components):
+            return [message_chain]
+
+        if not enabled:
+            return [message_chain]
+
+        if 'http://' in text or 'https://' in text or len(text.strip()) <= threshold:
+            return [message_chain]
+
+        chunks = self._split_plain_text(text, threshold)
         if len(chunks) <= 1:
             return [message_chain]
         return [platform_message.MessageChain([platform_message.Plain(text=chunk)]) for chunk in chunks]
@@ -889,8 +954,39 @@ class SendResponseBackStage(stage.PipelineStage):
         if self._course_sales_screenshot_question_needed(text):
             return '方便发我一张截图吗？'
         if self._course_sales_grade_question_needed(text):
-            return '孩子现在几年级呀？'
+            return self._COURSE_SALES_CHILD_GRADE_QUESTION
         return ''
+
+    def _course_sales_provider_content_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
+            return ''
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get('type') == 'text':
+                    parts.append(str(item.get('text') or ''))
+                continue
+            if getattr(item, 'type', None) == 'text':
+                parts.append(str(getattr(item, 'text', '') or ''))
+        return ''.join(parts)
+
+    def _course_sales_provider_user_text(self, message: Any) -> str:
+        role = getattr(message, 'role', '')
+        role_value = str(getattr(role, 'value', role)).lower()
+        if role_value != 'user':
+            return ''
+        return self._course_sales_provider_content_text(getattr(message, 'content', ''))
+
+    def _course_sales_child_grade_known(self, query: pipeline_query.Query) -> bool:
+        user_texts = [
+            str(query.variables.get('user_message_text') or ''),
+            self._plain_text_from_chain(query.message_chain) if isinstance(query.message_chain, platform_message.MessageChain) else '',
+            self._course_sales_provider_user_text(query.user_message),
+        ]
+        user_texts.extend(self._course_sales_provider_user_text(message) for message in query.messages)
+        return any(self._COURSE_SALES_CHILD_GRADE_RE.search(text or '') for text in user_texts)
 
     def _queue_extra_reply_chain(self, query: pipeline_query.Query, text: str) -> None:
         chain = platform_message.MessageChain([platform_message.Plain(text=text)])
@@ -906,12 +1002,29 @@ class SendResponseBackStage(stage.PipelineStage):
             return []
         return [chain for chain in extra_chains if isinstance(chain, platform_message.MessageChain)]
 
+    def _pop_outgoing_extra_reply_chains(self, query: pipeline_query.Query) -> list[platform_message.MessageChain]:
+        extra_chains = self._pop_extra_reply_chains(query)
+        workflow = self._active_workflow(query)
+        if not self._is_course_sales_workflow(workflow):
+            return extra_chains
+        outgoing_chains: list[platform_message.MessageChain] = []
+        for chain in extra_chains:
+            outgoing_chains.extend(self._course_sales_reply_chains(chain))
+        return outgoing_chains
+
     def _append_course_sales_open_question(self, query: pipeline_query.Query) -> None:
         workflow = self._active_workflow(query)
         if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
             return
         intent_data = self._current_intent_data(query)
-        if str(intent_data.get('intent') or '') in {'explicit_rejection', 'objection', 'stop', 'handoff'}:
+        if str(intent_data.get('intent') or '') in {
+            'explicit_rejection',
+            'objection',
+            'stop',
+            'handoff',
+            'smalltalk',
+            'clarification',
+        }:
             return
         if str(intent_data.get('intent') or '') == 'resource_help' and self._course_sales_user_reported_open_failure(query):
             return
@@ -921,17 +1034,9 @@ class SendResponseBackStage(stage.PipelineStage):
         question = self._course_sales_open_question(current_text)
         if not question:
             return
-        if question == self._COURSE_SALES_LINK_OPEN_QUESTION:
-            self._queue_extra_reply_chain(query, question)
+        if question == self._COURSE_SALES_CHILD_GRADE_QUESTION and self._course_sales_child_grade_known(query):
             return
-        last_plain = None
-        for component in query.resp_message_chain[-1]:
-            if isinstance(component, platform_message.Plain):
-                last_plain = component
-        if last_plain is not None:
-            last_plain.text = f'{self._strip_course_sales_final_periods(last_plain.text)}\n{question}'
-            return
-        query.resp_message_chain[-1].append(platform_message.Plain(text=question))
+        self._queue_extra_reply_chain(query, question)
 
     def _remove_course_sales_open_question_after_resource_failure(self, query: pipeline_query.Query) -> None:
         intent_data = self._current_intent_data(query)
@@ -989,7 +1094,7 @@ class SendResponseBackStage(stage.PipelineStage):
         title, url = self._course_sales_resource_link(query)
         if not url or url in current_text:
             return
-        self._queue_extra_reply_chain(query, f'{title}\n{url}')
+        self._queue_extra_reply_chain(query, f'{title}：{url}')
         query.variables[self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY] = True
 
     def _prepend_course_sales_first_reply_emoji(self, query: pipeline_query.Query) -> None:
@@ -1049,6 +1154,19 @@ class SendResponseBackStage(stage.PipelineStage):
             memes = variables.get('memes')
         return memes if isinstance(memes, dict) else {}
 
+    def _has_explicit_meme_config(self, query: pipeline_query.Query) -> bool:
+        pipeline_config = query.pipeline_config if isinstance(query.pipeline_config, dict) else {}
+        template_config = pipeline_config.get('template_config')
+        if isinstance(template_config, dict) and isinstance(template_config.get('memes'), dict):
+            return True
+        workflow = self._active_workflow(query)
+        if not isinstance(workflow, dict):
+            return False
+        if isinstance(workflow.get('memes'), dict):
+            return True
+        variables = workflow.get('variables') if isinstance(workflow.get('variables'), dict) else {}
+        return isinstance(variables.get('memes'), dict)
+
     def _meme_config_bool(self, query: pipeline_query.Query, key: str, default: bool) -> bool:
         value = self._meme_config(query).get(key)
         return value if isinstance(value, bool) else default
@@ -1064,13 +1182,25 @@ class SendResponseBackStage(stage.PipelineStage):
         return self._meme_config_bool(query, 'enabled', True)
 
     def _large_meme_enabled(self, query: pipeline_query.Query) -> bool:
+        workflow = self._active_workflow(query)
+        if self._is_task_assistant_workflow(workflow) and not self._has_explicit_meme_config(query):
+            return False
+        if (
+            self._is_course_sales_workflow(workflow)
+            and not self._has_explicit_meme_config(query)
+            and not self._is_lark_query(query)
+            and not str(query.variables.get('lark_reaction_emoji_type') or '').strip()
+        ):
+            return False
         return self._meme_config_bool(query, 'large_enabled', True)
 
     def _feishu_native_emoji_enabled(self, query: pipeline_query.Query) -> bool:
         return self._meme_config_bool(query, 'feishu_native_enabled', True)
 
     def _is_lark_query(self, query: pipeline_query.Query) -> bool:
-        adapter_name = type(getattr(query, 'adapter', None)).__name__.lower()
+        adapter = getattr(query, 'adapter', None)
+        adapter_class = getattr(adapter, '__class__', None)
+        adapter_name = str(getattr(adapter_class, '__name__', type(adapter).__name__)).lower()
         return 'lark' in adapter_name or 'feishu' in adapter_name
 
     def _meme_library_enabled(self, query: pipeline_query.Query) -> bool:
@@ -1143,6 +1273,14 @@ class SendResponseBackStage(stage.PipelineStage):
         intent = str(self._current_intent_data(query).get('intent') or '').strip()
         if intent in {'handoff', 'objection', 'explicit_rejection', 'stop'}:
             return True
+        if not self._has_explicit_meme_config(query) and (
+            query.variables.get(self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY) is True
+            or query.variables.get(self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY) is True
+        ):
+            return True
+        reply_text = self._plain_text_from_chain(query.resp_message_chain[-1]) if query.resp_message_chain else ''
+        if not self._has_explicit_meme_config(query) and re.search(r'https?://', reply_text):
+            return True
         text = str(query.variables.get('user_message_text') or self._query_user_text(query) or '').strip()
         return any(marker in text for marker in ('转人工', '投诉', '生气', '不需要', '别发', '退钱', '拉黑'))
 
@@ -1150,6 +1288,8 @@ class SendResponseBackStage(stage.PipelineStage):
         if not self._meme_master_enabled(query):
             return ''
         emotion = str(emotion or '').strip()
+        if emotion and self._meme_suppressed_context(query):
+            return ''
         if emotion:
             return emotion if self._meme_frequency_allows(query, kind) else ''
         if self._meme_smart_judge_enabled(query):
@@ -1559,6 +1699,7 @@ class SendResponseBackStage(stage.PipelineStage):
     async def _meme_image_component(self, query: pipeline_query.Query, emotion: str) -> platform_message.Image | None:
         trigger_code = str(query.variables.get('_auto_meme_trigger_code') or '').strip().lower()
         entry = self._local_meme_entry(query, code=trigger_code, emotion=emotion)
+        has_explicit_local_entry = entry is not None
         if entry:
             component = await self._local_meme_component(entry)
             if component is not None:
@@ -1569,11 +1710,12 @@ class SendResponseBackStage(stage.PipelineStage):
         if configured:
             return await self._image_component('', configured, sticker=True)
 
-        default_entry = self._default_local_meme_entry(query, emotion)
-        if default_entry:
-            component = await self._local_meme_component(default_entry)
-            if component is not None:
-                return component
+        if not (trigger_code and has_explicit_local_entry):
+            default_entry = self._default_local_meme_entry(query, emotion)
+            if default_entry:
+                component = await self._local_meme_component(default_entry)
+                if component is not None:
+                    return component
 
         if not self._meme_api_fallback_enabled(query):
             return None
@@ -1608,7 +1750,14 @@ class SendResponseBackStage(stage.PipelineStage):
         if not isinstance(extra_chains, list):
             extra_chains = []
             query.variables[self._EXTRA_REPLY_CHAINS_KEY] = extra_chains
-        extra_chains.append(platform_message.MessageChain([image]))
+        insert_at = 0
+        for index, chain in enumerate(extra_chains):
+            if isinstance(chain, platform_message.MessageChain) and re.search(
+                r'https?://',
+                self._plain_text_from_chain(chain),
+            ):
+                insert_at = index + 1
+        extra_chains.insert(insert_at, platform_message.MessageChain([image]))
         query.variables['_auto_meme_sent'] = True
         self._mark_meme_sent(query, 'large')
 
@@ -1929,15 +2078,19 @@ class SendResponseBackStage(stage.PipelineStage):
                 await self._append_response_enrichments(query)
                 self._strip_thinking_from_response(query)
                 await self._add_platform_reaction(query)
+            reply_chains = self._multi_reply_chains(query) if is_final else [query.resp_message_chain[-1]]
             await query.adapter.reply_message_chunk(
                 message_source=query.message_event,
                 bot_message=query.resp_messages[-1],
-                message=query.resp_message_chain[-1],
+                message=reply_chains[0],
                 quote_origin=quote_origin,
                 is_final=is_final,
             )
             if is_final:
-                for message_chain in self._pop_extra_reply_chains(query):
+                for message_chain in [
+                    *reply_chains[1:],
+                    *self._pop_outgoing_extra_reply_chains(query),
+                ]:
                     await query.adapter.reply_message(
                         message_source=query.message_event,
                         message=message_chain,
@@ -1950,7 +2103,7 @@ class SendResponseBackStage(stage.PipelineStage):
             await self._add_platform_reaction(query)
             reply_chains = [
                 *self._multi_reply_chains(query),
-                *self._pop_extra_reply_chains(query),
+                *self._pop_outgoing_extra_reply_chains(query),
             ]
             for index, message_chain in enumerate(reply_chains):
                 await query.adapter.reply_message(

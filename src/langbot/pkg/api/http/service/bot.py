@@ -46,11 +46,11 @@ class BotService:
 
         return self.ap.persistence_mgr.serialize_model(persistence_bot.Bot, bot, masked_columns)
 
-    async def get_runtime_bot_info(self, bot_uuid: str, include_secret: bool = True) -> dict:
+    async def get_runtime_bot_info(self, bot_uuid: str, include_secret: bool = True) -> dict | None:
         """获取机器人运行时信息"""
         persistence_bot = await self.get_bot(bot_uuid, include_secret)
         if persistence_bot is None:
-            raise Exception('Bot not found')
+            return None
 
         adapter_runtime_values = {}
 

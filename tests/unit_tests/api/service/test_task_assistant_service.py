@@ -23,6 +23,7 @@ from langbot.pkg.api.http.service.task_assistant import (  # noqa: E402
     YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
     YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID,
 )
+from langbot.pkg.entity.persistence import model as persistence_model  # noqa: E402
 from langbot_plugin.api.entities.builtin.platform import message as platform_message  # noqa: E402
 from langbot_plugin.api.entities.builtin.provider import message as provider_message  # noqa: E402
 from tests.factories.message import image_chain, text_chain, voice_query  # noqa: E402
@@ -45,6 +46,17 @@ class _EmptyListResult:
 
     def all(self):
         return []
+
+
+class _ListResult:
+    def __init__(self, values):
+        self.values = values
+
+    def first(self):
+        return self.values[0] if self.values else None
+
+    def all(self):
+        return self.values
 
 
 def _query(message_chain, text='', session_id='user-1'):
@@ -461,6 +473,8 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_yuanfudao_enhanced_template_pipeline = AsyncMock()
     service._ensure_course_sales_outreach_for_chatted_users = AsyncMock()
     service._ensure_builtin_pipeline_default_models = AsyncMock()
+    service._ensure_course_sales_doubao_model_defaults = AsyncMock()
+    service._ensure_course_sales_runtime_defaults = AsyncMock()
 
     await service.ensure_default_resources()
 
@@ -470,6 +484,8 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_template_pipeline.assert_awaited_once()
     service._ensure_course_sales_template_pipeline.assert_awaited_once()
     service._ensure_yuanfudao_enhanced_template_pipeline.assert_awaited_once()
+    service._ensure_course_sales_doubao_model_defaults.assert_awaited_once()
+    service._ensure_course_sales_runtime_defaults.assert_awaited_once()
     removed_pipeline_uuids = [call.args[0] for call in ap.pipeline_mgr.remove_pipeline.await_args_list]
     assert removed_pipeline_uuids == [
         TASK_ASSISTANT_PIPELINE_UUID,
@@ -770,6 +786,140 @@ def test_task_assistant_pipeline_uses_frontend_configured_model_only():
     assert voice_node['config']['encoding'] == 'ogg_opus'
 
 
+def test_course_sales_template_defaults_to_doubao_reply_and_intent_models():
+    service = TaskAssistantService(SimpleNamespace())
+
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    template = config['template_config']
+
+    assert template['model_uuid'] == 'doubao-seed-2-0-pro-260215'
+    assert template['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
+    assert template['model_extra_args']['reasoning_effort'] == 'low'
+    assert template['intent_model_extra_args']['thinking'] == {'type': 'disabled'}
+    assert '不要输出思考过程' in template['role_prompt']
+
+
+@pytest.mark.asyncio
+async def test_course_sales_prepare_query_uses_configured_intent_model(monkeypatch):
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            return_value=(
+                provider_message.Message(
+                    role='assistant',
+                    content='{"intent":"purchase","confidence":0.91,"reason":"模型判断用户要报名","step_ids":[],"include_link":true}',
+                ),
+                {},
+            )
+        )
+    )
+    runtime_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='doubao-seed-2-0-mini-260215',
+            name='doubao-seed-2-0-mini-260215',
+            abilities=[],
+            extra_args={'thinking': {'type': 'disabled'}},
+        ),
+        provider=provider,
+    )
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(return_value=runtime_model)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    query = _query(text_chain('我随便问问'), '我随便问问')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        model_uuid='doubao-seed-2-0-pro-260215',
+        template_slug='yuanfudao-enhanced',
+        existing_config={
+            'template_config': {
+                'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
+                'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+            }
+        },
+    )
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert query.variables['workflow_intent']['intent'] == 'purchase'
+    assert query.variables['workflow_intent']['source'] == 'model'
+    service.ap.model_mgr.get_model_by_uuid.assert_awaited_once_with('doubao-seed-2-0-mini-260215')
+    provider.invoke_llm.assert_awaited_once()
+    invoke_kwargs = provider.invoke_llm.await_args.kwargs
+    assert invoke_kwargs['extra_args'] == {'thinking': {'type': 'disabled'}}
+    assert invoke_kwargs['remove_think'] is True
+
+
+@pytest.mark.asyncio
+async def test_course_sales_intent_model_receives_recent_reference_rounds(monkeypatch):
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            return_value=(
+                provider_message.Message(
+                    role='assistant',
+                    content='{"intent":"resource_help","confidence":0.91,"reason":"模型结合上下文判断","step_ids":[],"include_link":false}',
+                ),
+                {},
+            )
+        )
+    )
+    runtime_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='doubao-seed-2-0-mini-260215',
+            name='doubao-seed-2-0-mini-260215',
+            abilities=[],
+            extra_args={'thinking': {'type': 'disabled'}},
+        ),
+        provider=provider,
+    )
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(return_value=runtime_model)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    query = _query(text_chain('现在呢'), '现在呢')
+    query.messages = [
+        provider_message.Message(role='user', content='太早的历史'),
+        provider_message.Message(role='assistant', content='旧回复'),
+        provider_message.Message(role='user', content='第一轮：答案在哪里'),
+        provider_message.Message(role='assistant', content='可以点资源卡片'),
+        provider_message.Message(role='user', content='第二轮：卡片打不开'),
+        provider_message.Message(role='assistant', content='我帮您看一下'),
+        provider_message.Message(role='user', content='第三轮：我点不开'),
+        provider_message.Message(role='assistant', content='可以发截图'),
+        provider_message.Message(role='user', content='第四轮：还是进不去'),
+        provider_message.Message(role='assistant', content='我再发链接'),
+    ]
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        model_uuid='doubao-seed-2-0-pro-260215',
+        template_slug='yuanfudao-enhanced',
+        existing_config={
+            'template_config': {
+                'reference_rounds': 4,
+                'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
+                'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+            }
+        },
+    )
+
+    await service.prepare_query(query)
+
+    prompt = provider.invoke_llm.await_args.kwargs['messages'][1].content
+    assert '历史对话（最近4轮）' in prompt
+    assert '第一轮：答案在哪里' in prompt
+    assert '第二轮：卡片打不开' in prompt
+    assert '第三轮：我点不开' in prompt
+    assert '第四轮：还是进不去' in prompt
+    assert '太早的历史' not in prompt
+    assert '用户消息：现在呢' in prompt
+
+
 @pytest.mark.asyncio
 async def test_builtin_pipeline_default_model_replaces_unconfigured_saved_model():
     saved_config = TaskAssistantService(SimpleNamespace()).build_course_sales_template_pipeline_config(
@@ -820,6 +970,118 @@ async def test_builtin_pipeline_default_model_replaces_unconfigured_saved_model(
     )
 
 
+@pytest.mark.asyncio
+async def test_course_sales_doubao_defaults_rebind_saved_course_pipeline_models():
+    saved_config = TaskAssistantService(SimpleNamespace()).build_course_sales_template_pipeline_config(
+        model_uuid='old-gemini-model',
+        template_slug='yuanfudao-enhanced',
+    )
+    pipeline = SimpleNamespace(config=saved_config)
+    ap = SimpleNamespace(
+        logger=SimpleNamespace(info=Mock(), warning=Mock(), debug=Mock()),
+        persistence_mgr=SimpleNamespace(
+            execute_async=AsyncMock(
+                side_effect=[
+                    _FirstResult(pipeline),
+                    None,
+                    _FirstResult(None),
+                    _EmptyListResult(),
+                ]
+            )
+        ),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_doubao_model_defaults()
+
+    update_statement = ap.persistence_mgr.execute_async.await_args_list[1].args[0]
+    params = update_statement.compile().params
+    updated_config = params['config']
+    assert updated_config['template_config']['model_uuid'] == 'doubao-seed-2-0-pro-260215'
+    assert updated_config['template_config']['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
+    assert updated_config['ai']['local-agent']['model']['primary'] == 'doubao-seed-2-0-pro-260215'
+
+
+@pytest.mark.asyncio
+async def test_course_sales_doubao_defaults_repair_all_course_sales_pipelines():
+    blank_config = TaskAssistantService(SimpleNamespace()).build_course_sales_pipeline_config(
+        model_uuid='',
+        template_config={'scenario': COURSE_SALES_SCENARIO, 'model_uuid': '', 'intent_model_uuid': ''},
+    )
+    pipeline = SimpleNamespace(uuid='custom-course-sales-pipeline', config=blank_config)
+    updates = []
+
+    async def execute_async(statement):
+        params = statement.compile().params
+        if getattr(statement, 'is_select', False):
+            if params:
+                return _FirstResult(None)
+            return _ListResult([pipeline])
+        if getattr(statement, 'is_update', False):
+            updates.append(params)
+        return None
+
+    ap = SimpleNamespace(
+        logger=SimpleNamespace(info=Mock(), warning=Mock(), debug=Mock()),
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(side_effect=execute_async)),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_doubao_model_defaults()
+
+    assert updates
+    updated_config = updates[-1]['config']
+    assert updated_config['template_config']['model_uuid'] == 'doubao-seed-2-0-pro-260215'
+    assert updated_config['template_config']['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
+    assert updated_config['ai']['local-agent']['model']['primary'] == 'doubao-seed-2-0-pro-260215'
+
+
+@pytest.mark.asyncio
+async def test_course_sales_doubao_text_models_are_seeded_for_model_dropdowns():
+    inserted_providers = []
+    inserted_models = []
+
+    async def execute_async(statement):
+        params = statement.compile().params
+        if getattr(statement, 'is_select', False):
+            selected_table = statement.column_descriptions[0].get('entity')
+            if selected_table is persistence_model.ModelProvider:
+                return _EmptyListResult()
+            if selected_table is persistence_model.LLMModel:
+                return _EmptyListResult()
+        if getattr(statement, 'is_insert', False):
+            table_name = statement.table.name
+            if table_name == 'model_providers':
+                inserted_providers.append(params)
+            if table_name == 'llm_models':
+                inserted_models.append(params)
+        return None
+
+    ap = SimpleNamespace(
+        logger=SimpleNamespace(info=Mock(), warning=Mock(), debug=Mock()),
+        persistence_mgr=SimpleNamespace(execute_async=AsyncMock(side_effect=execute_async)),
+    )
+    service = TaskAssistantService(ap)
+
+    await service._ensure_course_sales_doubao_text_models()
+
+    assert inserted_providers == [
+        {
+            'uuid': 'lnp-doubao',
+            'name': '豆包',
+            'requester': 'volcark-chat-completions',
+            'base_url': 'https://ark.cn-beijing.volces.com/api/v3',
+            'api_keys': [],
+        }
+    ]
+    assert {model['uuid'] for model in inserted_models} == {
+        'doubao-seed-2-0-pro-260215',
+        'doubao-seed-2-0-mini-260215',
+    }
+    assert all(model['provider_uuid'] == 'lnp-doubao' for model in inserted_models)
+    assert all('vision' in model['abilities'] for model in inserted_models)
+
+
 def test_task_assistant_template_pipeline_config_matches_workflow_capabilities():
     service = TaskAssistantService(SimpleNamespace())
 
@@ -828,6 +1090,7 @@ def test_task_assistant_template_pipeline_config_matches_workflow_capabilities()
     assert TASK_ASSISTANT_TEMPLATE_PIPELINE_UUID == 'task-assistant-ant-af-template-pipeline'
     assert config['config_mode'] == 'template'
     assert config['ai']['local-agent']['model']['primary'] == ''
+    assert config['ai']['local-agent']['max-round'] == 12
     assert config['workflow']['metadata']['scenario'] == 'task_assistant_ant_af'
     assert 'source_mode' not in config['workflow']['metadata']
     template_config = config['template_config']
@@ -859,8 +1122,12 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert config['config_mode'] == 'template'
     assert config['workflow']['metadata']['scenario'] == COURSE_SALES_SCENARIO
     assert config['ai']['runner']['runner'] == 'local-agent'
-    assert config['ai']['local-agent']['model']['primary'] == ''
+    assert config['ai']['local-agent']['model']['primary'] == 'doubao-seed-2-0-pro-260215'
+    assert config['ai']['local-agent']['max-round'] == 12
+    assert config['workflow']['reference_rounds'] == 4
     template = config['template_config']
+    assert template['intent_model_uuid'] == 'doubao-seed-2-0-mini-260215'
+    assert template['reference_rounds'] == 4
     assert template['name'] == '课程销售模板'
     assert template['course_profile']['course_name'] == '猿辅导英语自然拼读体验课/自然拼读集训营'
     assert template['course_profile']['price'] == '9元体验'
@@ -945,6 +1212,28 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
         followups_by_stage['radar_clicked']['messages'][0]['message']
         == '看到您打开报名入口了\n家长，您这边能打开吗？'
     )
+
+
+def test_course_sales_runtime_defaults_update_copied_pipeline_config():
+    service = TaskAssistantService(SimpleNamespace())
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    config['ai']['local-agent']['max-round'] = 8
+    config['workflow'].pop('reference_rounds', None)
+
+    changed = service._apply_course_sales_runtime_defaults(config)
+
+    assert changed is True
+    assert config['ai']['local-agent']['max-round'] == 12
+    assert config['workflow']['reference_rounds'] == 4
+
+
+def test_course_sales_runtime_defaults_skip_non_course_pipeline_config():
+    service = TaskAssistantService(SimpleNamespace())
+    config = service.build_template_pipeline_config()
+
+    changed = service._apply_course_sales_runtime_defaults(config)
+
+    assert changed is False
 
 
 @pytest.mark.parametrize(

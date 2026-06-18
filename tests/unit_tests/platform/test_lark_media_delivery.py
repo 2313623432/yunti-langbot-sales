@@ -3,8 +3,9 @@ import asyncio
 import threading
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
+import langbot_plugin.api.entities.builtin.platform.entities as platform_entities
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from langbot.pkg.platform.sources.lark import LarkAdapter, LarkEventConverter, LarkMessageConverter
 from lark_oapi.core.enum import AccessTokenType, HttpMethod
@@ -176,6 +177,82 @@ def test_lark_base64_image_decoder_accepts_data_uri_whitespace_and_missing_paddi
     assert mime_type == 'image/png'
 
 
+def _lark_text_chain(text: str) -> platform_message.MessageChain:
+    return platform_message.MessageChain(
+        [
+            platform_message.Source(id='om_user_message', time=1609459200),
+            platform_message.Plain(text=text),
+        ]
+    )
+
+
+def _lark_friend_event() -> platform_events.FriendMessage:
+    return platform_events.FriendMessage(
+        type='FriendMessage',
+        sender=platform_entities.Friend(id='ou_customer', nickname='少华', remark=''),
+        message_chain=_lark_text_chain('三年级'),
+        time=1609459200,
+        source_platform_object=SimpleNamespace(header=SimpleNamespace(tenant_key='tenant-key')),
+    )
+
+
+class _SuccessfulLarkResponse:
+    code = 0
+    msg = 'ok'
+    raw = SimpleNamespace(content='{}')
+    data = SimpleNamespace(message_id='om_reply_message')
+
+    def success(self):
+        return True
+
+    def get_log_id(self):
+        return 'log-id'
+
+
+@pytest.mark.asyncio
+async def test_lark_reply_message_without_quote_uses_create_message():
+    message_client = SimpleNamespace(
+        create=Mock(return_value=_SuccessfulLarkResponse()),
+        areply=AsyncMock(return_value=_SuccessfulLarkResponse()),
+    )
+    adapter = LarkAdapter.model_construct(
+        api_client=SimpleNamespace(im=SimpleNamespace(v1=SimpleNamespace(message=message_client))),
+        config={'app_type': 'self'},
+        app_ticket='ticket',
+    )
+
+    await adapter.reply_message(
+        message_source=_lark_friend_event(),
+        message=platform_message.MessageChain([platform_message.Plain(text='孩子目前英语基础怎么样呀')]),
+        quote_origin=False,
+    )
+
+    message_client.areply.assert_not_awaited()
+    message_client.create.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_lark_reply_message_with_quote_keeps_reply_message():
+    message_client = SimpleNamespace(
+        create=Mock(return_value=_SuccessfulLarkResponse()),
+        areply=AsyncMock(return_value=_SuccessfulLarkResponse()),
+    )
+    adapter = LarkAdapter.model_construct(
+        api_client=SimpleNamespace(im=SimpleNamespace(v1=SimpleNamespace(message=message_client))),
+        config={'app_type': 'self'},
+        app_ticket='ticket',
+    )
+
+    await adapter.reply_message(
+        message_source=_lark_friend_event(),
+        message=platform_message.MessageChain([platform_message.Plain(text='三年级刚好适配哦')]),
+        quote_origin=True,
+    )
+
+    message_client.areply.assert_awaited_once()
+    message_client.create.assert_not_called()
+
+
 def test_lark_voice_upload_options_use_audio_message_for_ogg_opus_data_uri():
     voice_options = LarkMessageConverter._voice_upload_options('data:audio/ogg;base64,ZmFrZQ==')
 
@@ -330,6 +407,14 @@ def test_lark_contact_added_uses_first_created_or_entered_events():
     assert LarkAdapter._is_contact_added_chat_access_event('im.chat.access_event.bot_p2p_chat_created_v1') is True
     assert LarkAdapter._is_contact_added_chat_access_event('im.chat.access_event.bot_p2p_chat_entered_v1') is True
     assert LarkAdapter._is_contact_added_chat_access_event('im.message.receive_v1') is False
+
+
+def test_lark_message_event_dedup_uses_message_id_before_event_id():
+    adapter = LarkAdapter.model_construct(processed_message_ids={})
+
+    assert adapter._is_duplicate_lark_message('om_message_1', 'evt_1') is False
+    assert adapter._is_duplicate_lark_message('om_message_1', 'evt_2') is True
+    assert adapter._is_duplicate_lark_message('om_message_2', 'evt_1') is False
 
 
 @pytest.mark.asyncio

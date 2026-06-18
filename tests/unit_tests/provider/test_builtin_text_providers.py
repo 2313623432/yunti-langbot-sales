@@ -54,6 +54,15 @@ def test_doubao_catalog_excludes_removed_placeholder_models():
     )
 
 
+def test_doubao_catalog_does_not_duplicate_user_configured_seed_2_models():
+    spec = builtin_text_providers.get_builtin_text_provider_spec('lnp-doubao')
+    assert spec is not None
+
+    model_ids = {model.model_id for model in spec.models}
+    assert 'doubao-seed-2-0-mini-260215' not in model_ids
+    assert 'doubao-seed-2-0-pro-260215' not in model_ids
+
+
 def test_is_provider_configured_requires_base_url_api_key_and_models():
     provider = {
         'uuid': 'lnp-openai',
