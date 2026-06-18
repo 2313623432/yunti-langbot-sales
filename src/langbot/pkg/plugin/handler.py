@@ -279,6 +279,10 @@ class RuntimeConnectionHandler(handler.Handler):
             """Get bot info"""
             bot_uuid = data['bot_uuid']
             bot = await self.ap.bot_service.get_runtime_bot_info(bot_uuid, include_secret=False)
+            if bot is None:
+                return handler.ActionResponse.error(
+                    message=f'Bot with bot_uuid {bot_uuid} not found',
+                )
             return handler.ActionResponse.success(
                 data={
                     'bot': bot,

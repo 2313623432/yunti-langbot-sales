@@ -187,8 +187,8 @@ class TestBotServiceGetBot:
 class TestBotServiceGetRuntimeBotInfo:
     """Tests for get_runtime_bot_info method."""
 
-    async def test_get_runtime_bot_info_bot_not_found_raises(self):
-        """Raises Exception when bot not found."""
+    async def test_get_runtime_bot_info_bot_not_found_returns_none(self):
+        """Returns None when bot not found."""
         # Setup
         ap = SimpleNamespace()
         ap.persistence_mgr = SimpleNamespace()
@@ -201,9 +201,11 @@ class TestBotServiceGetRuntimeBotInfo:
         # Mock get_bot to return None
         service.get_bot = AsyncMock(return_value=None)
 
-        # Execute & Verify
-        with pytest.raises(Exception, match='Bot not found'):
-            await service.get_runtime_bot_info('nonexistent-uuid')
+        # Execute
+        result = await service.get_runtime_bot_info('nonexistent-uuid')
+
+        # Verify
+        assert result is None
 
     async def test_get_runtime_bot_info_returns_webhook_for_wecom(self):
         """Returns webhook URL for wecom adapter."""
