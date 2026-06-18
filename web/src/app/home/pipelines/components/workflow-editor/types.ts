@@ -53,6 +53,7 @@ export interface PipelineWorkflow {
   voice?: Record<string, unknown>;
   memes?: PipelineTemplateMemeConfig;
   special_cases?: PipelineTemplateSpecialCase[];
+  agent_orchestration?: PipelineTemplateAgentOrchestration;
   nodes: PipelineWorkflowNode[];
   edges: PipelineWorkflowEdge[];
   variables: Record<string, unknown>;
@@ -218,6 +219,29 @@ export interface PipelineTemplateKnowledgePack {
   answering_rule?: string;
 }
 
+export interface PipelineTemplateAgentAssistant {
+  id: string;
+  name: string;
+  description: string;
+  input: string;
+  output: string;
+  model: string;
+  model_uuid?: string;
+  model_extra_args?: Record<string, unknown>;
+  prompt: string;
+  enabled?: boolean;
+}
+
+export interface PipelineTemplateAgentOrchestration {
+  enabled: boolean;
+  mode: 'single_prompt' | 'multi_agent';
+  profile_memory_enabled: boolean;
+  debug_trace_enabled: boolean;
+  assistants: PipelineTemplateAgentAssistant[];
+  debug_trace_fields: string[];
+  profile_fields: string[];
+}
+
 export interface PipelineTemplateConfig {
   name: string;
   metadata?: {
@@ -238,6 +262,7 @@ export interface PipelineTemplateConfig {
   product_uuids: string[];
   tools: Record<string, boolean>;
   reply_controls: PipelineTemplateReplyControls;
+  agent_orchestration: PipelineTemplateAgentOrchestration;
   memory: {
     variables_enabled: boolean;
     table_enabled: boolean;

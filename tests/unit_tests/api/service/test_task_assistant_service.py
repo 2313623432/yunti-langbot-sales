@@ -797,39 +797,57 @@ def test_course_sales_template_defaults_to_doubao_reply_and_intent_models():
     assert template['model_extra_args']['reasoning_effort'] == 'low'
     assert template['intent_model_extra_args']['thinking'] == {'type': 'disabled'}
     assert '不要输出思考过程' in template['role_prompt']
+    assert '人设' in template['role_prompt']
+    assert '口吻' in template['role_prompt']
+    assert '绝对禁则' in template['role_prompt']
+    assert '业务边界' in template['role_prompt']
+    assert '最终回复风格' in template['role_prompt']
+    assert '成交SOP' not in template['role_prompt']
+    assert '怎么识别意图' not in template['role_prompt']
+    assert '怎么改写问题' not in template['role_prompt']
+    assert '怎么更新画像' not in template['role_prompt']
+    assert '怎么检索知识库' not in template['role_prompt']
 
 
 @pytest.mark.asyncio
-async def test_course_sales_prepare_query_uses_configured_intent_model(monkeypatch):
+async def test_course_sales_prepare_query_runs_configured_agent_orchestration(monkeypatch):
+    responses = [
+        '{"孩子年级":"三年级","关注点":"上课时间","购买阶段":"课程咨询"}',
+        '{"intent":"course_schedule","confidence":0.91,"reason":"模型判断用户在问排课","step_ids":[],"include_link":true}',
+        '自然拼读 什么时候上课 支持回放 赠品 报名',
+        '证据：自然拼读课分两周上，晚上19点到20点，支持3年回放。',
+        '家长，这个课是晚上7点到8点，没赶上也能看回放',
+        '{"next_action":"send_signup_link","delay":"马上","reason":"用户询问排课，可承接报名"}',
+    ]
     provider = SimpleNamespace(
         invoke_llm=AsyncMock(
-            return_value=(
-                provider_message.Message(
-                    role='assistant',
-                    content='{"intent":"purchase","confidence":0.91,"reason":"模型判断用户要报名","step_ids":[],"include_link":true}',
-                ),
-                {},
-            )
+            side_effect=[
+                (provider_message.Message(role='assistant', content=response), {})
+                for response in responses
+            ]
         )
     )
-    runtime_model = SimpleNamespace(
-        model_entity=SimpleNamespace(
-            uuid='doubao-seed-2-0-mini-260215',
-            name='doubao-seed-2-0-mini-260215',
-            abilities=[],
-            extra_args={'thinking': {'type': 'disabled'}},
-        ),
-        provider=provider,
-    )
+
+    async def get_model_by_uuid(model_uuid):
+        return SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid=model_uuid,
+                name=model_uuid,
+                abilities=[],
+                extra_args={'thinking': {'type': 'disabled'}},
+            ),
+            provider=provider,
+        )
+
     service = TaskAssistantService(
         SimpleNamespace(
-            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(return_value=runtime_model)),
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
             sales_service=None,
             logger=SimpleNamespace(warning=lambda *_: None),
         )
     )
     monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
-    query = _query(text_chain('我随便问问'), '我随便问问')
+    query = _query(text_chain('什么时候上课'), '什么时候上课')
     query.pipeline_config = service.build_course_sales_template_pipeline_config(
         model_uuid='doubao-seed-2-0-pro-260215',
         template_slug='yuanfudao-enhanced',
@@ -844,13 +862,162 @@ async def test_course_sales_prepare_query_uses_configured_intent_model(monkeypat
     result = await service.prepare_query(query)
 
     assert result['handled'] is True
-    assert query.variables['workflow_intent']['intent'] == 'purchase'
-    assert query.variables['workflow_intent']['source'] == 'model'
-    service.ap.model_mgr.get_model_by_uuid.assert_awaited_once_with('doubao-seed-2-0-mini-260215')
-    provider.invoke_llm.assert_awaited_once()
-    invoke_kwargs = provider.invoke_llm.await_args.kwargs
-    assert invoke_kwargs['extra_args'] == {'thinking': {'type': 'disabled'}}
+    assert query.variables['workflow_intent']['intent'] == 'course_schedule'
+    assert query.variables['workflow_intent']['source'] == 'agent'
+    assert query.variables['workflow_intent']['agent_id'] == 'intent_classifier'
+    assert query.variables['user_profile']['孩子年级'] == '三年级'
+    assert query.variables['rewritten_query'] == '自然拼读 什么时候上课 支持回放 赠品 报名'
+    assert '晚上19点到20点' in query.variables['evidence_bundle']
+    assert '晚上7点到8点' in query.variables['agent_reply_draft']
+    assert 'send_signup_link' in query.variables['outreach_plan']
+    assert len(query.variables['agent_orchestration_trace']) == 6
+    assert provider.invoke_llm.await_count == 6
+    requested_model_uuids = [call.args[0] for call in service.ap.model_mgr.get_model_by_uuid.await_args_list]
+    assert requested_model_uuids == [
+        'doubao-seed-2-0-mini-260215',
+        'doubao-seed-2-0-mini-260215',
+        'doubao-seed-2-0-mini-260215',
+        'doubao-seed-2-0-mini-260215',
+        'doubao-seed-2-0-pro-260215',
+        'doubao-seed-2-0-mini-260215',
+    ]
+    invoke_kwargs = provider.invoke_llm.await_args_list[0].kwargs
+    assert invoke_kwargs['extra_args'] == {'thinking': {'type': 'disabled'}, 'reasoning_effort': 'minimal'}
     assert invoke_kwargs['remove_think'] is True
+    system_prompts = [call.kwargs['messages'][0].content for call in provider.invoke_llm.await_args_list]
+    assert '画像增量' in system_prompts[0]
+    assert '识别咨询意图' in system_prompts[1]
+    assert '适合知识库' in system_prompts[2]
+    assert '输出证据摘要' in system_prompts[3]
+    assert '生成给家长看的回复草稿' in system_prompts[4]
+    assert '生成下一步跟进计划' in system_prompts[5]
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '[智能体编排结果]' in context_text
+    assert '用户画像' in context_text
+    assert '重写问题' in context_text
+    assert '检索证据' in context_text
+    assert '回复草稿' in context_text
+    assert '跟进计划' in context_text
+
+
+@pytest.mark.asyncio
+async def test_course_sales_agent_orchestration_skips_heavy_agents_for_smalltalk(monkeypatch):
+    responses = [
+        '{"关注点":"寒暄","购买阶段":"未开始"}',
+        '{"intent":"smalltalk","confidence":0.89,"reason":"用户只是打招呼","step_ids":[],"include_link":false}',
+        '家长您好，我在的，您可以直接把问题发我。',
+    ]
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            side_effect=[
+                (provider_message.Message(role='assistant', content=response), {})
+                for response in responses
+            ]
+        )
+    )
+
+    async def get_model_by_uuid(model_uuid):
+        return SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid=model_uuid,
+                name=model_uuid,
+                abilities=[],
+                extra_args={'thinking': {'type': 'disabled'}},
+            ),
+            provider=provider,
+        )
+
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    query = _query(text_chain('你好'), '你好')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        model_uuid='doubao-seed-2-0-pro-260215',
+        template_slug='yuanfudao-enhanced',
+    )
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert query.variables['workflow_intent']['intent'] == 'smalltalk'
+    assert query.variables['agent_reply_draft'] == '家长您好，我在的，您可以直接把问题发我。'
+    assert 'rewritten_query' not in query.variables
+    assert 'evidence_bundle' not in query.variables
+    assert 'outreach_plan' not in query.variables
+    assert provider.invoke_llm.await_count == 3
+    assert [item['id'] for item in query.variables['agent_orchestration_trace']] == [
+        'profile_updater',
+        'intent_classifier',
+        'reply_composer',
+    ]
+    system_prompts = [call.kwargs['messages'][0].content for call in provider.invoke_llm.await_args_list]
+    assert '画像增量' in system_prompts[0]
+    assert '识别咨询意图' in system_prompts[1]
+    assert '生成给家长看的回复草稿' in system_prompts[2]
+
+
+@pytest.mark.asyncio
+async def test_course_sales_agent_orchestration_respects_profile_memory_toggle(monkeypatch):
+    responses = [
+        '{"孩子年级":"三年级","关注点":"上课时间","购买阶段":"课程咨询"}',
+        '{"intent":"course_schedule","confidence":0.91,"reason":"模型判断用户在问排课","step_ids":[],"include_link":true}',
+        '自然拼读 什么时候上课 支持回放 赠品 报名',
+        '证据：自然拼读课分两周上，晚上19点到20点，支持3年回放。',
+        '家长，这个课是晚上7点到8点，没赶上也能看回放',
+        '{"next_action":"send_signup_link","delay":"马上","reason":"用户询问排课，可承接报名"}',
+    ]
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            side_effect=[
+                (provider_message.Message(role='assistant', content=response), {})
+                for response in responses
+            ]
+        )
+    )
+
+    async def get_model_by_uuid(model_uuid):
+        return SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid=model_uuid,
+                name=model_uuid,
+                abilities=[],
+                extra_args={'thinking': {'type': 'disabled'}},
+            ),
+            provider=provider,
+        )
+
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    query = _query(text_chain('什么时候上课'), '什么时候上课')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        model_uuid='doubao-seed-2-0-pro-260215',
+        template_slug='yuanfudao-enhanced',
+        existing_config={
+            'template_config': {
+                'agent_orchestration': {'profile_memory_enabled': False},
+            }
+        },
+    )
+
+    await service.prepare_query(query)
+
+    assert 'user_profile' not in query.variables
+    assert query.variables['workflow_intent']['intent'] == 'course_schedule'
+    assert query.variables['rewritten_query'] == '自然拼读 什么时候上课 支持回放 赠品 报名'
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '用户画像：' not in context_text
+    assert '重写问题：' in context_text
 
 
 @pytest.mark.asyncio
@@ -904,6 +1071,7 @@ async def test_course_sales_intent_model_receives_recent_reference_rounds(monkey
                 'reference_rounds': 4,
                 'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
                 'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+                'agent_orchestration': {'enabled': False},
             }
         },
     )
@@ -1158,6 +1326,13 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     assert '您的图书配套学习资源点击' in template['opening_message']
     assert COURSE_RESOURCE_CARD_LINK not in template['opening_message']
     assert COURSE_RESOURCE_CARD_LINK not in template['role_prompt']
+    assert '先解释用户当前问题，再自然问要不要给孩子试试' not in template['role_prompt']
+    assert '发完结课礼物图后，再发雷达报名链接' not in template['role_prompt']
+    assert '进入报名通道' not in template['role_prompt']
+    assert '跟进计划助手' in {
+        assistant['name']
+        for assistant in template['agent_orchestration']['assistants']
+    }
     assert 'https://mp.bookln.cn/user/history/moment.htm' in template['opening_message']
     assert '#小程序://教辅好帮手/la0KWwjPCx8S26C' in template['opening_message']
     assert 'https://d.codeup.cn/d/UVruQn' in template['opening_message']
@@ -1400,6 +1575,29 @@ def test_course_sales_template_config_migrates_legacy_default_assets_and_links()
     )
 
 
+def test_course_sales_template_config_replaces_legacy_long_role_prompt():
+    service = TaskAssistantService(SimpleNamespace())
+
+    template = service.build_course_sales_template_config(
+        overrides={
+            'role_prompt': (
+                '你是微信/企微私域里的真人课程客服兼销售。\n\n'
+                '成交SOP:\n'
+                '- 通用成交SOP：先解释用户当前问题，再自然问要不要给孩子试试；'
+                '若家长没发截图，5分钟后追问“家长领取到了吗？”；'
+                '仍未回复，1小时后优先语音追问。'
+            )
+        }
+    )
+
+    assert '成交SOP' not in template['role_prompt']
+    assert '通用成交SOP' not in template['role_prompt']
+    assert '5分钟后追问' not in template['role_prompt']
+    assert '人设' in template['role_prompt']
+    assert '业务边界' in template['role_prompt']
+    assert '最终回复风格' in template['role_prompt']
+
+
 def test_course_sales_template_safety_flags_placeholder_and_legacy_links():
     service = TaskAssistantService(SimpleNamespace())
 
@@ -1553,6 +1751,48 @@ def test_course_sales_template_config_includes_human_handoff_rules():
         assert forbidden not in handoff['notify_message']
     assert any(trigger['id'] == 'manual_request' for trigger in handoff['semantic_triggers'])
     assert any(trigger['id'] == 'high_risk_complaint' for trigger in handoff['semantic_triggers'])
+
+
+def test_yuanfudao_enhanced_template_includes_agent_orchestration_config():
+    service = TaskAssistantService(SimpleNamespace())
+
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    orchestration = template['agent_orchestration']
+
+    assert orchestration['enabled'] is True
+    assert orchestration['mode'] == 'multi_agent'
+    assert orchestration['profile_memory_enabled'] is True
+    assert orchestration['debug_trace_enabled'] is True
+    assert [assistant['id'] for assistant in orchestration['assistants']] == [
+        'profile_updater',
+        'intent_classifier',
+        'query_rewriter',
+        'knowledge_retriever',
+        'reply_composer',
+        'followup_planner',
+    ]
+    assert [assistant['name'] for assistant in orchestration['assistants']] == [
+        '画像更新助手',
+        '意图识别助手',
+        '问题重写助手',
+        '知识/产品检索',
+        '回复生成助手',
+        '跟进计划助手',
+    ]
+    assistant_by_id = {assistant['id']: assistant for assistant in orchestration['assistants']}
+    assert assistant_by_id['profile_updater']['model_uuid'] == 'doubao-seed-2-0-mini-260215'
+    assert assistant_by_id['query_rewriter']['model_uuid'] == 'doubao-seed-2-0-mini-260215'
+    assert assistant_by_id['reply_composer']['model_uuid'] == 'doubao-seed-2-0-pro-260215'
+    assert assistant_by_id['profile_updater']['prompt']
+    assert assistant_by_id['intent_classifier']['prompt']
+    assert assistant_by_id['query_rewriter']['prompt']
+
+    workflow = service.build_course_sales_workflow_from_template_config(template)
+
+    assert workflow['agent_orchestration'] == orchestration
+    assert workflow['variables']['agent_orchestration'] == orchestration
+    assert 'user_profile' in workflow['metadata']['langgraph_state']
+    assert 'rewritten_query' in workflow['metadata']['langgraph_state']
 
 
 def test_course_sales_template_mode_builds_active_workflow_from_independent_template():

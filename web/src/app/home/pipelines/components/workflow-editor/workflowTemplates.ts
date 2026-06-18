@@ -1,4 +1,5 @@
 import {
+  PipelineTemplateAgentOrchestration,
   PipelineTemplateConfig,
   PipelineTemplateMemeConfig,
   PipelineTemplateMemeLibraryItem,
@@ -18,6 +19,113 @@ const COURSE_SALES_INTENT_MODEL_EXTRA_ARGS = {
   thinking: { type: 'disabled' },
   reasoning_effort: 'minimal',
 };
+
+const defaultAgentOrchestration: PipelineTemplateAgentOrchestration = {
+  enabled: true,
+  mode: 'multi_agent',
+  profile_memory_enabled: true,
+  debug_trace_enabled: true,
+  assistants: [
+    {
+      id: 'profile_updater',
+      name: '画像更新助手',
+      description: '抽取孩子年级、关注点、购买阶段、拒绝原因和停发风险，写回客户关键信息。',
+      input: '用户消息 + 历史画像',
+      output: 'profile patch',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是用户画像更新助手。根据用户最新消息、历史对话和已有画像，只抽取稳定事实，输出画像增量 JSON。必须覆盖可判断字段：孩子年级、英语基础、关注点、购买阶段、拒绝原因、资源问题、停发风险；无法判断的字段不要输出。只记录用户明确表达或上下文强相关的信息，不要生成客户可见回复，不要编造未提到的信息。',
+      enabled: true,
+    },
+    {
+      id: 'intent_classifier',
+      name: '意图识别助手',
+      description: '结合客户关键信息识别课程咨询、购买、已报名、拒绝、截图、投诉和转人工。',
+      input: '用户消息 + 当前画像',
+      output: 'intent JSON',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是意图识别助手。结合用户消息、当前画像、媒体类型、最近对话和渠道事件，识别咨询意图、置信度、购买阶段、是否需要转人工、是否触发停发。只输出 JSON：intent, confidence, reason, step_ids, include_link；intent 必须使用运行时允许的课程销售意图；reason 用一句话说明依据，不要回复用户。',
+      enabled: true,
+    },
+    {
+      id: 'query_rewriter',
+      name: '问题重写助手',
+      description: '把口语化问题改写成适合知识库、FAQ 和产品库检索的标准问题。',
+      input: '原始消息 + 意图结果',
+      output: 'rewritten query',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是问题重写助手。把家长的口语化消息改写成适合知识库、课程 FAQ 和产品库检索的一句话查询，补齐可检索关键词，保留课程名、年级、价格、回放、赠品、报名、支付截图、资源打不开等关键约束。只输出重写后的查询，不要解释，不要扩写成回复。',
+      enabled: true,
+    },
+    {
+      id: 'knowledge_retriever',
+      name: '知识/产品检索',
+      description: '按重写问题检索知识库、课程 FAQ、产品画像、报名链接和素材。',
+      input: '重写问题 + 产品画像',
+      output: 'evidence bundle',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是知识/产品检索助手。根据重写问题、意图和产品画像，选择相关课程 FAQ、知识库片段、产品事实、报名链接和素材，输出证据摘要与来源。标注哪些事实可直接用于回复，哪些只作内部参考；价格、排期、赠品和活动有效期以运行时上下文为准。不生成最终回复。',
+      enabled: true,
+    },
+    {
+      id: 'reply_composer',
+      name: '回复生成助手',
+      description: '只基于客户信息、意图和检索证据生成客户可见回复，减少长提示词堆叠。',
+      input: '画像 + 意图 + 证据',
+      output: 'final reply',
+      model: COURSE_SALES_REPLY_MODEL_UUID,
+      model_uuid: COURSE_SALES_REPLY_MODEL_UUID,
+      model_extra_args: COURSE_SALES_REPLY_MODEL_EXTRA_ARGS,
+      prompt: '你是回复生成助手。只基于用户画像、意图结果、检索证据和业务边界，生成给家长看的回复草稿。先回答当前问题，再轻量承接下一步；短句、自然、像真人客服；不得输出推理过程，不得编造课程事实，不要泄露智能体、草稿或内部上下文。',
+      enabled: true,
+    },
+    {
+      id: 'followup_planner',
+      name: '跟进计划助手',
+      description: '根据购买阶段、雷达事件和停发规则生成马上、延时、晚间或 Day 跟进计划。',
+      input: '客户阶段 + 雷达事件',
+      output: 'outreach plan',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是跟进计划助手。根据购买阶段、意图、雷达事件、停发规则和当前回复草稿，生成下一步跟进计划：马上、5分钟、1小时、晚间21:30或 Day 跟进。命中停发、投诉、转人工、已支付时输出停止计划；计划要说明触发条件、延迟和目标动作。只输出结构化计划摘要。',
+      enabled: true,
+    },
+  ],
+  debug_trace_fields: ['原始消息', '用户画像', '意图结果', '重写问题', '命中资料', '最终回复', '跟进计划'],
+  profile_fields: ['孩子年级', '关注点', '购买阶段', '雷达点击', '停发风险'],
+};
+
+function makeDefaultAgentOrchestration(): PipelineTemplateAgentOrchestration {
+  return {
+    ...defaultAgentOrchestration,
+    assistants: defaultAgentOrchestration.assistants.map((assistant) => ({ ...assistant })),
+    debug_trace_fields: [...defaultAgentOrchestration.debug_trace_fields],
+    profile_fields: [...defaultAgentOrchestration.profile_fields],
+  };
+}
+
+function makeDisabledAgentOrchestration(): PipelineTemplateAgentOrchestration {
+  const orchestration = makeDefaultAgentOrchestration();
+  return {
+    ...orchestration,
+    enabled: false,
+    mode: 'single_prompt',
+    profile_memory_enabled: false,
+    debug_trace_enabled: false,
+    assistants: orchestration.assistants.map((assistant) => ({
+      ...assistant,
+      enabled: false,
+    })),
+  };
+}
 
 const nodeDefaults: Record<
   WorkflowNodeType,
@@ -689,17 +797,19 @@ const courseResourceFaqs = [
   { question: '资源类问题是否转人工', answer: '常规资源问题不转人工，由AI直接处理；只有用户强烈投诉或AI无法判断时才转人工。', keywords: ['人工', '客服', '投诉'] },
 ];
 const courseFaqs = [
-  { intent: 'course_schedule', question: '什么时候上课', answer: '分两周上课，第一周五六、第二周五六日，晚上19点到20点；每天大概60分钟。没时间可以看回放，3年内无限次回放，手机平板都能学。', keywords: ['什么时候', '几点', '上课时间', '回放'] },
-  { intent: 'course_intro', question: '这个是什么课/这是什么/你发是什么', answer: '猿辅导自然拼读课程，9元5天10节，适合大班到小学4年级，主要练自然拼读、绘本阅读和开口表达，内容会按孩子年级匹配。', keywords: ['什么课', '是什么', '自然拼读', '学什么'] },
-  { intent: 'course_content', question: '学习内容', answer: '每个年级内容会按孩子情况匹配，核心是自然拼读、绘本阅读、口语发音和开口练习。可以先低成本体验一轮，看孩子适不适应。', keywords: ['学习内容', '内容', '学啥', '学什么'] },
-  { intent: 'course_replay', question: '支持回放吗', answer: '支持回放的，3年内可以无限次看，手机和平板都能学。', keywords: ['回放', '没时间', '错过'] },
-  { intent: 'course_conflict', question: '和其他课有冲突', answer: '不冲突的，这个更侧重教孩子拼读技巧和方法，支持回放，可以先让孩子试试看。', keywords: ['冲突', '没空', '上班', '时间'] },
-  { intent: 'purchase', question: '要买/怎么买', answer: '点开报名链接，选择孩子年级，输入手机号验证，确认支付9元后把截图发我，我这边给您登记开课并发资料。', keywords: ['要买', '怎么买', '报名', '链接', '领取'] },
-  { intent: 'purchased', question: '买了/已报名', answer: '谢谢支持，报名后会分配指导老师；您也可以先下载猿辅导素养课APP查看课程和开课时间，完课礼品后续联系班主任领取。', keywords: ['买了', '已报名', '支付', '付了', '截图'] },
-  { intent: 'objection', question: '不买/考虑', answer: '没关系家长，这个主要是让孩子低成本体验自然拼读方法，9元压力也小。现在报名还有资料和完课礼，可以先试一轮看看是否适合。', keywords: ['考虑', '不买', '贵', '再说'] },
-  { intent: 'gift', question: '赠品/资料', answer: '报名还独家赠送资料，完课后随机发实物礼品。具体礼品以班主任登记和活动规则为准。', keywords: ['赠品', '礼品', '资料', '篮球', '书包'] },
-  { intent: 'grade', question: '适合几年级', answer: '这套自然拼读适合大班到小学4年级。如果孩子年级不在这个范围，我先帮您确认更适合的课程入口。', keywords: ['几年级', '大班', '一年级', '四年级', '初中'] },
-  { intent: 'link_error', question: '链接打不开/页面异常', answer: '我帮您看下，麻烦截一下当前页面；也可以先退出重进，或复制链接到浏览器打开。', keywords: ['打不开', '白屏', '点不进去', '页面'] },
+  { intent: 'course_schedule', question: '什么时候上课', answer: '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。\n\n需要给孩子试试不，现在报名还送结课礼物。', keywords: ['什么时候', '几点', '上课时间', '课表'] },
+  { intent: 'course_intro', question: '这个是什么课/这是什么/你发是什么', answer: '这是猿辅导英语自然拼读集训营，9元5天10节，专为大班到小学4年级设计。课程包含5次绘本阅读实践、180次开口练习、360分钟配套视频，重点教孩子拼读规律，鼓励孩子多表达，提升口语能力。报名链接我发您。', keywords: ['什么课', '是什么', '自然拼读', '拼读', '发音', '9元课'] },
+  { intent: 'reading_thinking_intro', question: '阅读+思维是什么课', answer: '阅读+思维课是另一个9元体验方向，主要解决阅读没头绪、作文凑字数、数学粗心马虎和做题难变通；如果您问的是英语自然拼读，我还是优先按自然拼读给您介绍。', keywords: ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'] },
+  { intent: 'course_content', question: '学习内容', answer: '每个年级的学习内容不一样，具体上课后才可以看到亲，是根据孩子年级匹配的。\n\n需要给孩子试试不，现在报名还送结课礼物。', keywords: ['学习内容', '内容', '学啥', '学什么', '课表', '课程安排'] },
+  { intent: 'teacher_service', question: '老师伴学服务是什么老师', answer: '伴学服务是猿辅导安排的指导老师/班主任，报名后会通过电话、短信或页面二维码联系您，提醒上课、答疑、反馈学习进度，也会协助登记开课和资料。', keywords: ['老师伴学', '伴学', '什么老师', '班主任', '指导老师', '老师服务'] },
+  { intent: 'course_replay', question: '支持回放吗', answer: '当然支持呀，3年内可以无限次看回放，手机和平板都能学。咱们课每次也就一小时左右，时间安排很灵活的。\n\n要不要试试看，现在报名，还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。', keywords: ['回放', '没时间', '错过', '直播没赶上'] },
+  { intent: 'course_conflict', question: '和其他课有冲突', answer: '不冲突的，这个课更侧重教孩子拼读技巧和方法，支持回放，可以给孩子试试哈。\n\n报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。\n\n主要是赠送实物的名额，就这一周有。我把报名链接发给您。', keywords: ['冲突', '没空', '时间不方便', '有课', '上班'] },
+  { intent: 'purchase', question: '要买/怎么买', answer: '点开报名链接，选择孩子年级，输入手机号验证并支付9元；成功后把截图发我，我帮您登记开课并安排资料。', keywords: ['要买', '怎么买', '报名', '链接', '领取', '我要报'] },
+  { intent: 'purchased', question: '买了/已报名', answer: '谢谢支持。报名后一般会分配指导老师/班主任，您留意电话短信；也可以下载猿辅导素养课APP查看课程和开课时间，完课礼品后续联系班主任登记。', keywords: ['买了', '已报名', '支付成功', '付了', '报名成功'] },
+  { intent: 'objection', question: '不买/考虑', answer: '没关系家长，您可以先考虑。这个主要是9元低成本让孩子体验自然拼读方法，报名还有资料和完课随机礼品，适合再继续，不适合也不耽误。', keywords: ['考虑', '不买', '贵', '再说', '不需要', '没兴趣'] },
+  { intent: 'gift', question: '赠品/资料', answer: '活动里有资料和完课礼，常见礼品包括小猿篮球、护脊书包、小猿手办、宇航员文具盒、铅笔、转笔刀等，完课后随机发货其一，具体以活动页和班主任登记为准。', keywords: ['赠品', '礼品', '资料', '篮球', '书包', '文具盒', '铅笔', '转笔刀'] },
+  { intent: 'grade', question: '适合几年级', answer: '自然拼读主要适合大班到小学4年级，三四年级尤其适合补拼读规律和单词记忆方法；如果孩子不在这个范围，我可以先帮您判断是否合适。', keywords: ['几年级', '大班', '一年级', '二年级', '三年级', '四年级', '初中'] },
+  { intent: 'link_error', question: '链接打不开/页面异常', answer: '我帮您看下，麻烦截一下当前页面；也可以先退出重进，或复制链接到浏览器打开。', keywords: ['打不开', '白屏', '点不进去', '页面', '卡住'] },
 ];
 const courseSalesLinks = [
   {
@@ -730,7 +840,29 @@ const courseRadarConfig = {
   ],
 };
 const courseStopRules = {
-  stop_keywords: ['不需要', '不买', '不要再发', '再发投诉', '没有孩子', '不是目标年级', '我是老师', '已经学过'],
+  stop_keywords: [
+    '不需要',
+    '不买',
+    '不想买',
+    '不想报',
+    '不想报名',
+    '不想领取',
+    '不领取',
+    '不要再发',
+    '不感兴趣',
+    '没兴趣',
+    '别来烦',
+    '别联系',
+    '滚',
+    '骗子',
+    '诈骗',
+    '垃圾',
+    '再发投诉',
+    '没有孩子',
+    '不是目标年级',
+    '我是老师',
+    '已经学过',
+  ],
   stop_tags: ['已报名', '已下单', '付费', '投诉', '明确拒绝', '人工接管', '无孩子', '非目标年级', '老师', '已学过'],
   message: '好的家长，收到，不再打扰您了。后面有需要可以随时联系我。',
 };
@@ -749,7 +881,7 @@ const courseStopPolicy = {
     '不感兴趣',
     '没兴趣',
   ],
-  immediate_stop_keywords: ['投诉', '没有孩子', '没孩子', '打错', '我是老师'],
+  immediate_stop_keywords: ['投诉', '没有孩子', '没孩子', '打错', '我是老师', '已报名', '已支付', '骗子', '诈骗', '垃圾', '滚'],
 };
 const courseImageBindings = [
   {
@@ -757,7 +889,7 @@ const courseImageBindings = [
     title: '完课好礼海报',
     text: '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
     file_key: 'course-sales/phonics/gift_poster.jpeg',
-    trigger_intents: ['gift', 'objection', 'course_intro', 'purchase'],
+    trigger_intents: ['gift', 'objection', 'course_schedule', 'course_content', 'course_replay', 'course_conflict', 'purchase'],
     requires_course_sales_signup_link: true,
     enabled: true,
   },
@@ -1048,7 +1180,30 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
     workflowNode('intent', 'intent', '意图识别', '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态', { x: 1460, y: 320 }, {
       model_uuid: intentModelUuid,
       model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
-      intents: ['resource_help', 'resource_confirmed', 'course_intro', 'course_schedule', 'course_replay', 'course_content', 'purchase', 'purchased', 'objection', 'gift', 'radar_clicked', 'handoff', 'stop', 'screenshot_help'],
+      intents: [
+        'resource_help',
+        'resource_confirmed',
+        'course_intro',
+        'course_schedule',
+        'course_replay',
+        'course_content',
+        'reading_thinking_intro',
+        'teacher_service',
+        'purchase',
+        'purchased',
+        'objection',
+        'explicit_rejection',
+        'gift',
+        'grade',
+        'link_error',
+        'radar_clicked',
+        'handoff',
+        'stop',
+        'screenshot_help',
+        'no_reply',
+        'smalltalk',
+        'clarification',
+      ],
       confidence_threshold: 0.55,
       image_intents: ['screenshot_help', 'purchased', 'link_error'],
     }),
@@ -1142,7 +1297,9 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       tts_provider: 'volcengine',
       langgraph_state: {
         messages: 'list',
+        user_profile: 'dict',
         intent: 'dict',
+        rewritten_query: 'str',
         customer_stage: 'str',
         radar_event: 'dict',
         selected_assets: 'list',
@@ -1157,6 +1314,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       encoding: 'mp3',
     },
     memes: courseMemeConfig,
+    agent_orchestration: makeDefaultAgentOrchestration(),
     nodes,
     edges,
     variables: {
@@ -1167,6 +1325,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       selected_product_uuid: 'yuanfudao-phonics-course',
       course_profile: courseSalesProfile,
       course_profiles: courseSalesProfiles,
+      agent_orchestration: makeDefaultAgentOrchestration(),
       source_materials: ['SOP.doc（群发截图转文字）', '猿辅导自然拼读常见问题(1).xlsx'],
       resource_faqs: courseResourceFaqs,
       course_faqs: courseFaqs,
@@ -1243,6 +1402,7 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
       merge_reply_enabled: true,
       merge_delay_seconds: 10,
     },
+    agent_orchestration: makeDisabledAgentOrchestration(),
     memory: {
       variables_enabled: false,
       table_enabled: false,
@@ -1347,6 +1507,7 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       merge_reply_enabled: true,
       merge_delay_seconds: 10,
     },
+    agent_orchestration: makeDisabledAgentOrchestration(),
     memory: {
       variables_enabled: true,
       table_enabled: true,
@@ -1427,6 +1588,7 @@ export function applyTemplateConfigToWorkflow(
     ...workflow,
     name: templateConfig.name || workflow.name,
     special_cases: templateConfig.special_cases || [],
+    agent_orchestration: templateConfig.agent_orchestration,
     metadata: {
       ...(workflow.metadata || {}),
       source_mode: 'template',
@@ -1496,6 +1658,7 @@ export function applyTemplateConfigToWorkflow(
       followup_sequences: templateConfig.followup_sequences || [],
       long_term_broadcasts: templateConfig.long_term_broadcasts || [],
       course_profiles: templateConfig.course_profiles || [],
+      agent_orchestration: templateConfig.agent_orchestration,
       source_materials: templateConfig.source_materials || [],
       stop_rules: templateConfig.stop_rules,
       stop_policy: templateConfig.stop_policy,

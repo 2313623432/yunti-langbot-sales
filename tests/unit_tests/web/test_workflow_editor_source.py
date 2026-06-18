@@ -14,6 +14,7 @@ TEMPLATE_CONFIG_EDITOR_PATH = Path(
 WORKFLOW_TEMPLATES_PATH = Path(
     'web/src/app/home/pipelines/components/workflow-editor/workflowTemplates.ts'
 )
+TYPES_PATH = Path('web/src/app/home/pipelines/components/workflow-editor/types.ts')
 WORKFLOWS_PAGE_PATH = Path('web/src/app/home/workflows/page.tsx')
 PIPELINE_PAGE_PATH = Path('web/src/app/home/pipelines/page.tsx')
 PIPELINE_DETAIL_PATH = Path('web/src/app/home/pipelines/PipelineDetailContent.tsx')
@@ -33,6 +34,7 @@ PIPELINE_AUTO_TEST_PATH = Path(
     'web/src/app/home/pipelines/components/auto-test/PipelineAutoTestTab.tsx'
 )
 AUTO_TEST_PAGE_PATH = Path('web/src/app/home/auto-test/page.tsx')
+TASK_ASSISTANT_SERVICE_PATH = Path('src/langbot/pkg/api/http/service/task_assistant.py')
 
 
 
@@ -305,6 +307,234 @@ def test_template_model_capability_uses_configured_llm_model_select():
     assert '最大思考次数' not in template_source
     assert 'max_reasoning_steps' not in template_source
     assert 'value={config.model_uuid}' not in template_source
+
+
+def test_template_config_editor_exposes_multi_agent_orchestration_tab():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    types_source = TYPES_PATH.read_text(encoding='utf-8')
+
+    assert "'orchestration'" in template_source
+    assert "label: '智能体编排'" in template_source
+    assert 'renderAgentOrchestrationSettings' in template_source
+    assert 'PipelineTemplateAgentOrchestration' in types_source
+    assert 'agent_orchestration' in workflow_source
+    assert 'patchAgentOrchestration' in template_source
+    assert 'profile_memory_enabled' in workflow_source
+    assert 'debug_trace_enabled' in workflow_source
+    assert '画像更新助手' in template_source
+    assert '意图识别助手' in template_source
+    assert '问题重写助手' in template_source
+    assert '知识/产品检索' in template_source
+    assert '回复生成助手' in template_source
+    assert '跟进计划助手' in template_source
+
+
+def test_template_config_editor_places_orchestration_after_role_settings():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+
+    basic_index = template_source.index("{ id: 'basic', label: '基本信息'")
+    role_index = template_source.index("{ id: 'role', label: '角色设定'")
+    orchestration_index = template_source.index("{ id: 'orchestration', label: '智能体编排'")
+    model_index = template_source.index("{ id: 'model', label: '模型能力'")
+
+    assert basic_index < role_index < orchestration_index < model_index
+    assert "useState<TemplateConfigTab>('basic')" in template_source
+
+
+def test_template_config_editor_supports_agent_model_and_prompt_configuration():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    types_source = TYPES_PATH.read_text(encoding='utf-8')
+
+    assert 'model_uuid?: string' in types_source
+    assert 'model_extra_args?: Record<string, unknown>' in types_source
+    assert 'prompt: string' in types_source
+    assert 'patchAgentAssistant(safeActiveAssistantIndex, {' in template_source
+    assert '子智能体提示词' in template_source
+    assert '选择子智能体模型' in template_source
+    assert 'agentModelOptions' in template_source
+    assert 'courseAgentModelDisplayName' in template_source
+    assert 'doubao seed2.0 mini' in template_source
+    assert 'doubao seed2.0 pro' in template_source
+    assert 'model_uuid:' in template_source
+    assert 'model: courseAgentModelDisplayName' in template_source
+    assert 'model_extra_args: modelExtraArgs(nextModel)' in template_source
+    assert 'LEGACY_COURSE_AGENT_PROMPT_MARKERS' in template_source
+    assert 'function resolveCourseAgentPrompt' in template_source
+    assert 'prompt: resolveCourseAgentPrompt(defaultAssistant, incoming)' in template_source
+    assert 'description: defaultAssistant.description' in template_source
+
+
+def test_template_config_editor_hides_internal_orchestration_runtime_panels():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    render_agent_settings = template_source[
+        template_source.index('function renderAgentOrchestrationSettings'):
+        template_source.index('function renderBasicInfo')
+    ]
+
+    assert 'SelectItem value="multi_agent"' not in render_agent_settings
+    assert 'SelectItem value="single_prompt"' not in render_agent_settings
+    assert "mode: 'multi_agent'" in template_source
+    assert 'toolSignals' not in render_agent_settings
+    assert 'SummaryPill active={Boolean(enabled)}' not in render_agent_settings
+    assert '已接入' not in render_agent_settings
+    assert '未接入' not in render_agent_settings
+    assert '调试链路' not in render_agent_settings
+    assert 'DEBUG_TRACE_ITEMS' not in render_agent_settings
+    assert '用户画像' not in render_agent_settings
+    assert 'PROFILE_SIGNAL_ITEMS' not in render_agent_settings
+
+
+def test_template_config_editor_explains_agent_runtime_orchestration():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+    render_agent_settings = template_source[
+        template_source.index('function renderAgentOrchestrationSettings'):
+        template_source.index('function renderBasicInfo')
+    ]
+
+    assert '系统运行时按条件调用' in render_agent_settings
+    assert '调用时机' in render_agent_settings
+    assert '读取配置' in render_agent_settings
+    assert '输出给' in render_agent_settings
+    assert '调用规则' in render_agent_settings
+    assert '角色设定' in render_agent_settings
+    assert '知识和数据' in render_agent_settings
+    assert '雷达跟进' in render_agent_settings
+    assert '特殊情况处理' in render_agent_settings
+    assert '客户消息进入后，系统运行时会按意图和上下文决定是否调用当前子智能体' in render_agent_settings
+
+
+def _extract_agent_defaults(source: str) -> list[tuple[str, str, str]]:
+    blocks = re.findall(
+        r"\{\s*\n\s*(?:['\"])?id(?:['\"])?:\s*['\"]([^'\"]+)['\"][\s\S]*?\n\s*\}",
+        source,
+    )
+    defaults: list[tuple[str, str, str]] = []
+    for agent_id in blocks:
+        start = source.find(f"id': '{agent_id}'")
+        if start < 0:
+            start = source.find(f"id: '{agent_id}'")
+        if start < 0:
+            continue
+        end = source.find('\n        },', start)
+        if end < 0:
+            end = source.find('\n    },', start)
+        block = source[start:end]
+        if 'prompt' not in block:
+            continue
+        model_match = re.search(r"model_uuid['\"]?:\s*(COURSE_SALES_[A-Z_]+_MODEL_UUID)", block)
+        prompt_match = re.search(r"prompt['\"]?:\s*'([^']+)'", block)
+        if model_match and prompt_match:
+            defaults.append((agent_id, model_match.group(1), prompt_match.group(1)))
+        if len(defaults) == 6:
+            break
+    return defaults
+
+
+def test_frontend_agent_defaults_match_backend_runtime_defaults():
+    backend_source = TASK_ASSISTANT_SERVICE_PATH.read_text(encoding='utf-8')
+    backend_source = backend_source[
+        backend_source.index('COURSE_AGENT_ORCHESTRATION_CONFIG'):
+        backend_source.index('COURSE_PAYMENT_SCREENSHOT_KEYWORDS')
+    ]
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+
+    assert _extract_agent_defaults(workflow_source) == _extract_agent_defaults(backend_source)
+
+
+def test_template_config_editor_replaces_legacy_course_role_prompt():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+
+    assert 'COMPACT_COURSE_ROLE_PROMPT' in template_source
+    assert 'function isLegacyCourseRolePrompt' in template_source
+    assert "'成交SOP'" in template_source
+    assert "'通用成交SOP'" in template_source
+    assert "'5分钟后追问'" in template_source
+    assert 'function compactCourseRolePrompt' in template_source
+    assert "value?.stop_rules?.stop_keywords || []" in template_source
+    assert "replace('{{stop_keywords}}', stopKeywords)" in template_source
+    assert '停发关键词（命中即停止打扰）' in template_source
+    assert 'role_prompt: rolePrompt ?? defaults.role_prompt' in template_source
+    assert '业务边界' in template_source
+    assert '最终回复风格' in template_source
+
+
+def test_frontend_course_stop_defaults_match_runtime_keywords():
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+
+    for keyword in [
+        '不想买',
+        '不想报',
+        '不想报名',
+        '不想领取',
+        '不领取',
+        '不感兴趣',
+        '没兴趣',
+        '别来烦',
+        '别联系',
+        '滚',
+        '骗子',
+        '诈骗',
+        '垃圾',
+    ]:
+        assert keyword in workflow_source
+    assert "'已报名'" in workflow_source
+    assert "'已支付'" in workflow_source
+
+
+def test_frontend_course_gift_poster_triggers_match_runtime_defaults():
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+    gift_binding = workflow_source[
+        workflow_source.index("step_id: 'gift_poster'"):
+        workflow_source.index("step_id: 'gift_qr'")
+    ]
+
+    assert "'course_intro'" not in gift_binding
+    for intent in ['gift', 'objection', 'course_schedule', 'course_content', 'course_replay', 'course_conflict', 'purchase']:
+        assert f"'{intent}'" in gift_binding
+
+
+def test_frontend_course_faq_and_intent_defaults_match_runtime_intents():
+    workflow_source = WORKFLOW_TEMPLATES_PATH.read_text(encoding='utf-8')
+
+    for intent in [
+        'reading_thinking_intro',
+        'teacher_service',
+        'course_conflict',
+        'explicit_rejection',
+        'grade',
+        'link_error',
+        'no_reply',
+        'smalltalk',
+        'clarification',
+    ]:
+        assert f"'{intent}'" in workflow_source
+    assert '老师伴学服务是什么老师' in workflow_source
+    assert '阅读+思维是什么课' in workflow_source
+    assert '直播没赶上' in workflow_source
+    assert "'卡住'" in workflow_source
+
+
+def test_template_config_editor_uses_single_agent_card_with_left_right_switching():
+    template_source = TEMPLATE_CONFIG_EDITOR_PATH.read_text(encoding='utf-8')
+
+    assert 'ChevronLeft' in template_source
+    assert 'ChevronRight' in template_source
+    assert 'activeAssistantIndex' in template_source
+    assert 'setActiveAssistantIndex' in template_source
+    assert 'previousAssistantIndex' in template_source
+    assert 'nextAssistantIndex' in template_source
+    assert 'activeAssistant' in template_source
+    assert 'patchAgentAssistant(safeActiveAssistantIndex' in template_source
+    assert '上一位子智能体' in template_source
+    assert '下一位子智能体' in template_source
+    assert 'assistants.map((assistant, index)' not in template_source
+    render_agent_settings = template_source[
+        template_source.index('function renderAgentOrchestrationSettings'):
+        template_source.index('function renderBasicInfo')
+    ]
+    assert '输入：' not in render_agent_settings
+    assert '输出：' not in render_agent_settings
 
 
 def test_models_dialog_includes_pdf_parsing_category():
