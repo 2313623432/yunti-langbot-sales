@@ -1220,6 +1220,16 @@ export class BackendClient extends BaseHttpClient {
     return this.post('/api/v1/sales/outreach/clear');
   }
 
+  public getSalesScheduledPushConfig(): Promise<import('@/app/infra/entities/api').SalesScheduledPushConfig> {
+    return this.get('/api/v1/sales/outreach/scheduled-push-config');
+  }
+
+  public saveSalesScheduledPushConfig(
+    config: Partial<import('@/app/infra/entities/api').SalesScheduledPushConfig>,
+  ): Promise<import('@/app/infra/entities/api').SalesScheduledPushConfig & { deleted: number; inserted: number }> {
+    return this.put('/api/v1/sales/outreach/scheduled-push-config', config);
+  }
+
   public getSalesFollowupPlans(): Promise<{ plans: SalesOutreachPlan[] }> {
     return this.get('/api/v1/sales/followups');
   }

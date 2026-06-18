@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { httpClient } from '@/app/infra/http/HttpClient';
 import { useSidebarData } from '@/app/home/components/home-sidebar/SidebarDataContext';
-import { LLMModel, SalesProduct } from '@/app/infra/entities/api';
+import { LLMModel, SalesProduct, SalesScheduledPushConfig } from '@/app/infra/entities/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -589,6 +589,16 @@ export default function PipelineTemplateConfigEditor({
   const [showAdvancedRadar, setShowAdvancedRadar] = useState(false);
   const [showAdvancedStopRules, setShowAdvancedStopRules] = useState(false);
   const [showAdvancedHandoffKeywords, setShowAdvancedHandoffKeywords] = useState(false);
+  const [scheduledPushMeta, setScheduledPushMeta] = useState<{
+    product_uuid: string;
+    bot_uuid: string;
+    target_type: 'person' | 'group';
+    target_id: string;
+    plans_count: number;
+  } | null>(null);
+  const [scheduledPushLoading, setScheduledPushLoading] = useState(false);
+  const [scheduledPushSaving, setScheduledPushSaving] = useState(false);
+  const [scheduledPushSynced, setScheduledPushSynced] = useState(false);
 
   useEffect(() => {
     httpClient
@@ -623,6 +633,13 @@ export default function PipelineTemplateConfigEditor({
       .then((resp) => setAsrModels(resp.models || []))
       .catch((error) => console.warn('Failed to load ASR models', error));
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'push' || scheduledPushSynced || scheduledPushLoading) {
+      return;
+    }
+    void loadBackendScheduledPushConfig(false);
+  }, [activeTab, scheduledPushSynced, scheduledPushLoading]);
 
   function patch(next: Partial<PipelineTemplateConfig>) {
     onChange({ ...config, ...next });
@@ -663,6 +680,69 @@ export default function PipelineTemplateConfigEditor({
         image_key: item.image_key || '',
       })),
     });
+  }
+
+  function applyBackendScheduledPushConfig(resp: SalesScheduledPushConfig) {
+    const items = resp.scheduled_push.items || [];
+    setScheduledPushMeta({
+      product_uuid: resp.product_uuid,
+      bot_uuid: resp.bot_uuid,
+      target_type: resp.target_type,
+      target_id: resp.target_id,
+      plans_count: resp.plans_count,
+    });
+    onChange({
+      ...config,
+      scheduled_push: {
+        ...config.scheduled_push,
+        ...resp.scheduled_push,
+        items,
+      },
+      long_term_broadcasts: items.map((item, index) => ({
+        day: Math.max(1, Number(item.day || index + 1)),
+        title: `第${Math.max(1, Number(item.day || index + 1))}天定时推送`,
+        time: item.time || '10:00',
+        message: item.message || '',
+        image_key: item.image_key || '',
+      })),
+    });
+  }
+
+  async function loadBackendScheduledPushConfig(showToast = true) {
+    setScheduledPushLoading(true);
+    try {
+      const resp = await httpClient.getSalesScheduledPushConfig();
+      applyBackendScheduledPushConfig(resp);
+      setScheduledPushSynced(true);
+      if (showToast) {
+        toast.success(`已同步后端真实定时推送：${resp.plans_count} 条`);
+      }
+    } catch (error) {
+      console.warn('Failed to load scheduled push config', error);
+      if (showToast) {
+        toast.error('同步后端定时推送失败');
+      }
+    } finally {
+      setScheduledPushLoading(false);
+    }
+  }
+
+  async function saveBackendScheduledPushConfig() {
+    setScheduledPushSaving(true);
+    try {
+      const resp = await httpClient.saveSalesScheduledPushConfig({
+        ...(scheduledPushMeta || {}),
+        scheduled_push: config.scheduled_push,
+      });
+      applyBackendScheduledPushConfig(resp);
+      setScheduledPushSynced(true);
+      toast.success(`已保存到后端真实定时推送：${resp.inserted} 条`);
+    } catch (error) {
+      console.warn('Failed to save scheduled push config', error);
+      toast.error('保存到后端定时推送失败');
+    } finally {
+      setScheduledPushSaving(false);
+    }
   }
 
   function addScheduledPushItem() {
@@ -2029,6 +2109,32 @@ export default function PipelineTemplateConfigEditor({
 
     return (
       <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          <span>
+            已联动真实后端定时推送：后端 {scheduledPushMeta?.plans_count ?? scheduledItems.length} 条。打开本 tab 会自动同步，修改后点击保存才会替换真实发送计划。
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-md bg-white"
+              disabled={scheduledPushLoading}
+              onClick={() => loadBackendScheduledPushConfig(true)}
+            >
+              {scheduledPushLoading ? '同步中' : '同步后端'}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 rounded-md"
+              disabled={scheduledPushSaving}
+              onClick={saveBackendScheduledPushConfig}
+            >
+              {scheduledPushSaving ? '保存中' : '保存到后端'}
+            </Button>
+          </div>
+        </div>
         <Section
           icon={CalendarClock}
           title="定时推送"

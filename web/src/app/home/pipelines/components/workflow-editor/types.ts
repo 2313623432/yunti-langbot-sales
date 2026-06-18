@@ -263,6 +263,8 @@ export interface PipelineTemplateConfig {
     message: string;
     push_message?: string;
     loop_enabled?: boolean;
+    loop_days?: number;
+    start_date?: string;
     items?: PipelineTemplateScheduledPushItem[];
     image_key?: string;
     image_url?: string;

@@ -118,6 +118,10 @@ HANDOFF_REASON_KEYWORDS = {
 
 SCHEDULED_PUSH_OUTREACH_SEGMENTS = {'course-sales:broadcast'}
 FOLLOWUP_OUTREACH_SEGMENT_PREFIXES = ('course-sales:followup', 'course-sales:radar')
+DEFAULT_SCHEDULED_PUSH_PRODUCT_UUID = 'yuanfudao-phonics-course'
+DEFAULT_SCHEDULED_PUSH_BOT_UUID = '12f70134-3e7e-4b55-8f19-6d3bc3b1f1d4'
+DEFAULT_SCHEDULED_PUSH_TARGET_TYPE = 'person'
+DEFAULT_SCHEDULED_PUSH_TARGET_ID = 'ou_26bd1e35ee9080c67ce49964c53ded27'
 
 
 class SalesService:
@@ -1146,6 +1150,95 @@ class SalesService:
         )
         return int(getattr(result, 'rowcount', 0) or 0)
 
+    async def get_scheduled_push_config(self) -> dict[str, Any]:
+        plans = await self._scheduled_push_plan_rows()
+        if not plans:
+            return {
+                'plans_count': 0,
+                'product_uuid': DEFAULT_SCHEDULED_PUSH_PRODUCT_UUID,
+                'bot_uuid': DEFAULT_SCHEDULED_PUSH_BOT_UUID,
+                'target_type': DEFAULT_SCHEDULED_PUSH_TARGET_TYPE,
+                'target_id': DEFAULT_SCHEDULED_PUSH_TARGET_ID,
+                'scheduled_push': {
+                    'enabled': True,
+                    'mode': 'daily',
+                    'time': '10:20',
+                    'single_date': '',
+                    'message': '',
+                    'push_message': '',
+                    'loop_enabled': False,
+                    'loop_days': 0,
+                    'start_date': datetime.date.today().isoformat(),
+                    'items': [],
+                },
+            }
+
+        first_plan = plans[0]
+        start_at = min((getattr(plan, 'scheduled_at', None) for plan in plans if getattr(plan, 'scheduled_at', None)), default=None)
+        start_date = start_at.date() if start_at else datetime.date.today()
+        interval_minutes = max((int(getattr(plan, 'interval_minutes', 0) or 0) for plan in plans), default=0)
+        loop_days = interval_minutes // (24 * 60) if interval_minutes > 0 else 0
+        items = [self._scheduled_push_item_from_plan(plan, start_date) for plan in plans]
+        first_item = items[0] if items else {}
+        return {
+            'plans_count': len(plans),
+            'product_uuid': getattr(first_plan, 'product_uuid', '') or DEFAULT_SCHEDULED_PUSH_PRODUCT_UUID,
+            'bot_uuid': getattr(first_plan, 'bot_uuid', '') or DEFAULT_SCHEDULED_PUSH_BOT_UUID,
+            'target_type': getattr(first_plan, 'target_type', '') or DEFAULT_SCHEDULED_PUSH_TARGET_TYPE,
+            'target_id': getattr(first_plan, 'target_id', '') or DEFAULT_SCHEDULED_PUSH_TARGET_ID,
+            'scheduled_push': {
+                'enabled': any(bool(getattr(plan, 'enabled', False)) for plan in plans),
+                'mode': 'daily',
+                'time': first_item.get('time') or '10:20',
+                'single_date': '',
+                'message': first_item.get('message') or '',
+                'push_message': first_item.get('message') or '',
+                'loop_enabled': loop_days > 0,
+                'loop_days': loop_days,
+                'start_date': start_date.isoformat(),
+                'items': items,
+            },
+        }
+
+    async def replace_scheduled_push_config(self, data: dict[str, Any]) -> dict[str, int]:
+        existing_plans = await self._scheduled_push_plan_rows()
+        existing_first = existing_plans[0] if existing_plans else None
+        scheduled_push = data.get('scheduled_push') if isinstance(data.get('scheduled_push'), dict) else data
+        items = scheduled_push.get('items') if isinstance(scheduled_push.get('items'), list) else []
+        cleaned_items = [self._clean_scheduled_push_item(item, index) for index, item in enumerate(items)]
+        cleaned_items = [item for item in cleaned_items if item['message']]
+
+        product_uuid = str(data.get('product_uuid') or getattr(existing_first, 'product_uuid', '') or DEFAULT_SCHEDULED_PUSH_PRODUCT_UUID)
+        bot_uuid = str(data.get('bot_uuid') or getattr(existing_first, 'bot_uuid', '') or DEFAULT_SCHEDULED_PUSH_BOT_UUID)
+        target_type = str(data.get('target_type') or getattr(existing_first, 'target_type', '') or DEFAULT_SCHEDULED_PUSH_TARGET_TYPE)
+        target_id = str(data.get('target_id') or getattr(existing_first, 'target_id', '') or DEFAULT_SCHEDULED_PUSH_TARGET_ID)
+        start_date = self._parse_scheduled_push_start_date(scheduled_push.get('start_date'))
+        loop_days = int(scheduled_push.get('loop_days') or 0)
+        if not loop_days and scheduled_push.get('loop_enabled') and cleaned_items:
+            loop_days = max(item['day'] for item in cleaned_items)
+        interval_minutes = max(0, loop_days) * 24 * 60
+        enabled = scheduled_push.get('enabled') is not False
+
+        deleted = await self.clear_scheduled_push_plans()
+        for index, item in enumerate(cleaned_items, start=1):
+            await self.create_outreach_plan(
+                {
+                    'name': f"定时推送-D{item['day']}-{item['time']}-{index}",
+                    'product_uuid': product_uuid,
+                    'bot_uuid': bot_uuid,
+                    'target_type': target_type,
+                    'target_id': target_id,
+                    'segment': 'course-sales:broadcast',
+                    'dedupe_key': self._scheduled_push_dedupe_key(product_uuid, bot_uuid, target_type, target_id, item, index),
+                    'message_template': item['message'],
+                    'message_components': self._scheduled_push_components_from_item(item),
+                    'scheduled_at': self._scheduled_push_datetime(start_date, item),
+                    'interval_minutes': interval_minutes,
+                    'enabled': enabled,
+                }
+            )
+        return {'deleted': deleted, 'inserted': len(cleaned_items)}
+
     async def count_outreach_plans_for_target_segments(
         self,
         *,
@@ -1679,6 +1772,133 @@ class SalesService:
             issue.target_id,
             platform_message.MessageChain([platform_message.Plain(text=reply)]),
         )
+
+    async def _scheduled_push_plan_rows(self) -> list[Any]:
+        statement = (
+            sqlalchemy.select(persistence_sales.SalesOutreachPlan)
+            .where(self._outreach_kind_condition('scheduled_push'))
+            .order_by(
+                persistence_sales.SalesOutreachPlan.scheduled_at.asc(),
+                persistence_sales.SalesOutreachPlan.id.asc(),
+            )
+        )
+        result = await self.ap.persistence_mgr.execute_async(statement)
+        return [self._row_entity(row) for row in result.all()]
+
+    def _message_components_value(self, plan: Any) -> list[dict[str, Any]]:
+        value = getattr(plan, 'message_components', None)
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str) and value:
+            try:
+                parsed = json.loads(value)
+                return parsed if isinstance(parsed, list) else []
+            except json.JSONDecodeError:
+                return []
+        return []
+
+    def _scheduled_push_item_from_plan(self, plan: Any, start_date: datetime.date) -> dict[str, Any]:
+        scheduled_at = getattr(plan, 'scheduled_at', None)
+        day = 1
+        item_time = '10:20'
+        if isinstance(scheduled_at, datetime.datetime):
+            day = max(1, (scheduled_at.date() - start_date).days + 1)
+            item_time = scheduled_at.strftime('%H:%M')
+
+        message = getattr(plan, 'message_template', '') or ''
+        image_key = ''
+        image_url = ''
+        link_title = ''
+        link_url = ''
+        link_description = ''
+        for component in self._normalize_message_components(self._message_components_value(plan)):
+            component_type = component.get('type')
+            if component_type == 'plain' and not message:
+                message = component.get('text', '')
+            elif component_type == 'image' and not (image_key or image_url):
+                image_key = component.get('file_key', '')
+                image_url = component.get('image_url', '')
+            elif component_type == 'link' and not link_url:
+                link_title = component.get('title', '')
+                link_url = component.get('url', '')
+                link_description = component.get('description', '')
+
+        return {
+            'day': day,
+            'time': item_time,
+            'message': message,
+            'image_key': image_key,
+            'image_url': image_url,
+            'link_title': link_title,
+            'link_url': link_url,
+            'link_description': link_description,
+        }
+
+    def _clean_scheduled_push_item(self, item: Any, index: int) -> dict[str, Any]:
+        item = item if isinstance(item, dict) else {}
+        try:
+            day = max(1, int(item.get('day', index + 1)))
+        except (TypeError, ValueError):
+            day = index + 1
+        item_time = str(item.get('time') or '10:20').strip()
+        if not re.match(r'^\d{2}:\d{2}$', item_time):
+            item_time = '10:20'
+        return {
+            'day': day,
+            'time': item_time,
+            'message': str(item.get('message') or '').strip(),
+            'image_key': str(item.get('image_key') or '').strip(),
+            'image_url': str(item.get('image_url') or '').strip(),
+            'link_title': str(item.get('link_title') or '').strip(),
+            'link_url': str(item.get('link_url') or '').strip(),
+            'link_description': str(item.get('link_description') or '').strip(),
+        }
+
+    def _scheduled_push_components_from_item(self, item: dict[str, Any]) -> list[dict[str, Any]]:
+        components: list[dict[str, Any]] = [{'type': 'plain', 'text': item['message']}]
+        if item.get('image_key') or item.get('image_url'):
+            components.append(
+                {'type': 'image', 'file_key': item.get('image_key', ''), 'image_url': item.get('image_url', '')}
+            )
+        if item.get('link_url'):
+            components.append(
+                {
+                    'type': 'link',
+                    'title': item.get('link_title') or '报名通道',
+                    'description': item.get('link_description') or '',
+                    'url': item['link_url'],
+                    'thumb_url': '',
+                    'include_text_fallback': True,
+                }
+            )
+        return components
+
+    def _parse_scheduled_push_start_date(self, value: Any) -> datetime.date:
+        if isinstance(value, str) and value:
+            try:
+                return datetime.date.fromisoformat(value[:10])
+            except ValueError:
+                pass
+        return datetime.date.today()
+
+    def _scheduled_push_datetime(self, start_date: datetime.date, item: dict[str, Any]) -> datetime.datetime:
+        hour, minute = [int(part) for part in item['time'].split(':')]
+        return datetime.datetime.combine(
+            start_date + datetime.timedelta(days=max(1, int(item['day'])) - 1),
+            datetime.time(hour=hour, minute=minute),
+        )
+
+    def _scheduled_push_dedupe_key(
+        self,
+        product_uuid: str,
+        bot_uuid: str,
+        target_type: str,
+        target_id: str,
+        item: dict[str, Any],
+        index: int,
+    ) -> str:
+        raw = f"{product_uuid}|{bot_uuid}|{target_type}|{target_id}|{item['day']}|{item['time']}|{index}|{item['message'][:60]}"
+        return f'scheduled-push:{uuid.uuid5(uuid.NAMESPACE_URL, raw).hex}'
 
     def _clean_outreach_payload(self, data: dict[str, Any]) -> dict[str, Any]:
         scheduled_at = data.get('scheduled_at')

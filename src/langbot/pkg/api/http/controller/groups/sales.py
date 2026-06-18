@@ -258,6 +258,15 @@ class SalesRouterGroup(group.RouterGroup):
             deleted = await self.ap.sales_service.clear_scheduled_push_plans()
             return self.success(data={'deleted': deleted})
 
+        @self.route('/outreach/scheduled-push-config', methods=['GET', 'PUT'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            if quart.request.method == 'GET':
+                return self.success(data=await self.ap.sales_service.get_scheduled_push_config())
+            data = await quart.request.json
+            result = await self.ap.sales_service.replace_scheduled_push_config(data or {})
+            config = await self.ap.sales_service.get_scheduled_push_config()
+            return self.success(data={**result, **config})
+
         @self.route('/followups', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
             return self.success(data={'plans': await self.ap.sales_service.get_followup_plans()})
