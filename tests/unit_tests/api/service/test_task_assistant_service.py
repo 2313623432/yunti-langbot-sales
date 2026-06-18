@@ -1106,6 +1106,7 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
     schedule_faq = next(faq for faq in template['course_faqs'] if faq['intent'] == 'course_schedule')
     assert '回放' not in schedule_faq['keywords']
     assert 'course_intro' not in gift_binding['trigger_intents']
+    assert 'course_content' in gift_binding['trigger_intents']
     assert 'course_replay' in gift_binding['trigger_intents']
     assert 'course_conflict' in gift_binding['trigger_intents']
     assert all('day1_' not in file_key and 'day2_' not in file_key and 'day3_' not in file_key for file_key in image_file_keys)
@@ -1196,6 +1197,7 @@ def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_i
         'course_faqs': [
             {'intent': 'course_schedule', 'question': '什么时候上课', 'answer': '晚上上课', 'keywords': ['几点', '回放']},
             {'intent': 'course_intro', 'question': '这个是什么课', 'answer': old_intro},
+            {'intent': 'course_content', 'question': '学习内容', 'answer': '核心内容包括26个字母巧记、拼读规则和绘本阅读。'},
             {'intent': 'course_replay', 'question': '支持回放吗', 'answer': '支持回放，3年内可以无限次看。'},
         ],
         'image_text_bindings': [
@@ -1225,7 +1227,11 @@ def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_i
     assert '180次开口练习' in answer
     assert '360分钟配套视频' in answer
     assert '报名链接我发您' in answer
-    replay_answer = config['workflow']['template_config']['course_faqs'][2]['answer']
+    content_answer = config['workflow']['template_config']['course_faqs'][2]['answer']
+    assert '每个年级的学习内容不一样' in content_answer
+    assert '根据孩子年级匹配' in content_answer
+    assert '需要给孩子试试不，现在报名还送结课礼物' in content_answer
+    replay_answer = config['workflow']['template_config']['course_faqs'][3]['answer']
     assert '每次也就一小时左右' in replay_answer
     assert '要不要试试看' in replay_answer
     assert '小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀' in replay_answer
@@ -1233,6 +1239,8 @@ def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_i
     node_intents = config['workflow']['nodes'][0]['config']['trigger_intents']
     assert 'course_intro' not in binding_intents
     assert 'course_intro' not in node_intents
+    assert 'course_content' in binding_intents
+    assert 'course_content' in node_intents
     assert 'course_replay' in binding_intents
     assert 'course_replay' in node_intents
     assert 'course_conflict' in binding_intents
@@ -2252,6 +2260,29 @@ async def test_course_sales_replay_context_pushes_gift_and_signup_link():
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
     assert '用户询问是否支持回放' in context_text
     assert '完课后随机发货其一' in context_text
+    assert '报名链接卡片' in context_text
+
+
+@pytest.mark.asyncio
+async def test_course_sales_content_context_pushes_gift_and_signup_link():
+    service = TaskAssistantService(SimpleNamespace())
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query = _query(text_chain('学习内容是什么'), '学习内容是什么', session_id='course-content')
+    query.pipeline_config = config
+    query.variables['_knowledge_base_uuids'] = [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'course_content'
+    assert intent.get('faq_short_answer')
+    assert '每个年级的学习内容不一样' in intent['faq_short_answer']
+    assert '根据孩子年级匹配' in intent['faq_short_answer']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '用户询问学习内容' in context_text
+    assert '不要复述“这个是什么课”的课程介绍' in context_text
     assert '报名链接卡片' in context_text
 
 

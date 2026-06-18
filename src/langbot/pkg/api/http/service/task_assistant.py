@@ -297,7 +297,7 @@ COURSE_FAQS = [{'intent': 'course_schedule',
   'keywords': ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通']},
  {'intent': 'course_content',
   'question': '学习内容',
-  'answer': '核心内容包括26个字母巧记、拼读规则、绘本阅读实践、开口跟读练习和配套视频。不同年级会匹配不同难度，重点帮孩子理解单词发音规律、提升口语和阅读兴趣。',
+  'answer': '每个年级的学习内容不一样，具体上课后才可以看到亲，是根据孩子年级匹配的。\n\n需要给孩子试试不，现在报名还送结课礼物。',
   'keywords': ['学习内容', '内容', '学啥', '学什么', '课表', '课程安排']},
  {'intent': 'teacher_service',
   'question': '老师伴学服务是什么老师',
@@ -941,7 +941,7 @@ COURSE_IMAGE_BINDINGS = [
         'title': '完课好礼海报',
         'text': '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
-        'trigger_intents': ['gift', 'objection', 'course_replay', 'course_conflict', 'purchase'],
+        'trigger_intents': ['gift', 'objection', 'course_content', 'course_replay', 'course_conflict', 'purchase'],
         'requires_course_sales_signup_link': True,
         'enabled': True,
     },
@@ -2100,6 +2100,19 @@ class TaskAssistantService:
             if resource_issue_type:
                 intent['resource_issue_type'] = resource_issue_type
             return intent
+        if any(keyword in normalized for keyword in ['学习内容', '课程内容', '学什么', '学啥', '内容是什么', '课程安排']):
+            intent = self._course_intent(
+                'course_content',
+                0.86,
+                '优先命中课程学习内容问题',
+                step_ids=['gift_poster'],
+                selected_profile=selected_profile,
+            )
+            answer = self._faq_answer_for_intent('course_content', workflow)
+            if answer:
+                intent['faq_short_answer'] = answer
+                intent['reply_mode'] = 'faq_polish'
+            return intent
         for faq in course_faqs:
             if any(str(keyword).lower() in normalized for keyword in faq.get('keywords', [])):
                 intent = str(faq.get('intent') or 'course_intro')
@@ -2745,6 +2758,16 @@ class TaskAssistantService:
                 '\n\n[课程销售上下文]\n'
                 f'本轮要给报名动作和报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
                 '说明支付9元后截图或报名成功短信发来，用于登记开课和资料。'
+                '不得输出 xxx、XXXX、占位符或自编链接。'
+            )
+        elif intent_name == 'course_content':
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户询问学习内容。本轮不要复述“这个是什么课”的课程介绍；'
+                '先说明每个年级的学习内容不一样，具体上课后才可以看到，是根据孩子年级匹配的；'
+                '然后自然承接“需要给孩子试试不，现在报名还送结课礼物”；'
+                '最后发送报名链接卡片。'
+                f'报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
                 '不得输出 xxx、XXXX、占位符或自编链接。'
             )
         elif intent_name == 'course_replay':
@@ -3714,7 +3737,7 @@ class TaskAssistantService:
     def _sync_course_sales_runtime_content(self, config: dict[str, Any]) -> bool:
         seeded_answers = {
             intent: self._faq_answer_for_intent(intent, {'course_faqs': COURSE_FAQS})
-            for intent in ('course_intro', 'course_replay', 'course_conflict')
+            for intent in ('course_intro', 'course_content', 'course_replay', 'course_conflict')
         }
         seeded_answers = {intent: answer for intent, answer in seeded_answers.items() if answer}
         changed = False
@@ -3752,7 +3775,7 @@ class TaskAssistantService:
                 if not isinstance(intents, list):
                     return
                 next_intents = [intent for intent in intents if intent != 'course_intro']
-                for required_intent in ('course_replay', 'course_conflict'):
+                for required_intent in ('course_content', 'course_replay', 'course_conflict'):
                     if required_intent not in next_intents:
                         next_intents.append(required_intent)
                 if next_intents != intents:

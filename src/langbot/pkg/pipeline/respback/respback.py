@@ -27,7 +27,7 @@ class SendResponseBackStage(stage.PipelineStage):
     _COURSE_SALES_CHILD_GRADE_QUESTION = '孩子现在几年级呀？'
     _COURSE_SALES_SIGNUP_LINK_QUEUED_KEY = '_course_sales_signup_link_queued'
     _COURSE_SALES_RESOURCE_LINK_QUEUED_KEY = '_course_sales_resource_link_queued'
-    _COURSE_SALES_GIFT_BEFORE_LINK_INTENTS = {'course_replay', 'course_conflict'}
+    _COURSE_SALES_GIFT_BEFORE_LINK_INTENTS = {'course_content', 'course_replay', 'course_conflict'}
     _COURSE_SALES_CHILD_GRADE_RE = re.compile(r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]年级|初[一二三]|高[一二三])')
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
@@ -1032,7 +1032,7 @@ class SendResponseBackStage(stage.PipelineStage):
             return
 
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
-        if intent not in {'purchase', 'radar_clicked', 'course_replay', 'course_conflict', 'course_intro'} and not self._promises_course_sales_signup_link(current_text):
+        if intent not in {'purchase', 'radar_clicked', 'course_content', 'course_replay', 'course_conflict', 'course_intro'} and not self._promises_course_sales_signup_link(current_text):
             return
 
         if self._contains_course_sales_link(current_text):

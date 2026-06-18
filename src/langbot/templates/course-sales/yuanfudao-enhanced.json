@@ -204,7 +204,7 @@
     {
       "intent": "course_content",
       "question": "学习内容",
-      "answer": "核心内容包括26个字母巧记、拼读规则、绘本阅读实践、开口跟读练习和配套视频。不同年级会匹配不同难度，重点帮孩子理解单词发音规律、提升口语和阅读兴趣。",
+      "answer": "每个年级的学习内容不一样，具体上课后才可以看到亲，是根据孩子年级匹配的。\n\n需要给孩子试试不，现在报名还送结课礼物。",
       "keywords": [
         "学习内容",
         "内容",
@@ -990,6 +990,7 @@
       "trigger_intents": [
         "gift",
         "objection",
+        "course_content",
         "course_replay",
         "course_conflict",
         "reading_thinking_intro",
