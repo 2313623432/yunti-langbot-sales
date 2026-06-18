@@ -1161,6 +1161,24 @@ def test_course_sales_runtime_defaults_update_copied_pipeline_config():
     assert config['workflow']['reference_rounds'] == 4
 
 
+def test_course_sales_runtime_defaults_refresh_conflict_faq_answer():
+    service = TaskAssistantService(SimpleNamespace())
+    config = service.build_course_sales_template_pipeline_config()
+    old_answer = '不冲突的，这个课更侧重拼读技巧和方法，而且支持回放。时间不方便也可以先报名，后面按老师安排和回放节奏学。'
+    config['workflow']['template_config'] = {
+        'course_faqs': [
+            {'intent': 'course_conflict', 'question': '和其他课有冲突', 'answer': old_answer}
+        ]
+    }
+
+    changed = service._apply_course_sales_runtime_defaults(config)
+
+    assert changed is True
+    answer = config['workflow']['template_config']['course_faqs'][0]['answer']
+    assert '报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀' in answer
+    assert '主要是赠送实物的名额，就这一周有' in answer
+
+
 def test_course_sales_runtime_defaults_skip_non_course_pipeline_config():
     service = TaskAssistantService(SimpleNamespace())
     config = service.build_template_pipeline_config()

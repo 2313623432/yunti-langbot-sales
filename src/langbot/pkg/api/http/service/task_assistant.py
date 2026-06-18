@@ -3699,6 +3699,39 @@ class TaskAssistantService:
             or metadata.get('scenario') == COURSE_SALES_SCENARIO
         )
 
+    def _sync_course_conflict_faq_answer(self, config: dict[str, Any]) -> bool:
+        conflict_answer = self._faq_answer_for_intent('course_conflict', {'course_faqs': COURSE_FAQS})
+        if not conflict_answer:
+            return False
+
+        changed = False
+
+        def patch_faqs(container: dict[str, Any]) -> None:
+            nonlocal changed
+            faqs = container.get('course_faqs')
+            if not isinstance(faqs, list):
+                return
+            for faq in faqs:
+                if not isinstance(faq, dict) or faq.get('intent') != 'course_conflict':
+                    continue
+                if faq.get('answer') == conflict_answer:
+                    continue
+                faq['answer'] = conflict_answer
+                changed = True
+
+        patch_faqs(config)
+        template_config = config.get('template_config') if isinstance(config.get('template_config'), dict) else {}
+        patch_faqs(template_config)
+        workflow = config.get('workflow') if isinstance(config.get('workflow'), dict) else {}
+        patch_faqs(workflow)
+        workflow_template = (
+            workflow.get('template_config')
+            if isinstance(workflow.get('template_config'), dict)
+            else {}
+        )
+        patch_faqs(workflow_template)
+        return changed
+
     def _apply_course_sales_runtime_defaults(self, config: dict[str, Any]) -> bool:
         if not self._is_course_sales_pipeline_config(config):
             return False
@@ -3718,6 +3751,8 @@ class TaskAssistantService:
             reference_rounds = 4
         workflow['reference_rounds'] = max(0, min(reference_rounds, 20))
         config['workflow'] = workflow
+
+        self._sync_course_conflict_faq_answer(config)
 
         return config != before
 
