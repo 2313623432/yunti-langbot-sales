@@ -286,7 +286,7 @@ COURSE_RESOURCE_FAQS = [
 COURSE_FAQS = [{'intent': 'course_schedule',
   'question': '什么时候上课',
   'answer': '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。',
-  'keywords': ['什么时候', '几点', '上课时间', '课表', '回放']},
+  'keywords': ['什么时候', '几点', '上课时间', '课表']},
  {'intent': 'course_intro',
   'question': '这个是什么课/这是什么/你发是什么',
   'answer': '这是猿辅导英语自然拼读集训营，9元5天10节，专为大班到小学4年级设计。课程包含5次绘本阅读实践、180次开口练习、360分钟配套视频，重点教孩子拼读规律，鼓励孩子多表达，提升口语能力。报名链接我发您。',
@@ -305,7 +305,7 @@ COURSE_FAQS = [{'intent': 'course_schedule',
   'keywords': ['老师伴学', '伴学', '什么老师', '班主任', '指导老师', '老师服务']},
  {'intent': 'course_replay',
   'question': '支持回放吗',
-  'answer': '支持回放，3年内可以无限次看。孩子一次没听懂也可以反复看，没赶上直播也不影响学习。',
+  'answer': '当然支持呀，3年内可以无限次看回放，手机和平板都能学。咱们课每次也就一小时左右，时间安排很灵活的。\n\n要不要试试看，现在报名，还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。',
   'keywords': ['回放', '没时间', '错过', '直播没赶上']},
  {'intent': 'course_conflict',
   'question': '和其他课有冲突',
@@ -941,7 +941,7 @@ COURSE_IMAGE_BINDINGS = [
         'title': '完课好礼海报',
         'text': '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
         'file_key': 'course-sales/phonics/gift_poster.jpeg',
-        'trigger_intents': ['gift', 'objection', 'course_conflict', 'purchase'],
+        'trigger_intents': ['gift', 'objection', 'course_replay', 'course_conflict', 'purchase'],
         'requires_course_sales_signup_link': True,
         'enabled': True,
     },
@@ -2165,11 +2165,11 @@ class TaskAssistantService:
         return ''
 
     def _course_step_for_intent(self, intent: str) -> str:
-        if intent in {'purchase', 'course_intro', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
+        if intent in {'purchase', 'course_intro', 'course_schedule', 'link_error', 'radar_clicked'}:
             return ''
         if intent in {'purchased', 'screenshot_help'}:
             return 'gift_qr'
-        if intent in {'gift', 'objection', 'course_content', 'grade'}:
+        if intent in {'gift', 'objection', 'course_replay', 'course_content', 'grade'}:
             return 'gift_poster'
         if intent in {'resource_help'}:
             return 'gift_qr'
@@ -2745,6 +2745,16 @@ class TaskAssistantService:
                 '\n\n[课程销售上下文]\n'
                 f'本轮要给报名动作和报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
                 '说明支付9元后截图或报名成功短信发来，用于登记开课和资料。'
+                '不得输出 xxx、XXXX、占位符或自编链接。'
+            )
+        elif intent_name == 'course_replay':
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户询问是否支持回放。本轮先说明3年内可以无限次看回放，手机和平板都能学；'
+                '再说明每次课约1小时左右，时间安排很灵活；'
+                '然后自然承接“要不要试试看”，说明现在报名独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一；'
+                '最后发送报名链接卡片。'
+                f'报名链接卡片：{COURSE_SALES_RADAR_LINK}。'
                 '不得输出 xxx、XXXX、占位符或自编链接。'
             )
         elif intent_name == 'course_conflict':
@@ -3704,7 +3714,7 @@ class TaskAssistantService:
     def _sync_course_sales_runtime_content(self, config: dict[str, Any]) -> bool:
         seeded_answers = {
             intent: self._faq_answer_for_intent(intent, {'course_faqs': COURSE_FAQS})
-            for intent in ('course_intro', 'course_conflict')
+            for intent in ('course_intro', 'course_replay', 'course_conflict')
         }
         seeded_answers = {intent: answer for intent, answer in seeded_answers.items() if answer}
         changed = False
@@ -3717,6 +3727,11 @@ class TaskAssistantService:
             for faq in faqs:
                 if not isinstance(faq, dict):
                     continue
+                if str(faq.get('intent') or '') == 'course_schedule' and isinstance(faq.get('keywords'), list):
+                    next_keywords = [keyword for keyword in faq['keywords'] if str(keyword).strip() != '回放']
+                    if next_keywords != faq['keywords']:
+                        faq['keywords'] = next_keywords
+                        changed = True
                 seeded_answer = seeded_answers.get(str(faq.get('intent') or ''))
                 if not seeded_answer:
                     continue
@@ -3737,8 +3752,9 @@ class TaskAssistantService:
                 if not isinstance(intents, list):
                     return
                 next_intents = [intent for intent in intents if intent != 'course_intro']
-                if 'course_conflict' not in next_intents:
-                    next_intents.append('course_conflict')
+                for required_intent in ('course_replay', 'course_conflict'):
+                    if required_intent not in next_intents:
+                        next_intents.append(required_intent)
                 if next_intents != intents:
                     holder['trigger_intents'] = next_intents
                     changed = True

@@ -932,6 +932,68 @@ async def test_respback_sends_signup_link_for_course_sales_conflict_reply():
 
 
 @pytest.mark.asyncio
+async def test_respback_sends_gift_image_and_signup_link_for_course_replay_reply():
+    tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/replay-token'
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(build_radar_tracking_url=lambda **_: tracking_link)
+    stage = get_respback_stage_class()(app)
+    raw_link = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641'
+    query = text_query('支持回放么')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'pipeline-uuid'
+    query.launcher_id = 'ou_customer'
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.pipeline_config['workflow']['nodes'] = [
+        {
+            'id': 'image_gift_poster',
+            'type': 'image',
+            'config': {
+                'file_key': 'course-sales/phonics/gift_poster.jpeg',
+                'trigger_intents': ['course_replay'],
+                'requires_course_sales_signup_link': True,
+            },
+        }
+    ]
+    query.variables['workflow_intent'] = {
+        'intent': 'course_replay',
+        'confidence': 0.9,
+        'link_url': raw_link,
+    }
+    query.variables['course_sales_radar_link'] = raw_link
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(
+                    text='当然支持呀，3年内可以无限次看回放，手机和平板都能学\n\n'
+                    '咱们课每次也就一小时左右，时间安排很灵活的\n\n'
+                    '要不要试试看，现在报名，还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一'
+                )
+            ]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [
+        kwargs['message']
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    sent_texts = [str(message) for message in sent_messages]
+    image_index = next(index for index, message in enumerate(sent_messages) if isinstance(message[0], platform_message.Image))
+    assert sent_texts[:3] == [
+        '当然支持呀，3年内可以无限次看回放，手机和平板都能学',
+        '咱们课每次也就一小时左右，时间安排很灵活的',
+        '要不要试试看，现在报名，还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一',
+    ]
+    assert image_index == 3
+    assert sent_texts[4:] == [
+        '猿辅导英语自然拼读9元体验课点这里👉',
+        tracking_link,
+        '这是报名链接，家长，您这边能打开吗？',
+    ]
+
+
+@pytest.mark.asyncio
 async def test_respback_sends_signup_link_without_gift_image_for_course_intro():
     tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/intro-token'
     app = FakeApp()

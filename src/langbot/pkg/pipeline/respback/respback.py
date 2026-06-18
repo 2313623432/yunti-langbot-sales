@@ -27,6 +27,7 @@ class SendResponseBackStage(stage.PipelineStage):
     _COURSE_SALES_CHILD_GRADE_QUESTION = '孩子现在几年级呀？'
     _COURSE_SALES_SIGNUP_LINK_QUEUED_KEY = '_course_sales_signup_link_queued'
     _COURSE_SALES_RESOURCE_LINK_QUEUED_KEY = '_course_sales_resource_link_queued'
+    _COURSE_SALES_GIFT_BEFORE_LINK_INTENTS = {'course_replay', 'course_conflict'}
     _COURSE_SALES_CHILD_GRADE_RE = re.compile(r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]年级|初[一二三]|高[一二三])')
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
@@ -408,7 +409,7 @@ class SendResponseBackStage(stage.PipelineStage):
             if link_bound_only is not None and requires_signup_link is not link_bound_only:
                 continue
             if requires_signup_link and not self._course_sales_signup_link_sent(query):
-                if intent != 'course_conflict' or not self._course_sales_signup_link(query, intent_data):
+                if intent not in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS or not self._course_sales_signup_link(query, intent_data):
                     continue
 
             file_key = str(node_config.get('file_key') or '').strip()
@@ -430,7 +431,7 @@ class SendResponseBackStage(stage.PipelineStage):
                 requires_signup_link
                 and self._is_course_sales_workflow(workflow)
                 and not is_task_assistant_workflow
-                and intent != 'course_conflict'
+                and intent not in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS
             ):
                 components.append(platform_message.Plain(text='报课后按活动规则有完课礼，礼品说明我发您看一下。'))
             components.append(await self._image_component(file_key, image_url))
@@ -782,13 +783,13 @@ class SendResponseBackStage(stage.PipelineStage):
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         if self._course_sales_user_confirmed_open(query):
             return
-        question = self._course_sales_open_question(current_text)
         if (
-            not question
-            and str(intent_data.get('intent') or '') == 'course_conflict'
+            str(intent_data.get('intent') or '') in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS
             and self._course_sales_signup_link_sent(query)
         ):
             question = self._COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION
+        else:
+            question = self._course_sales_open_question(current_text)
         if not question:
             return
         if question == self._COURSE_SALES_CHILD_GRADE_QUESTION and self._course_sales_child_grade_known(query):
@@ -914,7 +915,7 @@ class SendResponseBackStage(stage.PipelineStage):
         if not query.resp_message_chain:
             return
         intent_data = self._current_intent_data(query)
-        if str(intent_data.get('intent') or '') != 'course_conflict':
+        if str(intent_data.get('intent') or '') not in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS:
             return
 
         link = self._course_sales_signup_link(query, intent_data)
@@ -1031,7 +1032,7 @@ class SendResponseBackStage(stage.PipelineStage):
             return
 
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
-        if intent not in {'purchase', 'radar_clicked', 'course_conflict', 'course_intro'} and not self._promises_course_sales_signup_link(current_text):
+        if intent not in {'purchase', 'radar_clicked', 'course_replay', 'course_conflict', 'course_intro'} and not self._promises_course_sales_signup_link(current_text):
             return
 
         if self._contains_course_sales_link(current_text):
@@ -1079,10 +1080,10 @@ class SendResponseBackStage(stage.PipelineStage):
         self._append_course_sales_resource_link(query)
         intent = str(self._current_intent_data(query).get('intent') or '')
         self._defer_embedded_course_sales_signup_link(query)
-        if intent == 'course_conflict':
+        if intent in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS:
             await self._append_workflow_images(query, link_bound_only=True)
         self._append_course_sales_signup_link(query)
-        if intent != 'course_conflict':
+        if intent not in self._COURSE_SALES_GIFT_BEFORE_LINK_INTENTS:
             await self._append_workflow_images(query, link_bound_only=True)
         self._normalize_course_sales_text(query)
         self._prepend_course_sales_first_reply_emoji(query)

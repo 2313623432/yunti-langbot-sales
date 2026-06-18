@@ -1103,7 +1103,10 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
         binding for binding in template['image_text_bindings']
         if binding['file_key'] == 'course-sales/phonics/gift_poster.jpeg'
     )
+    schedule_faq = next(faq for faq in template['course_faqs'] if faq['intent'] == 'course_schedule')
+    assert '回放' not in schedule_faq['keywords']
     assert 'course_intro' not in gift_binding['trigger_intents']
+    assert 'course_replay' in gift_binding['trigger_intents']
     assert 'course_conflict' in gift_binding['trigger_intents']
     assert all('day1_' not in file_key and 'day2_' not in file_key and 'day3_' not in file_key for file_key in image_file_keys)
     broadcast_messages = '\n'.join(broadcast['message'] for broadcast in template['long_term_broadcasts'])
@@ -1191,7 +1194,9 @@ def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_i
     old_intro = '这是猿辅导英语自然拼读集训营，9元5天10节，适合大班到小学4年级。主要带孩子学拼读规律、绘本阅读和开口表达，目标是见词能拼、听音能写，少靠死记硬背。'
     config['workflow']['template_config'] = {
         'course_faqs': [
-            {'intent': 'course_intro', 'question': '这个是什么课', 'answer': old_intro}
+            {'intent': 'course_schedule', 'question': '什么时候上课', 'answer': '晚上上课', 'keywords': ['几点', '回放']},
+            {'intent': 'course_intro', 'question': '这个是什么课', 'answer': old_intro},
+            {'intent': 'course_replay', 'question': '支持回放吗', 'answer': '支持回放，3年内可以无限次看。'},
         ],
         'image_text_bindings': [
             {
@@ -1213,15 +1218,23 @@ def test_course_sales_runtime_defaults_refresh_intro_faq_and_remove_intro_gift_i
     changed = service._apply_course_sales_runtime_defaults(config)
 
     assert changed is True
-    answer = config['workflow']['template_config']['course_faqs'][0]['answer']
+    schedule_keywords = config['workflow']['template_config']['course_faqs'][0]['keywords']
+    assert '回放' not in schedule_keywords
+    answer = config['workflow']['template_config']['course_faqs'][1]['answer']
     assert '5次绘本阅读实践' in answer
     assert '180次开口练习' in answer
     assert '360分钟配套视频' in answer
     assert '报名链接我发您' in answer
+    replay_answer = config['workflow']['template_config']['course_faqs'][2]['answer']
+    assert '每次也就一小时左右' in replay_answer
+    assert '要不要试试看' in replay_answer
+    assert '小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀' in replay_answer
     binding_intents = config['workflow']['template_config']['image_text_bindings'][0]['trigger_intents']
     node_intents = config['workflow']['nodes'][0]['config']['trigger_intents']
     assert 'course_intro' not in binding_intents
     assert 'course_intro' not in node_intents
+    assert 'course_replay' in binding_intents
+    assert 'course_replay' in node_intents
     assert 'course_conflict' in binding_intents
     assert 'course_conflict' in node_intents
 
@@ -2216,6 +2229,29 @@ async def test_course_sales_conflict_context_pushes_gift_and_signup_link():
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
     assert '自然拼读报名链接卡片SOP' in context_text
     assert '赠送实物名额就这一周有' in context_text
+    assert '报名链接卡片' in context_text
+
+
+@pytest.mark.asyncio
+async def test_course_sales_replay_context_pushes_gift_and_signup_link():
+    service = TaskAssistantService(SimpleNamespace())
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    query = _query(text_chain('支持回放么'), '支持回放么', session_id='course-replay')
+    query.pipeline_config = config
+    query.variables['_knowledge_base_uuids'] = [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'course_replay'
+    assert intent.get('faq_short_answer')
+    assert '每次也就一小时左右' in intent['faq_short_answer']
+    assert '要不要试试看' in intent['faq_short_answer']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '用户询问是否支持回放' in context_text
+    assert '完课后随机发货其一' in context_text
     assert '报名链接卡片' in context_text
 
 
