@@ -783,6 +783,12 @@ class SendResponseBackStage(stage.PipelineStage):
         if self._course_sales_user_confirmed_open(query):
             return
         question = self._course_sales_open_question(current_text)
+        if (
+            not question
+            and str(intent_data.get('intent') or '') == 'course_conflict'
+            and self._course_sales_signup_link_sent(query)
+        ):
+            question = self._COURSE_SALES_SIGNUP_LINK_OPEN_QUESTION
         if not question:
             return
         if question == self._COURSE_SALES_CHILD_GRADE_QUESTION and self._course_sales_child_grade_known(query):
@@ -904,6 +910,43 @@ class SendResponseBackStage(stage.PipelineStage):
     def _contains_course_sales_link(self, text: str) -> bool:
         return 'yuanfudao.com/primary/templates/package' in text or '/api/v1/sales/radar/click/' in text
 
+    def _defer_embedded_course_sales_signup_link(self, query: pipeline_query.Query) -> None:
+        if not query.resp_message_chain:
+            return
+        intent_data = self._current_intent_data(query)
+        if str(intent_data.get('intent') or '') != 'course_conflict':
+            return
+
+        link = self._course_sales_signup_link(query, intent_data)
+        if not link:
+            return
+
+        removed = False
+        url_pattern = re.compile(r'https?://[^\s<>"\]\)】》>，。！？、；：]*')
+        for component in query.resp_message_chain[-1]:
+            if not isinstance(component, platform_message.Plain):
+                continue
+
+            lines: list[str] = []
+            for raw_line in component.text.replace('\r\n', '\n').split('\n'):
+                urls = [match.group(0) for match in url_pattern.finditer(raw_line)]
+                if urls and all(self._contains_course_sales_link(url) for url in urls):
+                    removed = True
+                    continue
+
+                next_line = raw_line
+                for url in urls:
+                    if self._contains_course_sales_link(url):
+                        next_line = next_line.replace(url, '')
+                        removed = True
+                lines.append(next_line.rstrip(' ：:，,、；;'))
+
+            component.text = '\n'.join(line for line in lines if line.strip())
+
+        if removed:
+            self._queue_extra_reply_chain(query, f'猿辅导英语自然拼读9元体验课点这里👉：{link}')
+            query.variables[self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY] = True
+
     def _replace_course_sales_link_placeholders(
         self,
         message_chain: platform_message.MessageChain,
@@ -978,6 +1021,8 @@ class SendResponseBackStage(stage.PipelineStage):
         link = self._course_sales_signup_link(query, intent_data)
         if not link:
             return
+        if query.variables.get(self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY) is True:
+            return
 
         if self._replace_course_sales_link_placeholders(query.resp_message_chain[-1], link):
             return
@@ -1033,6 +1078,7 @@ class SendResponseBackStage(stage.PipelineStage):
         self._remove_course_sales_open_question_after_resource_failure(query)
         self._append_course_sales_resource_link(query)
         intent = str(self._current_intent_data(query).get('intent') or '')
+        self._defer_embedded_course_sales_signup_link(query)
         if intent == 'course_conflict':
             await self._append_workflow_images(query, link_bound_only=True)
         self._append_course_sales_signup_link(query)

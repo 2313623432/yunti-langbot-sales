@@ -902,8 +902,9 @@ async def test_respback_sends_signup_link_for_course_sales_conflict_reply():
             [
                 platform_message.Plain(
                     text='不冲突的，这个课更侧重教孩子拼读技巧和方法，还支持回放，时间很灵活\n\n'
-                    '现在报名还送小猿周边实物礼品，完课就发，名额这周就截止哦\n\n'
-                    '我把报名链接发给您'
+                    '报名还独家赠送小猿篮球/护脊书包/小猿手办等实物，完课随机发其一\n\n'
+                    '赠送实物的名额就这一周有哈\n\n'
+                    f'{tracking_link}'
                 )
             ]
         )
@@ -919,8 +920,8 @@ async def test_respback_sends_signup_link_for_course_sales_conflict_reply():
     image_index = next(index for index, message in enumerate(sent_messages) if isinstance(message[0], platform_message.Image))
     assert sent_texts[:3] == [
         '不冲突的，这个课更侧重教孩子拼读技巧和方法，还支持回放，时间很灵活',
-        '现在报名还送小猿周边实物礼品，完课就发，名额这周就截止哦',
-        '我把报名链接发给您',
+        '报名还独家赠送小猿篮球/护脊书包/小猿手办等实物，完课随机发其一',
+        '赠送实物的名额就这一周有哈',
     ]
     assert image_index == 3
     assert sent_texts[4:] == [
