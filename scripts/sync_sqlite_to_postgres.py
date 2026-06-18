@@ -12,7 +12,11 @@ from typing import Any
 import sqlalchemy
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from langbot.pkg.entity import persistence as persistence_entities
 from langbot.pkg.entity.persistence.base import Base
+from langbot.pkg.utils import importutil
+
+importutil.import_modules_in_pkg(persistence_entities)
 
 
 def _normalize_postgres_url(url: str) -> str:
