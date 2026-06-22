@@ -176,6 +176,7 @@ class SendResponseBackStage(stage.PipelineStage):
     )
 
     _MEME_TRIGGER_RE = re.compile(r'\{([a-z][a-z0-9_-]{1,32})\}', re.IGNORECASE)
+    _TRAILING_UNICODE_EMOJI_RE = re.compile(r'[\s\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]+$')
     _DEFAULT_MEME_CODES = set(_FEISHU_NATIVE_EMOJIS_BY_KEY)
     _BUILTIN_MEME_FILE_PREFIX = 'builtin:sales-meme:'
 
@@ -1097,20 +1098,31 @@ class SendResponseBackStage(stage.PipelineStage):
         self._queue_extra_reply_chain(query, f'{title}：{url}')
         query.variables[self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY] = True
 
+    def _strip_course_sales_trailing_unicode_emoji(self, query: pipeline_query.Query) -> None:
+        workflow = self._active_workflow(query)
+        if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
+            return
+        stripped = False
+        for chain in query.resp_message_chain:
+            for component in chain:
+                if not isinstance(component, platform_message.Plain):
+                    continue
+                text = component.text
+                cleaned = self._TRAILING_UNICODE_EMOJI_RE.sub('', text).rstrip()
+                if cleaned != text:
+                    component.text = cleaned
+                    stripped = True
+        if stripped and not str(query.variables.get('auto_meme_emotion') or '').strip():
+            query.variables['auto_meme_emotion'] = 'welcome'
+
     def _prepend_course_sales_first_reply_emoji(self, query: pipeline_query.Query) -> None:
         workflow = self._active_workflow(query)
         if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
             return
         if query.variables.get('course_sales_first_contact') is not True:
             return
-        for component in query.resp_message_chain[-1]:
-            if not isinstance(component, platform_message.Plain):
-                continue
-            text = component.text.lstrip()
-            if text.startswith(('😊', '😄', '😂', '👍', '👌', '🙏', '❤️')):
-                return
-            component.text = f'😊 {text}'
-            return
+        if not str(query.variables.get('auto_meme_emotion') or '').strip():
+            query.variables['auto_meme_emotion'] = 'welcome'
 
     def _source_message_id(self, query: pipeline_query.Query) -> str:
         message_chain = getattr(getattr(query, 'message_event', None), 'message_chain', None)
@@ -1508,8 +1520,10 @@ class SendResponseBackStage(stage.PipelineStage):
             return '赞同'
         if intent in {'course_intro', 'course_question', 'product_intro', 'product_inquiry'}:
             return '服务'
-        if intent in {'resource_confirmed', 'smalltalk'}:
-            return '开心'
+        if intent == 'resource_confirmed':
+            return 'received'
+        if intent == 'smalltalk':
+            return 'welcome'
         if intent in {'resource_help', 'screenshot_help', 'clarification', 'link_error'}:
             return '疑惑'
         return self._infer_generic_meme_emotion(query)
@@ -2030,6 +2044,7 @@ class SendResponseBackStage(stage.PipelineStage):
             return
         if await self._apply_special_case_response(query):
             self._normalize_course_sales_text(query)
+            self._strip_course_sales_trailing_unicode_emoji(query)
             self._prepend_course_sales_first_reply_emoji(query)
             self._append_course_sales_open_question(query)
             self._prepend_feishu_native_emoji(query)
@@ -2043,6 +2058,7 @@ class SendResponseBackStage(stage.PipelineStage):
         self._append_course_sales_signup_link(query)
         await self._append_workflow_images(query, link_bound_only=True)
         self._normalize_course_sales_text(query)
+        self._strip_course_sales_trailing_unicode_emoji(query)
         self._prepend_course_sales_first_reply_emoji(query)
         self._append_course_sales_open_question(query)
         self._prepend_feishu_native_emoji(query)
