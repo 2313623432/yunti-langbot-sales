@@ -684,7 +684,9 @@ class SendResponseBackStage(stage.PipelineStage):
             if caption and not is_task_assistant_workflow and node_config.get('append_caption') is not False:
                 components.append(platform_message.Plain(text=f'\n{caption}'))
             elif requires_signup_link and self._is_course_sales_workflow(workflow) and not is_task_assistant_workflow:
-                components.append(platform_message.Plain(text='报课后按活动规则有完课礼，礼品说明我发您看一下。'))
+                current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
+                if not any(marker in current_text for marker in ('完课好礼', '礼品说明', '赠品', '礼品')):
+                    components.append(platform_message.Plain(text='报课后按活动规则有完课礼，礼品说明我发您看一下。'))
             components.append(await self._image_component(file_key, image_url))
 
             if max_images is not None and sum(isinstance(component, platform_message.Image) for component in components) >= max_images:
@@ -696,7 +698,10 @@ class SendResponseBackStage(stage.PipelineStage):
         if not query.resp_message_chain:
             return
         for component in await self._matched_image_components(query, link_bound_only=link_bound_only):
-            query.resp_message_chain[-1].append(component)
+            if link_bound_only is True and query.variables.get(self._COURSE_SALES_SIGNUP_LINK_QUEUED_KEY) is True:
+                self._queue_extra_reply_chain(query, platform_message.MessageChain([component]))
+            else:
+                query.resp_message_chain[-1].append(component)
 
     def _plain_text_from_chain(self, message_chain: platform_message.MessageChain) -> str:
         return ''.join(component.text for component in message_chain if isinstance(component, platform_message.Plain))
@@ -865,7 +870,7 @@ class SendResponseBackStage(stage.PipelineStage):
             if isinstance(component, platform_message.Plain):
                 component.text = self._strip_course_sales_final_periods(component.text)
 
-    def _course_sales_link_question_needed(self, text: str) -> bool:
+    def _course_sales_link_question_needed(self, query: pipeline_query.Query, text: str) -> bool:
         if not text:
             return False
         if '能打开吗' in text or '能否打开' in text or '可以打开吗' in text:
@@ -884,6 +889,15 @@ class SendResponseBackStage(stage.PipelineStage):
             '没有链接',
         )
         if any(marker in text for marker in negated_link_markers):
+            return False
+
+        intent_data = self._current_intent_data(query)
+        intent = str(intent_data.get('intent') or '').strip()
+        if intent == 'resource_help':
+            return False
+        if intent in {'purchase', 'radar_clicked', 'link_error'} or intent_data.get('include_link') is True or intent_data.get('link_url'):
+            return any(marker in text for marker in ('链接', '入口', '卡片', '扫码记录', '小程序'))
+        if intent:
             return False
         return any(marker in text for marker in ('链接', '入口', '卡片', '资源', '扫码记录', '小程序'))
 
@@ -948,8 +962,8 @@ class SendResponseBackStage(stage.PipelineStage):
             )
         )
 
-    def _course_sales_open_question(self, text: str) -> str:
-        if self._course_sales_link_question_needed(text):
+    def _course_sales_open_question(self, query: pipeline_query.Query, text: str) -> str:
+        if self._course_sales_link_question_needed(query, text):
             return self._COURSE_SALES_LINK_OPEN_QUESTION
         if self._course_sales_screenshot_question_needed(text):
             return '方便发我一张截图吗？'
@@ -988,8 +1002,11 @@ class SendResponseBackStage(stage.PipelineStage):
         user_texts.extend(self._course_sales_provider_user_text(message) for message in query.messages)
         return any(self._COURSE_SALES_CHILD_GRADE_RE.search(text or '') for text in user_texts)
 
-    def _queue_extra_reply_chain(self, query: pipeline_query.Query, text: str) -> None:
-        chain = platform_message.MessageChain([platform_message.Plain(text=text)])
+    def _queue_extra_reply_chain(self, query: pipeline_query.Query, text: str | platform_message.MessageChain) -> None:
+        if isinstance(text, platform_message.MessageChain):
+            chain = text
+        else:
+            chain = platform_message.MessageChain([platform_message.Plain(text=text)])
         extra_chains = query.variables.get(self._EXTRA_REPLY_CHAINS_KEY)
         if not isinstance(extra_chains, list):
             extra_chains = []
@@ -1031,7 +1048,7 @@ class SendResponseBackStage(stage.PipelineStage):
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         if self._course_sales_user_confirmed_open(query):
             return
-        question = self._course_sales_open_question(current_text)
+        question = self._course_sales_open_question(query, current_text)
         if not question:
             return
         if question == self._COURSE_SALES_CHILD_GRADE_QUESTION and self._course_sales_child_grade_known(query):
@@ -1080,21 +1097,29 @@ class SendResponseBackStage(stage.PipelineStage):
             return False
         return any(marker in text for marker in ('再发', '重发', '重新发', '发一下', '补发', '发给您', '发给你'))
 
+    def _course_sales_resource_step_selected(self, query: pipeline_query.Query) -> bool:
+        intent_data = self._current_intent_data(query)
+        selected_step_ids = self._as_string_set(intent_data.get('step_ids') or intent_data.get('image_step_ids'))
+        return 'gift_qr' in selected_step_ids or intent_data.get('resource_link_id') == 'phonics_resource_card'
+
     def _append_course_sales_resource_link(self, query: pipeline_query.Query) -> None:
         if query.variables.get(self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY):
             return
         intent_data = self._current_intent_data(query)
         if str(intent_data.get('intent') or '') != 'resource_help':
             return
-        if not self._course_sales_user_reported_open_failure(query):
-            return
+        reported_open_failure = self._course_sales_user_reported_open_failure(query)
         current_text = self._plain_text_from_chain(query.resp_message_chain[-1])
-        if not self._promises_course_sales_resource_link(current_text):
+        if not reported_open_failure and not self._course_sales_resource_step_selected(query):
+            return
+        if reported_open_failure and not self._promises_course_sales_resource_link(current_text):
             return
         title, url = self._course_sales_resource_link(query)
         if not url or url in current_text:
             return
         self._queue_extra_reply_chain(query, f'{title}：{url}')
+        if not reported_open_failure:
+            self._queue_extra_reply_chain(query, self._COURSE_SALES_LINK_OPEN_QUESTION)
         query.variables[self._COURSE_SALES_RESOURCE_LINK_QUEUED_KEY] = True
 
     def _prepend_course_sales_first_reply_emoji(self, query: pipeline_query.Query) -> None:
