@@ -2562,7 +2562,7 @@ async def test_course_sales_payment_screenshot_stops_promotional_outreach_before
 
 
 @pytest.mark.asyncio
-async def test_course_sales_open_confirmation_marks_lark_reaction():
+async def test_course_sales_open_confirmation_uses_received_meme_not_smile_reaction():
     service = TaskAssistantService(SimpleNamespace(sales_service=None, logger=SimpleNamespace(warning=lambda *_: None)))
     query = _query(text_chain('可以打开'), '可以打开', session_id='customer-open-ok')
     query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
@@ -2571,7 +2571,33 @@ async def test_course_sales_open_confirmation_marks_lark_reaction():
     await service.prepare_query(query)
 
     assert query.variables['workflow_intent']['intent'] == 'resource_confirmed'
-    assert query.variables['lark_reaction_emoji_type'] == 'SMILE'
+    assert 'lark_reaction_emoji_type' not in query.variables
+    assert query.variables['auto_meme_emotion'] == 'received'
+
+
+def test_course_sales_meme_emotion_mapping_covers_sales_scenarios_without_smile_fallback():
+    service = TaskAssistantService(SimpleNamespace(sales_service=None, logger=SimpleNamespace(warning=lambda *_: None)))
+
+    scenarios = {
+        'resource_confirmed': 'received',
+        'resource_help': 'resource',
+        'course_schedule': 'class_time',
+        'course_replay': 'replay',
+        'course_content': 'reading',
+        'gift': 'gift',
+        'grade': 'grade',
+        'link_error': 'link',
+        'screenshot_help': 'checking',
+        'purchase': 'signup',
+        'purchased': 'success',
+    }
+
+    for intent_name, expected_emotion in scenarios.items():
+        query = _query(text_chain('test'), 'test', session_id=f'emotion-{intent_name}')
+        service._apply_lark_reaction_for_intent(query, {'intent': intent_name})
+        assert query.variables.get('auto_meme_emotion') == expected_emotion
+        if intent_name != 'purchased':
+            assert query.variables.get('lark_reaction_emoji_type') != 'SMILE'
 
 
 @pytest.mark.asyncio

@@ -1929,14 +1929,34 @@ class TaskAssistantService:
         if not isinstance(intent, dict):
             return
         intent_name = str(intent.get('intent') or '').strip()
-        emoji_type = ''
-        meme_emotion = ''
-        if intent_name == 'resource_confirmed':
-            emoji_type = 'SMILE'
-            meme_emotion = '开心'
-        elif intent_name == 'purchased':
-            emoji_type = 'THUMBSUP'
-            meme_emotion = '赞同'
+        reaction_by_intent = {
+            'purchased': 'THUMBSUP',
+        }
+        meme_emotion_by_intent = {
+            'resource_confirmed': 'received',
+            'resource_help': 'resource',
+            'course_intro': 'service',
+            'course_question': 'question',
+            'product_intro': 'service',
+            'product_inquiry': 'service',
+            'course_schedule': 'class_time',
+            'course_replay': 'replay',
+            'course_content': 'reading',
+            'reading_thinking_intro': 'reading',
+            'teacher_service': 'service',
+            'course_conflict': 'calm',
+            'gift': 'gift',
+            'grade': 'grade',
+            'link_error': 'link',
+            'screenshot_help': 'checking',
+            'clarification': 'question',
+            'purchase': 'signup',
+            'radar_clicked': 'followup',
+            'purchased': 'success',
+            'smalltalk': 'welcome',
+        }
+        emoji_type = reaction_by_intent.get(intent_name, '')
+        meme_emotion = meme_emotion_by_intent.get(intent_name, '')
         if emoji_type:
             query.variables['lark_reaction_emoji_type'] = emoji_type
         if meme_emotion:
