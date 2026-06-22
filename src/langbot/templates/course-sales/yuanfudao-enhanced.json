@@ -48,6 +48,132 @@
     "merge_reply_enabled": true,
     "merge_delay_seconds": 10.0
   },
+  "agent_orchestration": {
+    "enabled": true,
+    "mode": "multi_agent",
+    "profile_memory_enabled": true,
+    "debug_trace_enabled": true,
+    "assistants": [
+      {
+        "id": "profile_updater",
+        "name": "画像更新助手",
+        "description": "抽取孩子年级、关注点、购买阶段、拒绝原因和停发风险，写回客户关键信息。",
+        "input": "用户消息 + 历史画像",
+        "output": "profile patch",
+        "model": "doubao-seed-2-0-mini-260215",
+        "model_uuid": "doubao-seed-2-0-mini-260215",
+        "model_extra_args": {
+          "thinking": {
+            "type": "disabled"
+          },
+          "reasoning_effort": "minimal"
+        },
+        "prompt": "你是用户画像更新助手。根据用户最新消息、历史对话和已有画像，只抽取稳定事实，输出画像增量 JSON。必须覆盖可判断字段：孩子年级、英语基础、关注点、购买阶段、拒绝原因、资源问题、停发风险；无法判断的字段不要输出。只记录用户明确表达或上下文强相关的信息，不要生成客户可见回复，不要编造未提到的信息。",
+        "enabled": true
+      },
+      {
+        "id": "intent_classifier",
+        "name": "意图识别助手",
+        "description": "结合客户关键信息识别课程咨询、购买、已报名、拒绝、截图、投诉和转人工。",
+        "input": "用户消息 + 当前画像",
+        "output": "intent JSON",
+        "model": "doubao-seed-2-0-mini-260215",
+        "model_uuid": "doubao-seed-2-0-mini-260215",
+        "model_extra_args": {
+          "thinking": {
+            "type": "disabled"
+          },
+          "reasoning_effort": "minimal"
+        },
+        "prompt": "你是意图识别助手。结合用户消息、当前画像、媒体类型、最近对话和渠道事件，识别咨询意图、置信度、购买阶段、是否需要转人工、是否触发停发。只输出 JSON：intent, confidence, reason, step_ids, include_link；intent 必须使用运行时允许的课程销售意图；reason 用一句话说明依据，不要回复用户。",
+        "enabled": true
+      },
+      {
+        "id": "query_rewriter",
+        "name": "问题重写助手",
+        "description": "把口语化问题改写成适合知识库、FAQ 和产品库检索的标准问题。",
+        "input": "原始消息 + 意图结果",
+        "output": "rewritten query",
+        "model": "doubao-seed-2-0-mini-260215",
+        "model_uuid": "doubao-seed-2-0-mini-260215",
+        "model_extra_args": {
+          "thinking": {
+            "type": "disabled"
+          },
+          "reasoning_effort": "minimal"
+        },
+        "prompt": "你是问题重写助手。把家长的口语化消息改写成适合知识库、课程 FAQ 和产品库检索的一句话查询，补齐可检索关键词，保留课程名、年级、价格、回放、赠品、报名、支付截图、资源打不开等关键约束。只输出重写后的查询，不要解释，不要扩写成回复。",
+        "enabled": true
+      },
+      {
+        "id": "knowledge_retriever",
+        "name": "知识/产品检索",
+        "description": "按重写问题检索知识库、课程 FAQ、产品画像、报名链接和素材。",
+        "input": "重写问题 + 产品画像",
+        "output": "evidence bundle",
+        "model": "doubao-seed-2-0-mini-260215",
+        "model_uuid": "doubao-seed-2-0-mini-260215",
+        "model_extra_args": {
+          "thinking": {
+            "type": "disabled"
+          },
+          "reasoning_effort": "minimal"
+        },
+        "prompt": "你是知识/产品检索助手。根据重写问题、意图和产品画像，选择相关课程 FAQ、知识库片段、产品事实、报名链接和素材，输出证据摘要与来源。标注哪些事实可直接用于回复，哪些只作内部参考；价格、排期、赠品和活动有效期以运行时上下文为准。不生成最终回复。",
+        "enabled": true
+      },
+      {
+        "id": "reply_composer",
+        "name": "回复生成助手",
+        "description": "只基于客户信息、意图和检索证据生成客户可见回复，减少长提示词堆叠。",
+        "input": "画像 + 意图 + 证据",
+        "output": "final reply",
+        "model": "doubao-seed-2-0-pro-260215",
+        "model_uuid": "doubao-seed-2-0-pro-260215",
+        "model_extra_args": {
+          "thinking": {
+            "type": "enabled"
+          },
+          "reasoning_effort": "low"
+        },
+        "prompt": "你是回复生成助手。只基于用户画像、意图结果、检索证据和业务边界，生成给家长看的回复草稿。先回答当前问题，再轻量承接下一步；短句、自然、像真人客服；不得输出推理过程，不得编造课程事实，不要泄露智能体、草稿或内部上下文。",
+        "enabled": true
+      },
+      {
+        "id": "followup_planner",
+        "name": "跟进计划助手",
+        "description": "根据购买阶段、雷达事件和停发规则生成马上、延时、晚间或 Day 跟进计划。",
+        "input": "客户阶段 + 雷达事件",
+        "output": "outreach plan",
+        "model": "doubao-seed-2-0-mini-260215",
+        "model_uuid": "doubao-seed-2-0-mini-260215",
+        "model_extra_args": {
+          "thinking": {
+            "type": "disabled"
+          },
+          "reasoning_effort": "minimal"
+        },
+        "prompt": "你是跟进计划助手。根据购买阶段、意图、雷达事件、停发规则和当前回复草稿，生成下一步跟进计划：马上、5分钟、1小时、晚间21:30或 Day 跟进。命中停发、投诉、转人工、已支付时输出停止计划；计划要说明触发条件、延迟和目标动作。只输出结构化计划摘要。",
+        "enabled": true
+      }
+    ],
+    "debug_trace_fields": [
+      "原始消息",
+      "用户画像",
+      "意图结果",
+      "重写问题",
+      "命中资料",
+      "最终回复",
+      "跟进计划"
+    ],
+    "profile_fields": [
+      "孩子年级",
+      "关注点",
+      "购买阶段",
+      "雷达点击",
+      "停发风险"
+    ]
+  },
   "voice": {
     "provider": "volcengine",
     "enabled": true,
