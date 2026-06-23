@@ -1,4 +1,4 @@
-const DEFAULT_N8N_DEMO_URL = 'http://localhost:5678';
+const DEFAULT_N8N_DEMO_URL = 'http://localhost:5678/workflow/new';
 
 function normalizeEmbedUrl(url: string) {
   const trimmed = url.trim();
