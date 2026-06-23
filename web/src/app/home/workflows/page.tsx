@@ -3,7 +3,7 @@ import { ExternalLink, RefreshCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 
-const DEFAULT_N8N_DEMO_URL = 'http://localhost:5678/workflow/new';
+const DEFAULT_N8N_DEMO_URL = 'https://jiushi.app.n8n.cloud/workflow/new';
 
 function normalizeEmbedUrl(url: string) {
   const trimmed = url.trim();
