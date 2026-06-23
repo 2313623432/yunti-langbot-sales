@@ -2219,10 +2219,21 @@ class SalesService:
             return bot_name
         bot_id = getattr(session, 'bot_id', '') or ''
         if bot_id:
-            resolved = await self._bot_name(bot_id)
+            resolved = await self._resolve_bot_display_name(bot_id)
             if resolved and not self._is_technical_identifier(resolved):
                 return resolved
         return bot_name or bot_id
+
+    async def _resolve_bot_display_name(self, bot_uuid: str) -> str:
+        bot_mgr = getattr(self.ap, 'bot_mgr', None)
+        get_bot = getattr(bot_mgr, 'get_bot', None)
+        if get_bot is None:
+            return bot_uuid
+        try:
+            bot = await get_bot(bot_uuid)
+            return getattr(getattr(bot, 'bot_entity', None), 'name', '') or bot_uuid
+        except Exception:
+            return bot_uuid
 
     def _is_technical_identifier(self, value: str) -> bool:
         text = str(value or '').strip()

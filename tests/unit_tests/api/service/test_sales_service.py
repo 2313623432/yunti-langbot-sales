@@ -897,6 +897,61 @@ async def test_get_sales_conversations_hides_technical_user_name_and_keeps_bot_n
 
 
 @pytest.mark.asyncio
+async def test_get_sales_conversations_resolves_uuid_bot_name_from_bot_manager():
+    session = SimpleNamespace(
+        session_id='LauncherTypes.PERSON_ou_customer',
+        bot_id='12f70134-3e7e-4b55-8f19-6d3bc3b1f1d4',
+        bot_name='12f70134-3e7e-4b55-8f19-6d3bc3b1f1d4',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=1,
+        start_time=datetime.datetime(2026, 6, 15, 10, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 15, 10, 1, 0),
+        is_active=True,
+        platform='person',
+        user_id='ou_customer',
+        user_name='夏般',
+    )
+    message = SimpleNamespace(
+        id='msg-1',
+        timestamp=datetime.datetime(2026, 6, 15, 10, 1, 0),
+        session_id='LauncherTypes.PERSON_ou_customer',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '你好'}], ensure_ascii=False),
+        bot_id=session.bot_id,
+        bot_name=session.bot_name,
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='ou_customer',
+        user_name='夏般',
+        runner_name='',
+        variables=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    bot_mgr = SimpleNamespace(
+        get_bot=AsyncMock(return_value=SimpleNamespace(bot_entity=SimpleNamespace(name='私域机器人1')))
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr, bot_mgr=bot_mgr))
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['bot_name'] == '私域机器人1'
+
+
+@pytest.mark.asyncio
 async def test_open_handoff_from_query_uses_monitoring_session_id_for_pending_manual_queue(
     sales_service_with_db,
 ):
