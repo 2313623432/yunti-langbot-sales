@@ -271,7 +271,7 @@ const nodeDefaults: Record<
     config: {
       enabled: true,
       link_title: '报名通道',
-      link_url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class',
+      link_url: 'https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0',
       tracking_fields: ['session_id', 'clicked_at', 'browse_seconds', 'clicked_apply_button'],
       rules: [
         {
@@ -805,6 +805,8 @@ export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
 
 const courseSalesSignupLink =
   'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class';
+const courseSalesRadarLink =
+  'https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0';
 const courseResourceCardLink =
   'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347';
 const courseOpeningMessage =
@@ -904,7 +906,7 @@ const courseSalesLinks = [
   {
     id: 'phonics_radar_apply',
     title: '猿辅导自然拼读9元体验课报名通道',
-    url: courseSalesSignupLink,
+    url: courseSalesRadarLink,
     description: '报名链接卡片：通过 tracking URL 记录打开并触发雷达跟进。',
     radar_enabled: true,
   },
@@ -912,7 +914,7 @@ const courseSalesLinks = [
 const courseRadarConfig = {
   enabled: true,
   link_title: '猿辅导自然拼读9元体验课报名通道',
-  link_url: courseSalesSignupLink,
+  link_url: courseSalesRadarLink,
   tracking_fields: ['session_id', 'campaign', 'clicked_at', 'browse_seconds', 'clicked_apply_button', 'paid'],
   rules: [
     { event: 'link_open', delay_minutes: 0, message: '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功短信，我给您登记开课并赠送资料。' },

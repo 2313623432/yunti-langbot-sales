@@ -545,7 +545,10 @@ COURSE_SALES_SIGNUP_LINK = (
     'https://m.yuanfudao.com/primary/templates/package?'
     'pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class'
 )
-COURSE_SALES_RADAR_LINK = COURSE_SALES_SIGNUP_LINK
+COURSE_SALES_RADAR_LINK = (
+    'https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/'
+    'eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0'
+)
 COURSE_RESOURCE_CARD_LINK = (
     'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?'
     'resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977'
