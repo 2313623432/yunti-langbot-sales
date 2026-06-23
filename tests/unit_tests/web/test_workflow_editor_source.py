@@ -810,7 +810,7 @@ def test_workflow_canvas_supports_direct_drag_panning():
     assert 'cursor-grabbing' in source
 
 
-def test_latest_workflow_navigation_opens_n8n_demo_editor():
+def test_latest_workflow_navigation_opens_real_pipeline_orchestration():
     sidebar_source = SIDEBAR_CONFIG_PATH.read_text(encoding='utf-8')
     router_source = ROUTER_PATH.read_text(encoding='utf-8')
     workflows_source = WORKFLOWS_PAGE_PATH.read_text(encoding='utf-8')
@@ -826,15 +826,15 @@ def test_latest_workflow_navigation_opens_n8n_demo_editor():
     assert "path: '/home/workflows'" in router_source
     workflow_route_block = router_source.split("path: '/home/workflows'", 1)[1].split("path: '/home/monitoring'", 1)[0]
     assert 'import WorkflowsPage' in router_source
-    assert 'import WorkflowLibraryPage' in router_source
     assert '<WorkflowsPage />' in workflow_route_block
-    assert "path: '/home/workflows/native'" in workflow_route_block
-    assert '<WorkflowLibraryPage />' in workflow_route_block
+    assert 'WorkflowLibraryPage' not in router_source
+    assert "path: '/home/workflows/native'" not in router_source
     assert '<PipelinesPage />' not in workflow_route_block
-    assert 'VITE_N8N_DEMO_URL' in workflows_source
-    assert 'DEFAULT_N8N_DEMO_URL' in workflows_source
-    assert '<iframe' in workflows_source
-    assert 'title="n8n workflow editor demo"' in workflows_source
+    assert "export { default } from './WorkflowLibraryPage';" in workflows_source
+    assert 'VITE_N8N_DEMO_URL' not in workflows_source
+    assert 'DEFAULT_N8N_DEMO_URL' not in workflows_source
+    assert '<iframe' not in workflows_source
+    assert 'title="n8n workflow editor demo"' not in workflows_source
     assert 'PipelineWorkflowEditor' not in workflows_source
     assert 'createBlankWorkflow' not in workflows_source
 
