@@ -27,12 +27,14 @@ import {
   PackageSearch,
   PanelRightClose,
   PanelRightOpen,
+  PlayCircle,
   Plug,
   Plus,
   RadioTower,
   Save,
   Search,
   Send,
+  Settings2,
   Sparkles,
   Tags,
   Trash2,
@@ -59,6 +61,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
@@ -317,6 +320,31 @@ function listToText(value: unknown): string {
   return asStringList(value).join('\n');
 }
 
+function groupPaletteTypes(types: WorkflowNodeType[]) {
+  return types.reduce<Record<string, WorkflowNodeType[]>>((groups, type) => {
+    const group = nodeMeta[type].group;
+    groups[group] = groups[group] || [];
+    groups[group].push(type);
+    return groups;
+  }, {});
+}
+
+function filterPaletteTypes(query: string, includeStart = false) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const availableTypes = paletteOrder.filter(
+    (type) => includeStart || type !== 'start',
+  );
+  if (!normalizedQuery) return availableTypes;
+  return availableTypes.filter((type) => {
+    const meta = nodeMeta[type];
+    return (
+      meta.label.toLowerCase().includes(normalizedQuery) ||
+      meta.group.toLowerCase().includes(normalizedQuery) ||
+      type.toLowerCase().includes(normalizedQuery)
+    );
+  });
+}
+
 function makeEdge(source: string, target: string): PipelineWorkflowEdge {
   const id =
     typeof crypto !== 'undefined' && crypto.randomUUID
@@ -343,6 +371,7 @@ export default function PipelineWorkflowEditor({
   const [addNodeMenuSourceId, setAddNodeMenuSourceId] = useState<string>('');
   const [nodePaletteOpen, setNodePaletteOpen] = useState(false);
   const [nodePaletteSearch, setNodePaletteSearch] = useState('');
+  const [librarySearch, setLibrarySearch] = useState('');
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
@@ -365,6 +394,7 @@ export default function PipelineWorkflowEditor({
     (node) => node.id === selectedNodeId,
   );
   const imageNodes = workflow.nodes.filter((node) => node.type === 'image');
+  const draftConnectionSourceId = draftConnection?.sourceId;
 
   useEffect(() => {
     if (!selectedNodeId && workflow.nodes[0]) {
@@ -399,7 +429,7 @@ export default function PipelineWorkflowEditor({
   }, []);
 
   useEffect(() => {
-    if (!draftConnection) return;
+    if (!draftConnectionSourceId) return;
 
     function handleWindowPointerMove(event: PointerEvent) {
       setDraftConnection((current) =>
@@ -423,7 +453,7 @@ export default function PipelineWorkflowEditor({
       window.removeEventListener('pointermove', handleWindowPointerMove);
       window.removeEventListener('pointerup', handleWindowPointerUp);
     };
-  }, [draftConnection?.sourceId]);
+  }, [draftConnectionSourceId]);
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -586,6 +616,15 @@ export default function PipelineWorkflowEditor({
     });
   }
 
+  function updateEdge(edgeId: string, patch: Partial<PipelineWorkflowEdge>) {
+    commit({
+      ...workflow,
+      edges: workflow.edges.map((edge) =>
+        edge.id === edgeId ? { ...edge, ...patch } : edge,
+      ),
+    });
+  }
+
   function handleNodePointerDown(
     event: ReactPointerEvent<HTMLDivElement>,
     node: PipelineWorkflowNode,
@@ -619,9 +658,7 @@ export default function PipelineWorkflowEditor({
     }
   }
 
-  function handleCanvasPointerDown(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (
@@ -642,18 +679,16 @@ export default function PipelineWorkflowEditor({
     };
   }
 
-  function handleCanvasPointerMove(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const pan = canvasPanRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
-    event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
-    event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+    event.currentTarget.scrollLeft =
+      pan.scrollLeft - (event.clientX - pan.startX);
+    event.currentTarget.scrollTop =
+      pan.scrollTop - (event.clientY - pan.startY);
   }
 
-  function handleCanvasPointerUp(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     const pan = canvasPanRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
@@ -754,28 +789,12 @@ export default function PipelineWorkflowEditor({
   );
 
   const filteredAddMenuPalette = useMemo(() => {
-    const query = nodePaletteSearch.trim().toLowerCase();
-    const availableTypes = paletteOrder.filter((type) => type !== 'start');
-    const matchedTypes = query
-      ? availableTypes.filter((type) => {
-          const meta = nodeMeta[type];
-          return (
-            meta.label.toLowerCase().includes(query) ||
-            meta.group.toLowerCase().includes(query) ||
-            type.toLowerCase().includes(query)
-          );
-        })
-      : availableTypes;
-    return matchedTypes.reduce<Record<string, WorkflowNodeType[]>>(
-      (groups, type) => {
-        const group = nodeMeta[type].group;
-        groups[group] = groups[group] || [];
-        groups[group].push(type);
-        return groups;
-      },
-      {},
-    );
+    return groupPaletteTypes(filterPaletteTypes(nodePaletteSearch));
   }, [nodePaletteSearch]);
+
+  const libraryPaletteGroups = useMemo(() => {
+    return groupPaletteTypes(filterPaletteTypes(librarySearch));
+  }, [librarySearch]);
 
   const editor = (
     <div
@@ -786,6 +805,15 @@ export default function PipelineWorkflowEditor({
           : 'h-[calc(100vh-218px)] min-h-[620px] rounded-xl border',
       )}
     >
+      <WorkflowLibraryPanel
+        groups={libraryPaletteGroups}
+        search={librarySearch}
+        nodesCount={workflow.nodes.length}
+        edgesCount={workflow.edges.length}
+        onSearchChange={setLibrarySearch}
+        onAddNode={(type) => addNode(type)}
+      />
+
       <main className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2 border-b border-slate-200 bg-white/95 px-3 py-2.5">
           <Input
@@ -1271,7 +1299,7 @@ export default function PipelineWorkflowEditor({
       )}
 
       {!rightPanelCollapsed ? (
-        <aside className="flex w-[320px] shrink-0 flex-col border-l border-slate-200 bg-white">
+        <aside className="flex w-[360px] shrink-0 flex-col border-l border-slate-200 bg-white">
           <div className="border-b border-slate-200 p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
@@ -1297,68 +1325,73 @@ export default function PipelineWorkflowEditor({
               </div>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {selectedNode ? (
-              <NodeConfigPanel
-                imageNodes={imageNodes}
-                knowledgeBases={knowledgeBases}
-                llmModels={llmModels}
-                node={selectedNode}
-                products={salesProducts}
-                uploading={uploadingNodeId === selectedNode.id}
-                imageAssetUrl={imageAssetUrl}
-                onNodeChange={(patch) => updateNode(selectedNode.id, patch)}
-                onConfigChange={(patch) =>
-                  updateNodeConfig(selectedNode.id, patch)
-                }
-                onUploadImage={(event) =>
-                  uploadImageForNode(selectedNode, event)
-                }
-              />
-            ) : (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                请选择一个节点
-              </div>
-            )}
-
-            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-              <div className="mb-2 text-xs font-semibold text-slate-500">
-                连线
-              </div>
-              <div className="space-y-1.5">
-                {workflow.edges.map((edge) => {
-                  const source = workflow.nodes.find(
-                    (node) => node.id === edge.source,
-                  );
-                  const target = workflow.nodes.find(
-                    (node) => node.id === edge.target,
-                  );
-                  return (
-                    <div
-                      key={edge.id}
-                      className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
-                    >
-                      <span className="min-w-0 flex-1 truncate">
-                        {`${source?.title ?? edge.source} -> ${target?.title ?? edge.target}`}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => deleteEdge(edge.id)}
-                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </div>
-                  );
-                })}
-                {!workflow.edges.length && (
-                  <div className="rounded-lg border border-dashed border-slate-200 bg-white p-3 text-xs text-muted-foreground">
-                    暂无连线
-                  </div>
-                )}
-              </div>
+          <Tabs defaultValue="params" className="min-h-0 flex-1 gap-0">
+            <div className="border-b border-slate-200 px-3 py-2">
+              <TabsList className="grid h-9 w-full grid-cols-3 rounded-lg bg-slate-100 p-1">
+                <TabsTrigger value="params" className="gap-1 text-xs">
+                  <Settings2 className="size-3.5" />
+                  参数
+                </TabsTrigger>
+                <TabsTrigger value="io" className="gap-1 text-xs">
+                  <GitBranch className="size-3.5" />
+                  输入输出
+                </TabsTrigger>
+                <TabsTrigger value="run" className="gap-1 text-xs">
+                  <PlayCircle className="size-3.5" />
+                  执行
+                </TabsTrigger>
+              </TabsList>
             </div>
-          </div>
+            <TabsContent value="params" className="min-h-0 overflow-y-auto p-3">
+              {selectedNode ? (
+                <NodeConfigPanel
+                  imageNodes={imageNodes}
+                  knowledgeBases={knowledgeBases}
+                  llmModels={llmModels}
+                  node={selectedNode}
+                  products={salesProducts}
+                  uploading={uploadingNodeId === selectedNode.id}
+                  imageAssetUrl={imageAssetUrl}
+                  onNodeChange={(patch) => updateNode(selectedNode.id, patch)}
+                  onConfigChange={(patch) =>
+                    updateNodeConfig(selectedNode.id, patch)
+                  }
+                  onUploadImage={(event) =>
+                    uploadImageForNode(selectedNode, event)
+                  }
+                />
+              ) : (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  请选择一个节点
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="io" className="min-h-0 overflow-y-auto p-3">
+              <WorkflowIoPanel
+                workflow={workflow}
+                selectedNode={selectedNode}
+                onDeleteEdge={deleteEdge}
+                onEdgeChange={updateEdge}
+                onSelectNode={setSelectedNodeId}
+              />
+            </TabsContent>
+            <TabsContent value="run" className="min-h-0 overflow-y-auto p-3">
+              <WorkflowExecutionPanel
+                workflow={workflow}
+                onWorkflowChange={updateWorkflow}
+                onLoadSalesTemplate={() => {
+                  const next = createSalesWorkflowTemplate();
+                  commit(next);
+                  setSelectedNodeId(next.nodes[0]?.id ?? '');
+                }}
+                onLoadSupportTemplate={() => {
+                  const next = createSupportWorkflowTemplate();
+                  commit(next);
+                  setSelectedNodeId(next.nodes[0]?.id ?? '');
+                }}
+              />
+            </TabsContent>
+          </Tabs>
         </aside>
       ) : null}
     </div>
@@ -1392,6 +1425,329 @@ export default function PipelineWorkflowEditor({
   }
 
   return editor;
+}
+
+function WorkflowLibraryPanel({
+  edgesCount,
+  groups,
+  nodesCount,
+  search,
+  onAddNode,
+  onSearchChange,
+}: {
+  edgesCount: number;
+  groups: Record<string, WorkflowNodeType[]>;
+  nodesCount: number;
+  search: string;
+  onAddNode: (type: WorkflowNodeType) => void;
+  onSearchChange: (value: string) => void;
+}) {
+  const groupEntries = Object.entries(groups);
+
+  return (
+    <aside className="hidden w-[270px] shrink-0 flex-col border-r border-slate-200 bg-white xl:flex">
+      <div className="border-b border-slate-200 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-slate-950">节点库</div>
+            <div className="mt-0.5 text-xs text-slate-500">
+              点击添加到当前画布
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-500">
+            {nodesCount}/{edgesCount}
+          </div>
+        </div>
+        <div className="relative mt-3">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="搜索节点、工具、分组"
+            className="h-9 rounded-lg border-slate-200 bg-slate-50/80 pl-8 shadow-none focus-visible:bg-white"
+          />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {groupEntries.length ? (
+          <div className="space-y-4">
+            {groupEntries.map(([group, types]) => (
+              <div key={group}>
+                <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <span>{group}</span>
+                  <span>{types.length}</span>
+                </div>
+                <div className="grid gap-1.5">
+                  {types.map((type) => {
+                    const meta = nodeMeta[type];
+                    const Icon = meta.icon;
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => onAddNode(type)}
+                        className="group flex min-h-12 items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+                      >
+                        <span
+                          className={cn(
+                            'flex size-8 shrink-0 items-center justify-center rounded-lg border',
+                            meta.accent,
+                          )}
+                        >
+                          <Icon className="size-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-slate-900">
+                            {meta.label}
+                          </span>
+                          <span className="block truncate text-[11px] text-slate-500">
+                            {type}
+                          </span>
+                        </span>
+                        <Plus className="size-3.5 text-slate-400 group-hover:text-blue-600" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-muted-foreground">
+            没有匹配的节点
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function WorkflowIoPanel({
+  workflow,
+  selectedNode,
+  onDeleteEdge,
+  onEdgeChange,
+  onSelectNode,
+}: {
+  workflow: PipelineWorkflow;
+  selectedNode?: PipelineWorkflowNode;
+  onDeleteEdge: (edgeId: string) => void;
+  onEdgeChange: (edgeId: string, patch: Partial<PipelineWorkflowEdge>) => void;
+  onSelectNode: (nodeId: string) => void;
+}) {
+  if (!selectedNode) {
+    return (
+      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+        请选择一个节点查看输入输出
+      </div>
+    );
+  }
+
+  const incoming = workflow.edges.filter(
+    (edge) => edge.target === selectedNode.id,
+  );
+  const outgoing = workflow.edges.filter(
+    (edge) => edge.source === selectedNode.id,
+  );
+
+  function nodeTitle(nodeId: string) {
+    return workflow.nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="mb-2 text-xs font-semibold text-slate-500">
+          节点输入
+        </div>
+        <EdgeList
+          edges={incoming}
+          emptyText="暂无上游输入"
+          labelFor={(edge) => nodeTitle(edge.source)}
+          onDeleteEdge={onDeleteEdge}
+          onEdgeChange={onEdgeChange}
+          onSelect={(edge) => onSelectNode(edge.source)}
+        />
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="mb-2 text-xs font-semibold text-slate-500">
+          节点输出
+        </div>
+        <EdgeList
+          edges={outgoing}
+          emptyText="暂无下游输出"
+          labelFor={(edge) => nodeTitle(edge.target)}
+          onDeleteEdge={onDeleteEdge}
+          onEdgeChange={onEdgeChange}
+          onSelect={(edge) => onSelectNode(edge.target)}
+        />
+      </div>
+      <JsonLikeTextarea
+        label="当前节点配置快照"
+        value={JSON.stringify(selectedNode.config, null, 2)}
+        onChange={() => {}}
+        readOnly
+      />
+    </div>
+  );
+}
+
+function EdgeList({
+  edges,
+  emptyText,
+  labelFor,
+  onDeleteEdge,
+  onEdgeChange,
+  onSelect,
+}: {
+  edges: PipelineWorkflowEdge[];
+  emptyText: string;
+  labelFor: (edge: PipelineWorkflowEdge) => string;
+  onDeleteEdge: (edgeId: string) => void;
+  onEdgeChange: (edgeId: string, patch: Partial<PipelineWorkflowEdge>) => void;
+  onSelect: (edge: PipelineWorkflowEdge) => void;
+}) {
+  if (!edges.length) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-white p-3 text-xs text-muted-foreground">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {edges.map((edge) => (
+        <div
+          key={edge.id}
+          className="rounded-lg border border-slate-200 bg-white p-2"
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSelect(edge)}
+              className="min-w-0 flex-1 truncate text-left text-xs font-medium text-slate-700 hover:text-blue-700"
+            >
+              {labelFor(edge)}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDeleteEdge(edge.id)}
+              className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              title="删除连线"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </div>
+          <Input
+            value={edge.label ?? ''}
+            placeholder="连线标签，例如：已报名 / 未报名"
+            onChange={(event) =>
+              onEdgeChange(edge.id, { label: event.target.value })
+            }
+            className="h-8 rounded-md border-slate-200 bg-slate-50 text-xs shadow-none"
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WorkflowExecutionPanel({
+  workflow,
+  onLoadSalesTemplate,
+  onLoadSupportTemplate,
+  onWorkflowChange,
+}: {
+  workflow: PipelineWorkflow;
+  onLoadSalesTemplate: () => void;
+  onLoadSupportTemplate: () => void;
+  onWorkflowChange: (patch: Partial<PipelineWorkflow>) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="mb-3 text-xs font-semibold text-slate-500">
+          工作流属性
+        </div>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">
+              场景
+            </label>
+            <Select
+              value={workflow.scenario}
+              onValueChange={(value) =>
+                onWorkflowChange({
+                  scenario: value as PipelineWorkflow['scenario'],
+                })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sales">销售</SelectItem>
+                <SelectItem value="support">客服</SelectItem>
+                <SelectItem value="task">任务助手</SelectItem>
+                <SelectItem value="custom">自定义</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <JsonLikeTextarea
+            label="全局变量 JSON"
+            value={JSON.stringify(workflow.variables || {}, null, 2)}
+            onChange={(value) => {
+              try {
+                onWorkflowChange({ variables: JSON.parse(value) });
+              } catch {
+                onWorkflowChange({
+                  variables: { raw_variables: value },
+                });
+              }
+            }}
+          />
+        </div>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="mb-3 text-xs font-semibold text-slate-500">
+          快速模板
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-lg border-slate-200"
+            onClick={onLoadSalesTemplate}
+          >
+            销售模板
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-lg border-slate-200"
+            onClick={onLoadSupportTemplate}
+          >
+            客服模板
+          </Button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+          <div className="text-2xl font-semibold text-blue-700">
+            {workflow.nodes.length}
+          </div>
+          <div className="mt-1 text-xs text-blue-700/80">节点</div>
+        </div>
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+          <div className="text-2xl font-semibold text-emerald-700">
+            {workflow.edges.length}
+          </div>
+          <div className="mt-1 text-xs text-emerald-700/80">连线</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function NodeConfigPanel({
@@ -1473,7 +1829,10 @@ function NodeConfigPanel({
             <SelectContent>
               <SelectItem value="__none__">跟随数字员工默认模型</SelectItem>
               {llmModels
-                .filter((model) => model.provider?.requester !== 'space-chat-completions')
+                .filter(
+                  (model) =>
+                    model.provider?.requester !== 'space-chat-completions',
+                )
                 .map((model) => (
                   <SelectItem key={model.uuid} value={model.uuid}>
                     {model.name}
@@ -2052,10 +2411,12 @@ function GenericConfig({
 
 function JsonLikeTextarea({
   label,
+  readOnly = false,
   value,
   onChange,
 }: {
   label: string;
+  readOnly?: boolean;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -2066,8 +2427,14 @@ function JsonLikeTextarea({
       </label>
       <Textarea
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-28 font-mono text-xs"
+        readOnly={readOnly}
+        onChange={(event) => {
+          if (!readOnly) onChange(event.target.value);
+        }}
+        className={cn(
+          'min-h-28 font-mono text-xs',
+          readOnly && 'cursor-default bg-slate-50 text-slate-500',
+        )}
       />
     </div>
   );
