@@ -12,7 +12,7 @@ from PIL import Image
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.provider.message as provider_message
 
-from tests.factories import FakeApp, FakeProvider, text_query
+from tests.factories import FakeApp, FakeProvider, text_query, voice_query
 
 
 def get_respback_stage_class():
@@ -173,6 +173,57 @@ async def test_respback_sends_course_sales_followup_question_as_separate_message
         '孩子现在几年级呀？',
     ]
     assert all('\n' not in text for text in sent_texts)
+
+
+@pytest.mark.asyncio
+async def test_respback_localizes_course_sales_text_reply_to_chinese_terms():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('Do you have Phonics class?')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='Phonics 9元就能学5天，APP里还有VIP服务。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_text = str(query.adapter.reply_message.await_args_list[0].kwargs['message'])
+    assert '自然拼读' in sent_text
+    assert '应用' in sent_text
+    assert '会员服务' in sent_text
+    assert 'Phonics' not in sent_text
+    assert 'APP' not in sent_text
+    assert 'VIP' not in sent_text
+
+
+@pytest.mark.asyncio
+async def test_respback_localizes_course_sales_voice_reply_before_tts():
+    app = FakeApp()
+    app.task_assistant_service = SimpleNamespace(
+        synthesize_reply_voice=AsyncMock(return_value='data:audio/mpeg;base64,ZmFrZQ==')
+    )
+    stage = get_respback_stage_class()(app)
+    query = voice_query('https://example.com/audio.mp3')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.variables['task_assistant_voice_reply'] = True
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='咱们现在有 Phonics 体验课，APP里能看VIP权益。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    app.task_assistant_service.synthesize_reply_voice.assert_awaited_once()
+    tts_text = app.task_assistant_service.synthesize_reply_voice.await_args.args[1]
+    assert '自然拼读' in tts_text
+    assert '应用' in tts_text
+    assert '会员权益' in tts_text
+    assert 'Phonics' not in tts_text
+    assert 'APP' not in tts_text
+    assert 'VIP' not in tts_text
 
 
 @pytest.mark.asyncio

@@ -183,6 +183,13 @@ class SendResponseBackStage(stage.PipelineStage):
         super().__init__(ap)
         self._meme_session_states: dict[str, dict[str, int]] = {}
     _COURSE_SALES_CHILD_GRADE_RE = re.compile(r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]年级|初[一二三]|高[一二三])')
+    _COURSE_SALES_CHINESE_TERM_REPLACEMENTS = (
+        (re.compile(r'(?<![A-Za-z])English\s+Phonics(?![A-Za-z])', re.IGNORECASE), '英语自然拼读'),
+        (re.compile(r'(?<![A-Za-z])Phonics(?![A-Za-z])', re.IGNORECASE), '自然拼读'),
+        (re.compile(r'(?<![A-Za-z])VIP(?=\s*(权益|服务))', re.IGNORECASE), '会员'),
+        (re.compile(r'(?<![A-Za-z])APP(?![A-Za-z])', re.IGNORECASE), '应用'),
+        (re.compile(r'(?<![A-Za-z])AI(?=\s*(强化营|课|课程|工具|伴学|学|服务))', re.IGNORECASE), '智能'),
+    )
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
         intent_data = query.variables.get('sales_intent') or query.variables.get('workflow_intent') or {}
@@ -868,7 +875,17 @@ class SendResponseBackStage(stage.PipelineStage):
             return
         for component in query.resp_message_chain[-1]:
             if isinstance(component, platform_message.Plain):
-                component.text = self._strip_course_sales_final_periods(component.text)
+                component.text = self._normalize_course_sales_plain_text(component.text)
+        for message in query.resp_messages or []:
+            content = getattr(message, 'content', None)
+            if isinstance(content, str):
+                message.content = self._normalize_course_sales_plain_text(content)
+
+    def _normalize_course_sales_plain_text(self, text: str) -> str:
+        normalized = text or ''
+        for pattern, replacement in self._COURSE_SALES_CHINESE_TERM_REPLACEMENTS:
+            normalized = pattern.sub(replacement, normalized)
+        return self._strip_course_sales_final_periods(normalized)
 
     def _course_sales_link_question_needed(self, query: pipeline_query.Query, text: str) -> bool:
         if not text:
@@ -2062,6 +2079,8 @@ class SendResponseBackStage(stage.PipelineStage):
             return
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_workflow_images(query, link_bound_only=False)
+        self._normalize_course_sales_text(query)
+        reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_task_assistant_voice(query, reply_text)
         self._remove_course_sales_open_question_after_resource_failure(query)
         self._append_course_sales_resource_link(query)
