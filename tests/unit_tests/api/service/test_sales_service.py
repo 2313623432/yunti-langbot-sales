@@ -84,6 +84,22 @@ def test_normalize_sales_message_content_keeps_unavailable_media_as_real_attachm
     assert normalized['components'][1]['raw']['image_id'] == 'img_001'
 
 
+def test_normalize_sales_message_content_summarizes_truncated_media_json():
+    service = SalesService(SimpleNamespace())
+    raw = (
+        '[{"type":"Source","id":"source-1"},'
+        '{"type":"Plain","text":"请看这个"},'
+        '{"type":"Image","image_id":"img_001","base64":"data:image/png;base64,'
+        + 'A' * 5000
+    )
+
+    normalized = service.normalize_sales_message_content(raw[:4000])
+
+    assert normalized['preview'] == '请看这个 [图片]'
+    assert [part['kind'] for part in normalized['components']] == ['text', 'image']
+    assert 'base64' not in normalized['preview']
+
+
 def test_normalize_sales_message_content_accepts_platform_media_alias_fields():
     service = SalesService(SimpleNamespace())
     raw = json.dumps(
@@ -785,6 +801,62 @@ async def test_get_sales_conversations_returns_lightweight_latest_message_withou
     assert conversations[0]['latest_message_preview'] == '我想买'
     assert conversations[0]['latest_message']['raw_message_content'] == ''
     assert len(json.dumps(conversations, ensure_ascii=False)) < 20_000
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_summarizes_latest_truncated_image_without_base64(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 23, 5, 45, 0)
+    huge_image = 'data:image/png;base64,' + ('A' * 1_000_000)
+    session_id = 'LauncherTypes.PERSON_ou_customer_image'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringSession).values(
+            session_id=session_id,
+            bot_id='bot-uuid',
+            bot_name='私域机器人1',
+            pipeline_id='pipe-1',
+            pipeline_name='销售流程',
+            message_count=1,
+            start_time=now,
+            last_activity=now,
+            is_active=True,
+            platform='person',
+            user_id='ou_customer',
+            user_name='夏般',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringMessage).values(
+            id='msg-latest-image',
+            timestamp=now,
+            bot_id='bot-uuid',
+            bot_name='私域机器人1',
+            pipeline_id='pipe-1',
+            pipeline_name='销售流程',
+            message_content=json.dumps(
+                [{'type': 'Plain', 'text': '我拍给你看'}, {'type': 'Image', 'base64': huge_image}],
+                ensure_ascii=False,
+            ),
+            session_id=session_id,
+            status='success',
+            level='info',
+            platform='person',
+            user_id='ou_customer',
+            user_name='夏般',
+            role='user',
+        )
+    )
+
+    conversations = await service.get_sales_conversations(limit=20)
+    current = next(item for item in conversations if item['session_id'] == session_id)
+    body = json.dumps(current, ensure_ascii=False)
+
+    assert current['latest_message_preview'] == '我拍给你看 [图片]'
+    assert current['latest_message']['components'][1]['base64'] == ''
+    assert 'data:image/png;base64' not in body
+    assert len(body) < 10_000
 
 
 @pytest.mark.asyncio

@@ -2258,7 +2258,9 @@ class SalesService:
         try:
             parsed = json.loads(raw_content)
         except (TypeError, json.JSONDecodeError):
-            parsed = [{'type': 'Plain', 'text': raw_content}] if raw_content else []
+            parsed = self._normalize_truncated_sales_message_content(raw_content)
+            if not parsed:
+                parsed = [{'type': 'Plain', 'text': raw_content}] if raw_content else []
 
         if not isinstance(parsed, list):
             parsed = [{'type': 'Plain', 'text': raw_content}]
@@ -2279,6 +2281,30 @@ class SalesService:
             'preview': self._sales_message_preview(components),
             'metadata': metadata,
         }
+
+    def _normalize_truncated_sales_message_content(self, raw_content: str) -> list[dict[str, Any]]:
+        text = str(raw_content or '').strip()
+        if not text.startswith(('[', '{')) or '"type"' not in text:
+            return []
+
+        components: list[dict[str, Any]] = []
+        matches = list(re.finditer(r'"type"\s*:\s*"([^"]+)"', text))
+        for index, match in enumerate(matches):
+            component_type = match.group(1)
+            if component_type == 'Source':
+                continue
+            component: dict[str, Any] = {'type': component_type}
+            if component_type == 'Plain':
+                next_start = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+                chunk = text[match.end() : next_start]
+                text_match = re.search(r'"text"\s*:\s*"((?:\\.|[^"\\])*)"', chunk)
+                if text_match:
+                    try:
+                        component['text'] = json.loads(f'"{text_match.group(1)}"')
+                    except json.JSONDecodeError:
+                        component['text'] = text_match.group(1)
+            components.append(component)
+        return components
 
     def _normalize_sales_message_component(self, component: dict[str, Any]) -> dict[str, Any] | None:
         component_type = str(component.get('type') or '').strip()
