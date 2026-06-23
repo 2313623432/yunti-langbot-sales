@@ -16,6 +16,7 @@ WORKFLOW_TEMPLATES_PATH = Path(
 )
 TYPES_PATH = Path('web/src/app/home/pipelines/components/workflow-editor/types.ts')
 WORKFLOWS_PAGE_PATH = Path('web/src/app/home/workflows/page.tsx')
+WORKFLOW_LIBRARY_PAGE_PATH = Path('web/src/app/home/workflows/WorkflowLibraryPage.tsx')
 PIPELINE_PAGE_PATH = Path('web/src/app/home/pipelines/page.tsx')
 PIPELINE_DETAIL_PATH = Path('web/src/app/home/pipelines/PipelineDetailContent.tsx')
 SIDEBAR_CONFIG_PATH = Path('web/src/app/home/components/home-sidebar/sidbarConfigList.tsx')
@@ -809,10 +810,11 @@ def test_workflow_canvas_supports_direct_drag_panning():
     assert 'cursor-grabbing' in source
 
 
-def test_latest_workflow_navigation_opens_real_pipeline_orchestration():
+def test_latest_workflow_navigation_opens_n8n_demo_editor():
     sidebar_source = SIDEBAR_CONFIG_PATH.read_text(encoding='utf-8')
     router_source = ROUTER_PATH.read_text(encoding='utf-8')
     workflows_source = WORKFLOWS_PAGE_PATH.read_text(encoding='utf-8')
+    workflow_library_source = WORKFLOW_LIBRARY_PAGE_PATH.read_text(encoding='utf-8')
 
     assert "id: 'pipelines'" in sidebar_source
     assert "name: '数字员工'" in sidebar_source
@@ -824,27 +826,37 @@ def test_latest_workflow_navigation_opens_real_pipeline_orchestration():
     assert "path: '/home/workflows'" in router_source
     workflow_route_block = router_source.split("path: '/home/workflows'", 1)[1].split("path: '/home/monitoring'", 1)[0]
     assert 'import WorkflowsPage' in router_source
+    assert 'import WorkflowLibraryPage' in router_source
     assert '<WorkflowsPage />' in workflow_route_block
+    assert "path: '/home/workflows/native'" in workflow_route_block
+    assert '<WorkflowLibraryPage />' in workflow_route_block
     assert '<PipelinesPage />' not in workflow_route_block
-    assert 'PipelineWorkflowEditor' in workflows_source
-    assert 'createBlankWorkflow' in workflows_source
-    assert 'getWorkflows' in workflows_source
-    assert 'fromWorkflowProject' in workflows_source
-    assert "const defaultFolder = '我的项目';" in workflows_source
-    assert "useState(() => [defaultFolder])" in workflows_source
-    assert 'useState(defaultFolder)' in workflows_source
-    assert 'setFolders' in workflows_source
-    assert 'newFolderName' in workflows_source
-    assert 'createFolder' in workflows_source
-    assert '新目录名称' in workflows_source
-    assert '创建' in workflows_source
-    assert 'Upload' not in workflows_source
-    assert '<Upload' not in workflows_source
-    assert 'My Projects' not in workflows_source
-    assert '游轮DEMO' not in workflows_source
-    assert '示例DEMO' not in workflows_source
-    assert '销售转化工作流' not in workflows_source
-    assert '客服接待工作流' not in workflows_source
+    assert 'VITE_N8N_DEMO_URL' in workflows_source
+    assert 'DEFAULT_N8N_DEMO_URL' in workflows_source
+    assert '<iframe' in workflows_source
+    assert 'title="n8n workflow editor demo"' in workflows_source
+    assert 'PipelineWorkflowEditor' not in workflows_source
+    assert 'createBlankWorkflow' not in workflows_source
+
+    assert 'PipelineWorkflowEditor' in workflow_library_source
+    assert 'createBlankWorkflow' in workflow_library_source
+    assert 'getWorkflows' in workflow_library_source
+    assert 'fromWorkflowProject' in workflow_library_source
+    assert "const defaultFolder = '我的项目';" in workflow_library_source
+    assert "useState(() => [defaultFolder])" in workflow_library_source
+    assert 'useState(defaultFolder)' in workflow_library_source
+    assert 'setFolders' in workflow_library_source
+    assert 'newFolderName' in workflow_library_source
+    assert 'createFolder' in workflow_library_source
+    assert '新目录名称' in workflow_library_source
+    assert '创建' in workflow_library_source
+    assert 'Upload' not in workflow_library_source
+    assert '<Upload' not in workflow_library_source
+    assert 'My Projects' not in workflow_library_source
+    assert '游轮DEMO' not in workflow_library_source
+    assert '示例DEMO' not in workflow_library_source
+    assert '销售转化工作流' not in workflow_library_source
+    assert '客服接待工作流' not in workflow_library_source
 
 
 def test_standalone_workflow_templates_preserve_digital_employee_nodes():
@@ -910,7 +922,7 @@ def test_standalone_workflow_templates_preserve_digital_employee_nodes():
 
 
 def test_workflow_cards_open_on_click_and_delete_with_confirmation():
-    source = WORKFLOWS_PAGE_PATH.read_text(encoding='utf-8')
+    source = WORKFLOW_LIBRARY_PAGE_PATH.read_text(encoding='utf-8')
 
     assert 'AlertDialog' in source
     assert 'workflowPendingDelete' in source
@@ -936,7 +948,7 @@ def test_workflow_cards_open_on_click_and_delete_with_confirmation():
 
 
 def test_workflow_creation_settings_do_not_bind_agent():
-    source = WORKFLOWS_PAGE_PATH.read_text(encoding='utf-8')
+    source = WORKFLOW_LIBRARY_PAGE_PATH.read_text(encoding='utf-8')
 
     assert 'boundAgent' not in source
     assert '绑定 AI Agent' not in source
