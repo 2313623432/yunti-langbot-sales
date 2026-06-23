@@ -702,13 +702,7 @@ class SalesService:
         if not patch:
             return None
 
-        session_id = self._query_session_id(query)
-        result = await self.ap.persistence_mgr.execute_async(
-            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
-                persistence_sales.SalesCustomerMemory.session_id == session_id
-            )
-        )
-        existing = self._first_row(result)
+        session_id, existing = await self._resolve_customer_profile_memory_target(query)
         if existing is None:
             try:
                 existing = await self._create_memory_from_monitoring_session(session_id)
@@ -750,6 +744,46 @@ class SalesService:
         )
         updated = self._first_row(updated_result)
         return self._serialize(persistence_sales.SalesCustomerMemory, updated) if updated is not None else None
+
+    async def _resolve_customer_profile_memory_target(self, query: Any) -> tuple[str, Any | None]:
+        aliases = self._preferred_query_session_aliases(query)
+        if aliases:
+            result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                    persistence_sales.SalesCustomerMemory.session_id.in_(aliases)
+                )
+            )
+            memories = [self._row_entity(row) for row in result.all()]
+            memory_by_session = {
+                getattr(memory, 'session_id', ''): memory
+                for memory in memories
+                if getattr(memory, 'session_id', '')
+            }
+            for alias in aliases:
+                if alias in memory_by_session:
+                    return alias, memory_by_session[alias]
+
+            session_result = await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.select(persistence_monitoring.MonitoringSession.session_id).where(
+                    persistence_monitoring.MonitoringSession.session_id.in_(aliases)
+                )
+            )
+            existing_sessions = {self._row_value(row) for row in session_result.all()}
+            for alias in aliases:
+                if alias in existing_sessions:
+                    return alias, None
+
+        return self._query_session_id(query), None
+
+    def _preferred_query_session_aliases(self, query: Any) -> list[str]:
+        aliases = self._query_session_aliases(query)
+        return sorted(
+            aliases,
+            key=lambda alias: (
+                0 if alias.startswith(('person_', 'group_')) else 1,
+                alias,
+            ),
+        )
 
     def _normalize_customer_profile_patch(self, profile_patch: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(profile_patch, dict):

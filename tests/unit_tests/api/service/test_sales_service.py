@@ -717,6 +717,41 @@ async def test_apply_customer_profile_patch_from_query_updates_real_memory_witho
     assert '空字段' not in memory['profile']
 
 
+@pytest.mark.asyncio
+async def test_apply_customer_profile_patch_uses_monitoring_session_key_for_enum_launcher_type(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id='person_customer-1',
+            platform='person',
+            user_id='customer-1',
+            customer_name='客户A',
+            profile={},
+        )
+    )
+    query = SimpleNamespace(
+        launcher_type=provider_session.LauncherTypes.PERSON,
+        launcher_id='customer-1',
+        sender_id='customer-1',
+        variables={},
+    )
+
+    memory = await service.apply_customer_profile_patch_from_query(
+        query,
+        {'孩子年级': '三年级'},
+    )
+
+    assert memory['session_id'] == 'person_customer-1'
+    assert memory['profile']['child_grade'] == '三年级'
+
+    result = await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_sales.SalesCustomerMemory.session_id)
+    )
+    assert sorted(row[0] for row in result.all()) == ['person_customer-1']
+
+
 class _ColumnRow:
     def __init__(self, **values):
         self._values = values
