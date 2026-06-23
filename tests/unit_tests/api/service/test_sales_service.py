@@ -995,6 +995,31 @@ async def test_get_sales_conversations_maps_legacy_handoff_session_id_to_monitor
 
 
 @pytest.mark.asyncio
+async def test_get_sales_conversations_maps_legacy_memory_session_id_to_monitoring_session(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id='person_ou_customer',
+            platform='person',
+            user_id='ou_customer',
+            customer_name='少华',
+            profile={'child_grade': '三年级'},
+        )
+    )
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == session_id
+    assert conversations[0]['customer_name'] == '少华'
+    assert conversations[0]['memory']['session_id'] == 'person_ou_customer'
+    assert conversations[0]['memory']['profile']['child_grade'] == '三年级'
+
+
+@pytest.mark.asyncio
 async def test_get_sales_conversation_messages_returns_ordered_components_and_sender_kind():
     user_message = SimpleNamespace(
         id='msg-1',

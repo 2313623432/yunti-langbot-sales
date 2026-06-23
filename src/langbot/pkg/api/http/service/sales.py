@@ -2613,13 +2613,16 @@ class SalesService:
 
         memory_result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
-                persistence_sales.SalesCustomerMemory.session_id.in_(session_ids)
+                persistence_sales.SalesCustomerMemory.session_id.in_(candidate_handoff_session_ids)
             )
         )
         memories = {}
         for row in memory_result.all():
             memory = self._row_entity(row)
-            memories[memory.session_id] = memory
+            canonical_session_id = handoff_session_aliases.get(memory.session_id, memory.session_id)
+            current = memories.get(canonical_session_id)
+            if current is None or memory.session_id == canonical_session_id:
+                memories[canonical_session_id] = memory
 
         handoff_result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_sales.SalesHandoff).where(
