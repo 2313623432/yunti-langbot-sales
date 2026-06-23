@@ -206,10 +206,29 @@ const nodeDefaults: Record<
         '根据客户意图、知识库结果和产品资料，生成一句自然、具体、有下一步动作的回复。',
     },
   },
+  ai_suggestion: {
+    title: '人工回复推荐',
+    description: '人工接管时，点击后由 AI 给客服一条可采纳的回复建议',
+    config: {
+      enabled: true,
+      style: '自然客服',
+      prompt: '结合完整聊天历史，给人工客服一条可直接发送的短回复。',
+    },
+  },
   condition: {
     title: '条件分流',
     description: '按意图、置信度、客户阶段分支',
     config: { rules: ['requires_handoff == true', 'intent in image_intents'] },
+  },
+  special_case: {
+    title: '特殊情况处理',
+    description: '按客户表达的语义触发固定场景回复',
+    config: {
+      condition: '例如：问怎么听、资源在哪里、答案怎么看',
+      reply: '书籍二维码听力/答案，点击上面推送的“点击访问扫码前的资源”卡片。',
+      ai_rewrite: true,
+      image_url: '',
+    },
   },
   lead: {
     title: '收集线索',
@@ -233,6 +252,18 @@ const nodeDefaults: Record<
     title: '更新客户记忆',
     description: '沉淀客户阶段、兴趣产品和摘要',
     config: { stage: 'new', tags: ['高意向', '待跟进'] },
+  },
+  resource_capture: {
+    title: '资源问题收集',
+    description: '客户遇到扫码、听力、答案、资源打不开时追问并记录',
+    config: {
+      enabled: true,
+      trigger_keywords: ['二维码打不开', '听力在哪里', '答案在哪里', '扫码失败', '资源打不开'],
+      required_image_count: 2,
+      max_followup_rounds: 3,
+      ask_message: '您具体是哪个资源打不开呀？可以描述一下问题，再拍一下出问题的二维码和页面截图发我。',
+      completed_message: '收到，我已经帮您记录了，会尽快帮您处理。',
+    },
   },
   radar: {
     title: '链接点击雷达',
@@ -259,10 +290,61 @@ const nodeDefaults: Record<
       message_template: '您好，给您同步一下上次关注的产品资料。',
     },
   },
+  scheduled_message: {
+    title: '单条定时消息',
+    description: '第几天几点自动发送一条消息，可带图片和链接',
+    config: {
+      day: 1,
+      time: '10:20',
+      message: '',
+      image_url: '',
+      link_title: '',
+      link_url: '',
+    },
+  },
+  followup: {
+    title: '多轮跟进',
+    description: '按客户阶段安排下一轮销售跟进',
+    config: {
+      stage: '未报名',
+      delay_minutes: 1440,
+      message: '',
+      stop_when_replied: true,
+    },
+  },
   handoff: {
     title: '人工介入',
     description: '进入人工接待队列',
     config: { reason: '客户需要人工协助', assigned_to: '' },
+  },
+  resume_ai: {
+    title: '恢复AI托管',
+    description: '人工处理完成后恢复 AI 自动回复',
+    config: {
+      enabled: true,
+      resume_message: '好的，后面我会继续帮您跟进。',
+    },
+  },
+  link_card: {
+    title: '链接卡片',
+    description: '发送报名、资源或扫码记录链接',
+    config: {
+      title: '点击访问扫码前的资源',
+      url: '',
+      description: '',
+      radar_enabled: true,
+    },
+  },
+  meme: {
+    title: '发送表情包',
+    description: '根据情绪发送礼貌、可爱的飞书小表情或大表情包',
+    config: {
+      enabled: true,
+      emotion: '开心鼓励',
+      small_enabled: true,
+      large_enabled: true,
+      min_rounds: 3,
+    },
   },
   http: {
     title: 'HTTP 请求',

@@ -172,10 +172,22 @@ const nodeMeta: Record<
     icon: Bot,
     accent: 'border-indigo-200 bg-indigo-50 text-indigo-700',
   },
+  ai_suggestion: {
+    label: '人工回复推荐',
+    group: 'AI',
+    icon: Sparkles,
+    accent: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+  },
   condition: {
     label: '条件分支',
     group: '控制',
     icon: GitBranch,
+    accent: 'border-slate-200 bg-slate-50 text-slate-700',
+  },
+  special_case: {
+    label: '特殊情况处理',
+    group: '条件与流程',
+    icon: ListChecks,
     accent: 'border-slate-200 bg-slate-50 text-slate-700',
   },
   lead: {
@@ -196,6 +208,12 @@ const nodeMeta: Record<
     icon: Tags,
     accent: 'border-lime-200 bg-lime-50 text-lime-700',
   },
+  resource_capture: {
+    label: '资源问题收集',
+    group: '资料与记忆',
+    icon: BookOpen,
+    accent: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  },
   radar: {
     label: '雷达监测',
     group: '销售',
@@ -208,11 +226,41 @@ const nodeMeta: Record<
     icon: Bell,
     accent: 'border-orange-200 bg-orange-50 text-orange-700',
   },
+  scheduled_message: {
+    label: '单条定时消息',
+    group: '销售动作',
+    icon: Bell,
+    accent: 'border-orange-200 bg-orange-50 text-orange-700',
+  },
+  followup: {
+    label: '多轮跟进',
+    group: '销售动作',
+    icon: ListChecks,
+    accent: 'border-orange-200 bg-orange-50 text-orange-700',
+  },
   handoff: {
     label: '人工介入',
     group: '客服',
     icon: Handshake,
     accent: 'border-red-200 bg-red-50 text-red-700',
+  },
+  resume_ai: {
+    label: '恢复AI托管',
+    group: '客服',
+    icon: Bot,
+    accent: 'border-red-200 bg-red-50 text-red-700',
+  },
+  link_card: {
+    label: '链接卡片',
+    group: '销售动作',
+    icon: RadioTower,
+    accent: 'border-sky-200 bg-sky-50 text-sky-700',
+  },
+  meme: {
+    label: '发送表情包',
+    group: '发送给客户',
+    icon: ImageIcon,
+    accent: 'border-cyan-200 bg-cyan-50 text-cyan-700',
   },
   http: {
     label: 'HTTP',
@@ -264,13 +312,21 @@ const paletteOrder: WorkflowNodeType[] = [
   'task',
   'vision',
   'llm',
+  'ai_suggestion',
   'condition',
+  'special_case',
   'lead',
   'image',
   'memory',
+  'resource_capture',
   'radar',
   'outreach',
+  'scheduled_message',
+  'followup',
   'handoff',
+  'resume_ai',
+  'link_card',
+  'meme',
   'http',
   'plugin',
   'mcp',
@@ -929,7 +985,7 @@ export default function PipelineWorkflowEditor({
             onClick={openNodePalette}
           >
             <Plus className="size-4" />
-            Component
+            添加组件
           </Button>
           <Button
             type="button"
@@ -1260,17 +1316,17 @@ export default function PipelineWorkflowEditor({
                     <div className="flex min-w-0 items-center gap-1.5">
                       {canReceive && (
                         <span className="rounded bg-slate-100 px-1.5 py-0.5">
-                          Input
+                          输入
                         </span>
                       )}
                       {canSend && (
                         <span className="rounded bg-slate-100 px-1.5 py-0.5">
-                          Output
+                          输出
                         </span>
                       )}
                     </div>
                     <div className="truncate">
-                      {configCount ? `${configCount} 参数` : 'No params'}
+                      {configCount ? `${configCount} 项配置` : '无需配置'}
                     </div>
                   </div>
                 </div>
@@ -1436,7 +1492,7 @@ export default function PipelineWorkflowEditor({
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-slate-500">
-                  Inspector
+                  配置面板
                 </div>
                 <div className="mt-0.5 truncate text-sm font-semibold">
                   {selectedNode?.title ?? '未选择节点'}
@@ -1470,7 +1526,7 @@ export default function PipelineWorkflowEditor({
                 </TabsTrigger>
                 <TabsTrigger value="run" className="gap-1 text-xs">
                   <PlayCircle className="size-3.5" />
-                  Playground
+                  预览测试
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -1586,7 +1642,7 @@ function WorkflowLibraryPanel({
         <div className="flex items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold text-slate-950">
-              Components
+              组件库
             </div>
             <div className="mt-0.5 text-xs text-slate-500">
               拖到画布，或点击快速添加
@@ -1601,7 +1657,7 @@ function WorkflowLibraryPanel({
           <Input
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search components"
+            placeholder="搜索组件"
             className="h-9 rounded-md border-slate-200 bg-slate-50/80 pl-8 shadow-none focus-visible:bg-white"
           />
         </div>
@@ -1712,16 +1768,16 @@ function WorkflowIoPanel({
       {componentSchema && (
         <div className="rounded-xl border border-slate-200 bg-white p-3">
           <div className="mb-2 text-xs font-semibold text-slate-500">
-            Component ports
+            输入输出
           </div>
           <div className="grid grid-cols-2 gap-2 text-xs">
-            <PortList title="Inputs" ports={componentSchema.inputs} />
-            <PortList title="Outputs" ports={componentSchema.outputs} />
+            <PortList title="输入" ports={componentSchema.inputs} />
+            <PortList title="输出" ports={componentSchema.outputs} />
           </div>
         </div>
       )}
       <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-        <div className="mb-2 text-xs font-semibold text-slate-500">Inputs</div>
+        <div className="mb-2 text-xs font-semibold text-slate-500">输入</div>
         <EdgeList
           edges={incoming}
           emptyText="暂无上游输入"
@@ -1732,7 +1788,7 @@ function WorkflowIoPanel({
         />
       </div>
       <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-        <div className="mb-2 text-xs font-semibold text-slate-500">Outputs</div>
+        <div className="mb-2 text-xs font-semibold text-slate-500">输出</div>
         <EdgeList
           edges={outgoing}
           emptyText="暂无下游输出"
@@ -1743,7 +1799,7 @@ function WorkflowIoPanel({
         />
       </div>
       <JsonLikeTextarea
-        label="Component data"
+        label="当前配置"
         value={JSON.stringify(selectedNode.config, null, 2)}
         onChange={() => {}}
         readOnly
@@ -1774,7 +1830,7 @@ function PortList({
             </span>
           </div>
         ))}
-        {!ports.length && <div className="text-slate-400">None</div>}
+        {!ports.length && <div className="text-slate-400">无</div>}
       </div>
     </div>
   );
@@ -1856,7 +1912,7 @@ function WorkflowExecutionPanel({
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
         <div className="mb-3 text-xs font-semibold text-slate-500">
-          Flow settings
+          工作流设置
         </div>
         <div className="space-y-3">
           <div className="space-y-2">
@@ -1883,7 +1939,7 @@ function WorkflowExecutionPanel({
             </Select>
           </div>
           <JsonLikeTextarea
-            label="Flow variables"
+            label="全局配置（高级）"
             value={JSON.stringify(workflow.variables || {}, null, 2)}
             onChange={(value) => {
               try {
@@ -1899,7 +1955,7 @@ function WorkflowExecutionPanel({
       </div>
       <div className="rounded-xl border border-slate-200 bg-white p-3">
         <div className="mb-3 text-xs font-semibold text-slate-500">
-          Starter flows
+          快速模板
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Button
@@ -1969,6 +2025,7 @@ function NodeConfigPanel({
   const previewUrl = fileKey ? imageAssetUrl(fileKey) : imageUrl;
   const selectedKbIds = asStringList(node.config.knowledge_base_uuids);
   const selectedProductIds = asStringList(node.config.product_uuids);
+  const shouldUseSchemaConfig = Boolean(componentSchema);
 
   function toggleListValue(field: string, value: string) {
     const current = asStringList(node.config[field]);
@@ -2007,7 +2064,7 @@ function NodeConfigPanel({
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold text-slate-500">
-                Langflow component
+                组件说明
               </div>
               <div className="mt-0.5 text-sm font-semibold text-slate-900">
                 {componentSchema.display_name}
@@ -2033,6 +2090,42 @@ function NodeConfigPanel({
                 onChange={(value) => onConfigChange({ [field.name]: value })}
               />
             ))}
+            {node.type === 'image' && (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                <label className="text-xs font-medium text-muted-foreground">
+                  上传图片
+                </label>
+                <input
+                  id={`workflow-image-schema-${node.id}`}
+                  className="hidden"
+                  type="file"
+                  accept="image/*"
+                  onChange={onUploadImage}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() =>
+                    document
+                      .getElementById(`workflow-image-schema-${node.id}`)
+                      ?.click()
+                  }
+                >
+                  <Upload className="mr-1.5 size-4" />
+                  {uploading ? '上传中' : '选择图片'}
+                </Button>
+                {previewUrl && (
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <img
+                      src={previewUrl}
+                      alt={node.title}
+                      className="max-h-44 w-full object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {!componentSchema.fields.length && (
               <div className="rounded-lg border border-dashed border-slate-200 p-3 text-xs text-slate-500">
                 这个组件没有可配置字段
@@ -2042,7 +2135,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'llm' && (
+      {!shouldUseSchemaConfig && node.type === 'llm' && (
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
             回复模型
@@ -2077,7 +2170,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'intent' && (
+      {!shouldUseSchemaConfig && node.type === 'intent' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -2144,7 +2237,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'knowledge' && (
+      {!shouldUseSchemaConfig && node.type === 'knowledge' && (
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
             关联知识库
@@ -2185,7 +2278,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'product' && (
+      {!shouldUseSchemaConfig && node.type === 'product' && (
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
             关联产品
@@ -2225,7 +2318,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'llm' && (
+      {!shouldUseSchemaConfig && node.type === 'llm' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -2261,7 +2354,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'image' && (
+      {!shouldUseSchemaConfig && node.type === 'image' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -2336,7 +2429,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'condition' && (
+      {!shouldUseSchemaConfig && node.type === 'condition' && (
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
             分支规则
@@ -2351,7 +2444,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'lead' && (
+      {!shouldUseSchemaConfig && node.type === 'lead' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -2381,7 +2474,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'handoff' && (
+      {!shouldUseSchemaConfig && node.type === 'handoff' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -2408,7 +2501,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'outreach' && (
+      {!shouldUseSchemaConfig && node.type === 'outreach' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -2438,7 +2531,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'radar' && (
+      {!shouldUseSchemaConfig && node.type === 'radar' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -2492,11 +2585,23 @@ function NodeConfigPanel({
         'vision',
         'voice',
         'end',
-      ].includes(node.type) && (
+      ].includes(node.type) && !shouldUseSchemaConfig && (
         <GenericConfig node={node} onConfigChange={onConfigChange} />
       )}
     </div>
   );
+}
+
+function summarizeAdvancedValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.length ? `已配置 ${value.length} 条。` : '暂未配置。';
+  }
+  if (value && typeof value === 'object') {
+    const count = Object.keys(value as Record<string, unknown>).length;
+    return count ? `已配置 ${count} 项。` : '暂未配置。';
+  }
+  const text = asString(value).trim();
+  return text ? '已填写。' : '暂未填写。';
 }
 
 function WorkflowFieldEditor({
@@ -2513,6 +2618,59 @@ function WorkflowFieldEditor({
       {field.label}
     </label>
   );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  if (field.advanced && !advancedOpen) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-slate-600">
+              {field.label}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              高级配置，一般不用改。{summarizeAdvancedValue(value)}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0"
+            onClick={() => setAdvancedOpen(true)}
+          >
+            展开
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (field.advanced && advancedOpen) {
+    return (
+      <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs font-semibold text-amber-800">
+            高级配置：{field.label}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 bg-white"
+            onClick={() => setAdvancedOpen(false)}
+          >
+            收起
+          </Button>
+        </div>
+        <WorkflowFieldEditor
+          field={{ ...field, advanced: false }}
+          value={value}
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
 
   if (field.type === 'boolean') {
     return (

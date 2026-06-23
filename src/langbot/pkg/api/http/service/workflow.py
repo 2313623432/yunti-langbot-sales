@@ -30,7 +30,7 @@ class WorkflowService:
         self.ap = ap
 
     async def get_component_library(self) -> dict[str, Any]:
-        return {
+        library = {
             'version': 1,
             'families': [
                 {
@@ -317,6 +317,7 @@ class WorkflowService:
                 },
             ],
         }
+        return self._simplify_component_library(library)
 
     async def get_workflow_library(self) -> dict[str, Any]:
         await self._ensure_builtin_workflow_templates()
@@ -513,6 +514,244 @@ class WorkflowService:
             'fields': fields or [],
         }
 
+    def _simplify_component_library(self, library: dict[str, Any]) -> dict[str, Any]:
+        family_labels = {
+            'inputs': '消息入口',
+            'ai': 'AI处理',
+            'logic': '条件与流程',
+            'data': '资料与记忆',
+            'sales': '销售动作',
+            'outputs': '发送给客户',
+        }
+        component_copy = {
+            'ai_suggestion': ('人工回复推荐', '人工接管时，点击后由 AI 生成建议回复，客服决定是否采用。', 'Sparkles'),
+            'special_case': ('特殊情况处理', '客户问到固定场景时，按语义触发指定回复，可选择固定回复或 AI 换种说法。', 'ListChecks'),
+            'resource_capture': ('资源问题收集', '客户说扫码、资源、答案、二维码打不开时，追问问题描述和相关照片，并沉淀到资源问题表。', 'BookOpen'),
+            'scheduled_message': ('单条定时消息', '配置第几天、几点、发什么内容，可带图片和链接。', 'Bell'),
+            'followup': ('多轮跟进', '客户未回复、打开链接、犹豫或已报名时，自动安排下一轮跟进。', 'ListChecks'),
+            'resume_ai': ('恢复AI托管', '人工处理结束后，一键恢复 AI 自动回复和自动跟进。', 'Bot'),
+            'link_card': ('链接卡片', '发送报名、资源、扫码记录等链接卡片，可接入雷达跟踪。', 'RadioTower'),
+            'meme': ('发送表情包', '按客户情绪或对话节点发送礼貌、可爱的飞书表情或大表情包。', 'Image'),
+        }
+
+        extra_by_family = {
+            'ai': [
+                self._component(
+                    'ai_suggestion',
+                    *component_copy['ai_suggestion'],
+                    inputs=[{'name': 'conversation', 'types': ['Message', 'Data']}],
+                    outputs=[{'name': 'suggestion', 'types': ['Message']}],
+                    fields=[
+                        self._field('enabled', '启用推荐回复', 'boolean', True),
+                        self._field('style', '推荐风格', 'select', '自然客服', ['自然客服', '专业顾问', '简短确认']),
+                        self._field('prompt', '推荐回复要求', 'textarea', '结合完整聊天历史，给人工客服一条可直接发送的短回复。'),
+                    ],
+                ),
+            ],
+            'logic': [
+                self._component(
+                    'special_case',
+                    *component_copy['special_case'],
+                    inputs=[{'name': 'message', 'types': ['Message']}],
+                    outputs=[{'name': 'reply', 'types': ['Message']}],
+                    fields=[
+                        self._field('condition', '如果客户表达类似意思', 'textarea', '例如：问怎么听、资源在哪里、答案怎么看'),
+                        self._field('reply', 'AI回复类似意思', 'textarea', '书籍二维码听力/答案，点击上面推送的“点击访问扫码前的资源”卡片。'),
+                        self._field('ai_rewrite', '打开后让AI每次换种说法', 'boolean', True),
+                        self._field('image_url', '可选图片链接', 'text', ''),
+                    ],
+                ),
+            ],
+            'data': [
+                self._component(
+                    'resource_capture',
+                    *component_copy['resource_capture'],
+                    inputs=[{'name': 'message', 'types': ['Message']}],
+                    outputs=[{'name': 'resource_issue', 'types': ['Data']}],
+                    fields=[
+                        self._field('enabled', '启用资源问题收集', 'boolean', True),
+                        self._field('trigger_keywords', '哪些表达算资源问题', 'tags', ['二维码打不开', '听力在哪里', '答案在哪里', '扫码失败', '资源打不开']),
+                        self._field('required_image_count', '最少需要几张照片', 'number', 2),
+                        self._field('max_followup_rounds', '最多追问几次', 'number', 3),
+                        self._field('ask_message', '第一次追问话术', 'textarea', '您具体是哪个资源打不开呀？可以描述一下问题，再拍一下出问题的二维码和页面截图发我。'),
+                        self._field('completed_message', '收集完成后回复', 'textarea', '收到，我已经帮您记录了，会尽快帮您处理。'),
+                    ],
+                ),
+            ],
+            'sales': [
+                self._component(
+                    'scheduled_message',
+                    *component_copy['scheduled_message'],
+                    inputs=[{'name': 'target', 'types': ['Data']}],
+                    outputs=[{'name': 'scheduled', 'types': ['Data']}],
+                    fields=[
+                        self._field('day', '第几天发送', 'number', 1),
+                        self._field('time', '发送时间', 'text', '10:20'),
+                        self._field('message', '发送内容', 'textarea', ''),
+                        self._field('image_url', '图片链接（可选）', 'text', ''),
+                        self._field('link_title', '链接标题（可选）', 'text', ''),
+                        self._field('link_url', '链接地址（可选）', 'text', ''),
+                    ],
+                ),
+                self._component(
+                    'followup',
+                    *component_copy['followup'],
+                    inputs=[{'name': 'profile', 'types': ['Data']}],
+                    outputs=[{'name': 'followup_plan', 'types': ['Data']}],
+                    fields=[
+                        self._field('stage', '适用客户阶段', 'select', '未报名', ['未报名', '已领资料', '已打开链接', '已报名', '拒绝/停发']),
+                        self._field('delay_minutes', '多久后跟进（分钟）', 'number', 1440),
+                        self._field('message', '跟进内容', 'textarea', ''),
+                        self._field('stop_when_replied', '客户回复后停止这轮跟进', 'boolean', True),
+                    ],
+                ),
+                self._component(
+                    'resume_ai',
+                    *component_copy['resume_ai'],
+                    inputs=[{'name': 'handoff', 'types': ['Data']}],
+                    outputs=[{'name': 'message', 'types': ['Message']}],
+                    fields=[
+                        self._field('enabled', '允许恢复AI托管', 'boolean', True),
+                        self._field('resume_message', '恢复后提示语', 'textarea', '好的，后面我会继续帮您跟进。'),
+                    ],
+                ),
+                self._component(
+                    'link_card',
+                    *component_copy['link_card'],
+                    inputs=[{'name': 'message', 'types': ['Message']}],
+                    outputs=[{'name': 'link_card', 'types': ['Message']}],
+                    fields=[
+                        self._field('title', '卡片标题', 'text', '点击访问扫码前的资源'),
+                        self._field('url', '链接地址', 'text', ''),
+                        self._field('description', '卡片说明', 'textarea', ''),
+                        self._field('radar_enabled', '启用雷达跟踪', 'boolean', True),
+                    ],
+                ),
+            ],
+            'outputs': [
+                self._component(
+                    'meme',
+                    *component_copy['meme'],
+                    inputs=[{'name': 'reply', 'types': ['Message']}],
+                    outputs=[{'name': 'message', 'types': ['Message']}],
+                    fields=[
+                        self._field('enabled', '启用表情包', 'boolean', True),
+                        self._field('emotion', '适合的情绪/场景', 'select', '开心鼓励', ['开心鼓励', '感谢', '收到', '加油', '早上好', '疑问解释', '抱歉安抚']),
+                        self._field('small_enabled', '允许飞书小表情', 'boolean', True),
+                        self._field('large_enabled', '允许大表情包', 'boolean', True),
+                        self._field('min_rounds', '几轮内至少出现一次', 'number', 3),
+                    ],
+                ),
+            ],
+        }
+
+        for family in library.get('families', []):
+            family_id = family.get('id')
+            family['label'] = family_labels.get(family_id, family.get('label', '组件'))
+            family.setdefault('components', []).extend(extra_by_family.get(family_id, []))
+            for component in family.get('components', []):
+                component.update(self._component_copy(component.get('type', '')))
+                for field in component.get('fields', []):
+                    self._simplify_component_field(field)
+        return library
+
+    def _component_copy(self, node_type: str) -> dict[str, Any]:
+        copy = {
+            'start': ('用户消息入口', '收到客户真实消息后开始执行，支持文字、图片、语音和上下文。'),
+            'channel': ('渠道接入', '统一接入飞书、微信、企微和网页渠道，保持同一个客户会话。'),
+            'media': ('消息类型判断', '自动判断客户发来的是文字、图片、语音还是文件，并送到对应处理组件。'),
+            'asr': ('语音转文字', '把客户语音转成客服可理解的文字，失败时可使用兜底提示。'),
+            'vision': ('图片/截图识别', '识别二维码、报名页、支付页、资源页和截图里的问题。'),
+            'intent': ('客户意图识别', '识别购买、已报名、拒绝、资源问题、转人工等销售意图。'),
+            'llm': ('AI客服回复', '生成像真人客服一样的短句回复，回答问题并自然推进下一步。'),
+            'condition': ('条件判断', '按客户状态和规则分支，支持停发、拒绝、转人工和素材触发。'),
+            'router': ('分流路由', '把不同意图送到知识库、课程资料、人工介入或回复节点。'),
+            'custom': ('同时执行', '同时发送多种动作，例如回复文字、记录客户标签、安排后续跟进。'),
+            'knowledge': ('知识库问答', '调用知识库、FAQ 和 SOP 内容回答客户问题。'),
+            'product': ('课程产品信息', '输出课程价格、卖点、适龄、赠品和报名方式。'),
+            'memory': ('客户记忆', '记录客户阶段、标签、年级、点击和报名状态。'),
+            'radar': ('雷达链接', '包装真实报名链接，监听打开、停留和点击行为。'),
+            'outreach': ('定时发送计划', '按第 X 天、推送时间、文字、图片和链接进行定时发送。'),
+            'handoff': ('转人工', '客户情绪激动、投诉或说转人工时，流转到待人工介入。'),
+            'lead': ('线索收集', '收集孩子年级、报名状态、手机号、购买意向等线索。'),
+            'image': ('发送图片', '按客户意图发送素材图片，也可以同时配一段文字。'),
+            'voice': ('发送语音', '按配置追加语音回复，适合需要真人感的售前沟通。'),
+            'end': ('回复客户', '把文字、图片、链接卡片、表情包和语音发送给真实客户。'),
+        }
+        if node_type not in copy:
+            return {}
+        display_name, description = copy[node_type]
+        return {'display_name': display_name, 'description': description}
+
+    def _simplify_component_field(self, field: dict[str, Any]) -> None:
+        label_map = {
+            'Trigger': '触发方式',
+            'Channels': '启用渠道',
+            'Keep session': '同一客户保持同一会话',
+            'Routes': '内部分流规则',
+            'Provider': '服务类型',
+            'Model UUID': '指定模型',
+            'Fallback text': '识别失败时怎么回复',
+            'Target steps': '重点识别内容',
+            'Intents': '需要识别的意图',
+            'Confidence': '识别严格程度',
+            'Tone': '回复风格',
+            'Prompt': '回复要求',
+            'Stop keywords': '客户说这些就停止自动跟进',
+            'Stop tags': '命中这些客户标签就停止',
+            'Message': '命中后回复',
+            'Rules': '高级规则',
+            'Output key': '内部输出名称',
+            'Params': '高级动作参数',
+            'Parallel': '同时执行后续动作',
+            'Knowledge bases': '选择知识库',
+            'Top K': '最多参考几条资料',
+            'Resource FAQs': '资源问题FAQ',
+            'Course FAQs': '课程FAQ',
+            'Products': '选择课程/产品',
+            'Course profiles': '课程详细资料',
+            'Stage': '默认客户阶段',
+            'Tags': '自动添加标签',
+            'Enabled': '启用',
+            'Link title': '链接标题',
+            'Link URL': '真实链接',
+            'Scheduled push': '定时发送内容',
+            'Followups': '跟进序列',
+            'Broadcasts': '群发计划',
+            'Keywords': '明显触发词',
+            'Semantic triggers': '语义触发规则',
+            'Notify message': '进入人工前回复',
+            'Fields': '需要收集的信息',
+            'Required fields': '必须收集的信息',
+            'File key': '内部图片文件',
+            'Image URL': '图片链接',
+            'Caption': '图片配文',
+            'Trigger intents': '什么情况下发送',
+            'Voice type': '声音类型',
+            'Close conversation': '回复后关闭会话',
+        }
+        field['label'] = label_map.get(field.get('label'), field.get('label'))
+        if field.get('name') in {
+            'provider',
+            'model_uuid',
+            'routes',
+            'rules',
+            'output_key',
+            'params',
+            'resource_faqs',
+            'course_faqs',
+            'course_profiles',
+            'scheduled_push',
+            'followup_sequences',
+            'broadcasts',
+            'semantic_triggers',
+            'file_key',
+        }:
+            field['advanced'] = True
+        if field.get('name') == 'trigger':
+            field['default'] = '收到消息'
+            field['options'] = ['收到消息', '首次开口']
+
     def _field(
         self,
         name: str,
@@ -520,13 +759,14 @@ class WorkflowService:
         field_type: str,
         default: Any = None,
         options: list[Any] | None = None,
+        advanced: bool | None = None,
     ) -> dict[str, Any]:
         field = {
             'name': name,
             'label': label,
             'type': field_type,
             'default': default,
-            'advanced': field_type == 'json',
+            'advanced': field_type == 'json' if advanced is None else advanced,
         }
         if options is not None:
             field['options'] = options
