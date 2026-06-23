@@ -1218,6 +1218,8 @@ class SalesService:
             loop_days = max(item['day'] for item in cleaned_items)
         interval_minutes = max(0, loop_days) * 24 * 60
         enabled = scheduled_push.get('enabled') is not False
+        if enabled:
+            start_date = self._shift_scheduled_push_start_date_to_future(start_date, cleaned_items)
 
         deleted = await self.clear_scheduled_push_plans()
         for index, item in enumerate(cleaned_items, start=1):
@@ -1887,6 +1889,24 @@ class SalesService:
             start_date + datetime.timedelta(days=max(1, int(item['day'])) - 1),
             datetime.time(hour=hour, minute=minute),
         )
+
+    def _shift_scheduled_push_start_date_to_future(
+        self,
+        start_date: datetime.date,
+        items: list[dict[str, Any]],
+    ) -> datetime.date:
+        if not items:
+            return start_date
+
+        now = datetime.datetime.now()
+        earliest_at = min(self._scheduled_push_datetime(start_date, item) for item in items)
+        if earliest_at > now:
+            return start_date
+
+        shifted_start = start_date + datetime.timedelta(days=max(0, (now.date() - earliest_at.date()).days))
+        while min(self._scheduled_push_datetime(shifted_start, item) for item in items) <= now:
+            shifted_start += datetime.timedelta(days=1)
+        return shifted_start
 
     def _scheduled_push_dedupe_key(
         self,

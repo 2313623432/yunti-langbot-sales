@@ -601,6 +601,42 @@ async def test_scheduled_push_config_round_trips_real_outreach_plans(
 
 
 @pytest.mark.asyncio
+async def test_replace_scheduled_push_config_shifts_past_start_date_to_future(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    before_save = datetime.datetime.now()
+
+    result = await service.replace_scheduled_push_config(
+        {
+            'scheduled_push': {
+                'enabled': True,
+                'loop_enabled': True,
+                'loop_days': 2,
+                'start_date': '2020-01-01',
+                'items': [
+                    {'day': 1, 'time': '00:01', 'message': 'day one'},
+                    {'day': 2, 'time': '10:20', 'message': 'day two'},
+                ],
+            }
+        }
+    )
+
+    rows = await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_sales.SalesOutreachPlan).order_by(
+            persistence_sales.SalesOutreachPlan.scheduled_at.asc()
+        )
+    )
+    plans = [service._row_entity(row) for row in rows.all()]
+
+    assert result == {'deleted': 0, 'inserted': 2}
+    assert len(plans) == 2
+    assert all(plan.enabled for plan in plans)
+    assert min(plan.scheduled_at for plan in plans) > before_save
+    assert (plans[1].scheduled_at - plans[0].scheduled_at).days == 1
+
+
+@pytest.mark.asyncio
 async def test_get_memories_builds_customer_memory_from_monitoring_session_without_plugin(
     sales_service_with_db,
 ):
