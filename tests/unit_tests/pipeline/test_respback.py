@@ -12,7 +12,7 @@ from PIL import Image
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.provider.message as provider_message
 
-from tests.factories import FakeApp, FakeProvider, text_query
+from tests.factories import FakeApp, FakeProvider, text_query, voice_query
 
 
 def get_respback_stage_class():
@@ -176,6 +176,57 @@ async def test_respback_sends_course_sales_followup_question_as_separate_message
 
 
 @pytest.mark.asyncio
+async def test_respback_localizes_course_sales_text_reply_to_chinese_terms():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('Do you have Phonics class?')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='Phonics 9元就能学5天，APP里还有VIP服务。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_text = str(query.adapter.reply_message.await_args_list[0].kwargs['message'])
+    assert '自然拼读' in sent_text
+    assert '应用' in sent_text
+    assert '会员服务' in sent_text
+    assert 'Phonics' not in sent_text
+    assert 'APP' not in sent_text
+    assert 'VIP' not in sent_text
+
+
+@pytest.mark.asyncio
+async def test_respback_localizes_course_sales_voice_reply_before_tts():
+    app = FakeApp()
+    app.task_assistant_service = SimpleNamespace(
+        synthesize_reply_voice=AsyncMock(return_value='data:audio/mpeg;base64,ZmFrZQ==')
+    )
+    stage = get_respback_stage_class()(app)
+    query = voice_query('https://example.com/audio.mp3')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.variables['task_assistant_voice_reply'] = True
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='咱们现在有 Phonics 体验课，APP里能看VIP权益。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    app.task_assistant_service.synthesize_reply_voice.assert_awaited_once()
+    tts_text = app.task_assistant_service.synthesize_reply_voice.await_args.args[1]
+    assert '自然拼读' in tts_text
+    assert '应用' in tts_text
+    assert '会员权益' in tts_text
+    assert 'Phonics' not in tts_text
+    assert 'APP' not in tts_text
+    assert 'VIP' not in tts_text
+
+
+@pytest.mark.asyncio
 async def test_respback_splits_course_sales_text_before_image_message():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
@@ -321,6 +372,71 @@ async def test_respback_resends_resource_link_for_course_sales_resource_open_fai
 
 
 @pytest.mark.asyncio
+async def test_respback_sends_selected_resource_card_before_course_sales_signup_offer():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    tracking_link = 'https://example.com/radar/click/signup'
+    resource_link = 'https://example.com/resource-card'
+    query = text_query('小学三年级数学图书学习资料')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.pipeline_config['workflow']['sales_links'] = [
+        {
+            'id': 'phonics_resource_card',
+            'title': '图书配套学习资源卡片',
+            'url': resource_link,
+            'radar_enabled': False,
+        }
+    ]
+    query.pipeline_config['workflow']['nodes'] = [
+        {
+            'id': 'image_gift_poster',
+            'type': 'image',
+            'config': {
+                'file_key': 'course-sales/phonics/gift_poster.jpeg',
+                'trigger_intents': ['resource_help'],
+                'step_id': 'gift_poster',
+                'requires_course_sales_signup_link': True,
+            },
+        }
+    ]
+    query.variables['user_message_text'] = '小学三年级数学图书学习资料'
+    query.variables['workflow_intent'] = {
+        'intent': 'resource_help',
+        'confidence': 0.9,
+        'step_ids': ['gift_qr', 'gift_poster'],
+    }
+    query.variables['course_sales_radar_link'] = tracking_link
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(
+                    text='三年级数学的配套资源我这就给您找哈。\n'
+                    '现在我们这里有一个猿辅导阅读+思维9元体验课，报名还送完课好礼，报名入口我发您。'
+                )
+            ]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [
+        kwargs['message']
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    sent_texts = [str(message) for message in sent_messages]
+    assert sent_texts[:7] == [
+        '三年级数学的配套资源我这就给您找哈',
+        '现在我们这里有一个猿辅导阅读+思维9元体验课，报名还送完课好礼，报名入口我发您',
+        '图书配套学习资源卡片',
+        resource_link,
+        '家长，您这边能打开吗？',
+        '猿辅导英语自然拼读9元体验课点这里👉',
+        tracking_link,
+    ]
+    assert isinstance(sent_messages[7][0], platform_message.Image)
+
+
+@pytest.mark.asyncio
 async def test_respback_sends_parent_open_question_as_separate_course_sales_reply():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
@@ -365,6 +481,52 @@ async def test_respback_does_not_add_open_question_for_course_sales_clarificatio
         for _, kwargs in query.adapter.reply_message.await_args_list
     ]
     assert sent_texts == ['家长是想看图书资源，还是了解课程信息呀']
+
+
+@pytest.mark.asyncio
+async def test_respback_does_not_add_open_question_when_resource_reply_asks_for_book_name():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('图书资源')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {'intent': 'resource_help', 'confidence': 0.82}
+    query.variables['user_message_text'] = '图书资源'
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='家长您要的是哪本图书的对应资源呀，可以说下具体名称吗')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == ['家长您要的是哪本图书的对应资源呀，可以说下具体名称吗']
+
+
+@pytest.mark.asyncio
+async def test_respback_does_not_add_open_question_for_resource_help_without_link_intent():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('图书资源')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {'intent': 'resource_help', 'confidence': 0.82, 'include_link': False}
+    query.variables['user_message_text'] = '图书资源'
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='我先帮您确认一下图书资源情况')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [
+        str(kwargs['message'])
+        for _, kwargs in query.adapter.reply_message.await_args_list
+    ]
+    assert sent_texts == ['我先帮您确认一下图书资源情况']
 
 
 @pytest.mark.asyncio

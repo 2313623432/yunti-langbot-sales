@@ -839,10 +839,11 @@ async def test_course_sales_prepare_query_runs_configured_agent_orchestration(mo
             provider=provider,
         )
 
+    sales_service = SimpleNamespace(apply_customer_profile_patch_from_query=AsyncMock())
     service = TaskAssistantService(
         SimpleNamespace(
             model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
-            sales_service=None,
+            sales_service=sales_service,
             logger=SimpleNamespace(warning=lambda *_: None),
         )
     )
@@ -866,6 +867,10 @@ async def test_course_sales_prepare_query_runs_configured_agent_orchestration(mo
     assert query.variables['workflow_intent']['source'] == 'agent'
     assert query.variables['workflow_intent']['agent_id'] == 'intent_classifier'
     assert query.variables['user_profile']['孩子年级'] == '三年级'
+    sales_service.apply_customer_profile_patch_from_query.assert_awaited_once_with(
+        query,
+        {'孩子年级': '三年级', '关注点': '上课时间', '购买阶段': '课程咨询'},
+    )
     assert query.variables['rewritten_query'] == '自然拼读 什么时候上课 支持回放 赠品 报名'
     assert '晚上19点到20点' in query.variables['evidence_bundle']
     assert '晚上7点到8点' in query.variables['agent_reply_draft']

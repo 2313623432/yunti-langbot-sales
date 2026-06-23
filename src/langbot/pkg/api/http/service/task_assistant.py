@@ -454,7 +454,7 @@ COURSE_AGENT_ORCHESTRATION_CONFIG = {
             'model': COURSE_SALES_INTENT_MODEL_UUID,
             'model_uuid': COURSE_SALES_INTENT_MODEL_UUID,
             'model_extra_args': copy.deepcopy(COURSE_SALES_INTENT_MODEL_EXTRA_ARGS),
-            'prompt': '你是用户画像更新助手。根据用户最新消息、历史对话和已有画像，只抽取稳定事实，输出画像增量 JSON。必须覆盖可判断字段：孩子年级、英语基础、关注点、购买阶段、拒绝原因、资源问题、停发风险；无法判断的字段不要输出。只记录用户明确表达或上下文强相关的信息，不要生成客户可见回复，不要编造未提到的信息。',
+            'prompt': '你是用户画像更新助手。根据用户最新消息、历史对话和已有画像，只抽取稳定事实，输出画像增量 JSON。必须覆盖可判断字段：电话/手机号、微信号、邮箱、公司名称、行业类别、职位、所在地、客单价/预算、孩子年级、英语基础、关注点、购买阶段、拒绝原因、资源问题、停发风险；无法判断的字段不要输出。只记录用户明确表达或上下文强相关的信息，不要生成客户可见回复，不要编造未提到的信息。',
             'enabled': True,
         },
         {
@@ -1938,6 +1938,7 @@ class TaskAssistantService:
                 text = asr_text
 
         orchestration_state = await self._run_course_agent_orchestration(query, workflow, text)
+        await self._sync_course_agent_profile_memory(query, orchestration_state)
         intent = orchestration_state.get('intent') if isinstance(orchestration_state.get('intent'), dict) else None
         if intent is None:
             intent = await self._classify_course_sales_intent(text, query.message_chain, workflow, query)
@@ -2114,6 +2115,27 @@ class TaskAssistantService:
         if trace and orchestration.get('debug_trace_enabled') is True:
             query.variables['agent_orchestration_trace'] = trace
         return state
+
+    async def _sync_course_agent_profile_memory(
+        self,
+        query: pipeline_query.Query,
+        state: dict[str, Any],
+    ) -> None:
+        if not isinstance(state, dict) or state.get('profile_memory_enabled') is False:
+            return
+        profile = state.get('user_profile')
+        if not isinstance(profile, dict) or not profile:
+            return
+        sales_service = getattr(self.ap, 'sales_service', None)
+        apply_patch = getattr(sales_service, 'apply_customer_profile_patch_from_query', None)
+        if not callable(apply_patch):
+            return
+        try:
+            await apply_patch(query, profile)
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None and hasattr(logger, 'warning'):
+                logger.warning('Failed to sync course sales customer profile: %s', exc)
 
     async def _invoke_course_agent_assistant(
         self,

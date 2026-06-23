@@ -617,6 +617,42 @@ async def test_scheduled_push_config_round_trips_real_outreach_plans(
 
 
 @pytest.mark.asyncio
+async def test_replace_scheduled_push_config_shifts_past_start_date_to_future(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    before_save = datetime.datetime.now()
+
+    result = await service.replace_scheduled_push_config(
+        {
+            'scheduled_push': {
+                'enabled': True,
+                'loop_enabled': True,
+                'loop_days': 2,
+                'start_date': '2020-01-01',
+                'items': [
+                    {'day': 1, 'time': '00:01', 'message': 'day one'},
+                    {'day': 2, 'time': '10:20', 'message': 'day two'},
+                ],
+            }
+        }
+    )
+
+    rows = await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_sales.SalesOutreachPlan).order_by(
+            persistence_sales.SalesOutreachPlan.scheduled_at.asc()
+        )
+    )
+    plans = [service._row_entity(row) for row in rows.all()]
+
+    assert result == {'deleted': 0, 'inserted': 2}
+    assert len(plans) == 2
+    assert all(plan.enabled for plan in plans)
+    assert min(plan.scheduled_at for plan in plans) > before_save
+    assert (plans[1].scheduled_at - plans[0].scheduled_at).days == 1
+
+
+@pytest.mark.asyncio
 async def test_get_memories_builds_customer_memory_from_monitoring_session_without_plugin(
     sales_service_with_db,
 ):
@@ -657,6 +693,80 @@ async def test_update_memory_creates_customer_memory_when_session_has_no_existin
     assert memory['stage'] == 'consideration'
     assert memory['profile']['wechat'] == 'parent_zhang'
     assert memory['profile']['child_grade'] == '三年级'
+
+
+@pytest.mark.asyncio
+async def test_apply_customer_profile_patch_from_query_updates_real_memory_without_overwriting_existing_values(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'person_customer-1'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id=session_id,
+            platform='person',
+            user_id='ou_customer',
+            customer_name='客户A',
+            profile={'phone': '13800000000'},
+        )
+    )
+    query = SimpleNamespace(
+        launcher_type=SimpleNamespace(value='person'),
+        launcher_id='customer-1',
+        sender_id='ou_customer',
+    )
+
+    memory = await service.apply_customer_profile_patch_from_query(
+        query,
+        {
+            '电话': '13900000000',
+            '孩子年级': '三年级',
+            '关注点': '自然拼读',
+            '空字段': '',
+        },
+    )
+
+    assert memory['session_id'] == session_id
+    assert memory['profile']['phone'] == '13800000000'
+    assert memory['profile']['child_grade'] == '三年级'
+    assert memory['profile']['needs'] == '自然拼读'
+    assert '空字段' not in memory['profile']
+
+
+@pytest.mark.asyncio
+async def test_apply_customer_profile_patch_uses_monitoring_session_key_for_enum_launcher_type(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id='person_customer-1',
+            platform='person',
+            user_id='customer-1',
+            customer_name='客户A',
+            profile={},
+        )
+    )
+    query = SimpleNamespace(
+        launcher_type=provider_session.LauncherTypes.PERSON,
+        launcher_id='customer-1',
+        sender_id='customer-1',
+        variables={},
+    )
+
+    memory = await service.apply_customer_profile_patch_from_query(
+        query,
+        {'孩子年级': '三年级'},
+    )
+
+    assert memory['session_id'] == 'person_customer-1'
+    assert memory['profile']['child_grade'] == '三年级'
+
+    result = await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_sales.SalesCustomerMemory.session_id)
+    )
+    assert sorted(row[0] for row in result.all()) == ['person_customer-1']
+
 
 class _ColumnRow:
     def __init__(self, **values):
@@ -1080,6 +1190,31 @@ async def test_get_sales_conversations_maps_legacy_handoff_session_id_to_monitor
     assert conversations[0]['handoff_status'] == 'pending_manual'
     assert conversations[0]['handoff']['session_id'] == 'person_ou_customer'
     assert conversations[0]['handoff']['reason_label'] == 'manual_request'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_maps_legacy_memory_session_id_to_monitoring_session(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id='person_ou_customer',
+            platform='person',
+            user_id='ou_customer',
+            customer_name='少华',
+            profile={'child_grade': '三年级'},
+        )
+    )
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == session_id
+    assert conversations[0]['customer_name'] == '少华'
+    assert conversations[0]['memory']['session_id'] == 'person_ou_customer'
+    assert conversations[0]['memory']['profile']['child_grade'] == '三年级'
 
 
 @pytest.mark.asyncio
