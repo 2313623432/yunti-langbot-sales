@@ -196,6 +196,11 @@ COURSE_HUMAN_HANDOFF_CONFIG = {
 }
 COURSE_SAFE_HANDOFF_NOTIFY_MESSAGE = '我这边帮您记录好了，稍等我看下具体情况~'
 COURSE_USER_VISIBLE_TECHNICAL_TERMS = ['AI', '机器人', '转人工', '转接', '接管', '人工']
+COURSE_MATH_BOUNDARY_FAQ_QUESTION = '阅读+思维/数学问题'
+COURSE_MATH_BOUNDARY_FAQ_ANSWER = (
+    '家长，数学这块我们现在没有单独数学课哈。现在给您介绍的是猿辅导英语自然拼读9元体验课，'
+    '主要帮孩子打英语发音、拼读和单词基础；如果孩子英语也想补基础，可以先9元体验一下。'
+)
 COURSE_SPECIAL_CASES = [
     {
         'id': 'phonics-listening-answer-card',
@@ -545,10 +550,7 @@ COURSE_SALES_SIGNUP_LINK = (
     'https://m.yuanfudao.com/primary/templates/package?'
     'pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class'
 )
-COURSE_SALES_RADAR_LINK = (
-    'https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/'
-    'eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0'
-)
+COURSE_SALES_RADAR_LINK = COURSE_SALES_SIGNUP_LINK
 COURSE_RESOURCE_CARD_LINK = (
     'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?'
     'resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977'
@@ -635,8 +637,8 @@ COURSE_FAQS = [{'intent': 'course_schedule',
   'answer': '这是猿辅导英语自然拼读集训营，9元5天10节，适合大班到小学4年级。主要带孩子学拼读规律、绘本阅读和开口表达，目标是见词能拼、听音能写，少靠死记硬背。',
   'keywords': ['什么课', '是什么', '自然拼读', '拼读', '发音', '9元课']},
  {'intent': 'reading_thinking_intro',
-  'question': '阅读+思维是什么课',
-  'answer': '阅读+思维课是另一个9元体验方向，主要解决阅读没头绪、作文凑字数、数学粗心马虎和做题难变通；如果您问的是英语自然拼读，我还是优先按自然拼读给您介绍。',
+  'question': COURSE_MATH_BOUNDARY_FAQ_QUESTION,
+  'answer': COURSE_MATH_BOUNDARY_FAQ_ANSWER,
   'keywords': ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通']},
  {'intent': 'course_content',
   'question': '学习内容',
@@ -1483,7 +1485,20 @@ class TaskAssistantService:
                     return self.build_course_sales_workflow_from_template_config(template_config)
                 return self.build_workflow_from_template_config(template_config)
         workflow = pipeline_config.get('workflow')
-        return workflow if isinstance(workflow, dict) else {}
+        if not isinstance(workflow, dict):
+            return {}
+        if self._is_course_sales_workflow(workflow):
+            workflow = copy.deepcopy(workflow)
+            workflow['course_faqs'] = self._normalize_course_faqs(workflow.get('course_faqs'))
+            workflow['sales_links'] = self._normalize_course_sales_links(workflow.get('sales_links'))
+            if isinstance(workflow.get('radar'), dict):
+                workflow['radar'] = {**COURSE_RADAR_CONFIG, **self._normalize_course_radar_config(workflow['radar'])}
+            variables = workflow.setdefault('variables', {})
+            if isinstance(variables, dict):
+                variables['course_faqs'] = workflow['course_faqs']
+                variables['sales_links'] = workflow['sales_links']
+                variables['radar'] = workflow.get('radar', COURSE_RADAR_CONFIG)
+        return workflow
 
     def is_task_assistant_pipeline(self, pipeline_config: dict[str, Any] | None) -> bool:
         if not isinstance(pipeline_config, dict):
@@ -2217,7 +2232,21 @@ class TaskAssistantService:
         cleaned = re.sub(r'<think>.*?</think>', '', str(text or ''), flags=re.DOTALL | re.IGNORECASE).strip()
         if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
             cleaned = cleaned[1:-1].strip()
+        cleaned = self._strip_course_template_placeholders(cleaned)
         return cleaned
+
+    def _strip_course_template_placeholders(self, text: str) -> str:
+        cleaned = str(text or '')
+        cleaned = re.sub(
+            r'\{(?:自然拼读|课程名|课程|英语课|报名|报名链接|链接|年级|孩子年级)\}',
+            '',
+            cleaned,
+        )
+        cleaned = re.sub(r'\[(?:报名链接|课程链接|链接)\s*X{2,}[^\]]*\]', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'(?:报名链接|课程链接|链接)\s*X{2,}', '', cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r'[ \t]+(?=\n)', '', cleaned)
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        return cleaned.strip()
 
     def _apply_course_agent_output(
         self,
@@ -2398,7 +2427,9 @@ class TaskAssistantService:
             f'可选 intent：{", ".join(unique_intents)}。\n'
             'JSON 字段：intent, confidence, reason, step_ids, include_link。\n'
             'confidence 为 0 到 1；step_ids 只能用 gift_poster 或 gift_qr，没有则空数组；'
-            '用户明确报名/要链接时 include_link 为 true。'
+            '用户明确报名/要链接时 include_link 为 true。\n'
+            '用户问数学、奥数、计算、应用题、粗心马虎或思维类问题时，intent 必须是 reading_thinking_intro，include_link=false；这是边界答疑，不是报名催单。\n'
+            '用户说“推一下课/介绍一下课/发下课/有什么课”时，intent 用 course_intro，include_link=false，除非用户同时明确要报名链接。'
         )
 
     def _course_sales_intent_user_text(
@@ -2480,6 +2511,56 @@ class TaskAssistantService:
             return ''
         return f'历史对话（最近{reference_rounds}轮）：\n' + '\n'.join(lines)
 
+    def _is_course_math_boundary_question(self, normalized: str) -> bool:
+        if not normalized:
+            return False
+        math_terms = [
+            '数学',
+            '奥数',
+            '应用题',
+            '计算题',
+            '计算',
+            '口算',
+            '几何',
+            '代数',
+            '数学不好',
+            '数学差',
+            '数学课',
+            '粗心',
+            '马虎',
+            '做题',
+            '思维',
+        ]
+        return any(term in normalized for term in math_terms)
+
+    def _is_course_push_intro_request(self, normalized: str) -> bool:
+        if not normalized:
+            return False
+        compact = re.sub(r'\s+', '', normalized)
+        if any(term in compact for term in ['报名', '购买', '支付', '付款', '链接', '领课', '领取']):
+            return False
+        direct_phrases = [
+            '推一下课',
+            '推下课',
+            '介绍一下课',
+            '介绍下课',
+            '发一下课',
+            '发下课',
+            '有什么课',
+            '啥课',
+            '什么课',
+        ]
+        return any(phrase in compact for phrase in direct_phrases) or ('推' in compact and '课' in compact)
+
+    def _select_phonics_course_sales_profile(self, workflow: dict[str, Any]) -> dict[str, Any]:
+        profiles = self._course_sales_profiles(workflow)
+        if not profiles:
+            return {}
+        for profile in profiles:
+            if str(profile.get('key') or '') == 'phonics':
+                return profile
+        return profiles[0]
+
     def _parse_course_sales_model_intent(
         self,
         raw_text: str,
@@ -2527,6 +2608,15 @@ class TaskAssistantService:
 
         normalized = (user_text or '').strip().lower()
         selected_profile = self._select_course_sales_profile(workflow, normalized)
+        if self._is_course_math_boundary_question(normalized):
+            intent_name = 'reading_thinking_intro'
+            confidence = max(confidence, 0.86)
+            payload['include_link'] = False
+            selected_profile = self._select_phonics_course_sales_profile(workflow)
+        elif self._is_course_push_intro_request(normalized):
+            intent_name = 'course_intro'
+            confidence = max(confidence, 0.82)
+            payload['include_link'] = False
         step_ids = payload.get('step_ids') if isinstance(payload.get('step_ids'), list) else []
         step_ids = [str(step_id) for step_id in step_ids if str(step_id) in {'gift_poster', 'gift_qr'}]
         if not step_ids:
@@ -2925,6 +3015,23 @@ class TaskAssistantService:
             if resource_issue_type:
                 intent['resource_issue_type'] = resource_issue_type
             return intent
+        if self._is_course_math_boundary_question(normalized):
+            selected_profile = self._select_phonics_course_sales_profile(workflow)
+            return self._course_intent(
+                'reading_thinking_intro',
+                0.86,
+                '用户咨询数学/思维类问题，按当前英语自然拼读产品边界承接',
+                step_ids=[],
+                selected_profile=selected_profile,
+            )
+        if self._is_course_push_intro_request(normalized):
+            return self._course_intent(
+                'course_intro',
+                0.82,
+                '用户要求介绍课程，按英语自然拼读体验课承接',
+                step_ids=[],
+                selected_profile=selected_profile,
+            )
         for faq in course_faqs:
             if any(str(keyword).lower() in normalized for keyword in faq.get('keywords', [])):
                 intent = str(faq.get('intent') or 'course_intro')
@@ -3564,6 +3671,14 @@ class TaskAssistantService:
                 '不要发报名链接、不要催支付。按SOP循序渐进：先问孩子几年级；确认年级和基础后，'
                 '再轻量介绍自然拼读适配情况；用户表达想了解/想报名后，再问要不要报课；'
                 '用户明确要报时，先说明完课好礼，再发送报名链接。'
+            )
+        elif intent_name == 'reading_thinking_intro':
+            control_text = (
+                '\n\n[课程销售上下文]\n'
+                '用户在问数学、阅读写作或思维类问题。当前这个数字员工配置的是猿辅导英语自然拼读9元体验课，'
+                '不要说我们有单独数学课、奥数课或阅读思维课。先明确说明“数学这块现在没有单独数学课/专项课”，'
+                '再自然承接：如果孩子英语也想补基础，可以了解英语自然拼读体验课，主要练发音、拼读和单词基础。'
+                '本轮不要发报名链接，除非用户明确说要报名或要链接。'
             )
         elif intent_name in {'purchase', 'radar_clicked'}:
             control_text = (
@@ -4291,10 +4406,13 @@ class TaskAssistantService:
 - 不夸大价格、赠品、课时、名额；强时效信息以活动页和班主任通知为准。
 - 不要输出思考过程、推理过程、草稿、分析步骤或 <think> 标签。
 - 涉及报名链接时，只能使用上下文里的真实链接或链接卡片；不得输出 xxx、XXXX、占位符或自编链接。
+- 不得输出任何模板变量或花括号占位符，例如 {{自然拼读}}、{{课程名}}、{{报名链接}}、[报名链接XXXXXXX]；课程名要直接写“英语自然拼读体验课”。
 - 停发关键词（命中即停止打扰）：{stop_keywords}
 
 业务边界：
 - 用户问图书资源，优先解决资源问题，不急着推课。
+- 用户问数学、奥数、计算、应用题、粗心马虎或思维类问题时，先说明当前没有单独数学课/专项课；可以自然承接英语自然拼读体验课，但必须说清这是英语课。
+- 用户说“推一下课、介绍一下课、发下课、有什么课”时，只介绍英语自然拼读体验课，不输出模板变量，也不要直接假装用户已决定报名。
 - 用户拒绝、投诉、无孩子、非目标年级、老师身份或人工接管时停止促单和群发。
 - 用户已报名/已支付后停止促单，转交付（截图、班主任、APP、资料）。
 - 意图识别、用户画像更新、问题重写、知识库检索、跟进计划由智能体编排结果和运行时上下文提供，你只做最终面向家长的回复。
@@ -5443,11 +5561,123 @@ class TaskAssistantService:
             or zhizhuma_as_radar
         )
 
+    def _normalize_course_sales_links(self, value: Any) -> list[dict[str, Any]]:
+        links = copy.deepcopy(value) if isinstance(value, list) and value else []
+        if not links:
+            links = copy.deepcopy(
+                [
+                    {
+                        'id': 'phonics_resource_card',
+                        'title': '图书配套学习资源卡片',
+                        'url': COURSE_RESOURCE_CARD_LINK,
+                        'description': '首次打招呼发送，用于激活查看图书配套学习资源。',
+                        'radar_enabled': False,
+                    },
+                    {
+                        'id': 'phonics_radar_apply',
+                        'title': '猿辅导自然拼读9元体验课报名通道',
+                        'url': COURSE_SALES_SIGNUP_LINK,
+                        'description': '报名链接卡片：发送时自动包装成服务器雷达追踪链接。',
+                        'radar_enabled': True,
+                    },
+                ]
+            )
+
+        normalized_links: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            normalized = copy.deepcopy(link)
+            link_id = str(normalized.get('id') or '').strip()
+            url = str(normalized.get('url') or '').strip()
+            radar_enabled = normalized.get('radar_enabled') is True
+            if radar_enabled and (
+                '/api/v1/sales/radar/click/' in url
+                or 'radar.yunti.local' in url
+                or 'yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click' in url
+            ):
+                normalized['url'] = COURSE_SALES_SIGNUP_LINK
+            if link_id == 'phonics_resource_card':
+                normalized['url'] = COURSE_RESOURCE_CARD_LINK
+                normalized['radar_enabled'] = False
+            if link_id:
+                if link_id in seen_ids:
+                    continue
+                seen_ids.add(link_id)
+            normalized_links.append(normalized)
+
+        if 'phonics_resource_card' not in seen_ids:
+            normalized_links.insert(
+                0,
+                {
+                    'id': 'phonics_resource_card',
+                    'title': '图书配套学习资源卡片',
+                    'url': COURSE_RESOURCE_CARD_LINK,
+                    'description': '首次打招呼发送，用于激活查看图书配套学习资源。',
+                    'radar_enabled': False,
+                },
+            )
+        if 'phonics_radar_apply' not in seen_ids:
+            normalized_links.append(
+                {
+                    'id': 'phonics_radar_apply',
+                    'title': '猿辅导自然拼读9元体验课报名通道',
+                    'url': COURSE_SALES_SIGNUP_LINK,
+                    'description': '报名链接卡片：发送时自动包装成服务器雷达追踪链接。',
+                    'radar_enabled': True,
+                }
+            )
+        return normalized_links
+
+    def _normalize_course_faqs(self, value: Any) -> list[dict[str, Any]]:
+        faqs = copy.deepcopy(value) if isinstance(value, list) and value else copy.deepcopy(COURSE_FAQS)
+        normalized: list[dict[str, Any]] = []
+        has_math_boundary = False
+        for item in faqs:
+            if not isinstance(item, dict):
+                continue
+            faq = copy.deepcopy(item)
+            if str(faq.get('intent') or '') == 'reading_thinking_intro':
+                faq['question'] = COURSE_MATH_BOUNDARY_FAQ_QUESTION
+                faq['answer'] = COURSE_MATH_BOUNDARY_FAQ_ANSWER
+                keywords = faq.get('keywords') if isinstance(faq.get('keywords'), list) else []
+                merged_keywords = [
+                    *[str(keyword) for keyword in keywords if str(keyword).strip()],
+                    '数学',
+                    '奥数',
+                    '应用题',
+                    '计算',
+                    '思维',
+                    '粗心',
+                    '马虎',
+                ]
+                seen: set[str] = set()
+                faq['keywords'] = [keyword for keyword in merged_keywords if not (keyword in seen or seen.add(keyword))]
+                has_math_boundary = True
+            normalized.append(faq)
+
+        if not has_math_boundary:
+            normalized.append(
+                {
+                    'intent': 'reading_thinking_intro',
+                    'question': COURSE_MATH_BOUNDARY_FAQ_QUESTION,
+                    'answer': COURSE_MATH_BOUNDARY_FAQ_ANSWER,
+                    'keywords': ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'],
+                }
+            )
+        return normalized
+
     def _normalize_course_radar_config(self, value: dict[str, Any]) -> dict[str, Any]:
         normalized = {**value}
         link_url = str(normalized.get('link_url') or '')
-        if not link_url or 'radar.yunti.local' in link_url or 'zhizhuma.com' in link_url:
-            normalized['link_url'] = COURSE_SALES_RADAR_LINK
+        if (
+            not link_url
+            or 'radar.yunti.local' in link_url
+            or 'zhizhuma.com' in link_url
+            or '/api/v1/sales/radar/click/' in link_url
+        ):
+            normalized['link_url'] = COURSE_SALES_SIGNUP_LINK
         if not normalized.get('link_title'):
             normalized['link_title'] = COURSE_RADAR_CONFIG['link_title']
         return normalized
@@ -6113,8 +6343,8 @@ class TaskAssistantService:
                 {
                     'id': 'phonics_radar_apply',
                     'title': '猿辅导自然拼读9元体验课报名通道',
-                    'url': COURSE_SALES_RADAR_LINK,
-                    'description': '报名链接卡片：模拟记录打开、浏览时长、点击报名、未支付等雷达事件。',
+                    'url': COURSE_SALES_SIGNUP_LINK,
+                    'description': '报名链接卡片：发送时自动包装成服务器雷达追踪链接。',
                     'radar_enabled': True,
                 }
             ],
@@ -6213,8 +6443,15 @@ class TaskAssistantService:
             template_config['human_handoff']['notify_message'] = self._safe_course_handoff_notify_message(
                 template_config['human_handoff'].get('notify_message')
             )
+        template_config['course_faqs'] = self._normalize_course_faqs(template_config.get('course_faqs'))
         template_config['reply_controls'] = self._normalize_course_reply_controls(template_config.get('reply_controls'))
         template_config['memes'] = self._normalize_course_meme_config(template_config.get('memes'))
+        template_config['sales_links'] = self._normalize_course_sales_links(template_config.get('sales_links'))
+        if isinstance(template_config.get('radar'), dict):
+            template_config['radar'] = {
+                **COURSE_RADAR_CONFIG,
+                **self._normalize_course_radar_config(template_config['radar']),
+            }
         self._normalize_course_template_media_keys(template_config)
         self._normalize_course_outreach_messages(template_config)
         template_config['role_prompt'] = self.compose_course_sales_prompt(template_config)
@@ -6275,9 +6512,9 @@ class TaskAssistantService:
             else copy.deepcopy(COURSE_RESOURCE_CAPTURE_CONFIG)
         )
         course_faqs = (
-            copy.deepcopy(template_config.get('course_faqs'))
+            self._normalize_course_faqs(template_config.get('course_faqs'))
             if isinstance(template_config.get('course_faqs'), list)
-            else copy.deepcopy(COURSE_FAQS)
+            else self._normalize_course_faqs(COURSE_FAQS)
         )
         followups = (
             copy.deepcopy(template_config.get('followup_sequences'))
@@ -6329,26 +6566,7 @@ class TaskAssistantService:
             else copy.deepcopy(COURSE_RADAR_CONFIG)
         )
         memes = self._normalize_course_meme_config(template_config.get('memes'))
-        sales_links = (
-            copy.deepcopy(template_config.get('sales_links'))
-            if isinstance(template_config.get('sales_links'), list) and template_config.get('sales_links')
-            else [
-                {
-                    'id': 'phonics_resource_card',
-                    'title': '图书配套学习资源卡片',
-                    'url': COURSE_RESOURCE_CARD_LINK,
-                    'description': '首次打招呼发送，用于激活查看图书配套学习资源。',
-                    'radar_enabled': False,
-                },
-                {
-                    'id': 'phonics_radar_apply',
-                    'title': '猿辅导自然拼读9元体验课报名通道',
-                    'url': radar.get('link_url') or COURSE_SALES_RADAR_LINK,
-                    'description': '报名链接卡片，支持模拟点击、浏览时长和未支付触发。',
-                    'radar_enabled': True,
-                }
-            ]
-        )
+        sales_links = self._normalize_course_sales_links(template_config.get('sales_links'))
         image_bindings = (
             copy.deepcopy(template_config.get('image_text_bindings'))
             if isinstance(template_config.get('image_text_bindings'), list)

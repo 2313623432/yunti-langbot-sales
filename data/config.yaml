@@ -38,6 +38,8 @@ plugin:
 proxy:
     http: ''
     https: ''
+sales:
+    radar_public_base_url: http://36.140.100.109:5300
 space:
     disable_models_service: true
     disable_telemetry: false

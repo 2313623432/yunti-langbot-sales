@@ -510,7 +510,7 @@ def test_frontend_course_faq_and_intent_defaults_match_runtime_intents():
     ]:
         assert f"'{intent}'" in workflow_source
     assert '老师伴学服务是什么老师' in workflow_source
-    assert '阅读+思维是什么课' in workflow_source
+    assert '阅读+思维/数学问题' in workflow_source
     assert '直播没赶上' in workflow_source
     assert "'卡住'" in workflow_source
 

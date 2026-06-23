@@ -271,7 +271,7 @@ const nodeDefaults: Record<
     config: {
       enabled: true,
       link_title: '报名通道',
-      link_url: 'https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0',
+      link_url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class',
       tracking_fields: ['session_id', 'clicked_at', 'browse_seconds', 'clicked_apply_button'],
       rules: [
         {
@@ -805,8 +805,7 @@ export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
 
 const courseSalesSignupLink =
   'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class';
-const courseSalesRadarLink =
-  'https://yunti-langbot-sales-production.up.railway.app/api/v1/sales/radar/click/eyJkIjogImh0dHBzOi8vbS55dWFuZnVkYW8uY29tL3ByaW1hcnkvdGVtcGxhdGVzL3BhY2thZ2U_cGFnZUlkPTY2NDEmc29sdXRpb25JZD0yNzI0NiZrZXlmcm9tPXlmZC1xdWRhb2hlenVvLXhpYW94dWUtOXl5eS1DUEEteXVudGk5LXNpeXUteWFuZ3p5LXlpbmd0YW8zY2xhc3MiLCAiYiI6ICIxMmY3MDEzNC0zZTdlLTRiNTUtOGYxOS02ZDNiYzNiMWYxZDQiLCAidCI6ICJwZXJzb24iLCAiaSI6ICJvdV8yNmJkMWUzNWVlOTA4MGM2N2NlNDk5NjRjNTNkZWQyNyIsICJsIjogInBob25pY3NfcmFkYXJfYXBwbHkiLCAicyI6ICJwZXJzb25fb3VfMjZiZDFlMzVlZTkwODBjNjdjZTQ5OTY0YzUzZGVkMjciLCAicCI6ICJ5dWFuZnVkYW8tZW5oYW5jZWQtc2FsZXMtdGVtcGxhdGUtcGlwZWxpbmUiLCAiZSI6ICJsaW5rX29wZW4iLCAiZXhwIjogMTc4NDM1MzcyNX0';
+const courseSalesRadarLink = courseSalesSignupLink;
 const courseResourceCardLink =
   'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347';
 const courseOpeningMessage =
@@ -883,7 +882,7 @@ const courseResourceFaqs = [
 const courseFaqs = [
   { intent: 'course_schedule', question: '什么时候上课', answer: '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。\n\n需要给孩子试试不，现在报名还送结课礼物。', keywords: ['什么时候', '几点', '上课时间', '课表'] },
   { intent: 'course_intro', question: '这个是什么课/这是什么/你发是什么', answer: '这是猿辅导英语自然拼读集训营，9元5天10节，专为大班到小学4年级设计。课程包含5次绘本阅读实践、180次开口练习、360分钟配套视频，重点教孩子拼读规律，鼓励孩子多表达，提升口语能力。报名链接我发您。', keywords: ['什么课', '是什么', '自然拼读', '拼读', '发音', '9元课'] },
-  { intent: 'reading_thinking_intro', question: '阅读+思维是什么课', answer: '阅读+思维课是另一个9元体验方向，主要解决阅读没头绪、作文凑字数、数学粗心马虎和做题难变通；如果您问的是英语自然拼读，我还是优先按自然拼读给您介绍。', keywords: ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'] },
+  { intent: 'reading_thinking_intro', question: '阅读+思维/数学问题', answer: '家长，数学这块我们现在没有单独数学课哈。现在给您介绍的是猿辅导英语自然拼读9元体验课，主要帮孩子打英语发音、拼读和单词基础；如果孩子英语也想补基础，可以先9元体验一下。', keywords: ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'] },
   { intent: 'course_content', question: '学习内容', answer: '每个年级的学习内容不一样，具体上课后才可以看到亲，是根据孩子年级匹配的。\n\n需要给孩子试试不，现在报名还送结课礼物。', keywords: ['学习内容', '内容', '学啥', '学什么', '课表', '课程安排'] },
   { intent: 'teacher_service', question: '老师伴学服务是什么老师', answer: '伴学服务是猿辅导安排的指导老师/班主任，报名后会通过电话、短信或页面二维码联系您，提醒上课、答疑、反馈学习进度，也会协助登记开课和资料。', keywords: ['老师伴学', '伴学', '什么老师', '班主任', '指导老师', '老师服务'] },
   { intent: 'course_replay', question: '支持回放吗', answer: '当然支持呀，3年内可以无限次看回放，手机和平板都能学。咱们课每次也就一小时左右，时间安排很灵活的。\n\n要不要试试看，现在报名，还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。', keywords: ['回放', '没时间', '错过', '直播没赶上'] },
@@ -907,7 +906,7 @@ const courseSalesLinks = [
     id: 'phonics_radar_apply',
     title: '猿辅导自然拼读9元体验课报名通道',
     url: courseSalesRadarLink,
-    description: '报名链接卡片：通过 tracking URL 记录打开并触发雷达跟进。',
+    description: '报名链接卡片：发送时自动包装成服务器雷达追踪链接。',
     radar_enabled: true,
   },
 ];
@@ -1304,7 +1303,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       model_uuid: modelUuid,
       model_extra_args: COURSE_SALES_REPLY_MODEL_EXTRA_ARGS,
       tone: '真人客服、短句、先服务后转化',
-      prompt: '你是真人课程客服，先处理图书资源问题。用户确认资源能打开后，先问孩子几年级，不要直接安排课程或发链接；用户明确要报名时，先给完课好礼，再单独发报名链接。',
+      prompt: '你是真人课程客服，先处理图书资源问题。用户确认资源能打开后，先问孩子几年级，不要直接安排课程或发链接；用户明确要报名时，先给完课好礼，再单独发报名链接。用户问数学、奥数、应用题或思维类问题时，先说明当前没有单独数学课，再自然介绍英语自然拼读体验课。不要输出{自然拼读}、{课程名}、[报名链接XXXXXXX]等模板占位符。',
     }),
     workflowNode('end', 'end', '发送给用户', '发送文字、链接卡片、Excel素材图；用户语音咨询时可按配置追加语音回复', { x: 3540, y: 420 }, {}),
   ];
