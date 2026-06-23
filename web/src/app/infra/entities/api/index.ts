@@ -214,6 +214,41 @@ export interface ApiRespWorkflows {
   workflows: WorkflowProject[];
 }
 
+export interface WorkflowComponentField {
+  name: string;
+  label: string;
+  type: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | 'tags' | 'json';
+  default?: unknown;
+  options?: unknown[];
+  advanced?: boolean;
+}
+
+export interface WorkflowComponentPort {
+  name: string;
+  types: string[];
+}
+
+export interface WorkflowComponentSchema {
+  type: string;
+  display_name: string;
+  description: string;
+  icon: string;
+  inputs: WorkflowComponentPort[];
+  outputs: WorkflowComponentPort[];
+  fields: WorkflowComponentField[];
+}
+
+export interface WorkflowComponentFamily {
+  id: string;
+  label: string;
+  components: WorkflowComponentSchema[];
+}
+
+export interface ApiRespWorkflowComponents {
+  version: number;
+  families: WorkflowComponentFamily[];
+}
+
 export interface Pipeline {
   uuid?: string;
   name: string;

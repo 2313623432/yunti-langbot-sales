@@ -5,6 +5,7 @@ import {
   ApiRespProviderLLMModels,
   ApiRespProviderLLMModel,
   ApiRespWorkflows,
+  ApiRespWorkflowComponents,
   LLMModel,
   TestLLMModelResult,
   ApiRespPipelines,
@@ -345,13 +346,19 @@ export class BackendClient extends BaseHttpClient {
     return this.post(`/api/v1/autotest/runs/${runUuid}/feedback`, data);
   }
 
-  public revertAutoTestRunOptimization(runUuid: string): Promise<ApiRespAutoTestRun> {
+  public revertAutoTestRunOptimization(
+    runUuid: string,
+  ): Promise<ApiRespAutoTestRun> {
     return this.post(`/api/v1/autotest/runs/${runUuid}/revert`);
   }
 
   // ============ Workflow Library API ============
   public getWorkflows(): Promise<ApiRespWorkflows> {
     return this.get('/api/v1/workflows');
+  }
+
+  public getWorkflowComponents(): Promise<ApiRespWorkflowComponents> {
+    return this.get('/api/v1/workflows/components');
   }
 
   public createWorkflow(workflow: {
@@ -1220,13 +1227,22 @@ export class BackendClient extends BaseHttpClient {
     return this.post('/api/v1/sales/outreach/clear');
   }
 
-  public getSalesScheduledPushConfig(): Promise<import('@/app/infra/entities/api').SalesScheduledPushConfig> {
+  public getSalesScheduledPushConfig(): Promise<
+    import('@/app/infra/entities/api').SalesScheduledPushConfig
+  > {
     return this.get('/api/v1/sales/outreach/scheduled-push-config');
   }
 
   public saveSalesScheduledPushConfig(
-    config: Partial<import('@/app/infra/entities/api').SalesScheduledPushConfig>,
-  ): Promise<import('@/app/infra/entities/api').SalesScheduledPushConfig & { deleted: number; inserted: number }> {
+    config: Partial<
+      import('@/app/infra/entities/api').SalesScheduledPushConfig
+    >,
+  ): Promise<
+    import('@/app/infra/entities/api').SalesScheduledPushConfig & {
+      deleted: number;
+      inserted: number;
+    }
+  > {
     return this.put('/api/v1/sales/outreach/scheduled-push-config', config);
   }
 

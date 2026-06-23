@@ -52,6 +52,9 @@ import {
   KnowledgeBase,
   LLMModel,
   SalesProduct,
+  WorkflowComponentFamily,
+  WorkflowComponentField,
+  WorkflowComponentSchema,
 } from '@/app/infra/entities/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -276,6 +279,31 @@ const paletteOrder: WorkflowNodeType[] = [
   'end',
 ];
 
+const iconByName: Record<string, ElementType> = {
+  Bell,
+  BookOpen,
+  Bot,
+  Brain,
+  Cable,
+  Code2,
+  Eye,
+  GitBranch,
+  Handshake,
+  Image: ImageIcon,
+  ImageIcon,
+  ListChecks,
+  MessageSquare,
+  PackageSearch,
+  Plug,
+  RadioTower,
+  Send,
+  Sparkles,
+  Tags,
+  UserRoundCheck,
+  Volume2,
+  Wrench,
+};
+
 interface PipelineWorkflowEditorProps {
   value?: PipelineWorkflow;
   onChange: (workflow: PipelineWorkflow) => void;
@@ -374,6 +402,9 @@ export default function PipelineWorkflowEditor({
   const [nodePaletteOpen, setNodePaletteOpen] = useState(false);
   const [nodePaletteSearch, setNodePaletteSearch] = useState('');
   const [librarySearch, setLibrarySearch] = useState('');
+  const [componentFamilies, setComponentFamilies] = useState<
+    WorkflowComponentFamily[]
+  >([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
@@ -397,6 +428,15 @@ export default function PipelineWorkflowEditor({
   );
   const imageNodes = workflow.nodes.filter((node) => node.type === 'image');
   const draftConnectionSourceId = draftConnection?.sourceId;
+  const componentSchemaByType = useMemo(() => {
+    const schemas: Record<string, WorkflowComponentSchema> = {};
+    componentFamilies.forEach((family) => {
+      family.components.forEach((component) => {
+        schemas[component.type] = component;
+      });
+    });
+    return schemas;
+  }, [componentFamilies]);
 
   useEffect(() => {
     if (!selectedNodeId && workflow.nodes[0]) {
@@ -428,6 +468,12 @@ export default function PipelineWorkflowEditor({
       })
       .then((resp) => setLlmModels(resp.models || []))
       .catch((error) => console.warn('Failed to load LLM models', error));
+    httpClient
+      .getWorkflowComponents()
+      .then((resp) => setComponentFamilies(resp.families || []))
+      .catch((error) =>
+        console.warn('Failed to load workflow components', error),
+      );
   }, []);
 
   useEffect(() => {
@@ -814,9 +860,40 @@ export default function PipelineWorkflowEditor({
     return groupPaletteTypes(filterPaletteTypes(nodePaletteSearch));
   }, [nodePaletteSearch]);
 
-  const libraryPaletteGroups = useMemo(() => {
-    return groupPaletteTypes(filterPaletteTypes(librarySearch));
-  }, [librarySearch]);
+  const libraryFamilies = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+    if (!componentFamilies.length) {
+      return Object.entries(
+        groupPaletteTypes(filterPaletteTypes(librarySearch)),
+      ).map(([label, types]) => ({
+        id: label,
+        label,
+        components: types.map((type) => ({
+          type,
+          display_name: nodeMeta[type].label,
+          description: nodeMeta[type].group,
+          icon: '',
+          inputs: [],
+          outputs: [],
+          fields: [],
+        })),
+      })) as WorkflowComponentFamily[];
+    }
+    if (!query) return componentFamilies;
+    return componentFamilies
+      .map((family) => ({
+        ...family,
+        components: family.components.filter((component) => {
+          return (
+            family.label.toLowerCase().includes(query) ||
+            component.type.toLowerCase().includes(query) ||
+            component.display_name.toLowerCase().includes(query) ||
+            component.description.toLowerCase().includes(query)
+          );
+        }),
+      }))
+      .filter((family) => family.components.length > 0);
+  }, [componentFamilies, librarySearch]);
 
   const editor = (
     <div
@@ -829,7 +906,7 @@ export default function PipelineWorkflowEditor({
       data-langflow-editor
     >
       <WorkflowLibraryPanel
-        groups={libraryPaletteGroups}
+        families={libraryFamilies}
         search={librarySearch}
         nodesCount={workflow.nodes.length}
         edgesCount={workflow.edges.length}
@@ -1023,7 +1100,10 @@ export default function PipelineWorkflowEditor({
 
             {workflow.nodes.map((node) => {
               const meta = nodeMeta[node.type];
-              const Icon = meta.icon;
+              const schema = componentSchemaByType[node.type];
+              const Icon = schema?.icon
+                ? iconByName[schema.icon] || meta.icon
+                : meta.icon;
               const selected = selectedNodeId === node.id;
               const connecting = draftConnection?.sourceId === node.id;
               const receiving = connectionTargetId === node.id;
@@ -1158,7 +1238,9 @@ export default function PipelineWorkflowEditor({
                           {node.title}
                         </div>
                         <div className="truncate text-[11px] text-muted-foreground">
-                          {node.description || meta.label}
+                          {node.description ||
+                            schema?.description ||
+                            meta.label}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
@@ -1399,6 +1481,7 @@ export default function PipelineWorkflowEditor({
                   knowledgeBases={knowledgeBases}
                   llmModels={llmModels}
                   node={selectedNode}
+                  componentSchema={componentSchemaByType[selectedNode.type]}
                   products={salesProducts}
                   uploading={uploadingNodeId === selectedNode.id}
                   imageAssetUrl={imageAssetUrl}
@@ -1420,6 +1503,11 @@ export default function PipelineWorkflowEditor({
               <WorkflowIoPanel
                 workflow={workflow}
                 selectedNode={selectedNode}
+                componentSchema={
+                  selectedNode
+                    ? componentSchemaByType[selectedNode.type]
+                    : undefined
+                }
                 onDeleteEdge={deleteEdge}
                 onEdgeChange={updateEdge}
                 onSelectNode={setSelectedNodeId}
@@ -1479,21 +1567,19 @@ export default function PipelineWorkflowEditor({
 
 function WorkflowLibraryPanel({
   edgesCount,
-  groups,
+  families,
   nodesCount,
   search,
   onAddNode,
   onSearchChange,
 }: {
   edgesCount: number;
-  groups: Record<string, WorkflowNodeType[]>;
+  families: WorkflowComponentFamily[];
   nodesCount: number;
   search: string;
   onAddNode: (type: WorkflowNodeType) => void;
   onSearchChange: (value: string) => void;
 }) {
-  const groupEntries = Object.entries(groups);
-
   return (
     <aside className="hidden w-[286px] shrink-0 flex-col border-r border-slate-200 bg-white xl:flex">
       <div className="border-b border-slate-200 p-3">
@@ -1521,31 +1607,36 @@ function WorkflowLibraryPanel({
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {groupEntries.length ? (
+        {families.length ? (
           <div className="space-y-4">
-            {groupEntries.map(([group, types]) => (
-              <div key={group}>
+            {families.map((family) => (
+              <div key={family.id}>
                 <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-500">
-                  <span>{group}</span>
-                  <span>{types.length}</span>
+                  <span>{family.label}</span>
+                  <span>{family.components.length}</span>
                 </div>
                 <div className="grid gap-1.5">
-                  {types.map((type) => {
-                    const meta = nodeMeta[type];
-                    const Icon = meta.icon;
+                  {family.components.map((component) => {
+                    const type = component.type as WorkflowNodeType;
+                    const meta = nodeMeta[type] || nodeMeta.custom;
+                    const Icon = component.icon
+                      ? iconByName[component.icon] || meta.icon
+                      : meta.icon;
                     return (
                       <button
-                        key={type}
+                        key={`${family.id}-${component.type}`}
                         type="button"
                         draggable
                         onDragStart={(event) => {
                           event.dataTransfer.setData(
                             'application/x-yunti-workflow-node',
-                            type,
+                            component.type,
                           );
                           event.dataTransfer.effectAllowed = 'copy';
                         }}
-                        onClick={() => onAddNode(type)}
+                        onClick={() => {
+                          if (paletteOrder.includes(type)) onAddNode(type);
+                        }}
                         className="group flex min-h-12 items-center gap-2.5 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
                       >
                         <span
@@ -1558,10 +1649,10 @@ function WorkflowLibraryPanel({
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-slate-900">
-                            {meta.label}
+                            {component.display_name || meta.label}
                           </span>
                           <span className="block truncate text-[11px] text-slate-500">
-                            {type}
+                            {component.description || component.type}
                           </span>
                         </span>
                         <Plus className="size-3.5 text-slate-400 group-hover:text-slate-900" />
@@ -1585,12 +1676,14 @@ function WorkflowLibraryPanel({
 function WorkflowIoPanel({
   workflow,
   selectedNode,
+  componentSchema,
   onDeleteEdge,
   onEdgeChange,
   onSelectNode,
 }: {
   workflow: PipelineWorkflow;
   selectedNode?: PipelineWorkflowNode;
+  componentSchema?: WorkflowComponentSchema;
   onDeleteEdge: (edgeId: string) => void;
   onEdgeChange: (edgeId: string, patch: Partial<PipelineWorkflowEdge>) => void;
   onSelectNode: (nodeId: string) => void;
@@ -1616,6 +1709,17 @@ function WorkflowIoPanel({
 
   return (
     <div className="space-y-4">
+      {componentSchema && (
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <div className="mb-2 text-xs font-semibold text-slate-500">
+            Component ports
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <PortList title="Inputs" ports={componentSchema.inputs} />
+            <PortList title="Outputs" ports={componentSchema.outputs} />
+          </div>
+        </div>
+      )}
       <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
         <div className="mb-2 text-xs font-semibold text-slate-500">Inputs</div>
         <EdgeList
@@ -1644,6 +1748,34 @@ function WorkflowIoPanel({
         onChange={() => {}}
         readOnly
       />
+    </div>
+  );
+}
+
+function PortList({
+  ports,
+  title,
+}: {
+  ports: WorkflowComponentSchema['inputs'];
+  title: string;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+      <div className="mb-1 font-semibold text-slate-600">{title}</div>
+      <div className="space-y-1">
+        {ports.map((port) => (
+          <div
+            key={`${title}-${port.name}`}
+            className="rounded border border-slate-200 bg-white px-2 py-1"
+          >
+            <span className="font-medium">{port.name}</span>
+            <span className="ml-1 text-slate-400">
+              {port.types?.join(' | ')}
+            </span>
+          </div>
+        ))}
+        {!ports.length && <div className="text-slate-400">None</div>}
+      </div>
     </div>
   );
 }
@@ -1807,6 +1939,7 @@ function WorkflowExecutionPanel({
 }
 
 function NodeConfigPanel({
+  componentSchema,
   imageNodes,
   imageAssetUrl,
   knowledgeBases,
@@ -1818,6 +1951,7 @@ function NodeConfigPanel({
   onNodeChange,
   onUploadImage,
 }: {
+  componentSchema?: WorkflowComponentSchema;
   imageNodes: PipelineWorkflowNode[];
   imageAssetUrl: (fileKey: string) => string;
   knowledgeBases: KnowledgeBase[];
@@ -1867,6 +2001,46 @@ function NodeConfigPanel({
           }
         />
       </div>
+
+      {componentSchema && (
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-slate-500">
+                Langflow component
+              </div>
+              <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                {componentSchema.display_name}
+              </div>
+              <div className="mt-1 text-xs leading-relaxed text-slate-500">
+                {componentSchema.description}
+              </div>
+            </div>
+            <Badge variant="secondary" className="rounded-md">
+              {node.type}
+            </Badge>
+          </div>
+          <div className="space-y-3">
+            {componentSchema.fields.map((field) => (
+              <WorkflowFieldEditor
+                key={field.name}
+                field={field}
+                value={
+                  node.config[field.name] === undefined
+                    ? field.default
+                    : node.config[field.name]
+                }
+                onChange={(value) => onConfigChange({ [field.name]: value })}
+              />
+            ))}
+            {!componentSchema.fields.length && (
+              <div className="rounded-lg border border-dashed border-slate-200 p-3 text-xs text-slate-500">
+                这个组件没有可配置字段
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {node.type === 'llm' && (
         <div className="space-y-2">
@@ -2321,6 +2495,134 @@ function NodeConfigPanel({
       ].includes(node.type) && (
         <GenericConfig node={node} onConfigChange={onConfigChange} />
       )}
+    </div>
+  );
+}
+
+function WorkflowFieldEditor({
+  field,
+  value,
+  onChange,
+}: {
+  field: WorkflowComponentField;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const label = (
+    <label className="text-xs font-medium text-muted-foreground">
+      {field.label}
+    </label>
+  );
+
+  if (field.type === 'boolean') {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
+        {label}
+        <button
+          type="button"
+          onClick={() => onChange(!(value === true))}
+          className={cn(
+            'relative h-6 w-11 rounded-full transition-colors',
+            value === true ? 'bg-slate-950' : 'bg-slate-300',
+          )}
+        >
+          <span
+            className={cn(
+              'absolute top-1 size-4 rounded-full bg-white transition-transform',
+              value === true ? 'translate-x-5' : 'translate-x-1',
+            )}
+          />
+        </button>
+      </div>
+    );
+  }
+
+  if (field.type === 'select') {
+    return (
+      <div className="space-y-2">
+        {label}
+        <Select
+          value={String(value ?? field.default ?? '')}
+          onValueChange={(next) => onChange(next)}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(field.options || []).map((option) => (
+              <SelectItem key={String(option)} value={String(option)}>
+                {String(option)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  if (field.type === 'number') {
+    return (
+      <div className="space-y-2">
+        {label}
+        <Input
+          type="number"
+          value={asNumber(value, asNumber(field.default, 0))}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      </div>
+    );
+  }
+
+  if (field.type === 'tags') {
+    return (
+      <div className="space-y-2">
+        {label}
+        <Textarea
+          value={listToText(value)}
+          onChange={(event) => onChange(asStringList(event.target.value))}
+          className="min-h-20"
+          placeholder="每行一个，或用逗号分隔"
+        />
+      </div>
+    );
+  }
+
+  if (field.type === 'json') {
+    return (
+      <JsonLikeTextarea
+        label={field.label}
+        value={JSON.stringify(value ?? field.default ?? {}, null, 2)}
+        onChange={(next) => {
+          try {
+            onChange(JSON.parse(next));
+          } catch {
+            onChange(next);
+          }
+        }}
+      />
+    );
+  }
+
+  if (field.type === 'textarea') {
+    return (
+      <div className="space-y-2">
+        {label}
+        <Textarea
+          value={asString(value, asString(field.default))}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-h-24"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {label}
+      <Input
+        value={asString(value, asString(field.default))}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </div>
   );
 }
