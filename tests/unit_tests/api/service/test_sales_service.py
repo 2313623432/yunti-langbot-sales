@@ -717,6 +717,77 @@ async def test_get_sales_conversations_uses_latest_real_monitoring_message_not_m
 
 
 @pytest.mark.asyncio
+async def test_get_sales_conversations_returns_lightweight_latest_message_without_media_payload(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 23, 5, 30, 0)
+    huge_image = 'data:image/jpeg;base64,' + ('A' * 1_000_000)
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringSession).values(
+            session_id=session_id,
+            bot_id='bot-uuid',
+            bot_name='私域机器人1',
+            pipeline_id='pipe-1',
+            pipeline_name='销售流程',
+            message_count=2,
+            start_time=now,
+            last_activity=now + datetime.timedelta(seconds=2),
+            is_active=True,
+            platform='person',
+            user_id='ou_customer',
+            user_name='夏般',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringMessage).values(
+            [
+                {
+                    'id': 'msg-image',
+                    'timestamp': now,
+                    'bot_id': 'bot-uuid',
+                    'bot_name': '私域机器人1',
+                    'pipeline_id': 'pipe-1',
+                    'pipeline_name': '销售流程',
+                    'message_content': json.dumps([{'type': 'Image', 'base64': huge_image}], ensure_ascii=False),
+                    'session_id': session_id,
+                    'status': 'success',
+                    'level': 'info',
+                    'platform': 'person',
+                    'user_id': 'ou_customer',
+                    'user_name': '夏般',
+                    'role': 'user',
+                },
+                {
+                    'id': 'msg-latest',
+                    'timestamp': now + datetime.timedelta(seconds=2),
+                    'bot_id': 'bot-uuid',
+                    'bot_name': '私域机器人1',
+                    'pipeline_id': 'pipe-1',
+                    'pipeline_name': '销售流程',
+                    'message_content': json.dumps([{'type': 'Plain', 'text': '我想买'}], ensure_ascii=False),
+                    'session_id': session_id,
+                    'status': 'success',
+                    'level': 'info',
+                    'platform': 'person',
+                    'user_id': 'ou_customer',
+                    'user_name': '夏般',
+                    'role': 'user',
+                },
+            ]
+        )
+    )
+
+    conversations = await service.get_sales_conversations(limit=20)
+
+    assert conversations[0]['customer_name'] == '夏般'
+    assert conversations[0]['latest_message_preview'] == '我想买'
+    assert conversations[0]['latest_message']['raw_message_content'] == ''
+    assert len(json.dumps(conversations, ensure_ascii=False)) < 20_000
+
+
+@pytest.mark.asyncio
 async def test_get_sales_conversations_handles_column_rows_from_connection_execute():
     session = _ColumnRow(
         session_id='person_customer-1',
@@ -928,6 +999,45 @@ async def test_get_sales_conversation_messages_returns_ordered_components_and_se
     assert result['messages'][1]['sender_kind'] == 'operator'
     assert result['messages'][1]['components'][0]['text'] == '人工消息'
 
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversation_messages_keeps_real_image_payload_for_detail_view(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 23, 5, 30, 0)
+    image_base64 = 'data:image/png;base64,AAAA'
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringMessage).values(
+            {
+                'id': 'msg-image',
+                'timestamp': now,
+                'bot_id': 'bot-uuid',
+                'bot_name': '私域机器人1',
+                'pipeline_id': 'pipe-1',
+                'pipeline_name': '销售流程',
+                'message_content': json.dumps(
+                    [{'type': 'Image', 'image_id': 'img_1', 'base64': image_base64}],
+                    ensure_ascii=False,
+                ),
+                'session_id': session_id,
+                'status': 'success',
+                'level': 'info',
+                'platform': 'person',
+                'user_id': 'ou_customer',
+                'user_name': '夏般',
+                'role': 'user',
+            }
+        )
+    )
+
+    result = await service.get_sales_conversation_messages(session_id)
+
+    assert result['messages'][0]['preview'] == '[图片]'
+    assert result['messages'][0]['components'][0]['kind'] == 'image'
+    assert result['messages'][0]['components'][0]['base64'] == image_base64
 
 
 class _SilentLogger:

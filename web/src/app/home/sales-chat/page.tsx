@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BriefcaseBusiness,
   CalendarClock,
@@ -1901,14 +1901,27 @@ export default function SalesChatPage() {
     makeProfileDraft(undefined),
   );
   const [savingMemory, setSavingMemory] = useState(false);
+  const loadingDashboardRef = useRef(false);
+  const loadingMessagesRef = useRef(false);
   const linkedSessionId = useMemo(() => {
     if (typeof window === 'undefined') return '';
     return new URLSearchParams(window.location.search).get('session_id') || '';
   }, []);
 
+  const visibleSalesConversations = useMemo(
+    () =>
+      activeConversationTab === 'all'
+        ? salesConversations
+        : salesConversations.filter(
+            (conversation) =>
+              conversation.handoff_status === activeConversationTab,
+          ),
+    [activeConversationTab, salesConversations],
+  );
+
   const conversations = useMemo(
-    () => buildConversations(salesConversations),
-    [salesConversations],
+    () => buildConversations(visibleSalesConversations),
+    [visibleSalesConversations],
   );
 
   const accountOptions = useMemo(
@@ -1941,6 +1954,8 @@ export default function SalesChatPage() {
 
   const loadDashboard = useCallback(
     async (showLoading = true) => {
+      if (loadingDashboardRef.current) return;
+      loadingDashboardRef.current = true;
       if (showLoading) setLoading(true);
       try {
         await initializeUserInfo();
@@ -1954,7 +1969,6 @@ export default function SalesChatPage() {
           handoffResp,
           outreachResp,
           followupResp,
-          conversationResp,
           allConversationResp,
           monitoringResp,
         ] = await Promise.all([
@@ -1964,11 +1978,6 @@ export default function SalesChatPage() {
           httpClient.getSalesHandoffs('open'),
           httpClient.getSalesOutreachPlans('scheduled_push'),
           httpClient.getSalesFollowupPlans(),
-          httpClient.getSalesConversations({
-            status: activeConversationTab,
-            limit: 100,
-            offset: 0,
-          }),
           httpClient.getSalesConversations({
             status: 'all',
             limit: 100,
@@ -1986,7 +1995,7 @@ export default function SalesChatPage() {
         setHandoffs(handoffResp.handoffs || []);
         setOutreachPlans(outreachResp.plans || []);
         setFollowupPlans(followupResp.plans || []);
-        setSalesConversations(conversationResp.conversations || []);
+        setSalesConversations(allConversationResp.conversations || []);
         setConversationStatusCounts(
           countConversationStatuses(allConversationResp.conversations || []),
         );
@@ -1994,10 +2003,11 @@ export default function SalesChatPage() {
       } catch (error) {
         toast.error(errorMessage(error));
       } finally {
+        loadingDashboardRef.current = false;
         if (showLoading) setLoading(false);
       }
     },
-    [activeConversationTab],
+    [],
   );
 
   const loadMessages = useCallback(
@@ -2006,11 +2016,13 @@ export default function SalesChatPage() {
         setMessages([]);
         return;
       }
+      if (loadingMessagesRef.current) return;
+      loadingMessagesRef.current = true;
       if (showLoading) setMessageLoading(true);
       try {
         const resp = await httpClient.getSalesConversationMessages(
           sessionId,
-          200,
+          80,
           0,
         );
         setMessages(resp.messages || []);
@@ -2018,6 +2030,7 @@ export default function SalesChatPage() {
         setMessages([]);
         toast.error(errorMessage(error));
       } finally {
+        loadingMessagesRef.current = false;
         if (showLoading) setMessageLoading(false);
       }
     },
@@ -2028,7 +2041,7 @@ export default function SalesChatPage() {
     void loadDashboard();
     const timer = window.setInterval(() => {
       void loadDashboard(false);
-    }, 10000);
+    }, 15000);
     return () => window.clearInterval(timer);
   }, [loadDashboard]);
 
@@ -2065,7 +2078,7 @@ export default function SalesChatPage() {
     if (!selectedSessionId) return;
     const timer = window.setInterval(() => {
       void loadMessages(selectedSessionId, false);
-    }, 3000);
+    }, 8000);
     return () => window.clearInterval(timer);
   }, [loadMessages, selectedSessionId]);
 
