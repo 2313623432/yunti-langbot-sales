@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type DragEvent as ReactDragEvent,
   type ElementType,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -14,6 +15,7 @@ import {
   Bot,
   Brain,
   Cable,
+  Code2,
   GitBranch,
   Handshake,
   Eye,
@@ -532,16 +534,20 @@ export default function PipelineWorkflowEditor({
     });
   }
 
-  function addNode(type: WorkflowNodeType, sourceId?: string) {
+  function addNodeAt(
+    type: WorkflowNodeType,
+    position: CanvasPoint,
+    sourceId?: string,
+  ) {
     const source = sourceId
       ? workflow.nodes.find((node) => node.id === sourceId)
       : undefined;
-    const canvas = canvasScrollRef.current;
-    const visibleX = canvas ? canvas.scrollLeft + 96 : 120;
-    const visibleY = canvas ? canvas.scrollTop + 96 : 120;
     const nextNode = createWorkflowNode(type, {
-      x: Math.max(24, source ? source.position.x + NODE_WIDTH + 100 : visibleX),
-      y: Math.max(24, source ? source.position.y : visibleY),
+      x: Math.max(
+        24,
+        source ? source.position.x + NODE_WIDTH + 100 : position.x,
+      ),
+      y: Math.max(24, source ? source.position.y : position.y),
     });
     const edges = [...workflow.edges];
     if (source && type !== 'start') {
@@ -567,6 +573,13 @@ export default function PipelineWorkflowEditor({
           behavior: 'smooth',
         });
     });
+  }
+
+  function addNode(type: WorkflowNodeType, sourceId?: string) {
+    const canvas = canvasScrollRef.current;
+    const visibleX = canvas ? canvas.scrollLeft + 96 : 120;
+    const visibleY = canvas ? canvas.scrollTop + 96 : 120;
+    addNodeAt(type, { x: visibleX, y: visibleY }, sourceId);
   }
 
   function openAddNodeMenu(sourceId: string) {
@@ -695,6 +708,15 @@ export default function PipelineWorkflowEditor({
     canvasPanRef.current = null;
   }
 
+  function handleCanvasDrop(event: ReactDragEvent<HTMLDivElement>) {
+    const type = event.dataTransfer.getData(
+      'application/x-yunti-workflow-node',
+    ) as WorkflowNodeType;
+    if (!type || !paletteOrder.includes(type)) return;
+    event.preventDefault();
+    addNodeAt(type, clientPointToCanvasPoint(event.clientX, event.clientY));
+  }
+
   function clientPointToCanvasPoint(
     clientX: number,
     clientY: number,
@@ -799,11 +821,12 @@ export default function PipelineWorkflowEditor({
   const editor = (
     <div
       className={cn(
-        'relative flex overflow-hidden border-slate-200 bg-slate-50/80 text-slate-950 shadow-sm',
+        'relative flex overflow-hidden border-slate-200 bg-[#f6f7fb] text-slate-950 shadow-sm',
         isFullscreen
           ? 'h-full w-full'
           : 'h-[calc(100vh-218px)] min-h-[620px] rounded-xl border',
       )}
+      data-langflow-editor
     >
       <WorkflowLibraryPanel
         groups={libraryPaletteGroups}
@@ -819,23 +842,23 @@ export default function PipelineWorkflowEditor({
           <Input
             value={workflow.name}
             onChange={(event) => updateWorkflow({ name: event.target.value })}
-            className="h-9 max-w-[280px] rounded-lg border-slate-200 bg-slate-50/70 font-medium shadow-none focus-visible:bg-white"
+            className="h-9 max-w-[280px] rounded-md border-slate-200 bg-slate-50/70 font-medium shadow-none focus-visible:bg-white"
           />
           <Button
             type="button"
             size="sm"
             data-node-palette-trigger
-            className="h-9 gap-1.5 rounded-lg bg-blue-600 px-3 text-white hover:bg-blue-700"
+            className="h-9 gap-1.5 rounded-md bg-slate-950 px-3 text-white hover:bg-slate-800"
             onClick={openNodePalette}
           >
             <Plus className="size-4" />
-            添加节点
+            Component
           </Button>
           <Button
             type="button"
             size="sm"
             variant="outline"
-            className="hidden h-9 rounded-lg border-slate-200 bg-white px-3 lg:inline-flex"
+            className="hidden h-9 rounded-md border-slate-200 bg-white px-3 lg:inline-flex"
             title="导入销售模板，会替换当前画布"
             onClick={() => {
               const next = createSalesWorkflowTemplate();
@@ -849,7 +872,7 @@ export default function PipelineWorkflowEditor({
             type="button"
             size="sm"
             variant="outline"
-            className="hidden h-9 rounded-lg border-slate-200 bg-white px-3 lg:inline-flex"
+            className="hidden h-9 rounded-md border-slate-200 bg-white px-3 lg:inline-flex"
             title="导入客服模板，会替换当前画布"
             onClick={() => {
               const next = createSupportWorkflowTemplate();
@@ -861,13 +884,13 @@ export default function PipelineWorkflowEditor({
           </Button>
           <Badge
             variant="secondary"
-            className="rounded-md bg-blue-50 px-2.5 py-1 text-blue-700"
+            className="rounded-md bg-slate-100 px-2.5 py-1 text-slate-700"
           >
             {workflow.nodes.length} 个节点
           </Badge>
           <Badge
             variant="secondary"
-            className="rounded-md bg-emerald-50 px-2.5 py-1 text-emerald-700"
+            className="rounded-md bg-teal-50 px-2.5 py-1 text-teal-700"
           >
             {workflow.edges.length} 条连线
           </Badge>
@@ -880,7 +903,7 @@ export default function PipelineWorkflowEditor({
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden max-w-[210px] text-xs leading-tight text-muted-foreground 2xl:inline-flex 2xl:items-center 2xl:gap-1.5">
               <MousePointer2 className="size-3.5" />
-              悬停节点右侧可添加节点，或从圆点拖拽连线
+              从左侧拖入组件，或拖拽端口连接 Flow
             </span>
             {rightPanelCollapsed && (
               <Button
@@ -918,13 +941,15 @@ export default function PipelineWorkflowEditor({
           onPointerMove={handleCanvasPointerMove}
           onPointerUp={handleCanvasPointerUp}
           onPointerCancel={handleCanvasPointerUp}
-          className="relative min-h-0 flex-1 cursor-grab overflow-auto bg-[#f8faf7] active:cursor-grabbing"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={handleCanvasDrop}
+          className="relative min-h-0 flex-1 cursor-grab overflow-auto bg-[#f8fafc] active:cursor-grabbing"
         >
           <div
             className="relative min-h-[760px] min-w-[2360px]"
             style={{
               backgroundImage:
-                'linear-gradient(rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.045) 1px, transparent 1px), radial-gradient(circle at 24px 24px, rgba(37,99,235,0.07) 1px, transparent 1.5px)',
+                'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.13) 1px, transparent 0)',
               backgroundSize: '24px 24px',
             }}
           >
@@ -1004,6 +1029,7 @@ export default function PipelineWorkflowEditor({
               const receiving = connectionTargetId === node.id;
               const canReceive = node.type !== 'start';
               const canSend = node.type !== 'end';
+              const configCount = Object.keys(node.config || {}).length;
               const showOutputActions =
                 canSend &&
                 (hoveredOutputNodeId === node.id ||
@@ -1016,11 +1042,11 @@ export default function PipelineWorkflowEditor({
                   onPointerMove={handleNodePointerMove}
                   onPointerUp={handleNodePointerUp}
                   className={cn(
-                    'absolute cursor-grab select-none rounded-xl border border-slate-200 bg-white p-3.5 shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition-[box-shadow,border-color,transform] active:cursor-grabbing',
-                    'hover:border-blue-200 hover:shadow-[0_14px_30px_rgba(15,23,42,0.12)]',
-                    selected && 'border-blue-400 ring-4 ring-blue-100',
+                    'absolute cursor-grab select-none rounded-lg border border-slate-200 bg-white shadow-[0_8px_22px_rgba(15,23,42,0.08)] transition-[box-shadow,border-color,transform] active:cursor-grabbing',
+                    'hover:border-slate-300 hover:shadow-[0_14px_30px_rgba(15,23,42,0.12)]',
+                    selected && 'border-slate-950 ring-4 ring-slate-200/80',
                     connecting && 'ring-2 ring-amber-500',
-                    receiving && 'ring-2 ring-blue-500',
+                    receiving && 'ring-2 ring-teal-500',
                   )}
                   style={{
                     left: node.position.x,
@@ -1059,9 +1085,9 @@ export default function PipelineWorkflowEditor({
                             openAddNodeMenu(node.id);
                           }}
                           className={cn(
-                            'flex size-8 items-center justify-center rounded-full border border-blue-200 bg-white text-blue-600 shadow-lg shadow-blue-950/10 transition-colors hover:border-blue-400 hover:bg-blue-50',
+                            'flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg shadow-slate-950/10 transition-colors hover:border-slate-400 hover:bg-slate-50',
                             addNodeMenuSourceId === node.id &&
-                              'border-blue-300 bg-blue-50 text-blue-600 ring-2 ring-blue-100',
+                              'border-slate-400 bg-slate-50 text-slate-950 ring-2 ring-slate-200',
                           )}
                         >
                           <Plus className="size-4" />
@@ -1098,7 +1124,7 @@ export default function PipelineWorkflowEditor({
                         'absolute -left-2 top-1/2 z-10 size-4 -translate-y-1/2 rounded-full border-2 border-white bg-slate-300 shadow-sm transition-colors',
                         draftConnection &&
                           draftConnection.sourceId !== node.id &&
-                          'bg-blue-500 ring-4 ring-blue-100',
+                          'bg-teal-500 ring-4 ring-teal-100',
                       )}
                     />
                   )}
@@ -1112,33 +1138,57 @@ export default function PipelineWorkflowEditor({
                         handleConnectionStart(event, node)
                       }
                       className={cn(
-                        'absolute -right-2 top-1/2 z-10 size-4 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-slate-800 shadow-sm transition-colors hover:bg-blue-600',
-                        connecting && 'bg-blue-600 ring-4 ring-blue-100',
+                        'absolute -right-2 top-1/2 z-10 size-4 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-slate-800 shadow-sm transition-colors hover:bg-teal-600',
+                        connecting && 'bg-teal-600 ring-4 ring-teal-100',
                       )}
                     />
                   )}
-                  <div className="flex items-start gap-3">
-                    <div className={cn('rounded-lg border p-2', meta.accent)}>
-                      <Icon className="size-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold">
-                        {node.title}
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {node.description || meta.label}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        data-node-action
-                        title="删除节点"
-                        onClick={() => deleteNode(node.id)}
-                        className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  <div className="rounded-t-lg border-b border-slate-100 px-3 py-2">
+                    <div className="flex items-start gap-2.5">
+                      <div
+                        className={cn(
+                          'mt-0.5 rounded-md border p-1.5',
+                          meta.accent,
+                        )}
                       >
-                        <Trash2 className="size-3.5" />
-                      </button>
+                        <Icon className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">
+                          {node.title}
+                        </div>
+                        <div className="truncate text-[11px] text-muted-foreground">
+                          {node.description || meta.label}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          data-node-action
+                          title="删除节点"
+                          onClick={() => deleteNode(node.id)}
+                          className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-slate-500">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {canReceive && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">
+                          Input
+                        </span>
+                      )}
+                      {canSend && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">
+                          Output
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate">
+                      {configCount ? `${configCount} 参数` : 'No params'}
                     </div>
                   </div>
                 </div>
@@ -1304,7 +1354,7 @@ export default function PipelineWorkflowEditor({
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-slate-500">
-                  节点配置
+                  Inspector
                 </div>
                 <div className="mt-0.5 truncate text-sm font-semibold">
                   {selectedNode?.title ?? '未选择节点'}
@@ -1327,18 +1377,18 @@ export default function PipelineWorkflowEditor({
           </div>
           <Tabs defaultValue="params" className="min-h-0 flex-1 gap-0">
             <div className="border-b border-slate-200 px-3 py-2">
-              <TabsList className="grid h-9 w-full grid-cols-3 rounded-lg bg-slate-100 p-1">
+              <TabsList className="grid h-9 w-full grid-cols-3 rounded-md bg-slate-100 p-1">
                 <TabsTrigger value="params" className="gap-1 text-xs">
                   <Settings2 className="size-3.5" />
-                  参数
+                  配置
                 </TabsTrigger>
                 <TabsTrigger value="io" className="gap-1 text-xs">
-                  <GitBranch className="size-3.5" />
-                  输入输出
+                  <Code2 className="size-3.5" />
+                  流数据
                 </TabsTrigger>
                 <TabsTrigger value="run" className="gap-1 text-xs">
                   <PlayCircle className="size-3.5" />
-                  执行
+                  Playground
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -1445,16 +1495,18 @@ function WorkflowLibraryPanel({
   const groupEntries = Object.entries(groups);
 
   return (
-    <aside className="hidden w-[270px] shrink-0 flex-col border-r border-slate-200 bg-white xl:flex">
+    <aside className="hidden w-[286px] shrink-0 flex-col border-r border-slate-200 bg-white xl:flex">
       <div className="border-b border-slate-200 p-3">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-slate-950">节点库</div>
+            <div className="text-sm font-semibold text-slate-950">
+              Components
+            </div>
             <div className="mt-0.5 text-xs text-slate-500">
-              点击添加到当前画布
+              拖到画布，或点击快速添加
             </div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-500">
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-500">
             {nodesCount}/{edgesCount}
           </div>
         </div>
@@ -1463,8 +1515,8 @@ function WorkflowLibraryPanel({
           <Input
             value={search}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="搜索节点、工具、分组"
-            className="h-9 rounded-lg border-slate-200 bg-slate-50/80 pl-8 shadow-none focus-visible:bg-white"
+            placeholder="Search components"
+            className="h-9 rounded-md border-slate-200 bg-slate-50/80 pl-8 shadow-none focus-visible:bg-white"
           />
         </div>
       </div>
@@ -1485,12 +1537,20 @@ function WorkflowLibraryPanel({
                       <button
                         key={type}
                         type="button"
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData(
+                            'application/x-yunti-workflow-node',
+                            type,
+                          );
+                          event.dataTransfer.effectAllowed = 'copy';
+                        }}
                         onClick={() => onAddNode(type)}
-                        className="group flex min-h-12 items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-blue-200 hover:bg-blue-50/60"
+                        className="group flex min-h-12 items-center gap-2.5 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
                       >
                         <span
                           className={cn(
-                            'flex size-8 shrink-0 items-center justify-center rounded-lg border',
+                            'flex size-8 shrink-0 items-center justify-center rounded-md border',
                             meta.accent,
                           )}
                         >
@@ -1504,7 +1564,7 @@ function WorkflowLibraryPanel({
                             {type}
                           </span>
                         </span>
-                        <Plus className="size-3.5 text-slate-400 group-hover:text-blue-600" />
+                        <Plus className="size-3.5 text-slate-400 group-hover:text-slate-900" />
                       </button>
                     );
                   })}
@@ -1557,9 +1617,7 @@ function WorkflowIoPanel({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-        <div className="mb-2 text-xs font-semibold text-slate-500">
-          节点输入
-        </div>
+        <div className="mb-2 text-xs font-semibold text-slate-500">Inputs</div>
         <EdgeList
           edges={incoming}
           emptyText="暂无上游输入"
@@ -1570,9 +1628,7 @@ function WorkflowIoPanel({
         />
       </div>
       <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-        <div className="mb-2 text-xs font-semibold text-slate-500">
-          节点输出
-        </div>
+        <div className="mb-2 text-xs font-semibold text-slate-500">Outputs</div>
         <EdgeList
           edges={outgoing}
           emptyText="暂无下游输出"
@@ -1583,7 +1639,7 @@ function WorkflowIoPanel({
         />
       </div>
       <JsonLikeTextarea
-        label="当前节点配置快照"
+        label="Component data"
         value={JSON.stringify(selectedNode.config, null, 2)}
         onChange={() => {}}
         readOnly
@@ -1668,7 +1724,7 @@ function WorkflowExecutionPanel({
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
         <div className="mb-3 text-xs font-semibold text-slate-500">
-          工作流属性
+          Flow settings
         </div>
         <div className="space-y-3">
           <div className="space-y-2">
@@ -1695,7 +1751,7 @@ function WorkflowExecutionPanel({
             </Select>
           </div>
           <JsonLikeTextarea
-            label="全局变量 JSON"
+            label="Flow variables"
             value={JSON.stringify(workflow.variables || {}, null, 2)}
             onChange={(value) => {
               try {
@@ -1711,7 +1767,7 @@ function WorkflowExecutionPanel({
       </div>
       <div className="rounded-xl border border-slate-200 bg-white p-3">
         <div className="mb-3 text-xs font-semibold text-slate-500">
-          快速模板
+          Starter flows
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Button
