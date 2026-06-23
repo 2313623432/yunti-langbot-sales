@@ -2444,7 +2444,7 @@ class SalesService:
             return 'assistant'
         return 'customer'
 
-    def _serialize_sales_message(self, message: Any, compact: bool = False) -> dict[str, Any]:
+    def _serialize_sales_message(self, message: Any, compact: bool = False, link_media: bool = False) -> dict[str, Any]:
         normalized = self.normalize_sales_message_content(getattr(message, 'message_content', '') or '')
         sender_kind = self._sales_sender_kind(message)
         if sender_kind == 'operator':
@@ -2457,6 +2457,12 @@ class SalesService:
         raw_message_content = getattr(message, 'message_content', '')
         if compact:
             components = [self._compact_sales_message_component(component) for component in components]
+            raw_message_content = ''
+        elif link_media:
+            components = [
+                self._link_sales_message_media_component(getattr(message, 'id', ''), index, component)
+                for index, component in enumerate(components)
+            ]
             raw_message_content = ''
         return {
             'id': getattr(message, 'id', ''),
@@ -2478,6 +2484,19 @@ class SalesService:
             'metadata': normalized['metadata'],
             'raw_message_content': raw_message_content,
         }
+
+    def _link_sales_message_media_component(
+        self,
+        message_id: str,
+        component_index: int,
+        component: dict[str, Any],
+    ) -> dict[str, Any]:
+        linked = {key: value for key, value in component.items() if key != 'raw'}
+        if linked.get('kind') in {'image', 'voice'} and linked.get('base64'):
+            linked['media_url'] = f'/api/v1/sales/messages/{message_id}/media/{component_index}'
+            linked['base64'] = ''
+            linked['available'] = True
+        return linked
 
     def _compact_sales_message_component(self, component: dict[str, Any]) -> dict[str, Any]:
         compact = {key: value for key, value in component.items() if key != 'raw'}
@@ -2647,8 +2666,42 @@ class SalesService:
             .offset(offset)
         )
         rows = [self._row_entity(row) for row in result.all()]
-        messages = [self._serialize_sales_message(message) for message in sorted(rows, key=lambda item: item.timestamp)]
+        messages = [
+            self._serialize_sales_message(message, link_media=True)
+            for message in sorted(rows, key=lambda item: item.timestamp)
+        ]
         return {'messages': messages, 'total': len(messages)}
+
+    async def get_sales_message_media(self, message_id: str, component_index: int) -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage).where(
+                persistence_monitoring.MonitoringMessage.id == message_id
+            )
+        )
+        row = result.first()
+        if row is None:
+            raise ValueError('Message not found')
+        message = self._row_entity(row)
+        components = self.normalize_sales_message_content(getattr(message, 'message_content', '') or '')['components']
+        if component_index < 0 or component_index >= len(components):
+            raise ValueError('Media component not found')
+        component = components[component_index]
+        if component.get('kind') not in {'image', 'voice'}:
+            raise ValueError('Component is not media')
+        base64_data = str(component.get('base64') or '')
+        if not base64_data:
+            raise ValueError('Media payload not available')
+        mime_type = 'audio/ogg' if component.get('kind') == 'voice' else 'image/png'
+        payload = base64_data
+        data_url_match = re.match(r'^data:([^;,]+);base64,(.*)$', base64_data, re.DOTALL)
+        if data_url_match:
+            mime_type = data_url_match.group(1)
+            payload = data_url_match.group(2)
+        try:
+            content = base64.b64decode(payload, validate=False)
+        except Exception as exc:
+            raise ValueError('Invalid media payload') from exc
+        return {'content': content, 'mime_type': mime_type}
 
     async def generate_sales_reply_suggestion_from_session(
         self,

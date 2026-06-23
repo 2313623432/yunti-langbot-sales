@@ -1129,7 +1129,7 @@ async def test_get_sales_conversation_messages_returns_ordered_components_and_se
 
 
 @pytest.mark.asyncio
-async def test_get_sales_conversation_messages_keeps_real_image_payload_for_detail_view(
+async def test_get_sales_conversation_messages_links_real_image_payload_for_detail_view(
     sales_service_with_db,
 ):
     service = sales_service_with_db
@@ -1164,7 +1164,14 @@ async def test_get_sales_conversation_messages_keeps_real_image_payload_for_deta
 
     assert result['messages'][0]['preview'] == '[图片]'
     assert result['messages'][0]['components'][0]['kind'] == 'image'
-    assert result['messages'][0]['components'][0]['base64'] == image_base64
+    assert result['messages'][0]['components'][0]['base64'] == ''
+    assert result['messages'][0]['components'][0]['media_url'].endswith('/api/v1/sales/messages/msg-image/media/0')
+    assert result['messages'][0]['raw_message_content'] == ''
+
+    media = await service.get_sales_message_media('msg-image', 0)
+
+    assert media['mime_type'] == 'image/png'
+    assert media['content'] == b'\x00\x00\x00'
 
 
 class _SilentLogger:

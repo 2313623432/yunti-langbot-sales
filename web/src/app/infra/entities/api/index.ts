@@ -544,6 +544,7 @@ export type SalesMessageComponent =
   | {
       kind: 'image';
       url?: string;
+      media_url?: string;
       base64?: string;
       path?: string;
       name?: string;
@@ -553,6 +554,7 @@ export type SalesMessageComponent =
   | {
       kind: 'voice';
       url?: string;
+      media_url?: string;
       base64?: string;
       path?: string;
       length?: number;

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { FileText, ImageIcon, Link2, Volume2 } from 'lucide-react';
 
 import type { SalesMessageComponent } from '@/app/infra/entities/api';
@@ -26,14 +26,22 @@ function browserSafeMediaSource(value?: unknown): string {
   return source;
 }
 
+function isAuthenticatedApiMediaSource(source: string): boolean {
+  if (source.startsWith('/api/')) return true;
+  if (typeof window === 'undefined') return false;
+  return source.startsWith(`${window.location.origin}/api/`);
+}
+
 function mediaSource(component: {
   url?: string;
+  media_url?: string;
   base64?: string;
   path?: string;
   raw?: Record<string, unknown>;
 }): string {
   const candidates = [
     component.url,
+    component.media_url,
     component.base64,
     rawValue(component.raw, [
       'image_url',
@@ -101,6 +109,18 @@ function SalesMessageComponentView({
   if (component.kind === 'image') {
     const src = mediaSource(component);
     if (src) {
+      if (isAuthenticatedApiMediaSource(src)) {
+        return (
+          <AuthenticatedImage
+            src={src}
+            alt={component.name || '聊天图片'}
+            className={cn(
+              'max-w-full rounded-md border border-black/5 object-cover',
+              compact ? 'max-h-20' : 'max-h-72',
+            )}
+          />
+        );
+      }
       return (
         <a href={src} target="_blank" rel="noreferrer" className="block">
           <img
@@ -130,6 +150,14 @@ function SalesMessageComponentView({
   if (component.kind === 'voice') {
     const src = mediaSource(component);
     if (src) {
+      if (isAuthenticatedApiMediaSource(src)) {
+        return (
+          <AuthenticatedAudio
+            src={src}
+            length={component.length}
+          />
+        );
+      }
       return (
         <div className="min-w-[220px] rounded-md bg-black/5 px-3 py-2">
           <div className="mb-2 flex items-center gap-2 text-sm">
@@ -211,6 +239,102 @@ function SalesMessageComponentView({
       icon={<FileText className="size-4" />}
       title={component.label || component.type || '附件'}
       detail={component.type || '未知消息组件'}
+    />
+  );
+}
+
+function useAuthenticatedObjectUrl(src: string): {
+  objectUrl: string;
+  loading: boolean;
+} {
+  const [objectUrl, setObjectUrl] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let revokedUrl = '';
+    let cancelled = false;
+    setLoading(true);
+    setObjectUrl('');
+
+    const load = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(src, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        if (cancelled) return;
+        revokedUrl = URL.createObjectURL(blob);
+        setObjectUrl(revokedUrl);
+      } catch {
+        if (!cancelled) setObjectUrl('');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void load();
+
+    return () => {
+      cancelled = true;
+      if (revokedUrl) URL.revokeObjectURL(revokedUrl);
+    };
+  }, [src]);
+
+  return { objectUrl, loading };
+}
+
+function AuthenticatedImage({
+  src,
+  alt,
+  className,
+}: {
+  src: string;
+  alt: string;
+  className: string;
+}) {
+  const { objectUrl, loading } = useAuthenticatedObjectUrl(src);
+  if (objectUrl) {
+    return (
+      <a href={objectUrl} target="_blank" rel="noreferrer" className="block">
+        <img src={objectUrl} alt={alt} className={className} />
+      </a>
+    );
+  }
+  return (
+    <AttachmentCard
+      icon={<ImageIcon className="size-4" />}
+      title="图片"
+      detail={loading ? '图片加载中' : '图片资源不可直接预览'}
+    />
+  );
+}
+
+function AuthenticatedAudio({
+  src,
+  length,
+}: {
+  src: string;
+  length?: number;
+}) {
+  const { objectUrl, loading } = useAuthenticatedObjectUrl(src);
+  if (objectUrl) {
+    return (
+      <div className="min-w-[220px] rounded-md bg-black/5 px-3 py-2">
+        <div className="mb-2 flex items-center gap-2 text-sm">
+          <Volume2 className="size-4" />
+          <span>{length ? `${length}s` : '语音消息'}</span>
+        </div>
+        <audio controls src={objectUrl} className="h-9 w-full" />
+      </div>
+    );
+  }
+  return (
+    <AttachmentCard
+      icon={<Volume2 className="size-4" />}
+      title="语音"
+      detail={loading ? '语音加载中' : '语音资源不可直接播放'}
     />
   );
 }
