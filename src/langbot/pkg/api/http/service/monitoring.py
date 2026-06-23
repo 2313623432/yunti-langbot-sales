@@ -584,6 +584,17 @@ class MonitoringService:
         return (serialized, total)
 
     def _row_entity(self, row):
+        mapping = getattr(row, '_mapping', None)
+        if mapping:
+            mapped_values = list(mapping.values())
+            for value in mapped_values:
+                if hasattr(value, '__table__'):
+                    return value
+            string_keys = {str(key): value for key, value in mapping.items() if isinstance(key, str)}
+            if string_keys:
+                from types import SimpleNamespace
+
+                return SimpleNamespace(**string_keys)
         try:
             return row[0]
         except (TypeError, KeyError, IndexError):

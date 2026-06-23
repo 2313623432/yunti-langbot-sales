@@ -39,6 +39,17 @@ class _RowWrapper:
         return self._value
 
 
+class _ColumnRow:
+    def __init__(self, **values):
+        self._values = values
+        self._mapping = values
+
+    def __getitem__(self, index):
+        if index != 0:
+            raise IndexError(index)
+        return self._values['id']
+
+
 @pytest.mark.asyncio
 async def test_record_message_adds_sales_reply_quality_metrics_for_assistant_reply():
     persistence = _CapturePersistence()
@@ -102,8 +113,15 @@ async def test_get_messages_returns_compact_media_content_for_lists():
         role='user',
     )
     persistence = SimpleNamespace(
-        execute_async=AsyncMock(side_effect=[_FakeResult(scalar_value=1), _FakeResult(rows=[_RowWrapper(message)])]),
-        serialize_model=lambda _model, value: dict(value.__dict__),
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult(scalar_value=1),
+                _FakeResult(rows=[_ColumnRow(**message.__dict__)]),
+            ]
+        ),
+        serialize_model=lambda model, value: {
+            column.name: getattr(value, column.name) for column in model.__table__.columns
+        },
     )
     service = MonitoringService(SimpleNamespace(persistence_mgr=persistence))
 
