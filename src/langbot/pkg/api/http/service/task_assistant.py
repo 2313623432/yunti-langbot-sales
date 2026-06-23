@@ -69,6 +69,36 @@ COURSE_SALES_INTENT_MODEL_EXTRA_ARGS = {
     'thinking': {'type': 'disabled'},
     'reasoning_effort': 'minimal',
 }
+COURSE_RESOURCE_CAPTURE_CONFIG = {
+    'enabled': True,
+    'trigger_keywords': [
+        '扫码资源',
+        '图书资源',
+        '配套资源',
+        '资源卡片',
+        '二维码',
+        '扫码',
+        '听力资源',
+        '答案资源',
+        '打不开',
+        '不能打开',
+        '无法打开',
+        '点不开',
+        '进不去',
+        '资源缺失',
+        '资源为空',
+        '正在上传',
+    ],
+    'required_image_count': 2,
+    'max_followup_rounds': 4,
+    'ask_message': (
+        '我帮您记录这个扫码资源问题。麻烦您补充一下具体问题，'
+        '再发一下出问题的二维码照片、以及出现问题的位置/页面照片'
+    ),
+    'ask_description_message': '麻烦您描述一下具体问题，比如哪里打不开、提示什么、哪一题或哪一页不对',
+    'ask_photo_message': '再麻烦发一下出问题的二维码照片、以及出现问题的位置/页面照片',
+    'completed_message': '收到，我已经把这个资源问题和相关照片记录下来了，会同步给工作人员处理',
+}
 TASK_ASSISTANT_TTS_VOICE_TYPE = 'zh_female_yuanqinvyou_moon_bigtts'
 COURSE_SALES_SCENARIO = 'course_sales_yuanfudao_phonics'
 COURSE_SALES_WORKFLOW_PIPELINE_UUID = 'course-sales-workflow-pipeline'
@@ -1914,6 +1944,10 @@ class TaskAssistantService:
         if intent is None:
             intent = self.classify_course_sales_intent(text, query.message_chain, workflow)
         intent = await self._apply_course_sales_rejection_policy(intent, text, workflow, session_key, query)
+        capture_result = await self._handle_course_resource_capture(query, workflow, intent, text, session_key)
+        if capture_result is not None:
+            query.variables['workflow_intent'] = intent
+            return capture_result
         await self._record_course_resource_issue_for_query(query, intent, text)
         query.variables['course_sales_radar_link'] = intent.get('link_url') or COURSE_SALES_RADAR_LINK
         await self._schedule_course_sales_outreach_for_query(query, workflow, intent)
@@ -2591,6 +2625,169 @@ class TaskAssistantService:
         }
         label = labels.get(issue_type, '资源有问题')
         return f'{label}：{text}'.strip('：')
+
+    def _course_resource_capture_config(self, workflow: dict[str, Any]) -> dict[str, Any]:
+        variables = workflow.get('variables') if isinstance(workflow.get('variables'), dict) else {}
+        configured = workflow.get('resource_capture')
+        if not isinstance(configured, dict):
+            configured = variables.get('resource_capture')
+        if not isinstance(configured, dict):
+            configured = {}
+        merged = {**copy.deepcopy(COURSE_RESOURCE_CAPTURE_CONFIG), **copy.deepcopy(configured)}
+        if not isinstance(merged.get('trigger_keywords'), list):
+            merged['trigger_keywords'] = copy.deepcopy(COURSE_RESOURCE_CAPTURE_CONFIG['trigger_keywords'])
+        try:
+            merged['required_image_count'] = max(1, int(merged.get('required_image_count') or 2))
+        except (TypeError, ValueError):
+            merged['required_image_count'] = 2
+        try:
+            merged['max_followup_rounds'] = max(1, int(merged.get('max_followup_rounds') or 4))
+        except (TypeError, ValueError):
+            merged['max_followup_rounds'] = 4
+        return merged
+
+    def _course_resource_capture_triggered(
+        self,
+        text: str,
+        intent: dict[str, Any],
+        config: dict[str, Any],
+    ) -> bool:
+        if intent.get('intent') != 'resource_help':
+            return False
+        normalized = (text or '').strip().lower()
+        if intent.get('resource_issue_type'):
+            issue_terms = ['扫码', '二维码', '资源', '卡片', '打不开', '不能打开', '无法打开', '点不开', '进不去']
+            if any(term in normalized for term in issue_terms):
+                return True
+        keywords = [str(keyword).strip().lower() for keyword in config.get('trigger_keywords', []) if str(keyword).strip()]
+        return any(keyword in normalized for keyword in keywords)
+
+    def _course_resource_capture_text_is_description(self, text: str) -> bool:
+        normalized = (text or '').strip()
+        if len(normalized) < 2:
+            return False
+        low_signal = {'图片', '照片', '好的', '好', 'ok', '嗯', '哦', '发了', '已发', '看图'}
+        if normalized.lower() in low_signal:
+            return False
+        generic_reports = {
+            '扫码资源打不开',
+            '资源打不开',
+            '二维码打不开',
+            '打不开',
+            '不能打开',
+            '无法打开',
+            '点不开',
+            '进不去',
+        }
+        if normalized in generic_reports:
+            return False
+        detail_markers = ['提示', '显示', '页面', '报错', '第', '页', '题', '音频', '答案', '内容', '不匹配', '空白']
+        return any(marker in normalized for marker in detail_markers) or len(normalized) >= 14
+
+    def _course_resource_capture_notice(self, capture: dict[str, Any], config: dict[str, Any], missing: list[str]) -> str:
+        ask_count = int(capture.get('ask_count') or 0)
+        if set(missing) == {'description', 'photos'}:
+            base = str(config.get('ask_message') or COURSE_RESOURCE_CAPTURE_CONFIG['ask_message'])
+        elif 'description' in missing:
+            base = str(config.get('ask_description_message') or COURSE_RESOURCE_CAPTURE_CONFIG['ask_description_message'])
+        else:
+            base = str(config.get('ask_photo_message') or COURSE_RESOURCE_CAPTURE_CONFIG['ask_photo_message'])
+        if ask_count >= 1:
+            return f'还需要您再补充一下：{base}'
+        return base
+
+    async def _handle_course_resource_capture(
+        self,
+        query: pipeline_query.Query,
+        workflow: dict[str, Any],
+        intent: dict[str, Any],
+        text: str,
+        session_key: str,
+    ) -> dict[str, Any] | None:
+        config = self._course_resource_capture_config(workflow)
+        if config.get('enabled') is False:
+            return None
+
+        progress = self._session_progress.setdefault(session_key or '_course_sales_default', {})
+        capture = progress.get('resource_capture')
+        active = isinstance(capture, dict) and capture.get('active') is True
+        if not active and not self._course_resource_capture_triggered(text, intent, config):
+            return None
+
+        if not isinstance(capture, dict):
+            capture = {
+                'active': True,
+                'issue_type': str(intent.get('resource_issue_type') or 'resource_error'),
+                'raw_messages': [],
+                'descriptions': [],
+                'evidence_images': [],
+                'ask_count': 0,
+            }
+            progress['resource_capture'] = capture
+
+        issue_type = str(intent.get('resource_issue_type') or capture.get('issue_type') or 'resource_error')
+        if issue_type:
+            capture['issue_type'] = issue_type
+
+        if text and text not in capture.setdefault('raw_messages', []):
+            capture['raw_messages'].append(text)
+        if self._course_resource_capture_text_is_description(text):
+            descriptions = capture.setdefault('descriptions', [])
+            if text not in descriptions:
+                descriptions.append(text)
+
+        evidence_images = capture.setdefault('evidence_images', [])
+        for image in self._course_resource_issue_evidence_images(query.message_chain):
+            if image not in evidence_images:
+                evidence_images.append(image)
+
+        required_image_count = int(config.get('required_image_count') or 2)
+        missing: list[str] = []
+        if not capture.get('descriptions'):
+            missing.append('description')
+        if len(evidence_images) < required_image_count:
+            missing.append('photos')
+
+        if missing:
+            capture['ask_count'] = int(capture.get('ask_count') or 0) + 1
+            return {
+                'handled': True,
+                'interrupted': True,
+                'intent': intent,
+                'notice': self._course_resource_capture_notice(capture, config, missing),
+            }
+
+        sales_service = getattr(self.ap, 'sales_service', None)
+        if not sales_service or not hasattr(sales_service, 'create_resource_issue_from_query'):
+            return None
+        user_description_parts: list[str] = []
+        for item in [*capture.get('raw_messages', []), *capture.get('descriptions', [])]:
+            text_part = str(item).strip()
+            if text_part and text_part not in user_description_parts:
+                user_description_parts.append(text_part)
+        user_description = '\n'.join(user_description_parts)
+        payload = {
+            'issue_type': capture.get('issue_type') or 'resource_error',
+            'user_description': user_description,
+            'issue_summary': self._course_resource_issue_summary(capture.get('issue_type') or 'resource_error', user_description),
+            'evidence_images': list(evidence_images),
+        }
+        try:
+            issue = await sales_service.create_resource_issue_from_query(query, payload)
+            query.variables['course_resource_issue_id'] = issue.get('id') if isinstance(issue, dict) else None
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None and hasattr(logger, 'warning'):
+                logger.warning('Failed to record captured course sales resource issue: %s', exc)
+            return None
+
+        progress.pop('resource_capture', None)
+        return {
+            'handled': True,
+            'interrupted': True,
+            'intent': intent,
+            'notice': str(config.get('completed_message') or COURSE_RESOURCE_CAPTURE_CONFIG['completed_message']),
+        }
 
     def classify_course_sales_intent(
         self,
@@ -5878,6 +6075,7 @@ class TaskAssistantService:
             'scheduled_push': scheduled_push,
             'course_profile': copy.deepcopy(COURSE_SALES_PROFILE),
             'resource_faqs': copy.deepcopy(COURSE_RESOURCE_FAQS),
+            'resource_capture': copy.deepcopy(COURSE_RESOURCE_CAPTURE_CONFIG),
             'course_faqs': copy.deepcopy(COURSE_FAQS),
             'sales_links': [
                 {
@@ -5970,11 +6168,15 @@ class TaskAssistantService:
                         template_config[key] = value
                 elif key in {
                     'resource_faqs',
+                    'resource_capture',
                     'course_faqs',
                     'course_profiles',
                     'special_cases',
                 } and isinstance(value, list) and value:
                     template_config[key] = value
+                elif key == 'resource_capture' and isinstance(value, dict):
+                    current = template_config.get(key) if isinstance(template_config.get(key), dict) else {}
+                    template_config[key] = {**copy.deepcopy(COURSE_RESOURCE_CAPTURE_CONFIG), **current, **value}
                 elif key == 'stop_policy' and isinstance(value, dict):
                     current = template_config.get(key) if isinstance(template_config.get(key), dict) else {}
                     template_config[key] = {**current, **value}
@@ -6041,6 +6243,11 @@ class TaskAssistantService:
             copy.deepcopy(template_config.get('resource_faqs'))
             if isinstance(template_config.get('resource_faqs'), list)
             else copy.deepcopy(COURSE_RESOURCE_FAQS)
+        )
+        resource_capture = (
+            {**copy.deepcopy(COURSE_RESOURCE_CAPTURE_CONFIG), **copy.deepcopy(template_config.get('resource_capture'))}
+            if isinstance(template_config.get('resource_capture'), dict)
+            else copy.deepcopy(COURSE_RESOURCE_CAPTURE_CONFIG)
         )
         course_faqs = (
             copy.deepcopy(template_config.get('course_faqs'))
@@ -6517,6 +6724,7 @@ class TaskAssistantService:
             'course_profile': course_profile,
             'course_profiles': course_profiles,
             'resource_faqs': resource_faqs,
+            'resource_capture': resource_capture,
             'course_faqs': course_faqs,
             'reference_rounds': reference_rounds,
             'sales_links': sales_links,
@@ -6545,6 +6753,7 @@ class TaskAssistantService:
                 'memes': memes,
                 'special_cases': special_cases,
                 'source_materials': source_materials,
+                'resource_capture': resource_capture,
             },
             'voice': voice_config,
             'scheduled_push': template_config.get('scheduled_push') if isinstance(template_config.get('scheduled_push'), dict) else None,

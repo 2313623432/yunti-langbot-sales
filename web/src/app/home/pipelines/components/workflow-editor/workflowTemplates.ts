@@ -1445,6 +1445,37 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
       })),
       notify_message: '',
     },
+    resource_capture: {
+      enabled: true,
+      trigger_keywords: [
+        '扫码资源',
+        '图书资源',
+        '配套资源',
+        '资源卡片',
+        '二维码',
+        '扫码',
+        '听力资源',
+        '答案资源',
+        '打不开',
+        '不能打开',
+        '无法打开',
+        '点不开',
+        '进不去',
+        '资源缺失',
+        '资源为空',
+        '正在上传',
+      ],
+      required_image_count: 2,
+      max_followup_rounds: 4,
+      ask_message:
+        '我帮您记录这个扫码资源问题。麻烦您补充一下具体问题，再发一下出问题的二维码照片、以及出现问题的位置/页面照片',
+      ask_description_message:
+        '麻烦您描述一下具体问题，比如哪里打不开、提示什么、哪一题或哪一页不对',
+      ask_photo_message:
+        '再麻烦发一下出问题的二维码照片、以及出现问题的位置/页面照片',
+      completed_message:
+        '收到，我已经把这个资源问题和相关照片记录下来了，会同步给工作人员处理',
+    },
     memes: {
       ...courseMemeConfig,
       library: buildDefaultMemeLibrary(),

@@ -1461,6 +1461,75 @@ async def test_prepare_course_sales_query_records_resource_issue_ticket(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_course_sales_resource_capture_asks_for_description_and_photos_before_ticket(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    query = _query(
+        text_chain('扫码资源打不开'),
+        '扫码资源打不开',
+        session_id='customer-resource-capture',
+    )
+    query.bot_uuid = 'bot-uuid'
+    query.sender_id = 'ou_customer'
+    query.adapter = SimpleNamespace()
+    query.pipeline_uuid = 'pipeline-1'
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.prepare_query(query)
+
+    assert result['interrupted'] is True
+    assert '具体问题' in result['notice']
+    assert '二维码' in result['notice']
+    assert '照片' in result['notice']
+    sales_service.create_resource_issue_from_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_course_sales_resource_capture_records_ticket_after_description_and_two_photos(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    first_query = _query(
+        text_chain('扫码资源打不开'),
+        '扫码资源打不开',
+        session_id='customer-resource-capture',
+    )
+    first_query.bot_uuid = 'bot-uuid'
+    first_query.sender_id = 'ou_customer'
+    first_query.adapter = SimpleNamespace()
+    first_query.pipeline_uuid = 'pipeline-1'
+    first_query.pipeline_config = pipeline_config
+    await service.prepare_query(first_query)
+
+    second_query = _query(
+        image_chain(text='页面提示资源缺失，这是二维码和报错页面', url='https://example.com/qr.jpg'),
+        '页面提示资源缺失，这是二维码和报错页面',
+        session_id='customer-resource-capture',
+    )
+    second_query.message_chain.extend(image_chain(url='https://example.com/page.jpg'))
+    second_query.bot_uuid = 'bot-uuid'
+    second_query.sender_id = 'ou_customer'
+    second_query.adapter = SimpleNamespace()
+    second_query.pipeline_uuid = 'pipeline-1'
+    second_query.pipeline_config = pipeline_config
+
+    result = await service.prepare_query(second_query)
+
+    assert result['interrupted'] is True
+    assert '记录' in result['notice']
+    sales_service.create_resource_issue_from_query.assert_awaited_once()
+    _, payload = sales_service.create_resource_issue_from_query.await_args.args
+    assert payload['issue_type'] == 'missing_resource'
+    assert '扫码资源打不开' in payload['user_description']
+    assert '页面提示资源缺失' in payload['user_description']
+    assert payload['evidence_images'] == ['https://example.com/qr.jpg', 'https://example.com/page.jpg']
+
+
+@pytest.mark.asyncio
 async def test_prepare_course_sales_query_records_resource_issue_image_evidence(monkeypatch):
     sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
     service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
@@ -2637,14 +2706,13 @@ async def test_course_sales_resource_open_failure_context_requests_resend_link_a
     query.pipeline_uuid = YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
     query.prompt = SimpleNamespace(messages=[])
 
-    await service.prepare_query(query)
+    result = await service.prepare_query(query)
 
     assert query.variables['workflow_intent']['intent'] == 'resource_help'
-    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '再发一遍图书配套学习资源卡片链接' in context_text
-    assert '方便发我一张截图吗' in context_text
-    assert '不要再问“能打开吗”' in context_text
-    assert '本轮要给报名动作和报名链接卡片' not in context_text
+    assert result['interrupted'] is True
+    assert '具体问题' in result['notice']
+    assert '二维码照片' in result['notice']
+    assert '位置/页面照片' in result['notice']
 
 
 @pytest.mark.asyncio

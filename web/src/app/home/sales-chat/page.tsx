@@ -1901,6 +1901,10 @@ export default function SalesChatPage() {
     makeProfileDraft(undefined),
   );
   const [savingMemory, setSavingMemory] = useState(false);
+  const linkedSessionId = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('session_id') || '';
+  }, []);
 
   const conversations = useMemo(
     () => buildConversations(salesConversations),
@@ -2034,6 +2038,16 @@ export default function SalesChatPage() {
       return;
     }
     if (
+      linkedSessionId &&
+      conversations.some((conversation) => conversation.sessionId === linkedSessionId)
+    ) {
+      if (selectedSessionId !== linkedSessionId) {
+        setSelectedSessionId(linkedSessionId);
+      }
+      setMainView('conversation');
+      return;
+    }
+    if (
       !selectedSessionId ||
       !conversations.some(
         (conversation) => conversation.sessionId === selectedSessionId,
@@ -2041,7 +2055,7 @@ export default function SalesChatPage() {
     ) {
       setSelectedSessionId(conversations[0].sessionId);
     }
-  }, [conversations, selectedSessionId]);
+  }, [conversations, linkedSessionId, selectedSessionId]);
 
   useEffect(() => {
     void loadMessages(selectedSessionId);

@@ -5,6 +5,7 @@ import {
   CalendarClock,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   Database,
   Image as ImageIcon,
   Link2,
@@ -77,6 +78,7 @@ type TemplateConfigTab =
   | 'knowledge'
   | 'memory'
   | 'radar'
+  | 'resourceCapture'
   | 'specialCases'
   | 'memes'
   | 'push'
@@ -97,6 +99,7 @@ const CONFIG_TABS: Array<{
   { id: 'knowledge', label: '知识和数据', icon: Database },
   { id: 'memory', label: '记忆', icon: Bot },
   { id: 'radar', label: '雷达跟进', icon: MousePointerClick },
+  { id: 'resourceCapture', label: '资源抓取', icon: ClipboardList },
   { id: 'specialCases', label: '特殊情况处理', icon: ShieldCheck },
   { id: 'memes', label: '表情包', icon: SmilePlus },
   { id: 'push', label: '定时推送', icon: CalendarClock },
@@ -490,6 +493,29 @@ function normalizeTemplateConfig(value?: PipelineTemplateConfig): PipelineTempla
       semantic_triggers: value?.human_handoff?.semantic_triggers?.length
         ? value.human_handoff.semantic_triggers
         : defaults.human_handoff.semantic_triggers,
+    },
+    resource_capture: {
+      ...defaults.resource_capture!,
+      ...(value?.resource_capture || {}),
+      trigger_keywords: value?.resource_capture?.trigger_keywords?.length
+        ? value.resource_capture.trigger_keywords
+        : defaults.resource_capture?.trigger_keywords || [],
+      required_image_count: Math.max(
+        1,
+        Number(
+          value?.resource_capture?.required_image_count ??
+            defaults.resource_capture?.required_image_count ??
+            2,
+        ),
+      ),
+      max_followup_rounds: Math.max(
+        1,
+        Number(
+          value?.resource_capture?.max_followup_rounds ??
+            defaults.resource_capture?.max_followup_rounds ??
+            4,
+        ),
+      ),
     },
     memes: {
       ...defaults.memes!,
@@ -987,6 +1013,10 @@ export default function PipelineTemplateConfigEditor({
 
   function patchHumanHandoff(next: Partial<PipelineTemplateConfig['human_handoff']>) {
     patch({ human_handoff: { ...config.human_handoff, ...next } });
+  }
+
+  function patchResourceCapture(next: Partial<NonNullable<PipelineTemplateConfig['resource_capture']>>) {
+    patch({ resource_capture: { ...config.resource_capture!, ...next } });
   }
 
   function patchHumanHandoffTrigger(index: number, next: Partial<PipelineTemplateConfig['human_handoff']['semantic_triggers'][number]>) {
@@ -3462,6 +3492,120 @@ export default function PipelineTemplateConfigEditor({
     );
   }
 
+  function renderResourceCaptureSettings() {
+    const resourceCapture = config.resource_capture!;
+    return (
+      <div className="space-y-4">
+        <Section
+          icon={ClipboardList}
+          title="资源抓取"
+          description="配置客户提出扫码资源问题时，数字员工要追问并抓取哪些信息。"
+          right={
+            <SummaryPill active={resourceCapture.enabled}>
+              {resourceCapture.enabled ? '已启用' : '未启用'}
+            </SummaryPill>
+          }
+        >
+          <ToggleRow
+            label="启用资源问题抓取"
+            description="命中扫码、二维码、图书资源打不开等语义时，先收集问题描述和相关照片，再写入仪表盘资源问题表。"
+            checked={resourceCapture.enabled}
+            onCheckedChange={(checked) => patchResourceCapture({ enabled: checked })}
+          />
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block">
+              <FieldLabel>至少需要照片数量</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={6}
+                value={resourceCapture.required_image_count}
+                onChange={(event) =>
+                  patchResourceCapture({
+                    required_image_count: Math.max(1, Number(event.target.value || 1)),
+                  })
+                }
+              />
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                一般需要二维码照片和出问题页面照片；客户多发的图片会全部保留。
+              </p>
+            </label>
+            <label className="block">
+              <FieldLabel>连续追问轮数</FieldLabel>
+              <Input
+                type="number"
+                min={1}
+                max={10}
+                value={resourceCapture.max_followup_rounds}
+                onChange={(event) =>
+                  patchResourceCapture({
+                    max_followup_rounds: Math.max(1, Number(event.target.value || 1)),
+                  })
+                }
+              />
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                用户没有补充描述或照片时，会继续按缺失项追问。
+              </p>
+            </label>
+          </div>
+          <label className="block">
+            <FieldLabel>语义触发词</FieldLabel>
+            <Textarea
+              value={(resourceCapture.trigger_keywords || []).join('\n')}
+              onChange={(event) =>
+                patchResourceCapture({ trigger_keywords: textToList(event.target.value) })
+              }
+              className="min-h-36 resize-none leading-6"
+              placeholder="扫码资源&#10;二维码&#10;资源打不开&#10;资源缺失&#10;正在上传"
+            />
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              这里是语义触发提示，不是机械关键词；AI 判断客户表达的是类似意思时进入抓取流程。
+            </p>
+          </label>
+        </Section>
+
+        <Section icon={MessageSquareText} title="追问话术">
+          <label className="block">
+            <FieldLabel>首次追问</FieldLabel>
+            <Textarea
+              value={resourceCapture.ask_message}
+              onChange={(event) => patchResourceCapture({ ask_message: event.target.value })}
+              className="min-h-24 resize-none leading-6"
+            />
+          </label>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="block">
+              <FieldLabel>缺问题描述时</FieldLabel>
+              <Textarea
+                value={resourceCapture.ask_description_message}
+                onChange={(event) =>
+                  patchResourceCapture({ ask_description_message: event.target.value })
+                }
+                className="min-h-24 resize-none leading-6"
+              />
+            </label>
+            <label className="block">
+              <FieldLabel>缺照片时</FieldLabel>
+              <Textarea
+                value={resourceCapture.ask_photo_message}
+                onChange={(event) => patchResourceCapture({ ask_photo_message: event.target.value })}
+                className="min-h-24 resize-none leading-6"
+              />
+            </label>
+          </div>
+          <label className="block">
+            <FieldLabel>记录完成提示</FieldLabel>
+            <Textarea
+              value={resourceCapture.completed_message}
+              onChange={(event) => patchResourceCapture({ completed_message: event.target.value })}
+              className="min-h-20 resize-none leading-6"
+            />
+          </label>
+        </Section>
+      </div>
+    );
+  }
+
   function renderSpecialCaseSettings() {
     const specialCases = config.special_cases || [];
     return (
@@ -3983,6 +4127,8 @@ export default function PipelineTemplateConfigEditor({
         return renderMemorySettings();
       case 'radar':
         return renderRadarSettings();
+      case 'resourceCapture':
+        return renderResourceCaptureSettings();
       case 'specialCases':
         return renderSpecialCaseSettings();
       case 'memes':
