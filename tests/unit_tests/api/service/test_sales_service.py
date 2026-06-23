@@ -678,6 +678,45 @@ async def test_update_memory_creates_customer_memory_when_session_has_no_existin
     assert memory['profile']['wechat'] == 'parent_zhang'
     assert memory['profile']['child_grade'] == '三年级'
 
+
+@pytest.mark.asyncio
+async def test_apply_customer_profile_patch_from_query_updates_real_memory_without_overwriting_existing_values(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'person_customer-1'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id=session_id,
+            platform='person',
+            user_id='ou_customer',
+            customer_name='客户A',
+            profile={'phone': '13800000000'},
+        )
+    )
+    query = SimpleNamespace(
+        launcher_type=SimpleNamespace(value='person'),
+        launcher_id='customer-1',
+        sender_id='ou_customer',
+    )
+
+    memory = await service.apply_customer_profile_patch_from_query(
+        query,
+        {
+            '电话': '13900000000',
+            '孩子年级': '三年级',
+            '关注点': '自然拼读',
+            '空字段': '',
+        },
+    )
+
+    assert memory['session_id'] == session_id
+    assert memory['profile']['phone'] == '13800000000'
+    assert memory['profile']['child_grade'] == '三年级'
+    assert memory['profile']['needs'] == '自然拼读'
+    assert '空字段' not in memory['profile']
+
+
 class _ColumnRow:
     def __init__(self, **values):
         self._values = values

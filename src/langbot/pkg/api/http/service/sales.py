@@ -693,6 +693,112 @@ class SalesService:
         updated = self._first_row(updated_result)
         return self._serialize(persistence_sales.SalesCustomerMemory, updated)
 
+    async def apply_customer_profile_patch_from_query(
+        self,
+        query: Any,
+        profile_patch: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        patch = self._normalize_customer_profile_patch(profile_patch)
+        if not patch:
+            return None
+
+        session_id = self._query_session_id(query)
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id == session_id
+            )
+        )
+        existing = self._first_row(result)
+        if existing is None:
+            try:
+                existing = await self._create_memory_from_monitoring_session(session_id)
+            except ValueError:
+                existing = None
+
+        now = datetime.datetime.now()
+        if existing is None:
+            values = {
+                'session_id': session_id,
+                'platform': getattr(getattr(query, 'launcher_type', ''), 'value', str(getattr(query, 'launcher_type', '') or '')),
+                'user_id': str(getattr(query, 'sender_id', '') or getattr(query, 'launcher_id', '') or ''),
+                'profile': patch,
+                'last_seen_at': now,
+                'updated_at': now,
+            }
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(**values)
+            )
+        else:
+            profile = dict(existing.profile or {}) if isinstance(existing.profile, dict) else {}
+            changed = False
+            for key, value in patch.items():
+                if self._has_customer_profile_value(profile.get(key)):
+                    continue
+                profile[key] = value
+                changed = True
+            if changed:
+                await self.ap.persistence_mgr.execute_async(
+                    sqlalchemy.update(persistence_sales.SalesCustomerMemory)
+                    .where(persistence_sales.SalesCustomerMemory.id == existing.id)
+                    .values(profile=profile, last_seen_at=now, updated_at=now)
+                )
+
+        updated_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_sales.SalesCustomerMemory).where(
+                persistence_sales.SalesCustomerMemory.session_id == session_id
+            )
+        )
+        updated = self._first_row(updated_result)
+        return self._serialize(persistence_sales.SalesCustomerMemory, updated) if updated is not None else None
+
+    def _normalize_customer_profile_patch(self, profile_patch: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(profile_patch, dict):
+            return {}
+        aliases = {
+            'phone': {
+                'phone', 'mobile', 'phone_number', 'mobile_phone', 'tel', 'telephone',
+                '电话', '手机', '手机号', '电话号码', '电话/手机号',
+            },
+            'wechat': {'wechat', 'wechat_id', 'weixin', '微信', '微信号'},
+            'email': {'email', 'mail', '邮箱', '电子邮箱'},
+            'company': {'company', 'company_name', 'organization', '公司', '公司名称', '单位'},
+            'industry': {'industry', 'industry_category', '行业', '行业类别'},
+            'title': {'title', 'job_title', 'position', '职位', '职务'},
+            'location': {'location', 'city', 'region', 'address', '所在地', '城市', '地区', '地址'},
+            'budget': {'budget', 'price', 'expected_price', '客单价', '预算', '预算范围', '客单价/预算'},
+            'child_grade': {'child_grade', 'grade', 'target_grade', '孩子年级', '年级'},
+            'needs': {'needs', 'demand', 'pain_point', '关注需求', '需求', '痛点', '关注点'},
+            'purchase_stage': {'purchase_stage', '购买阶段', '客户阶段'},
+            'english_level': {'english_level', 'english_basis', '英语基础', '英语水平'},
+            'refusal_reason': {'refusal_reason', '拒绝原因'},
+            'resource_issue': {'resource_issue', '资源问题'},
+            'stop_risk': {'stop_risk', '停发风险'},
+            'summary': {'summary', '客户摘要', '摘要'},
+        }
+        canonical_by_alias = {
+            alias: canonical
+            for canonical, alias_set in aliases.items()
+            for alias in alias_set
+        }
+        normalized: dict[str, Any] = {}
+        for raw_key, value in profile_patch.items():
+            key = str(raw_key or '').strip()
+            if not key or not self._has_customer_profile_value(value):
+                continue
+            canonical_key = canonical_by_alias.get(key, key)
+            if canonical_key not in normalized:
+                normalized[canonical_key] = value.strip() if isinstance(value, str) else value
+        return normalized
+
+    def _has_customer_profile_value(self, value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, dict, tuple, set)):
+            return bool(value)
+        return True
+
     async def _create_memory_from_monitoring_session(self, session_id: str) -> Any:
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_monitoring.MonitoringSession).where(
