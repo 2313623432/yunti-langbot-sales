@@ -574,7 +574,7 @@ class MonitoringService:
         serialized = []
         for row in messages_rows:
             # Extract model instance from Row (SQLAlchemy returns Row objects)
-            msg = row[0] if isinstance(row, tuple) else row
+            msg = self._row_entity(row)
             serialized_msg = self.ap.persistence_mgr.serialize_model(persistence_monitoring.MonitoringMessage, msg)
             serialized_msg['message_content'] = self._compact_message_content_for_list(
                 serialized_msg.get('message_content', '')
@@ -582,6 +582,12 @@ class MonitoringService:
             serialized.append(serialized_msg)
 
         return (serialized, total)
+
+    def _row_entity(self, row):
+        try:
+            return row[0]
+        except (TypeError, KeyError, IndexError):
+            return row
 
     def _compact_message_content_for_list(self, message_content: str) -> str:
         """Return lightweight message content for monitoring lists without inline media payloads."""

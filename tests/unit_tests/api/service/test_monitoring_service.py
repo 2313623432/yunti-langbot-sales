@@ -29,6 +29,16 @@ class _FakeResult:
         return self._rows
 
 
+class _RowWrapper:
+    def __init__(self, value):
+        self._value = value
+
+    def __getitem__(self, index):
+        if index != 0:
+            raise IndexError(index)
+        return self._value
+
+
 @pytest.mark.asyncio
 async def test_record_message_adds_sales_reply_quality_metrics_for_assistant_reply():
     persistence = _CapturePersistence()
@@ -92,7 +102,7 @@ async def test_get_messages_returns_compact_media_content_for_lists():
         role='user',
     )
     persistence = SimpleNamespace(
-        execute_async=AsyncMock(side_effect=[_FakeResult(scalar_value=1), _FakeResult(rows=[message])]),
+        execute_async=AsyncMock(side_effect=[_FakeResult(scalar_value=1), _FakeResult(rows=[_RowWrapper(message)])]),
         serialize_model=lambda _model, value: dict(value.__dict__),
     )
     service = MonitoringService(SimpleNamespace(persistence_mgr=persistence))
