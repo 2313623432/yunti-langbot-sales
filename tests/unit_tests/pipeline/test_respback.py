@@ -199,6 +199,29 @@ async def test_respback_localizes_course_sales_text_reply_to_chinese_terms():
 
 
 @pytest.mark.asyncio
+async def test_respback_unwraps_course_sales_unrendered_placeholders_before_send():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('二年级英语倒数，记不住单词，学这个有用吗？')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False, threshold=200)
+    query.messages = [
+        provider_message.Message(role='user', content='孩子二年级'),
+    ]
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [platform_message.Plain(text='这个自然拼读课刚好适合二年级孩子学{{自然拼读}}。')]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_text = str(query.adapter.reply_message.await_args.kwargs['message'])
+    assert sent_text == '这个自然拼读课刚好适合二年级孩子学自然拼读'
+    assert '{{' not in sent_text
+    assert '}}' not in sent_text
+
+
+@pytest.mark.asyncio
 async def test_respback_localizes_course_sales_voice_reply_before_tts():
     app = FakeApp()
     app.task_assistant_service = SimpleNamespace(

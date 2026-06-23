@@ -190,6 +190,7 @@ class SendResponseBackStage(stage.PipelineStage):
         (re.compile(r'(?<![A-Za-z])APP(?![A-Za-z])', re.IGNORECASE), '应用'),
         (re.compile(r'(?<![A-Za-z])AI(?=\s*(强化营|课|课程|工具|伴学|学|服务))', re.IGNORECASE), '智能'),
     )
+    _COURSE_SALES_UNRENDERED_PLACEHOLDER_RE = re.compile(r'\{\{\s*([^{}\r\n]{1,40}?)\s*\}\}')
 
     def _current_intent_data(self, query: pipeline_query.Query) -> dict[str, Any]:
         intent_data = query.variables.get('sales_intent') or query.variables.get('workflow_intent') or {}
@@ -885,6 +886,10 @@ class SendResponseBackStage(stage.PipelineStage):
         normalized = text or ''
         for pattern, replacement in self._COURSE_SALES_CHINESE_TERM_REPLACEMENTS:
             normalized = pattern.sub(replacement, normalized)
+        normalized = self._COURSE_SALES_UNRENDERED_PLACEHOLDER_RE.sub(
+            lambda match: match.group(1).strip(),
+            normalized,
+        )
         return self._strip_course_sales_final_periods(normalized)
 
     def _course_sales_link_question_needed(self, query: pipeline_query.Query, text: str) -> bool:
