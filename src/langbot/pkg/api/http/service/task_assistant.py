@@ -1908,6 +1908,7 @@ class TaskAssistantService:
                 text = asr_text
 
         orchestration_state = await self._run_course_agent_orchestration(query, workflow, text)
+        self._backfill_course_profile_from_user_text(query, orchestration_state, text)
         await self._sync_course_agent_profile_memory(query, orchestration_state)
         intent = orchestration_state.get('intent') if isinstance(orchestration_state.get('intent'), dict) else None
         if intent is None:
@@ -2082,6 +2083,64 @@ class TaskAssistantService:
             logger = getattr(self.ap, 'logger', None)
             if logger is not None and hasattr(logger, 'warning'):
                 logger.warning('Failed to sync course sales customer profile: %s', exc)
+
+    def _backfill_course_profile_from_user_text(
+        self,
+        query: pipeline_query.Query,
+        state: dict[str, Any],
+        text: str,
+    ) -> None:
+        if not isinstance(state, dict) or state.get('profile_memory_enabled') is False:
+            return
+        patch = self._extract_course_profile_from_text(text)
+        if not patch:
+            return
+        profile = state.get('user_profile') if isinstance(state.get('user_profile'), dict) else {}
+        next_profile = dict(profile)
+        changed = False
+        for key, value in patch.items():
+            if self._course_profile_has_value(next_profile, key):
+                continue
+            next_profile[key] = value
+            changed = True
+        if not changed:
+            return
+        state['user_profile'] = next_profile
+        if not getattr(query, 'variables', None):
+            query.variables = {}
+        query.variables['user_profile'] = next_profile
+
+    def _extract_course_profile_from_text(self, text: str) -> dict[str, Any]:
+        raw_text = str(text or '')
+        if not raw_text.strip():
+            return {}
+        profile: dict[str, Any] = {}
+        grade_match = re.search(
+            r'(幼儿园|小班|中班|大班|[一二三四五六七八九1-9]\s*年级|初\s*[一二三123]|高\s*[一二三123])',
+            raw_text,
+        )
+        if grade_match:
+            profile['孩子年级'] = re.sub(r'\s+', '', grade_match.group(1))
+        return profile
+
+    def _course_profile_has_value(self, profile: dict[str, Any], key: str) -> bool:
+        aliases = {
+            '孩子年级': ('孩子年级', 'child_grade', 'grade', 'target_grade', '年级'),
+        }
+        for alias in aliases.get(key, (key,)):
+            value = profile.get(alias)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                if value.strip():
+                    return True
+                continue
+            if isinstance(value, (list, dict, tuple, set)):
+                if value:
+                    return True
+                continue
+            return True
+        return False
 
     async def _invoke_course_agent_assistant(
         self,
@@ -6531,7 +6590,6 @@ class TaskAssistantService:
             'long_term_broadcasts': broadcasts,
             'stop_rules': stop_rules,
             'stop_policy': stop_policy,
-            'special_cases': special_cases,
             'source_materials': source_materials,
             'nodes': nodes,
             'edges': edges,

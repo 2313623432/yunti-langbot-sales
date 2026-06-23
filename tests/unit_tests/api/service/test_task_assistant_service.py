@@ -1026,6 +1026,60 @@ async def test_course_sales_agent_orchestration_respects_profile_memory_toggle(m
 
 
 @pytest.mark.asyncio
+async def test_course_sales_prepare_query_backfills_grade_when_profile_agent_returns_empty(monkeypatch):
+    responses = [
+        '{}',
+        '{"intent":"grade","confidence":0.91,"reason":"用户说明孩子年级","step_ids":[],"include_link":false}',
+        '五年级 自然拼读 课程适配',
+        '证据：自然拼读课适合大班到小学4年级。',
+        '家长，五年级不太适合这个自然拼读体验课',
+        '{"next_action":"stop","reason":"课程不适配"}',
+    ]
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            side_effect=[
+                (provider_message.Message(role='assistant', content=response), {})
+                for response in responses
+            ]
+        )
+    )
+
+    async def get_model_by_uuid(model_uuid):
+        return SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid=model_uuid,
+                name=model_uuid,
+                abilities=[],
+                extra_args={'thinking': {'type': 'disabled'}},
+            ),
+            provider=provider,
+        )
+
+    sales_service = SimpleNamespace(apply_customer_profile_patch_from_query=AsyncMock())
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
+            sales_service=sales_service,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    query = _query(text_chain('我家孩子5年级 有什么适合的课么'), '我家孩子5年级 有什么适合的课么')
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        model_uuid='doubao-seed-2-0-pro-260215',
+        template_slug='yuanfudao-enhanced',
+    )
+
+    await service.prepare_query(query)
+
+    assert query.variables['user_profile']['孩子年级'] == '5年级'
+    sales_service.apply_customer_profile_patch_from_query.assert_awaited_with(
+        query,
+        {'孩子年级': '5年级'},
+    )
+
+
+@pytest.mark.asyncio
 async def test_course_sales_intent_model_receives_recent_reference_rounds(monkeypatch):
     provider = SimpleNamespace(
         invoke_llm=AsyncMock(
