@@ -157,6 +157,44 @@ def test_enhanced_course_sales_template_normalizes_math_boundary_faq():
     assert '阅读+思维课是另一个9元体验方向' not in faq['answer']
 
 
+def test_course_sales_template_includes_course_qa_spreadsheet_special_cases():
+    service = TaskAssistantService(SimpleNamespace())
+
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    questions = {faq.get('question') for faq in template['course_faqs']}
+
+    assert '那个篮球书包质量怎么样？能装什么？' in questions
+    assert '孩子一年级零基础，能听懂吗？' in questions
+    assert '今天错过了/没时间看直播怎么办？能看回放吗？' in questions
+
+
+def test_course_sales_sop_question_semantic_match_uses_spreadsheet_answer():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+
+    intent = service.classify_course_sales_intent('书包质量咋样，能装东西吗', text_chain('书包质量咋样，能装东西吗'), workflow)
+    answer = service._faq_answer_for_intent(intent['intent'], workflow)
+
+    assert intent['intent'].startswith('sop_qa_')
+    assert '质量特别好' in answer
+    assert '容量也大' in answer
+
+
+def test_course_sales_schedule_question_not_stolen_by_generic_sop_terms():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+
+    intent = service.classify_course_sales_intent(
+        '我想了解自然拼读什么时候上课',
+        text_chain('我想了解自然拼读什么时候上课'),
+        workflow,
+    )
+
+    assert intent['intent'] == 'course_schedule'
+
+
 def test_course_sales_runtime_normalizes_saved_legacy_math_workflow():
     service = TaskAssistantService(SimpleNamespace())
     workflow = service.build_course_sales_workflow_config(

@@ -3032,6 +3032,17 @@ class TaskAssistantService:
                 step_ids=[],
                 selected_profile=selected_profile,
             )
+        sop_faq = self._match_course_sop_faq(normalized, course_faqs)
+        if sop_faq:
+            intent = str(sop_faq.get('intent') or 'course_intro')
+            step_id = self._course_step_for_intent(intent)
+            return self._course_intent(
+                intent,
+                0.86,
+                f'命中课程FAQ：{sop_faq.get("question") or "猿辅导课程问答整理.xlsx"}',
+                step_ids=[step_id] if step_id else [],
+                selected_profile=selected_profile,
+            )
         for faq in course_faqs:
             if any(str(keyword).lower() in normalized for keyword in faq.get('keywords', [])):
                 intent = str(faq.get('intent') or 'course_intro')
@@ -3096,8 +3107,119 @@ class TaskAssistantService:
             return 'content_error'
         return ''
 
+    def _is_course_sop_faq_intent(self, intent_name: str) -> bool:
+        return str(intent_name or '').startswith('sop_qa_')
+
+    def _course_spreadsheet_faqs(self) -> list[dict[str, Any]]:
+        cached = getattr(self, '_course_spreadsheet_faqs_cache', None)
+        if isinstance(cached, list):
+            return copy.deepcopy(cached)
+
+        path = Path(path_utils.get_resource_path('templates/course-sales/yuanfudao-course-qa.json'))
+        if not path.exists():
+            self._course_spreadsheet_faqs_cache = []
+            return []
+        try:
+            loaded = json.loads(path.read_text(encoding='utf-8'))
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None and hasattr(logger, 'warning'):
+                logger.warning('Failed to load Yuanfudao course QA spreadsheet resource: %s', exc)
+            self._course_spreadsheet_faqs_cache = []
+            return []
+
+        faqs: list[dict[str, Any]] = []
+        for index, item in enumerate(loaded, start=1):
+            if not isinstance(item, dict):
+                continue
+            question = str(item.get('question') or '').strip()
+            answer = str(item.get('answer') or '').strip()
+            if not question or not answer:
+                continue
+            faq = copy.deepcopy(item)
+            faq['intent'] = str(faq.get('intent') or f'sop_qa_{index:03d}')
+            faq['question'] = question
+            faq['answer'] = answer
+            if not isinstance(faq.get('keywords'), list):
+                faq['keywords'] = []
+            faq['source'] = str(faq.get('source') or '猿辅导课程问答整理.xlsx')
+            faqs.append(faq)
+        self._course_spreadsheet_faqs_cache = copy.deepcopy(faqs)
+        return faqs
+
+    def _normalize_course_faq_match_text(self, text: str) -> str:
+        normalized = str(text or '').strip().lower()
+        normalized = normalized.replace('咋样', '怎么样').replace('咋办', '怎么办')
+        normalized = normalized.replace('wifi', 'wi-fi').replace('app', '应用')
+        return re.sub(r'[\s\W_]+', '', normalized, flags=re.UNICODE)
+
+    def _course_faq_match_terms(self, text: str) -> set[str]:
+        normalized = str(text or '').strip().lower()
+        known_terms = [
+            '9元', '9块', '篮球', '书包', '手办', '实物', '礼品', '礼包', '礼盒', '完课',
+            '质量', '容量', '能装', '挑', '两个娃', '两个孩子', '手机号', '包邮', '偏远',
+            '退款', '退回', '收货地址', '一年级', '二年级', '三年级', '四年级', '大班',
+            '零基础', '倒数', '单词', '记不住', '拼音', '混淆', '教材', '人教版', '外研版',
+            '自然拼读', '效果', '听音能写', '见词能读', '直播', '上课', '回放', '错过',
+            '没时间', '请假', '作业', '投屏', '电视', '手机', '平板', '应用', '下载',
+            '账号', '老人', '家长', '辅导老师', '班主任', '电话', '短信', '营销', '打扰',
+            '续费', '强制', '竞品', '学而思', '新东方', '老用户', '没买过', '换手机号',
+            '考试', '复习', '不想学', '录像', '互动', '报名', '下单', '二维码', '发音',
+            '打分', '英文', '外教', '共用', '流量', 'wi-fi',
+        ]
+        terms = {term for term in known_terms if term in normalized}
+        for chunk in re.split(r'[？?，,。！!、/（）()\s]+', normalized):
+            chunk = chunk.strip()
+            if 2 <= len(chunk) <= 12:
+                terms.add(chunk)
+        return terms
+
+    def _match_course_sop_faq(self, normalized: str, course_faqs: list[Any]) -> dict[str, Any] | None:
+        user_text = str(normalized or '')
+        if not user_text:
+            return None
+        user_compact = self._normalize_course_faq_match_text(user_text)
+        user_terms = self._course_faq_match_terms(user_text)
+        if not user_terms and len(user_compact) < 4:
+            return None
+        generic_terms = {'自然拼读', '课程', '孩子', '家长', '上课', '报名', '手机', '平板'}
+
+        best: tuple[int, int, dict[str, Any]] | None = None
+        for index, faq in enumerate(course_faqs):
+            if not isinstance(faq, dict) or not self._is_course_sop_faq_intent(str(faq.get('intent') or '')):
+                continue
+            question = str(faq.get('question') or '')
+            keyword_text = ' '.join(str(keyword) for keyword in faq.get('keywords', []) if str(keyword).strip())
+            haystack = f'{question} {keyword_text}'
+            faq_compact = self._normalize_course_faq_match_text(haystack)
+            faq_terms = self._course_faq_match_terms(haystack)
+            common_terms = user_terms & faq_terms
+            distinctive_terms = common_terms - generic_terms
+            score = len(common_terms) * 3
+            if faq_compact and (faq_compact in user_compact or user_compact in faq_compact):
+                score += 12
+            for keyword in faq.get('keywords', []):
+                keyword_text = self._normalize_course_faq_match_text(str(keyword))
+                if len(keyword_text) >= 3 and keyword_text in user_compact and keyword_text not in {
+                    self._normalize_course_faq_match_text(term) for term in generic_terms
+                }:
+                    score += 4
+            if not distinctive_terms and score < 12:
+                continue
+            if not common_terms and score < 12:
+                continue
+            if score < 6:
+                continue
+            candidate = (score, -index, faq)
+            if best is None or candidate > best:
+                best = candidate
+
+        return copy.deepcopy(best[2]) if best else None
+
     def _course_step_for_intent(self, intent: str) -> str:
         if intent in {'purchase', 'course_schedule', 'course_replay', 'link_error', 'radar_clicked'}:
+            return ''
+        if self._is_course_sop_faq_intent(intent):
             return ''
         if intent in {'purchased', 'screenshot_help'}:
             return 'gift_qr'
@@ -3613,7 +3735,8 @@ class TaskAssistantService:
                 continue
             answer = str(faq.get('answer') or '').strip()
             if answer:
-                return self._truncate_knowledge_excerpt(answer, max_chars=150)
+                max_chars = 260 if self._is_course_sop_faq_intent(intent_name) else 150
+                return self._truncate_knowledge_excerpt(answer, max_chars=max_chars)
         return None
 
     def _apply_course_faq_short_answer(
@@ -3628,7 +3751,7 @@ class TaskAssistantService:
         if not self._is_single_user_question(text):
             return intent
         intent_name = str(intent.get('intent') or '')
-        if intent_name not in self._COURSE_FAQ_SHORT_ANSWER_INTENTS:
+        if intent_name not in self._COURSE_FAQ_SHORT_ANSWER_INTENTS and not self._is_course_sop_faq_intent(intent_name):
             return intent
         answer = self._faq_answer_for_intent(intent_name, workflow)
         if not answer:
@@ -5634,6 +5757,7 @@ class TaskAssistantService:
         faqs = copy.deepcopy(value) if isinstance(value, list) and value else copy.deepcopy(COURSE_FAQS)
         normalized: list[dict[str, Any]] = []
         has_math_boundary = False
+        seen_keys: set[tuple[str, str]] = set()
         for item in faqs:
             if not isinstance(item, dict):
                 continue
@@ -5655,17 +5779,27 @@ class TaskAssistantService:
                 seen: set[str] = set()
                 faq['keywords'] = [keyword for keyword in merged_keywords if not (keyword in seen or seen.add(keyword))]
                 has_math_boundary = True
+            key = (str(faq.get('intent') or ''), str(faq.get('question') or ''))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
             normalized.append(faq)
 
         if not has_math_boundary:
-            normalized.append(
-                {
-                    'intent': 'reading_thinking_intro',
-                    'question': COURSE_MATH_BOUNDARY_FAQ_QUESTION,
-                    'answer': COURSE_MATH_BOUNDARY_FAQ_ANSWER,
-                    'keywords': ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'],
-                }
-            )
+            math_faq = {
+                'intent': 'reading_thinking_intro',
+                'question': COURSE_MATH_BOUNDARY_FAQ_QUESTION,
+                'answer': COURSE_MATH_BOUNDARY_FAQ_ANSWER,
+                'keywords': ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'],
+            }
+            normalized.append(math_faq)
+            seen_keys.add((math_faq['intent'], math_faq['question']))
+        for faq in self._course_spreadsheet_faqs():
+            key = (str(faq.get('intent') or ''), str(faq.get('question') or ''))
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            normalized.append(faq)
         return normalized
 
     def _normalize_course_radar_config(self, value: dict[str, Any]) -> dict[str, Any]:
@@ -6288,7 +6422,7 @@ class TaskAssistantService:
                 'runtime_engine': 'langgraph',
                 'source_docs': [
                     'SOP.doc（群发截图已转文字）',
-                    '猿辅导自然拼读常见问题(1).xlsx',
+                    '猿辅导课程问答整理.xlsx',
                 ],
             },
             'role_prompt': self.compose_course_sales_prompt(),
@@ -6949,7 +7083,7 @@ class TaskAssistantService:
                 **(copy.deepcopy(template_config.get('metadata')) if isinstance(template_config.get('metadata'), dict) else {}),
                 'scenario': COURSE_SALES_SCENARIO,
                 'runtime_engine': 'langgraph',
-                'source': ' + '.join(source_materials) if source_materials else 'SOP.doc（群发截图转文字）+ 猿辅导自然拼读常见问题(1).xlsx',
+                'source': ' + '.join(source_materials) if source_materials else 'SOP.doc（群发截图转文字）+ 猿辅导课程问答整理.xlsx',
                 'tts_provider': 'volcengine',
                 'langgraph_state': {
                     'messages': 'list',

@@ -8,6 +8,7 @@ import {
   PipelineWorkflowNode,
   WorkflowNodeType,
 } from './types';
+import yuanfudaoCourseQa from './yuanfudaoCourseQa.json';
 
 const COURSE_SALES_REPLY_MODEL_UUID = 'doubao-seed-2-0-pro-260215';
 const COURSE_SALES_INTENT_MODEL_UUID = 'doubao-seed-2-0-mini-260215';
@@ -893,6 +894,7 @@ const courseFaqs = [
   { intent: 'gift', question: '赠品/资料', answer: '活动里有资料和完课礼，常见礼品包括小猿篮球、护脊书包、小猿手办、宇航员文具盒、铅笔、转笔刀等，完课后随机发货其一，具体以活动页和班主任登记为准。', keywords: ['赠品', '礼品', '资料', '篮球', '书包', '文具盒', '铅笔', '转笔刀'] },
   { intent: 'grade', question: '适合几年级', answer: '自然拼读主要适合大班到小学4年级，三四年级尤其适合补拼读规律和单词记忆方法；如果孩子不在这个范围，我可以先帮您判断是否合适。', keywords: ['几年级', '大班', '一年级', '二年级', '三年级', '四年级', '初中'] },
   { intent: 'link_error', question: '链接打不开/页面异常', answer: '我帮您看下，麻烦截一下当前页面；也可以先退出重进，或复制链接到浏览器打开。', keywords: ['打不开', '白屏', '点不进去', '页面', '卡住'] },
+  ...(yuanfudaoCourseQa as Array<Record<string, unknown>>),
 ];
 const courseSalesLinks = [
   {
@@ -1376,7 +1378,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       runtime_engine: 'langgraph',
       source_mode: 'template',
       template_name: '课程销售模板',
-      source: 'SOP.doc（群发截图转文字）+ 猿辅导自然拼读常见问题(1).xlsx',
+      source: 'SOP.doc（群发截图转文字）+ 猿辅导课程问答整理.xlsx',
       tts_provider: 'volcengine',
       langgraph_state: {
         messages: 'list',
@@ -1409,7 +1411,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       course_profile: courseSalesProfile,
       course_profiles: courseSalesProfiles,
       agent_orchestration: makeDefaultAgentOrchestration(),
-      source_materials: ['SOP.doc（群发截图转文字）', '猿辅导自然拼读常见问题(1).xlsx'],
+      source_materials: ['SOP.doc（群发截图转文字）', '猿辅导课程问答整理.xlsx'],
       resource_faqs: courseResourceFaqs,
       course_faqs: courseFaqs,
       sales_links: courseSalesLinks,
