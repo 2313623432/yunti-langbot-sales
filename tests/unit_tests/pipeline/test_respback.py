@@ -1627,6 +1627,31 @@ async def test_respback_does_not_add_course_sales_question_to_handoff_notice():
 
 
 @pytest.mark.asyncio
+async def test_respback_uses_course_sales_faq_short_answer_verbatim():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('每天几点上课？直播吗？')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'course_schedule',
+        'reply_mode': 'faq_polish',
+        'faq_short_answer': '都是晚上19:00-20:00上课，分两周上。',
+    }
+    query.resp_messages = [
+        provider_message.Message(role='assistant', content='是直播课哦，班主任会提前通知。')
+    ]
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='是直播课哦，班主任会提前通知。')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [str(kwargs['message']) for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert sent_texts == ['都是晚上19:00-20:00上课，分两周上']
+    assert query.resp_messages[-1].content == '都是晚上19:00-20:00上课，分两周上'
+
+
+@pytest.mark.asyncio
 async def test_respback_keeps_plain_text_as_single_message_when_multi_reply_disabled():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
