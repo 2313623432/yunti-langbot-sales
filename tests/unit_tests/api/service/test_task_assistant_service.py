@@ -411,6 +411,113 @@ async def test_prepare_course_sales_schedule_overrides_model_course_intro():
     assert '3\u5e74\u5185' in context_text
 
 
+@pytest.mark.asyncio
+async def test_prepare_course_sales_multi_question_sop_overrides_model_course_intro():
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            return_value=(
+                provider_message.Message(
+                    role='assistant',
+                    content='{"intent":"course_intro","confidence":0.91,"reason":"模型误判课程介绍","step_ids":[],"include_link":false}',
+                ),
+                {},
+            )
+        )
+    )
+
+    async def get_model_by_uuid(model_uuid):
+        return SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid=model_uuid,
+                name=model_uuid,
+                abilities=[],
+                extra_args={'thinking': {'type': 'disabled'}},
+            ),
+            provider=provider,
+        )
+
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    text = '有课后作业吗？费时间吗？'
+    query = _query(text_chain(text), text)
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        template_slug='yuanfudao-enhanced',
+        existing_config={
+            'template_config': {
+                'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
+                'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+            }
+        },
+    )
+
+    await service.prepare_query(query)
+
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'sop_qa_020'
+    assert intent.get('reply_mode') == 'faq_polish'
+    assert '没有繁重的作业' in intent['faq_short_answer']
+    assert '互动小游戏' in intent['faq_short_answer']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '没有繁重的作业' in context_text
+    assert '互动小游戏' in context_text
+
+
+@pytest.mark.asyncio
+async def test_prepare_course_sales_signup_overrides_model_course_intro():
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            return_value=(
+                provider_message.Message(
+                    role='assistant',
+                    content='{"intent":"course_intro","confidence":0.91,"reason":"模型误判课程介绍","step_ids":[],"include_link":false}',
+                ),
+                {},
+            )
+        )
+    )
+
+    async def get_model_by_uuid(model_uuid):
+        return SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid=model_uuid,
+                name=model_uuid,
+                abilities=[],
+                extra_args={'thinking': {'type': 'disabled'}},
+            ),
+            provider=provider,
+        )
+
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    text = '怎么预约'
+    query = _query(text_chain(text), text)
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        template_slug='yuanfudao-enhanced',
+        existing_config={
+            'template_config': {
+                'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
+                'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+            }
+        },
+    )
+
+    await service.prepare_query(query)
+
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'purchase'
+    assert intent.get('link_url')
+
+
 def test_course_sales_schedule_question_not_stolen_by_generic_sop_terms():
     service = TaskAssistantService(SimpleNamespace())
     template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
@@ -423,6 +530,17 @@ def test_course_sales_schedule_question_not_stolen_by_generic_sop_terms():
     )
 
     assert intent['intent'] == 'course_schedule'
+
+
+def test_course_sales_signup_request_is_purchase_and_includes_link():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+
+    intent = service.classify_course_sales_intent('怎么预约', text_chain('怎么预约'), workflow)
+
+    assert intent['intent'] == 'purchase'
+    assert intent.get('link_url')
 
 
 def test_course_sales_runtime_normalizes_saved_legacy_math_workflow():
@@ -458,6 +576,20 @@ def test_course_sales_model_math_misclassification_is_corrected():
     assert intent is not None
     assert intent['intent'] == 'reading_thinking_intro'
     assert 'link_url' not in intent
+
+
+def test_course_sales_model_signup_misclassification_is_corrected():
+    service = TaskAssistantService(SimpleNamespace())
+
+    intent = service._parse_course_sales_model_intent(
+        '{"intent":"course_intro","confidence":0.91,"reason":"模型误判课程介绍","step_ids":[],"include_link":false}',
+        {},
+        '怎么预约',
+    )
+
+    assert intent is not None
+    assert intent['intent'] == 'purchase'
+    assert intent.get('link_url')
 
 
 def test_course_sales_reply_cleanup_removes_template_placeholders():
@@ -2921,6 +3053,27 @@ async def test_course_sales_faq_short_answer_for_single_question():
     assert '[短答模板]' in context_text
     assert '只答用户当前问题' in context_text
     assert '[猿辅导知识库参考]' not in context_text
+
+
+@pytest.mark.asyncio
+async def test_course_sales_faq_short_answer_for_sop_multi_question():
+    service = TaskAssistantService(SimpleNamespace())
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    text = '有课后作业吗？费时间吗？'
+    query = _query(text_chain(text), text, session_id='faq-multi')
+    query.pipeline_config = config
+    query.variables['_knowledge_base_uuids'] = [YUANFUDAO_SALES_KNOWLEDGE_BASE_UUID]
+    query.prompt = SimpleNamespace(messages=[])
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    intent = query.variables['workflow_intent']
+    assert intent['intent'] == 'sop_qa_020'
+    assert intent.get('reply_mode') == 'faq_polish'
+    assert '没有繁重的作业' in intent['faq_short_answer']
+    assert '互动小游戏' in intent['faq_short_answer']
+    assert query.variables['_knowledge_base_uuids'] == []
 
 
 @pytest.mark.asyncio

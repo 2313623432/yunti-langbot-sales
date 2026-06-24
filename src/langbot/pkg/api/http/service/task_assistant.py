@@ -1991,6 +1991,24 @@ class TaskAssistantService:
                 selected_profile=self._select_course_sales_profile(workflow, normalized_text),
             )
         if intent is None:
+            intent = self._course_sales_signup_request_intent(
+                normalized_text,
+                self._select_course_sales_profile(workflow, normalized_text),
+            )
+        if intent is None:
+            course_faqs = workflow.get('course_faqs') if isinstance(workflow.get('course_faqs'), list) else COURSE_FAQS
+            sop_faq = self._match_course_sop_faq(normalized_text, course_faqs)
+            if sop_faq:
+                intent_name = str(sop_faq.get('intent') or 'course_intro')
+                step_id = self._course_step_for_intent(intent_name)
+                intent = self._course_intent(
+                    intent_name,
+                    0.88,
+                    f'命中课程FAQ：{sop_faq.get("question") or "猿辅导课程问答整理.xlsx"}',
+                    step_ids=[step_id] if step_id else [],
+                    selected_profile=self._select_course_sales_profile(workflow, normalized_text),
+                )
+        if intent is None:
             intent = orchestration_intent
         if intent is None:
             intent = await self._classify_course_sales_intent(text, query.message_chain, workflow, query)
@@ -2652,6 +2670,77 @@ class TaskAssistantService:
                 return profile
         return profiles[0]
 
+    def _course_sales_signup_request_intent(
+        self,
+        normalized_text: str,
+        selected_profile: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        text = str(normalized_text or '').strip().lower()
+        if not text:
+            return None
+        compact = re.sub(r'\s+', '', text)
+        if any(
+            term in compact
+            for term in [
+                '不报名',
+                '不想报名',
+                '不预约',
+                '不想预约',
+                '不买',
+                '不想买',
+                '没兴趣',
+                '不需要',
+                '不要',
+                '别发',
+                '别发链接',
+                '不要发链接',
+                '不用发链接',
+                '不发链接',
+            ]
+        ):
+            return None
+        if any(term in compact for term in ['打不开', '无法打开', '不能打开', '点不开']) and any(
+            term in compact for term in ['链接', '报名', '预约']
+        ):
+            return None
+        signup_terms = [
+            '怎么预约',
+            '如何预约',
+            '预约',
+            '预约一下',
+            '预约链接',
+            '预约入口',
+            '预约通道',
+            '怎么报名',
+            '如何报名',
+            '报名链接',
+            '报名入口',
+            '报名通道',
+            '怎么买',
+            '怎么购买',
+            '购买链接',
+            '发链接',
+            '发个链接',
+            '链接发我',
+            '链接发给我',
+            '我要报名',
+            '我要预约',
+            '我想报名',
+            '我想预约',
+            '在哪报名',
+            '哪里报名',
+        ]
+        if not any(term in compact for term in signup_terms):
+            return None
+        return self._course_intent(
+            'purchase',
+            0.88,
+            '用户咨询预约/报名方式，需要发送真实报名链接',
+            step_ids=[],
+            include_link=True,
+            selected_profile=selected_profile or {},
+        )
+
     def _parse_course_sales_model_intent(
         self,
         raw_text: str,
@@ -2708,6 +2797,10 @@ class TaskAssistantService:
             confidence = max(confidence, 0.86)
             payload['include_link'] = False
             selected_profile = self._select_phonics_course_sales_profile(workflow)
+        elif self._course_sales_signup_request_intent(normalized, selected_profile) is not None:
+            intent_name = 'purchase'
+            confidence = max(confidence, 0.88)
+            payload['include_link'] = True
         elif self._is_course_push_intro_request(normalized):
             intent_name = 'course_intro'
             confidence = max(confidence, 0.82)
@@ -3180,6 +3273,9 @@ class TaskAssistantService:
                 )
         if self._has_voice(message_chain):
             return self._course_intent('course_intro', 0.76, '用户发送语音，按课程客服文字短句承接', step_ids=[], selected_profile=selected_profile)
+        signup_intent = self._course_sales_signup_request_intent(normalized, selected_profile)
+        if signup_intent is not None:
+            return signup_intent
         if any(keyword in normalized for keyword in ['报名', '购买', '怎么买', '要买', '链接', '领取']):
             return self._course_intent('purchase', 0.8, '用户咨询报名或购买方式', step_ids=[], include_link=True, selected_profile=selected_profile)
         if any(keyword in normalized for keyword in ['不回复', '没人', '没回']):
@@ -3954,7 +4050,11 @@ class TaskAssistantService:
             return intent
         if '命中课程FAQ' not in str(intent.get('reason') or '') and intent_name not in {'refund_policy', 'course_schedule'}:
             return intent
-        if not self._is_single_user_question(text) and intent_name not in {'refund_policy', 'course_schedule'}:
+        if (
+            not self._is_single_user_question(text)
+            and intent_name not in {'refund_policy', 'course_schedule'}
+            and not self._is_course_sop_faq_intent(intent_name)
+        ):
             return intent
         answer = self._faq_answer_for_intent(intent_name, workflow)
         if not answer:
