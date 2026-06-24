@@ -34,6 +34,7 @@ from ..api.http.service import monitoring as monitoring_service
 from ..api.http.service import maintenance as maintenance_service
 from ..api.http.service import sales as sales_service
 from ..api.http.service import task_assistant as task_assistant_service
+from ..api.http.service import autotest as autotest_service
 
 from ..discover import engine as discover_engine
 from ..storage import mgr as storagemgr
@@ -163,6 +164,8 @@ class Application:
     sales_service: sales_service.SalesService = None
 
     task_assistant_service: task_assistant_service.TaskAssistantService = None
+
+    auto_test_service: autotest_service.AutoTestService = None
 
     def __init__(self):
         pass

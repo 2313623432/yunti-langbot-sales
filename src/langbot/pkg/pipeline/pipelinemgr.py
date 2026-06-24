@@ -416,16 +416,27 @@ class PipelineManager:
         for pipeline in pipelines:
             await self.load_pipeline(pipeline)
 
+    @staticmethod
+    def _coerce_legacy_pipeline_entity(
+        pipeline_entity: persistence_pipeline.LegacyPipeline
+        | sqlalchemy.Row[persistence_pipeline.LegacyPipeline]
+        | dict,
+    ) -> persistence_pipeline.LegacyPipeline:
+        if isinstance(pipeline_entity, sqlalchemy.Row):
+            return persistence_pipeline.LegacyPipeline(**pipeline_entity._mapping)
+        if isinstance(pipeline_entity, dict):
+            valid_keys = persistence_pipeline.LegacyPipeline.__table__.columns.keys()
+            filtered = {key: value for key, value in pipeline_entity.items() if key in valid_keys}
+            return persistence_pipeline.LegacyPipeline(**filtered)
+        return pipeline_entity
+
     async def load_pipeline(
         self,
         pipeline_entity: persistence_pipeline.LegacyPipeline
         | sqlalchemy.Row[persistence_pipeline.LegacyPipeline]
         | dict,
     ):
-        if isinstance(pipeline_entity, sqlalchemy.Row):
-            pipeline_entity = persistence_pipeline.LegacyPipeline(**pipeline_entity._mapping)
-        elif isinstance(pipeline_entity, dict):
-            pipeline_entity = persistence_pipeline.LegacyPipeline(**pipeline_entity)
+        pipeline_entity = self._coerce_legacy_pipeline_entity(pipeline_entity)
 
         coerce_pipeline_config(
             pipeline_entity.config,
@@ -446,7 +457,30 @@ class PipelineManager:
         runtime_pipeline = RuntimePipeline(self.ap, pipeline_entity, stage_containers)
         self.pipelines.append(runtime_pipeline)
 
-    async def get_pipeline_by_uuid(self, uuid: str) -> RuntimePipeline | None:
+    async def get_pipeline_by_uuid(self, uuid: str, load_if_missing: bool = False) -> RuntimePipeline | None:
+        for pipeline in self.pipelines:
+            if pipeline.pipeline_entity.uuid == uuid:
+                return pipeline
+
+        if not load_if_missing:
+            return None
+
+        self.ap.logger.info(f'Runtime pipeline {uuid} missing, trying to load it from db...')
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
+                persistence_pipeline.LegacyPipeline.uuid == uuid
+            )
+        )
+        pipeline_entity = result.first()
+        if pipeline_entity is None:
+            return None
+
+        # Another task may have loaded it while the DB lookup was in flight.
+        for pipeline in self.pipelines:
+            if pipeline.pipeline_entity.uuid == uuid:
+                return pipeline
+
+        await self.load_pipeline(pipeline_entity)
         for pipeline in self.pipelines:
             if pipeline.pipeline_entity.uuid == uuid:
                 return pipeline

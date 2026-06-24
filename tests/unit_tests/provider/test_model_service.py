@@ -90,6 +90,12 @@ def test_token_manager_next_token_ignores_empty_token_list():
     assert token_mgr.using_token_index == 0
 
 
+def test_local_agent_always_removes_thinking_from_customer_replies():
+    pipeline_config = {'output': {'misc': {'remove-think': False}}}
+
+    assert LocalAgentRunner._resolve_remove_think(pipeline_config) is True
+
+
 @pytest.mark.asyncio
 async def test_openai_requester_initialize_uses_placeholder_api_key(monkeypatch):
     captured_kwargs = {}
@@ -156,6 +162,43 @@ async def test_openai_embedding_call_overrides_placeholder_api_key():
     assert captured_request['kwargs']['model'] == 'text-embedding-3-small'
     assert embeddings == [[0.1, 0.2]]
     assert usage_info == {'prompt_tokens': 3, 'total_tokens': 3}
+
+
+@pytest.mark.asyncio
+async def test_openai_embedding_call_drops_display_metadata():
+    captured_request = {}
+
+    async def fake_create(**kwargs):
+        captured_request['kwargs'] = kwargs
+        return SimpleNamespace(
+            data=[SimpleNamespace(embedding=[0.1, 0.2])],
+            usage=SimpleNamespace(prompt_tokens=3, total_tokens=3),
+        )
+
+    fake_client = SimpleNamespace(
+        api_key=OpenAIChatCompletions.init_api_key,
+        embeddings=SimpleNamespace(create=fake_create),
+    )
+
+    requester_inst = OpenAIChatCompletions(ap=SimpleNamespace(), config={})
+    requester_inst.client = fake_client
+
+    await requester_inst.invoke_embedding(
+        model=requester.RuntimeEmbeddingModel(
+            model_entity=SimpleNamespace(
+                name='百度星河 bge-large-zh',
+                extra_args={
+                    'display_name': '百度星河 bge-large-zh',
+                    'model': 'bge-large-zh',
+                },
+            ),
+            provider=SimpleNamespace(token_mgr=TokenManager('provider-uuid', ['runtime-key'])),
+        ),
+        input_text=['hello'],
+    )
+
+    assert captured_request['kwargs']['model'] == 'bge-large-zh'
+    assert 'display_name' not in captured_request['kwargs']
 
 
 @pytest.mark.asyncio

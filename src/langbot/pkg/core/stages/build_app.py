@@ -13,6 +13,8 @@ from ...provider.modelmgr import modelmgr as llm_model_mgr
 from ...provider.tools import toolmgr as llm_tool_mgr
 from ...rag.knowledge import kbmgr as rag_mgr
 from ...rag.service import RAGRuntimeService
+from ...rag import embedding_bootstrap
+from ...provider.modelmgr import llm_bootstrap
 from ...platform import botmgr as im_mgr
 from ...platform.webhook_pusher import WebhookPusher
 from ...persistence import mgr as persistencemgr
@@ -31,6 +33,8 @@ from ...api.http.service import monitoring as monitoring_service
 from ...api.http.service import maintenance as maintenance_service
 from ...api.http.service import sales as sales_service
 from ...api.http.service import task_assistant as task_assistant_service
+from ...api.http.service import workflow as workflow_service
+from ...api.http.service import autotest as autotest_service
 from ...discover import engine as discover_engine
 from ...storage import mgr as storagemgr
 from ...utils import logcache
@@ -94,6 +98,12 @@ class BuildAppStage(stage.BootingStage):
         task_assistant_service_inst = task_assistant_service.TaskAssistantService(ap)
         ap.task_assistant_service = task_assistant_service_inst
 
+        workflow_service_inst = workflow_service.WorkflowService(ap)
+        ap.workflow_service = workflow_service_inst
+
+        auto_test_service_inst = autotest_service.AutoTestService(ap)
+        ap.auto_test_service = auto_test_service_inst
+
         proxy_mgr = proxy.ProxyManager(ap)
         await proxy_mgr.initialize()
         ap.proxy_mgr = proxy_mgr
@@ -133,6 +143,15 @@ class BuildAppStage(stage.BootingStage):
         llm_model_mgr_inst = llm_model_mgr.ModelManager(ap)
         ap.model_mgr = llm_model_mgr_inst
         await llm_model_mgr_inst.initialize()
+        from langbot.pkg.provider.modelmgr import builtin_bootstrap
+
+        await builtin_bootstrap.prune_removed_ollama_providers(ap)
+        await llm_bootstrap.ensure_builtin_text_providers(ap)
+
+        await builtin_bootstrap.ensure_builtin_asr_providers(ap)
+        await builtin_bootstrap.ensure_builtin_tts_providers(ap)
+        await builtin_bootstrap.ensure_builtin_pdf_providers(ap)
+        await embedding_bootstrap.ensure_default_embedding_model(ap)
 
         llm_session_mgr_inst = llm_session_mgr.SessionManager(ap)
         await llm_session_mgr_inst.initialize()
@@ -187,6 +206,8 @@ class BuildAppStage(stage.BootingStage):
         plugin_connector_inst = plugin_connector.PluginRuntimeConnector(ap, runtime_disconnect_callback)
         await plugin_connector_inst.initialize()
         ap.plugin_connector = plugin_connector_inst
+
+        await task_assistant_service_inst.ensure_knowledge_resources()
 
         ctrl = controller.Controller(ap)
         ap.ctrl = ctrl

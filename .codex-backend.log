@@ -1,0 +1,32 @@
+[37m[06-17 17:59:03.590] mgr.py (30) - [INFO] : Initialized local storage backend.[0m
+[37m[06-17 17:59:03.590] mgr.py (38) - [INFO] : Initializing database type: sqlite...[0m
+[37m[06-17 17:59:03.623] mgr.py (94) - [INFO] : Creating initial metadata...[0m
+[37m[06-17 17:59:03.910] mgr.py (158) - [INFO] : Alembic migrations completed.[0m
+[37m[06-17 17:59:04.316] task_assistant.py (3421) - [INFO] : [DefaultModel] Found 1 configured text models, using first: 24790c39-3240-480a-aee0-995e7c467baa[0m
+[37m[06-17 17:59:07.689] modelmgr.py (65) - [INFO] : Loading models from db...[0m
+[37m[06-17 17:59:38.560] modelmgr.py (54) - [INFO] : LangBot Space Models service is disabled, skipping sync.[0m
+[37m[06-17 17:59:38.782] mcp.py (294) - [INFO] : Loading MCP servers from db...[0m
+[37m[06-17 18:00:04.353] botmgr.py (503) - [INFO] : Loading bots from db...[0m
+[37m[06-17 18:00:04.370] pipelinemgr.py (409) - [INFO] : Loading pipelines from db...[0m
+[37m[06-17 18:00:04.429] kbmgr.py (595) - [INFO] : Loading knowledge bases from db...[0m
+[37m[06-17 18:00:06.368] mgr.py (23) - [INFO] : Initialized Chroma vector database backend.[0m
+[37m[06-17 18:00:06.505] connector.py (141) - [INFO] : (windows) use cmd to launch plugin runtime and communicate via ws[0m
+[33m[06-17 18:00:06.556] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
+[33m[06-17 18:00:06.572] kbmgr.py (460) - [WARNING] : Failed to list Knowledge Engines: 'PluginRuntimeConnector' object has no attribute 'handler'[0m
+[37m[06-17 18:00:06.624] chroma.py (29) - [INFO] : Chroma collection 'yuanfudao-sales-knowledge-base' accessed/created.[0m
+[37m[06-17 18:00:10.526] connector.py (111) - [INFO] : Connected to plugin runtime.[0m
+[37m[06-17 18:00:13.462] task_assistant.py (4679) - [INFO] : Yuanfudao KB document import finished: queued 0 new files (58 available, 58 already present)[0m
+[37m[06-17 18:00:13.474] app.py (361) - [INFO] : =======================================[0m
+[37m[06-17 18:00:13.476] app.py (361) - [INFO] : ✨ Access WebUI / 访问管理面板[0m
+[37m[06-17 18:00:13.477] app.py (361) - [INFO] : [0m
+[37m[06-17 18:00:13.478] app.py (361) - [INFO] : 🏠 Local Address: http://127.0.0.1:5300/[0m
+[37m[06-17 18:00:13.479] app.py (361) - [INFO] : 🌐 Public Address: http://<Your Public IP>:5300/[0m
+[37m[06-17 18:00:13.480] app.py (361) - [INFO] : [0m
+[37m[06-17 18:00:13.481] app.py (361) - [INFO] : 📌 Running this program in a container? Please ensure that the 5300 port is exposed[0m
+[37m[06-17 18:00:13.482] app.py (361) - [INFO] : =======================================[0m
+[37m[06-17 18:00:14.537] show_notes.py (32) - [INFO] : New version available:
+有新版本可用，根据文档更新: 
+https://link.langbot.app/zh/docs/update[0m
+[37m[06-17 18:00:14.538] show_notes.py (32) - [INFO] : 您正在使用 Windows 系统，若窗口左上角显示处于”选择“模式，程序将被暂停运行，此时请右键窗口中空白区域退出选择模式。[0m
+[37m[06-17 18:00:14.539] show_notes.py (32) - [INFO] : You are using Windows system, if the top left corner of the window displays "Selection" mode, the program will be paused running, please right-click on the blank area in the window to exit the selection mode.[0m
+[37m[06-17 18:00:14.540] show_notes.py (32) - [INFO] : Current Version: v4.9.7[0m

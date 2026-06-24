@@ -23,6 +23,10 @@ from langbot.pkg.api.http.service.model import (
     RerankModelsService,
     _parse_provider_api_keys,
     _runtime_model_data,
+    _is_voice_only_model,
+    _is_asr_only_model,
+    _is_pdf_only_model,
+    _matches_model_category,
 )
 from langbot.pkg.entity.persistence.model import LLMModel, EmbeddingModel, RerankModel, ModelProvider
 
@@ -79,12 +83,13 @@ def _create_mock_provider(
     provider_uuid: str = 'provider-uuid',
     name: str = 'Test Provider',
     api_keys: list = None,
+    requester: str = 'openai',
 ) -> Mock:
     """Helper to create mock ModelProvider entity."""
     provider = Mock(spec=ModelProvider)
     provider.uuid = provider_uuid
     provider.name = name
-    provider.requester = 'openai'
+    provider.requester = requester
     provider.base_url = 'https://api.openai.com'
     provider.api_keys = api_keys or ['key']
     return provider
@@ -147,6 +152,36 @@ class TestRuntimeModelData:
         result = _runtime_model_data('uuid', update_payload)
         assert result['abilities'] == ['vision']
         assert result['extra_args'] == {'temp': 0.7}
+
+
+class TestModelCategoryMatching:
+    """Tests for model category filtering."""
+
+    def test_text_category_excludes_voice_only_models(self):
+        assert _matches_model_category({'abilities': ['tts']}, 'text') is False
+        assert _matches_model_category({'abilities': ['vision']}, 'text') is True
+        assert _matches_model_category({'abilities': ['vision', 'tts']}, 'text') is True
+
+    def test_voice_category_requires_tts_ability(self):
+        assert _matches_model_category({'abilities': ['tts']}, 'voice') is True
+        assert _matches_model_category({'abilities': ['vision', 'tts']}, 'voice') is True
+        assert _matches_model_category({'abilities': ['vision']}, 'voice') is False
+
+    def test_asr_category_requires_asr_ability(self):
+        assert _matches_model_category({'abilities': ['asr']}, 'asr') is True
+        assert _matches_model_category({'abilities': ['vision', 'asr']}, 'asr') is True
+        assert _matches_model_category({'abilities': ['vision']}, 'asr') is False
+        assert _matches_model_category({'abilities': ['asr']}, 'text') is False
+        assert _is_asr_only_model({'abilities': ['asr']}) is True
+        assert _is_asr_only_model({'abilities': ['vision', 'asr']}) is False
+
+    def test_pdf_category_requires_pdf_parse_ability(self):
+        assert _matches_model_category({'abilities': ['pdf_parse']}, 'pdf') is True
+        assert _matches_model_category({'abilities': ['pdf_parse', 'tts']}, 'pdf') is True
+        assert _matches_model_category({'abilities': ['pdf_parse']}, 'text') is False
+        assert _matches_model_category({'abilities': ['vision']}, 'pdf') is False
+        assert _is_pdf_only_model({'abilities': ['pdf_parse']}) is True
+        assert _is_pdf_only_model({'abilities': ['vision', 'pdf_parse']}) is False
 
 
 class TestLLMModelsServiceGetLLMModels:
@@ -218,6 +253,143 @@ class TestLLMModelsServiceGetLLMModels:
         # Verify
         assert len(result) == 1
         assert result[0]['name'] == 'Test LLM'
+
+    async def test_get_llm_models_can_exclude_unconfigured_builtin_providers(self):
+        """Hides built-in provider models until credentials are configured."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+
+        configured_model = _create_mock_llm_model(model_uuid='configured-model', provider_uuid='user-provider')
+        builtin_model = _create_mock_llm_model(model_uuid='lnp-openai-gpt-4o', provider_uuid='lnp-openai')
+        configured_provider = _create_mock_provider(
+            provider_uuid='user-provider',
+            requester='openai-chat-completions',
+            api_keys=['user-key'],
+        )
+        builtin_provider = _create_mock_provider(
+            provider_uuid='lnp-openai',
+            name='OpenAI',
+            requester='openai-chat-completions',
+        )
+        builtin_provider.api_keys = []
+
+        mock_model_result = _create_mock_result([configured_model, builtin_model])
+        mock_provider_result = _create_mock_result([configured_provider, builtin_provider])
+
+        execute_calls = 0
+
+        async def mock_execute(_query):
+            nonlocal execute_calls
+            execute_calls += 1
+            return mock_model_result if execute_calls % 2 == 1 else mock_provider_result
+
+        ap.persistence_mgr.execute_async = AsyncMock(side_effect=mock_execute)
+        ap.persistence_mgr.serialize_model = Mock(
+            side_effect=lambda model_cls, entity: {
+                'uuid': entity.uuid,
+                'name': entity.name,
+                'provider_uuid': entity.provider_uuid if hasattr(entity, 'provider_uuid') else None,
+                'requester': entity.requester if hasattr(entity, 'requester') else None,
+                'base_url': entity.base_url if hasattr(entity, 'base_url') else None,
+                'api_keys': entity.api_keys if hasattr(entity, 'api_keys') else None,
+            }
+        )
+
+        service = LLMModelsService(ap)
+
+        all_models = await service.get_llm_models(only_configured_providers=False)
+        configured_only = await service.get_llm_models(only_configured_providers=True)
+
+        assert [model['uuid'] for model in all_models] == ['configured-model', 'lnp-openai-gpt-4o']
+        assert [model['uuid'] for model in configured_only] == ['configured-model']
+
+    async def test_get_llm_models_can_exclude_space_and_system_models(self):
+        """Returns only user-configured models when cloud and system models are excluded."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+
+        user_model = _create_mock_llm_model(model_uuid='user-model', provider_uuid='user-provider')
+        space_model = _create_mock_llm_model(model_uuid='space-model', provider_uuid='space-provider')
+        system_model = _create_mock_llm_model(
+            model_uuid='task-assistant-qwen-vl-plus',
+            provider_uuid='task-assistant-bailian-provider',
+        )
+        user_provider = _create_mock_provider(provider_uuid='user-provider', requester='openai-chat-completions')
+        space_provider = _create_mock_provider(
+            provider_uuid='space-provider',
+            name='LangBot Models',
+            requester='space-chat-completions',
+        )
+        system_provider = _create_mock_provider(
+            provider_uuid='task-assistant-bailian-provider',
+            name='任务助手-阿里云百炼',
+            requester='bailian-chat-completions',
+        )
+
+        mock_model_result = _create_mock_result([user_model, space_model, system_model])
+        mock_provider_result = _create_mock_result([user_provider, space_provider, system_provider])
+
+        call_count = 0
+
+        async def mock_execute(query):
+            nonlocal call_count
+            call_count += 1
+            return mock_model_result if call_count == 1 else mock_provider_result
+
+        ap.persistence_mgr.execute_async = AsyncMock(side_effect=mock_execute)
+        ap.persistence_mgr.serialize_model = Mock(
+            side_effect=lambda model_cls, entity: {
+                'uuid': entity.uuid,
+                'name': entity.name,
+                'provider_uuid': entity.provider_uuid if hasattr(entity, 'provider_uuid') else None,
+                'requester': entity.requester if hasattr(entity, 'requester') else None,
+                'api_keys': entity.api_keys if hasattr(entity, 'api_keys') else None,
+            }
+        )
+
+        service = LLMModelsService(ap)
+
+        result = await service.get_llm_models(include_space_models=False, include_system_models=False)
+
+        assert [model['uuid'] for model in result] == ['user-model']
+
+    async def test_get_llm_models_can_filter_by_model_category(self):
+        """Filters text and voice model categories at service level."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+
+        chat_model = _create_mock_llm_model(model_uuid='chat-model', abilities=['vision'])
+        voice_model = _create_mock_llm_model(model_uuid='voice-model', abilities=['tts'])
+        mixed_model = _create_mock_llm_model(model_uuid='mixed-model', abilities=['vision', 'tts'])
+        provider = _create_mock_provider()
+
+        mock_model_result = _create_mock_result([chat_model, voice_model, mixed_model])
+        mock_provider_result = _create_mock_result([provider])
+
+        async def mock_execute(_query):
+            return mock_model_result if ap.persistence_mgr.execute_async.call_count % 2 == 1 else mock_provider_result
+
+        ap.persistence_mgr.execute_async = AsyncMock(side_effect=mock_execute)
+        ap.persistence_mgr.serialize_model = Mock(
+            side_effect=lambda model_cls, entity: {
+                'uuid': entity.uuid,
+                'name': entity.name,
+                'provider_uuid': entity.provider_uuid if hasattr(entity, 'provider_uuid') else None,
+                'abilities': entity.abilities if hasattr(entity, 'abilities') else [],
+                'requester': entity.requester if hasattr(entity, 'requester') else None,
+                'api_keys': entity.api_keys if hasattr(entity, 'api_keys') else None,
+            }
+        )
+
+        service = LLMModelsService(ap)
+
+        text_models = await service.get_llm_models(model_category='text')
+        voice_models = await service.get_llm_models(model_category='voice')
+        asr_models = await service.get_llm_models(model_category='asr')
+
+        assert [model['uuid'] for model in text_models] == ['chat-model', 'mixed-model']
+        assert [model['uuid'] for model in voice_models] == ['voice-model', 'mixed-model']
+        assert [model['uuid'] for model in asr_models] == []
 
     async def test_get_llm_models_hide_secret_keys(self):
         """Hides secret API keys when include_secret=False."""
@@ -463,6 +635,34 @@ class TestLLMModelsServiceCreateLLMModel:
         ap.provider_service.find_or_create_provider.assert_called_once()
         assert result_uuid is not None
 
+    async def test_create_voice_only_model_does_not_set_default_pipeline_model(self):
+        """Voice-only LLM models are selectable for TTS but not as default chat models."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        ap.model_mgr = SimpleNamespace()
+        ap.model_mgr.provider_dict = {'provider-uuid': Mock()}
+        ap.model_mgr.llm_models = []
+        ap.model_mgr.load_llm_model_with_provider = AsyncMock(return_value=Mock())
+        ap.pipeline_service = SimpleNamespace()
+        ap.pipeline_service.update_pipeline = AsyncMock()
+
+        ap.persistence_mgr.execute_async = AsyncMock(return_value=_create_mock_result([]))
+
+        service = LLMModelsService(ap)
+
+        model_uuid = await service.create_llm_model({
+            'name': 'Voice Model',
+            'provider_uuid': 'provider-uuid',
+            'abilities': ['tts'],
+            'extra_args': {},
+        })
+
+        assert model_uuid
+        assert ap.persistence_mgr.execute_async.await_count == 1
+        ap.pipeline_service.update_pipeline.assert_not_awaited()
+        assert _is_voice_only_model({'abilities': ['tts']}) is True
+        assert _is_voice_only_model({'abilities': ['vision', 'tts']}) is False
+
 
 class TestLLMModelsServiceUpdateLLMModel:
     """Tests for LLMModelsService.update_llm_model method."""
@@ -511,6 +711,136 @@ class TestLLMModelsServiceUpdateLLMModel:
                 'name': 'Update',
                 'provider_uuid': 'nonexistent-provider',
             })
+
+
+class TestLLMModelsServiceTestLLMModel:
+    """Tests for LLMModelsService.test_llm_model method."""
+
+    async def test_test_llm_model_routes_voice_only_models_to_tts(self):
+        ap = SimpleNamespace()
+        ap.logger = SimpleNamespace(warning=lambda *args, **kwargs: None)
+        runtime_provider = SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                requester='bailian-chat-completions',
+                base_url='https://dashscope.aliyuncs.com/api/v1',
+            ),
+            token_mgr=SimpleNamespace(tokens=['sk-test']),
+            invoke_llm=AsyncMock(),
+        )
+        runtime_model = SimpleNamespace(
+            model_entity=SimpleNamespace(uuid='voice-model', name='qwen3-tts-flash', abilities=['tts']),
+            provider=runtime_provider,
+        )
+        ap.model_mgr = SimpleNamespace(
+            llm_models=[runtime_model],
+            init_temporary_runtime_llm_model=AsyncMock(),
+        )
+
+        service = LLMModelsService(ap)
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            invoke_tts = AsyncMock(return_value='audio-base64')
+            monkeypatch.setattr('langbot.pkg.api.http.service.model.tts_invoke.invoke_tts', invoke_tts)
+            await service.test_llm_model(
+                'voice-model',
+                {
+                    'name': 'qwen3-tts-flash',
+                    'abilities': ['tts'],
+                    'extra_args': {
+                        'provider': 'dashscope-tts',
+                        'voice_type': 'Cherry',
+                    },
+                },
+            )
+
+        runtime_provider.invoke_llm.assert_not_called()
+        invoke_tts.assert_awaited_once()
+
+    async def test_test_llm_model_routes_asr_only_models_to_asr(self):
+        ap = SimpleNamespace()
+        ap.logger = SimpleNamespace(warning=lambda *args, **kwargs: None)
+        runtime_provider = SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                requester='dashscope-asr',
+                base_url='https://dashscope.aliyuncs.com/api/v1',
+            ),
+            token_mgr=SimpleNamespace(tokens=['sk-test']),
+            invoke_llm=AsyncMock(),
+        )
+        runtime_model = SimpleNamespace(
+            model_entity=SimpleNamespace(uuid='asr-model', name='qwen3-asr-flash', abilities=['asr']),
+            provider=runtime_provider,
+        )
+        ap.model_mgr = SimpleNamespace(
+            llm_models=[runtime_model],
+            init_temporary_runtime_llm_model=AsyncMock(),
+        )
+
+        service = LLMModelsService(ap)
+
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            invoke_asr = AsyncMock(return_value='你好，这是语音识别测试。')
+            monkeypatch.setattr('langbot.pkg.api.http.service.model.asr_invoke.invoke_asr', invoke_asr)
+            result = await service.test_llm_model(
+                'asr-model',
+                {
+                    'name': 'qwen3-asr-flash',
+                    'abilities': ['asr'],
+                    'test_audio_base64': 'dGVzdA==',
+                    'extra_args': {
+                        'provider': 'dashscope-asr',
+                    },
+                },
+            )
+
+        runtime_provider.invoke_llm.assert_not_called()
+        invoke_asr.assert_awaited_once()
+        assert result == {'transcription': '你好，这是语音识别测试。'}
+
+    async def test_test_llm_model_routes_pdf_only_models_to_pdf_parse(self):
+        ap = SimpleNamespace()
+        ap.logger = SimpleNamespace(warning=lambda *args, **kwargs: None)
+        runtime_provider = SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                requester='paddleocr-vl',
+                base_url='https://paddleocr.aistudio-app.com/api/v2/ocr/jobs',
+            ),
+            token_mgr=SimpleNamespace(tokens=['paddle-token']),
+            invoke_llm=AsyncMock(),
+            invoke_pdf_parse=AsyncMock(return_value='Parsed PDF test document.'),
+        )
+        runtime_model = SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid='pdf-model',
+                name='PaddleOCR-VL-1.6',
+                abilities=['pdf_parse'],
+                extra_args={'model': 'PaddleOCR-VL-1.6'},
+            ),
+            provider=runtime_provider,
+        )
+        ap.model_mgr = SimpleNamespace(
+            llm_models=[runtime_model],
+            init_temporary_runtime_llm_model=AsyncMock(),
+        )
+
+        service = LLMModelsService(ap)
+
+        result = await service.test_llm_model(
+            'pdf-model',
+            {
+                'name': 'PaddleOCR-VL-1.6',
+                'abilities': ['pdf_parse'],
+                'extra_args': {'model': 'PaddleOCR-VL-1.6'},
+            },
+        )
+
+        runtime_provider.invoke_llm.assert_not_called()
+        runtime_provider.invoke_pdf_parse.assert_awaited_once()
+        filename = runtime_provider.invoke_pdf_parse.await_args.kwargs['filename']
+        content = runtime_provider.invoke_pdf_parse.await_args.kwargs['content']
+        assert filename == 'langbot-pdf-parse-test.pdf'
+        assert content.startswith(b'%PDF')
+        assert result == {'text': 'Parsed PDF test document.'}
 
 
 class TestLLMModelsServiceDeleteLLMModel:

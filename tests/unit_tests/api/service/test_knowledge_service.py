@@ -130,17 +130,29 @@ class TestCreateKnowledgeBase:
         mock_app.rag_mgr.create_knowledge_base.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_raises_when_missing_plugin_id(self):
-        """Test that ValueError is raised when plugin ID missing."""
+    async def test_defaults_to_builtin_engine_when_plugin_id_missing(self):
+        """Test that builtin engine defaults are applied when plugin ID is omitted."""
         knowledge_module = get_knowledge_service_module()
         mock_app = create_mock_app()
+        mock_kb = Mock()
+        mock_kb.uuid = 'new_kb_uuid'
+        mock_app.rag_mgr.create_knowledge_base = AsyncMock(return_value=mock_kb)
 
         service = knowledge_module.KnowledgeService(mock_app)
+        service._apply_builtin_defaults = AsyncMock(
+            return_value=(
+                {'embedding_model_uuid': 'lne-baidu-bge-large-zh', 'chunk_size': 250, 'chunk_overlap': 50},
+                {'top_k': 5},
+            )
+        )
 
-        with pytest.raises(ValueError) as exc_info:
-            await service.create_knowledge_base({'name': 'Test'})
+        result = await service.create_knowledge_base({'name': 'Test'})
 
-        assert 'knowledge_engine_plugin_id is required' in str(exc_info.value)
+        assert result == 'new_kb_uuid'
+        call_args = mock_app.rag_mgr.create_knowledge_base.call_args
+        assert call_args.kwargs['knowledge_engine_plugin_id'] == 'langbot/BuiltinRAG'
+        assert call_args.kwargs['creation_settings']['embedding_model_uuid'] == 'lne-baidu-bge-large-zh'
+        assert call_args.kwargs['retrieval_settings']['top_k'] == 5
 
     @pytest.mark.asyncio
     async def test_creates_with_default_name(self):
@@ -268,12 +280,13 @@ class TestListKnowledgeEngines:
         service = knowledge_module.KnowledgeService(mock_app)
         result = await service.list_knowledge_engines()
 
-        assert len(result) == 1
-        assert result[0]['id'] == 'engine1'
+        assert len(result) == 2
+        assert result[0]['plugin_id'] == 'langbot/BuiltinRAG'
+        assert result[1]['id'] == 'engine1'
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_plugin_disabled(self):
-        """Test that it returns empty list when plugin disabled."""
+        """Test that builtin engine is still available when plugins are disabled."""
         knowledge_module = get_knowledge_service_module()
         mock_app = create_mock_app()
         mock_app.plugin_connector.is_enable_plugin = False
@@ -281,7 +294,8 @@ class TestListKnowledgeEngines:
         service = knowledge_module.KnowledgeService(mock_app)
         result = await service.list_knowledge_engines()
 
-        assert result == []
+        assert len(result) == 1
+        assert result[0]['plugin_id'] == 'langbot/BuiltinRAG'
 
     @pytest.mark.asyncio
     async def test_returns_empty_on_exception(self):
@@ -295,7 +309,8 @@ class TestListKnowledgeEngines:
         service = knowledge_module.KnowledgeService(mock_app)
         result = await service.list_knowledge_engines()
 
-        assert result == []
+        assert len(result) == 1
+        assert result[0]['plugin_id'] == 'langbot/BuiltinRAG'
         mock_app.logger.warning.assert_called_once()
 
 

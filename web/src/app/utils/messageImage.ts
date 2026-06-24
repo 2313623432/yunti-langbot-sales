@@ -14,5 +14,6 @@ export function getMessageImageUrl(image: Pick<Image, 'url' | 'base64' | 'path'>
 
   const baseUrl = httpClient.getBaseUrl();
   const prefix = baseUrl === '/' ? '' : baseUrl.replace(/\/$/, '');
-  return `${prefix}/api/v1/files/image/${encodeURIComponent(image.path)}`;
+  const encodedPath = image.path.split('/').map(encodeURIComponent).join('/');
+  return `${prefix}/api/v1/files/image/${encodedPath}`;
 }

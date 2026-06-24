@@ -13,7 +13,6 @@ import {
   Moon,
   Sun,
   Monitor,
-  ChevronsUpDown,
   CircleHelp,
   Lightbulb,
   LogOut,
@@ -57,10 +56,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import AccountSettingsDialog from '@/app/home/components/account-settings-dialog/AccountSettingsDialog';
 import ApiIntegrationDialog from '@/app/home/components/api-integration-dialog/ApiIntegrationDialog';
-import NewVersionDialog from '@/app/home/components/new-version-dialog/NewVersionDialog';
 import ModelsDialog from '@/app/home/components/models-dialog/ModelsDialog';
 import StorageAnalysisDialog from '@/app/home/components/storage-analysis-dialog/StorageAnalysisDialog';
-import { GitHubRelease } from '@/app/infra/http/CloudServiceClient';
 import { useAsyncTask, AsyncTaskStatus } from '@/hooks/useAsyncTask';
 import { toast } from 'sonner';
 import {
@@ -77,6 +74,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
 import {
@@ -98,30 +96,9 @@ import {
 import { cn } from '@/lib/utils';
 import { useSidebarData, SidebarEntityItem } from './SidebarDataContext';
 
-// Compare two version strings, returns true if v1 > v2
-function compareVersions(v1: string, v2: string): boolean {
-  const clean1 = v1.replace(/^v/, '');
-  const clean2 = v2.replace(/^v/, '');
-
-  const parts1 = clean1.split('.').map((p) => parseInt(p, 10) || 0);
-  const parts2 = clean2.split('.').map((p) => parseInt(p, 10) || 0);
-
-  const maxLen = Math.max(parts1.length, parts2.length);
-
-  for (let i = 0; i < maxLen; i++) {
-    const p1 = parts1[i] || 0;
-    const p2 = parts2[i] || 0;
-    if (p1 > p2) return true;
-    if (p1 < p2) return false;
-  }
-  return false;
-}
-
 // IDs of sidebar entries that have collapsible entity sub-items
 const ENTITY_CATEGORY_IDS = [
   'bots',
-  'pipelines',
-  'knowledge',
   'plugins',
   'mcp',
 ] as const;
@@ -130,8 +107,6 @@ type EntityCategoryId = (typeof ENTITY_CATEGORY_IDS)[number];
 // Categories that support detail pages via ?id= query param
 const DETAIL_PAGE_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'pipelines',
-  'knowledge',
   'plugins',
   'mcp',
 ];
@@ -139,8 +114,6 @@ const DETAIL_PAGE_CATEGORIES: EntityCategoryId[] = [
 // Categories that support creating new entities from the sidebar
 const CREATABLE_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'pipelines',
-  'knowledge',
   'mcp',
   'plugins',
 ];
@@ -148,8 +121,6 @@ const CREATABLE_CATEGORIES: EntityCategoryId[] = [
 // Categories where clicking the parent only toggles collapse (no list page)
 const COLLAPSIBLE_ONLY_CATEGORIES: EntityCategoryId[] = [
   'bots',
-  'pipelines',
-  'knowledge',
   'mcp',
 ];
 
@@ -163,8 +134,6 @@ const ENTITY_KEY_MAP: Record<
   'bots' | 'pipelines' | 'knowledgeBases' | 'plugins' | 'mcpServers'
 > = {
   bots: 'bots',
-  pipelines: 'pipelines',
-  knowledge: 'knowledgeBases',
   plugins: 'plugins',
   mcp: 'mcpServers',
 };
@@ -172,8 +141,6 @@ const ENTITY_KEY_MAP: Record<
 // Route prefix map for entity detail pages
 const ENTITY_ROUTE_MAP: Record<EntityCategoryId, string> = {
   bots: '/home/bots',
-  pipelines: '/home/pipelines',
-  knowledge: '/home/knowledge',
   plugins: '/home/plugins',
   mcp: '/home/mcp',
 };
@@ -328,6 +295,7 @@ function NavItems({
 
   const sectionItems = sidebarConfigList.filter(
     (c) =>
+      c.visible &&
       c.section === section &&
       (c.id !== 'market' || systemInfo.enable_marketplace),
   );
@@ -361,6 +329,7 @@ function NavItems({
         const canCreate = CREATABLE_CATEGORIES.includes(config.id);
         const isCollapseOnly = COLLAPSIBLE_ONLY_CATEGORIES.includes(config.id);
         const isPlugin = config.id === 'plugins';
+        const isPipeline = entityKey === 'pipelines';
         const isBot = config.id === 'bots';
         const isMCP = config.id === 'mcp';
         const isActive =
@@ -430,14 +399,15 @@ function NavItems({
                         }));
                       }}
                     >
-                      {item.emoji ? (
-                        <span className="text-sm shrink-0">{item.emoji}</span>
-                      ) : item.iconURL ? (
+                      {item.iconURL ? (
                         <span className="relative shrink-0">
                           <img
                             src={item.iconURL}
                             alt=""
-                            className="size-4 rounded"
+                            className={cn(
+                              'size-4 object-cover',
+                              isPipeline ? 'rounded-full' : 'rounded',
+                            )}
                           />
                           {(isBot || isMCP) && (
                             <span
@@ -452,6 +422,8 @@ function NavItems({
                             />
                           )}
                         </span>
+                      ) : item.emoji ? (
+                        <span className="text-sm shrink-0">{item.emoji}</span>
                       ) : isMCP ? (
                         <span
                           className={cn(
@@ -484,16 +456,15 @@ function NavItems({
                               navigate(itemRoute);
                             }}
                           >
-                            {item.emoji ? (
-                              <span className="text-sm shrink-0">
-                                {item.emoji}
-                              </span>
-                            ) : item.iconURL ? (
+                            {item.iconURL ? (
                               <span className="relative shrink-0">
                                 <img
                                   src={item.iconURL}
                                   alt=""
-                                  className="size-4 rounded"
+                                  className={cn(
+                                    'size-4 object-cover',
+                                    isPipeline ? 'rounded-full' : 'rounded',
+                                  )}
                                 />
                                 {(isBot || isMCP) && (
                                   <span
@@ -507,6 +478,10 @@ function NavItems({
                                     )}
                                   />
                                 )}
+                              </span>
+                            ) : item.emoji ? (
+                              <span className="text-sm shrink-0">
+                                {item.emoji}
                               </span>
                             ) : isMCP ? (
                               <span
@@ -1212,16 +1187,15 @@ export default function HomeSidebar({
   const { t } = useTranslation();
   const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
   const [apiKeyDialogOpen, setApiKeyDialogOpen] = useState(false);
-  const [latestRelease, setLatestRelease] = useState<GitHubRelease | null>(
-    null,
-  );
-  const [hasNewVersion, setHasNewVersion] = useState(false);
-  const [versionDialogOpen, setVersionDialogOpen] = useState(false);
   const [modelsDialogOpen, setModelsDialogOpen] = useState(false);
   const [storageAnalysisOpen, setStorageAnalysisOpen] = useState(false);
   const [userEmail, setUserEmail] = useState<string>('');
   const [starCount, setStarCount] = useState<number | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const hasVisibleExtensionNav = sidebarConfigList.some(
+    (c) => c.section === 'extensions' && c.visible,
+  );
+
   function handleModelsDialogChange(open: boolean) {
     setModelsDialogOpen(open);
     if (open) {
@@ -1304,27 +1278,6 @@ export default function HomeSidebar({
 
     if (systemInfo.cloud_service_url) {
       getCloudServiceClientSync()
-        .getLangBotReleases()
-        .then((releases) => {
-          if (releases && releases.length > 0) {
-            const latestStable = releases.find(
-              (r) => !r.prerelease && !r.draft,
-            );
-            const latest = latestStable || releases[0];
-            setLatestRelease(latest);
-
-            const currentVersion = systemInfo?.version;
-            if (currentVersion && latest.tag_name) {
-              const isNewer = compareVersions(latest.tag_name, currentVersion);
-              setHasNewVersion(isNewer);
-            }
-          }
-        })
-        .catch((error) => {
-          console.error('Failed to fetch releases:', error);
-        });
-
-      getCloudServiceClientSync()
         .getGitHubRepoInfo()
         .then((info) => {
           if (info?.repo?.stargazers_count != null) {
@@ -1403,38 +1356,19 @@ export default function HomeSidebar({
 
   return (
     <>
-      <Sidebar variant="inset" collapsible="icon">
-        {/* Header: Logo using sidebar-07 team-switcher pattern */}
-        <SidebarHeader>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                size="lg"
-                className="cursor-default hover:bg-transparent active:bg-transparent"
-                tooltip="云梯科技"
-              >
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-950 bg-white text-[10px] font-black leading-none text-slate-950">
-                  云梯
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">云梯科技</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate text-xs text-muted-foreground">
-                      YUN TI TECHNOLOGY · {systemInfo?.version}
-                    </span>
-                    {hasNewVersion && (
-                      <Badge
-                        onClick={() => setVersionDialogOpen(true)}
-                        className="bg-red-500 hover:bg-red-600 text-white text-[0.55rem] px-1 py-0 h-3.5 cursor-pointer"
-                      >
-                        {t('plugins.new')}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+      <Sidebar variant="inset" collapsible="icon" className="home-sidebar">
+        {/* Header: compact brand name and sidebar toggle */}
+        <SidebarHeader className="relative group-data-[collapsible=icon]:items-center">
+          <div className="flex h-12 items-center px-2 pr-9 group-data-[collapsible=icon]:hidden">
+            <span className="truncate text-base font-semibold">云梯科技</span>
+          </div>
+          {!isMobile && (
+            <SidebarTrigger
+              className="absolute right-2 top-4 z-10 size-7 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:static group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:mt-1 group-data-[collapsible=icon]:size-8"
+              aria-label="Toggle sidebar"
+              title="Toggle sidebar"
+            />
+          )}
         </SidebarHeader>
 
         {/* Navigation items grouped by section */}
@@ -1453,20 +1387,22 @@ export default function HomeSidebar({
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-          <SidebarGroup>
-            <SidebarGroupLabel>{t('sidebar.extensions')}</SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <NavItems
-                  selectedChild={selectedChild}
-                  onChildClick={handleChildClick}
-                  section="extensions"
-                  sectionOpenState={sectionOpenState}
-                  onSectionToggle={handleSectionToggle}
-                />
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          {hasVisibleExtensionNav && (
+            <SidebarGroup>
+              <SidebarGroupLabel>{t('sidebar.extensions')}</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <NavItems
+                    selectedChild={selectedChild}
+                    onChildClick={handleChildClick}
+                    section="extensions"
+                    sectionOpenState={sectionOpenState}
+                    onSectionToggle={handleSectionToggle}
+                  />
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
           <PluginPagesNav />
         </SidebarContent>
 
@@ -1513,20 +1449,15 @@ export default function HomeSidebar({
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton
                     size="lg"
-                    className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                    className="home-sidebar-account-trigger data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                     tooltip={t('common.accountOptions')}
+                    aria-label={t('common.accountOptions')}
                   >
-                    <Avatar className="h-8 w-8 rounded-lg">
-                      <AvatarFallback className="rounded-lg bg-primary text-primary-foreground text-xs">
+                    <Avatar className="h-10 w-10 rounded-full">
+                      <AvatarFallback className="rounded-full bg-gradient-to-br from-sky-300 to-blue-500 text-sm font-semibold text-white">
                         {userInitial}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-medium">
-                        {userEmail || t('common.accountOptions')}
-                      </span>
-                    </div>
-                    <ChevronsUpDown className="ml-auto size-4" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -1689,11 +1620,6 @@ export default function HomeSidebar({
       <ApiIntegrationDialog
         open={apiKeyDialogOpen}
         onOpenChange={setApiKeyDialogOpen}
-      />
-      <NewVersionDialog
-        open={versionDialogOpen}
-        onOpenChange={setVersionDialogOpen}
-        release={latestRelease}
       />
       <ModelsDialog
         open={modelsDialogOpen}

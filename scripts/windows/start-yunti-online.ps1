@@ -1,6 +1,7 @@
 param(
     [switch]$RestartTunnel,
-    [switch]$SkipVercelUpdate
+    [switch]$SkipVercelUpdate,
+    [switch]$LocalSqlite
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,7 +98,8 @@ function Start-HiddenProcess {
         [string]$FilePath,
         [string]$Arguments,
         [string]$WorkingDirectory,
-        [string]$LogPath
+        [string]$LogPath,
+        [hashtable]$Environment = @{}
     )
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -112,6 +114,9 @@ function Start-HiddenProcess {
     $psi.EnvironmentVariables["PYTHONUTF8"] = "1"
     $psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8"
     $psi.EnvironmentVariables["PYTHONUNBUFFERED"] = "1"
+    foreach ($key in $Environment.Keys) {
+        $psi.EnvironmentVariables[$key] = [string]$Environment[$key]
+    }
 
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
@@ -129,6 +134,44 @@ function Start-HiddenProcess {
     $process.BeginOutputReadLine()
     $process.BeginErrorReadLine()
     return $process
+}
+
+function Get-RailwayPostgresEnvironment {
+    if ($LocalSqlite) {
+        Write-Host "Using local SQLite database because -LocalSqlite was specified."
+        return @{}
+    }
+
+    $railway = Get-Command railway -ErrorAction SilentlyContinue
+    if (-not $railway) {
+        Write-Host "Railway CLI was not found. Falling back to local SQLite database."
+        return @{}
+    }
+
+    try {
+        $raw = & $railway.Source variable list --service Postgres --json 2>$null
+        if (-not $raw) {
+            throw "Railway returned no Postgres variables."
+        }
+        $vars = $raw | ConvertFrom-Json
+        $databaseUrl = [string]$vars.DATABASE_PUBLIC_URL
+        if (-not $databaseUrl) {
+            $databaseUrl = [string]$vars.DATABASE_URL
+        }
+        if (-not $databaseUrl) {
+            throw "DATABASE_PUBLIC_URL and DATABASE_URL are both missing."
+        }
+
+        Write-Host "Using Railway PostgreSQL database for local backend."
+        return @{
+            DATABASE_URL = $databaseUrl
+            DATABASE__USE = "postgresql"
+        }
+    } catch {
+        Write-Host "Could not load Railway PostgreSQL settings. Falling back to local SQLite database."
+        Write-Host $_.Exception.Message
+        return @{}
+    }
 }
 
 function Update-VercelProxy {
@@ -156,13 +199,16 @@ if (-not (Test-Path -LiteralPath $PythonExe)) {
 
 Remove-StaleYuntiProcesses
 
+$BackendEnvironment = Get-RailwayPostgresEnvironment
+
 if (-not (Test-PortListening -Port 5300)) {
     Write-Host "Starting LangBot backend..."
     Start-HiddenProcess `
         -FilePath $PythonExe `
         -Arguments "main.py" `
         -WorkingDirectory $RepoRoot `
-        -LogPath $BackendLog | Out-Null
+        -LogPath $BackendLog `
+        -Environment $BackendEnvironment | Out-Null
 } else {
     Write-Host "LangBot backend is already listening on 5300."
 }

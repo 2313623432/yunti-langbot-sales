@@ -19,16 +19,31 @@ export default function I18nProvider({ children }: I18nProviderProps) {
 // }
 
 export const extractI18nObject = (i18nObject: I18nObject): string => {
-  // 根据当前语言返回对应的值, fallback优先级：en_US、zh_Hans、zh_Hant、ja_JP
-  const language = i18n.language.replace('-', '_');
+  const language = (i18n.language || '').replace('-', '_');
+  const isSimplifiedChinese =
+    language === 'zh' || language === 'zh_CN' || language === 'zh_Hans';
+  const isTraditionalChinese =
+    language === 'zh_TW' || language === 'zh_HK' || language === 'zh_Hant';
+
+  if (isSimplifiedChinese && i18nObject.zh_Hans) return i18nObject.zh_Hans;
+  if (isTraditionalChinese && i18nObject.zh_Hant) return i18nObject.zh_Hant;
   if (language === 'en_US' && i18nObject.en_US) return i18nObject.en_US;
-  if (language === 'zh_Hans' && i18nObject.zh_Hans) return i18nObject.zh_Hans;
-  if (language === 'zh_Hant' && i18nObject.zh_Hant) return i18nObject.zh_Hant;
   if (language === 'ja_JP' && i18nObject.ja_JP) return i18nObject.ja_JP;
   if (language === 'th_TH' && i18nObject.th_TH) return i18nObject.th_TH;
   if (language === 'vi_VN' && i18nObject.vi_VN) return i18nObject.vi_VN;
   if (language === 'es_ES' && i18nObject.es_ES) return i18nObject.es_ES;
   if (language === 'ru_RU' && i18nObject.ru_RU) return i18nObject.ru_RU;
+
+  if (isSimplifiedChinese || isTraditionalChinese) {
+    return (
+      i18nObject.zh_Hans ||
+      i18nObject.zh_Hant ||
+      i18nObject.en_US ||
+      i18nObject.ja_JP ||
+      ''
+    );
+  }
+
   return (
     i18nObject.en_US ||
     i18nObject.zh_Hans ||

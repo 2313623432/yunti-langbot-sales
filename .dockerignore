@@ -1,8 +1,12 @@
 .github
 .git
+.codex-runtime
+.codex-*.log
 .venv
 .vscode
-data
+data/logs
+data/temp
+data/*.before-*.db
 logs
 temp
 .data

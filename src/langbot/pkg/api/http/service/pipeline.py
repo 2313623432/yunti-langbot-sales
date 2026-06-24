@@ -6,22 +6,24 @@ import sqlalchemy
 
 from ....core import app
 from ....entity.persistence import pipeline as persistence_pipeline
+from .pipeline_defaults import default_stage_order
 
 
-default_stage_order = [
-    'GroupRespondRuleCheckStage',  # 群响应规则检查
-    'BanSessionCheckStage',  # 封禁会话检查
-    'PreContentFilterStage',  # 内容过滤前置阶段
-    'PreProcessor',  # 预处理器
-    'ConversationMessageTruncator',  # 会话消息截断器
-    'RequireRateLimitOccupancy',  # 请求速率限制占用
-    'MessageProcessor',  # 处理器
-    'ReleaseRateLimitOccupancy',  # 释放速率限制占用
-    'PostContentFilterStage',  # 内容过滤后置阶段
-    'ResponseWrapper',  # 响应包装器
-    'LongTextProcessStage',  # 长文本处理
-    'SendResponseBackStage',  # 发送响应
-]
+BUILTIN_DIGITAL_EMPLOYEE_PIPELINE_UUIDS = {
+    'task-assistant-ant-af-template-pipeline',
+    'course-sales-template-pipeline',
+    'yuanfudao-enhanced-sales-template-pipeline',
+}
+
+
+def _merge_dict(base: dict, override: dict) -> dict:
+    merged = base.copy()
+    for key, value in override.items():
+        if isinstance(merged.get(key), dict) and isinstance(value, dict):
+            merged[key] = _merge_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 class PipelineService:
@@ -54,10 +56,7 @@ class PipelineService:
 
         result = await self.ap.persistence_mgr.execute_async(query)
         pipelines = result.all()
-        return [
-            self.ap.persistence_mgr.serialize_model(persistence_pipeline.LegacyPipeline, pipeline)
-            for pipeline in pipelines
-        ]
+        return [self._serialize_pipeline(pipeline) for pipeline in pipelines]
 
     async def get_pipeline(self, pipeline_uuid: str) -> dict | None:
         result = await self.ap.persistence_mgr.execute_async(
@@ -71,7 +70,7 @@ class PipelineService:
         if pipeline is None:
             return None
 
-        return self.ap.persistence_mgr.serialize_model(persistence_pipeline.LegacyPipeline, pipeline)
+        return self._serialize_pipeline(pipeline)
 
     async def create_pipeline(self, pipeline_data: dict, default: bool = False) -> str:
         from ....utils import paths as path_utils
@@ -89,9 +88,15 @@ class PipelineService:
         pipeline_data['stages'] = default_stage_order.copy()
         pipeline_data['is_default'] = default
 
+        requested_config = pipeline_data.get('config')
         template_path = path_utils.get_resource_path('templates/default-pipeline-config.json')
         with open(template_path, 'r', encoding='utf-8') as f:
-            pipeline_data['config'] = json.load(f)
+            default_config = json.load(f)
+        pipeline_data['config'] = (
+            _merge_dict(default_config, requested_config)
+            if isinstance(requested_config, dict)
+            else default_config
+        )
 
         # Ensure extensions_preferences is set with enable_all_plugins and enable_all_mcp_servers=True by default
         if 'extensions_preferences' not in pipeline_data:
@@ -114,7 +119,7 @@ class PipelineService:
 
     async def update_pipeline(self, pipeline_uuid: str, pipeline_data: dict) -> None:
         pipeline_data = pipeline_data.copy()
-        for protected_field in ('uuid', 'for_version', 'stages', 'is_default'):
+        for protected_field in ('uuid', 'for_version', 'stages', 'is_default', 'is_builtin', 'created_at', 'updated_at'):
             pipeline_data.pop(protected_field, None)
 
         await self.ap.persistence_mgr.execute_async(
@@ -147,12 +152,19 @@ class PipelineService:
                 session.using_conversation = None
 
     async def delete_pipeline(self, pipeline_uuid: str) -> None:
+        if pipeline_uuid in BUILTIN_DIGITAL_EMPLOYEE_PIPELINE_UUIDS:
+            raise ValueError('Built-in digital employee cannot be deleted')
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.delete(persistence_pipeline.LegacyPipeline).where(
                 persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
             )
         )
         await self.ap.pipeline_mgr.remove_pipeline(pipeline_uuid)
+
+    def _serialize_pipeline(self, pipeline: persistence_pipeline.LegacyPipeline) -> dict:
+        data = self.ap.persistence_mgr.serialize_model(persistence_pipeline.LegacyPipeline, pipeline)
+        data['is_builtin'] = pipeline.uuid in BUILTIN_DIGITAL_EMPLOYEE_PIPELINE_UUIDS
+        return data
 
     async def copy_pipeline(self, pipeline_uuid: str) -> str:
         """Copy a pipeline with all its configurations"""

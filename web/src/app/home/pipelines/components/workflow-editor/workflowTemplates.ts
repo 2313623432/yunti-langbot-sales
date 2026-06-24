@@ -1,10 +1,132 @@
 import {
+  PipelineTemplateAgentOrchestration,
   PipelineTemplateConfig,
+  PipelineTemplateMemeConfig,
+  PipelineTemplateMemeLibraryItem,
   PipelineWorkflow,
   PipelineWorkflowEdge,
   PipelineWorkflowNode,
   WorkflowNodeType,
 } from './types';
+import yuanfudaoCourseQa from './yuanfudaoCourseQa.json';
+
+const COURSE_SALES_REPLY_MODEL_UUID = 'doubao-seed-2-0-pro-260215';
+const COURSE_SALES_INTENT_MODEL_UUID = 'doubao-seed-2-0-mini-260215';
+const COURSE_SALES_REPLY_MODEL_EXTRA_ARGS = {
+  thinking: { type: 'enabled' },
+  reasoning_effort: 'low',
+};
+const COURSE_SALES_INTENT_MODEL_EXTRA_ARGS = {
+  thinking: { type: 'disabled' },
+  reasoning_effort: 'minimal',
+};
+
+const defaultAgentOrchestration: PipelineTemplateAgentOrchestration = {
+  enabled: true,
+  mode: 'multi_agent',
+  profile_memory_enabled: true,
+  debug_trace_enabled: true,
+  assistants: [
+    {
+      id: 'profile_updater',
+      name: '画像更新助手',
+      description: '抽取孩子年级、关注点、购买阶段、拒绝原因和停发风险，写回客户关键信息。',
+      input: '用户消息 + 历史画像',
+      output: 'profile patch',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是用户画像更新助手。根据用户最新消息、历史对话和已有画像，只抽取稳定事实，输出画像增量 JSON。必须覆盖可判断字段：电话/手机号、微信号、邮箱、公司名称、行业类别、职位、所在地、客单价/预算、孩子年级、英语基础、关注点、购买阶段、拒绝原因、资源问题、停发风险；无法判断的字段不要输出。只记录用户明确表达或上下文强相关的信息，不要生成客户可见回复，不要编造未提到的信息。',
+      enabled: true,
+    },
+    {
+      id: 'intent_classifier',
+      name: '意图识别助手',
+      description: '结合客户关键信息识别课程咨询、购买、已报名、拒绝、截图、投诉和转人工。',
+      input: '用户消息 + 当前画像',
+      output: 'intent JSON',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是意图识别助手。结合用户消息、当前画像、媒体类型、最近对话和渠道事件，识别咨询意图、置信度、购买阶段、是否需要转人工、是否触发停发。只输出 JSON：intent, confidence, reason, step_ids, include_link；intent 必须使用运行时允许的课程销售意图；reason 用一句话说明依据，不要回复用户。',
+      enabled: true,
+    },
+    {
+      id: 'query_rewriter',
+      name: '问题重写助手',
+      description: '把口语化问题改写成适合知识库、FAQ 和产品库检索的标准问题。',
+      input: '原始消息 + 意图结果',
+      output: 'rewritten query',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是问题重写助手。把家长的口语化消息改写成适合知识库、课程 FAQ 和产品库检索的一句话查询，补齐可检索关键词，保留课程名、年级、价格、回放、赠品、报名、支付截图、资源打不开等关键约束。只输出重写后的查询，不要解释，不要扩写成回复。',
+      enabled: true,
+    },
+    {
+      id: 'knowledge_retriever',
+      name: '知识/产品检索',
+      description: '按重写问题检索知识库、课程 FAQ、产品画像、报名链接和素材。',
+      input: '重写问题 + 产品画像',
+      output: 'evidence bundle',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是知识/产品检索助手。根据重写问题、意图和产品画像，选择相关课程 FAQ、知识库片段、产品事实、报名链接和素材，输出证据摘要与来源。标注哪些事实可直接用于回复，哪些只作内部参考；价格、排期、赠品和活动有效期以运行时上下文为准。不生成最终回复。',
+      enabled: true,
+    },
+    {
+      id: 'reply_composer',
+      name: '回复生成助手',
+      description: '只基于客户信息、意图和检索证据生成客户可见回复，减少长提示词堆叠。',
+      input: '画像 + 意图 + 证据',
+      output: 'final reply',
+      model: COURSE_SALES_REPLY_MODEL_UUID,
+      model_uuid: COURSE_SALES_REPLY_MODEL_UUID,
+      model_extra_args: COURSE_SALES_REPLY_MODEL_EXTRA_ARGS,
+      prompt: '你是回复生成助手。只基于用户画像、意图结果、检索证据和业务边界，生成给家长看的回复草稿。先回答当前问题，再轻量承接下一步；短句、自然、像真人客服；不得输出推理过程，不得编造课程事实，不要泄露智能体、草稿或内部上下文。',
+      enabled: true,
+    },
+    {
+      id: 'followup_planner',
+      name: '跟进计划助手',
+      description: '根据购买阶段、雷达事件和停发规则生成马上、延时、晚间或 Day 跟进计划。',
+      input: '客户阶段 + 雷达事件',
+      output: 'outreach plan',
+      model: COURSE_SALES_INTENT_MODEL_UUID,
+      model_uuid: COURSE_SALES_INTENT_MODEL_UUID,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      prompt: '你是跟进计划助手。根据购买阶段、意图、雷达事件、停发规则和当前回复草稿，生成下一步跟进计划：马上、5分钟、1小时、晚间21:30或 Day 跟进。命中停发、投诉、转人工、已支付时输出停止计划；计划要说明触发条件、延迟和目标动作。只输出结构化计划摘要。',
+      enabled: true,
+    },
+  ],
+  debug_trace_fields: ['原始消息', '用户画像', '意图结果', '重写问题', '命中资料', '最终回复', '跟进计划'],
+  profile_fields: ['孩子年级', '关注点', '购买阶段', '雷达点击', '停发风险'],
+};
+
+function makeDefaultAgentOrchestration(): PipelineTemplateAgentOrchestration {
+  return {
+    ...defaultAgentOrchestration,
+    assistants: defaultAgentOrchestration.assistants.map((assistant) => ({ ...assistant })),
+    debug_trace_fields: [...defaultAgentOrchestration.debug_trace_fields],
+    profile_fields: [...defaultAgentOrchestration.profile_fields],
+  };
+}
+
+function makeDisabledAgentOrchestration(): PipelineTemplateAgentOrchestration {
+  const orchestration = makeDefaultAgentOrchestration();
+  return {
+    ...orchestration,
+    enabled: false,
+    mode: 'single_prompt',
+    profile_memory_enabled: false,
+    debug_trace_enabled: false,
+    assistants: orchestration.assistants.map((assistant) => ({
+      ...assistant,
+      enabled: false,
+    })),
+  };
+}
 
 const nodeDefaults: Record<
   WorkflowNodeType,
@@ -85,10 +207,29 @@ const nodeDefaults: Record<
         '根据客户意图、知识库结果和产品资料，生成一句自然、具体、有下一步动作的回复。',
     },
   },
+  ai_suggestion: {
+    title: '人工回复推荐',
+    description: '人工接管时，点击后由 AI 给客服一条可采纳的回复建议',
+    config: {
+      enabled: true,
+      style: '自然客服',
+      prompt: '结合完整聊天历史，给人工客服一条可直接发送的短回复。',
+    },
+  },
   condition: {
     title: '条件分流',
     description: '按意图、置信度、客户阶段分支',
     config: { rules: ['requires_handoff == true', 'intent in image_intents'] },
+  },
+  special_case: {
+    title: '特殊情况处理',
+    description: '按客户表达的语义触发固定场景回复',
+    config: {
+      condition: '例如：问怎么听、资源在哪里、答案怎么看',
+      reply: '书籍二维码听力/答案，点击上面推送的“点击访问扫码前的资源”卡片。',
+      ai_rewrite: true,
+      image_url: '',
+    },
   },
   lead: {
     title: '收集线索',
@@ -113,6 +254,35 @@ const nodeDefaults: Record<
     description: '沉淀客户阶段、兴趣产品和摘要',
     config: { stage: 'new', tags: ['高意向', '待跟进'] },
   },
+  resource_capture: {
+    title: '资源问题收集',
+    description: '客户遇到扫码、听力、答案、资源打不开时追问并记录',
+    config: {
+      enabled: true,
+      trigger_keywords: ['二维码打不开', '听力在哪里', '答案在哪里', '扫码失败', '资源打不开'],
+      required_image_count: 2,
+      max_followup_rounds: 3,
+      ask_message: '您具体是哪个资源打不开呀？可以描述一下问题，再拍一下出问题的二维码和页面截图发我。',
+      completed_message: '收到，我已经帮您记录了，会尽快帮您处理。',
+    },
+  },
+  radar: {
+    title: '链接点击雷达',
+    description: '按链接点击、浏览时长和按钮行为触发跟进',
+    config: {
+      enabled: true,
+      link_title: '报名通道',
+      link_url: 'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class',
+      tracking_fields: ['session_id', 'clicked_at', 'browse_seconds', 'clicked_apply_button'],
+      rules: [
+        {
+          event: 'link_open',
+          delay_minutes: 0,
+          message: '家长，看您进入报名通道了，支付以后截图发我，我给您登记开课。',
+        },
+      ],
+    },
+  },
   outreach: {
     title: '定时跟进',
     description: '创建销售触达计划',
@@ -121,10 +291,61 @@ const nodeDefaults: Record<
       message_template: '您好，给您同步一下上次关注的产品资料。',
     },
   },
+  scheduled_message: {
+    title: '单条定时消息',
+    description: '第几天几点自动发送一条消息，可带图片和链接',
+    config: {
+      day: 1,
+      time: '10:20',
+      message: '',
+      image_url: '',
+      link_title: '',
+      link_url: '',
+    },
+  },
+  followup: {
+    title: '多轮跟进',
+    description: '按客户阶段安排下一轮销售跟进',
+    config: {
+      stage: '未报名',
+      delay_minutes: 1440,
+      message: '',
+      stop_when_replied: true,
+    },
+  },
   handoff: {
     title: '人工介入',
     description: '进入人工接待队列',
     config: { reason: '客户需要人工协助', assigned_to: '' },
+  },
+  resume_ai: {
+    title: '恢复AI托管',
+    description: '人工处理完成后恢复 AI 自动回复',
+    config: {
+      enabled: true,
+      resume_message: '好的，后面我会继续帮您跟进。',
+    },
+  },
+  link_card: {
+    title: '链接卡片',
+    description: '发送报名、资源或扫码记录链接',
+    config: {
+      title: '点击访问扫码前的资源',
+      url: '',
+      description: '',
+      radar_enabled: true,
+    },
+  },
+  meme: {
+    title: '发送表情包',
+    description: '根据情绪发送礼貌、可爱的飞书小表情或大表情包',
+    config: {
+      enabled: true,
+      emotion: '开心鼓励',
+      small_enabled: true,
+      large_enabled: true,
+      min_rounds: 3,
+    },
   },
   http: {
     title: 'HTTP 请求',
@@ -145,6 +366,7 @@ const nodeDefaults: Record<
     title: '语音回复',
     description: '把文字回复转换成语音消息',
     config: {
+      model_uuid: '',
       provider: 'volcengine',
       enabled: true,
       voice_type: 'zh_female_yuanqinvyou_moon_bigtts',
@@ -246,10 +468,12 @@ export function createSalesWorkflowTemplate(): PipelineWorkflow {
       edge(memory, outreach),
       edge(outreach, end),
     ],
+    memes: courseMemeConfig,
     variables: {
       customer_stage: 'new',
       intent: '',
       selected_product_uuid: '',
+      memes: courseMemeConfig,
     },
   };
 }
@@ -302,9 +526,11 @@ export function createSupportWorkflowTemplate(): PipelineWorkflow {
       edge(handoff, memory),
       edge(memory, end),
     ],
+    memes: courseMemeConfig,
     variables: {
       customer_stage: 'supporting',
       intent: '',
+      memes: courseMemeConfig,
     },
   };
 }
@@ -324,12 +550,1024 @@ export function createBlankWorkflow(): PipelineWorkflow {
     scenario: 'custom',
     nodes: [start, end],
     edges: [edge(start, end)],
-    variables: {},
+    memes: courseMemeConfig,
+    variables: {
+      memes: courseMemeConfig,
+    },
   };
+}
+
+function workflowNode(
+  id: string,
+  type: WorkflowNodeType,
+  title: string,
+  description: string,
+  position: { x: number; y: number },
+  config: Record<string, unknown>,
+): PipelineWorkflowNode {
+  return {
+    id,
+    type,
+    title,
+    description,
+    position,
+    config,
+  };
+}
+
+function workflowEdge(
+  id: string,
+  source: string,
+  target: string,
+  label?: string,
+): PipelineWorkflowEdge {
+  return {
+    id,
+    source,
+    target,
+    ...(label ? { label } : {}),
+  };
+}
+
+const taskAssistantSteps = [
+  {
+    id: 'download_qr',
+    title: '支付宝扫码下载蚂蚁阿福 App',
+    detail: '让用户先用支付宝扫描绑定的渠道码，进入下载页面，点击“下载蚂蚁阿福App”。',
+    image_key: 'task-assistant/ant-af/af_step_01.png',
+    intents: ['task_overview', 'download_app', 'screenshot_help'],
+  },
+  {
+    id: 'app_store_download',
+    title: '在应用商店点击下载',
+    detail: '如果跳转到应用商店，确认页面是“蚂蚁阿福”，点击下载并等待安装完成。',
+    image_key: 'task-assistant/ant-af/af_step_02.png',
+    intents: ['task_overview', 'download_app', 'screenshot_help'],
+  },
+  {
+    id: 'alipay_login',
+    title: '打开 App 后使用支付宝一键登录',
+    detail: '进入蚂蚁阿福首页后，点击页面底部的“支付宝一键登录”。',
+    image_key: 'task-assistant/ant-af/af_step_03.png',
+    intents: ['task_overview', 'alipay_login', 'screenshot_help'],
+  },
+  {
+    id: 'alipay_login_confirm',
+    title: '同意支付宝授权登录',
+    detail: '在支付宝授权页确认申请方是蚂蚁阿福 App，点击“同意”。',
+    image_key: 'task-assistant/ant-af/af_step_04.png',
+    intents: ['task_overview', 'alipay_login', 'screenshot_help'],
+  },
+  {
+    id: 'open_profile',
+    title: '登录后点击左上角头像/菜单',
+    detail: '登录成功后，在首页点击左上角头像或菜单入口，进入个人中心。',
+    image_key: 'task-assistant/ant-af/af_step_05.png',
+    intents: ['task_overview', 'real_person_verify', 'screenshot_help'],
+  },
+  {
+    id: 'open_settings',
+    title: '进入设置',
+    detail: '在个人中心页面点击用户信息区域或设置入口，进入“我的/设置”相关页面。',
+    image_key: 'task-assistant/ant-af/af_step_06.png',
+    intents: ['task_overview', 'real_person_verify', 'screenshot_help'],
+  },
+  {
+    id: 'open_real_person_verify',
+    title: '点击实名认证',
+    detail: '在“我的”页面找到“实名认证”，点击进入。若显示“已认证”，说明这一步已完成。',
+    image_key: 'task-assistant/ant-af/af_step_07.png',
+    intents: ['task_overview', 'real_person_verify', 'finish', 'screenshot_help'],
+  },
+  {
+    id: 'import_identity',
+    title: '支付宝一键导入身份信息',
+    detail: '在真人认证页面点击“支付宝一键导入”，按支付宝提示完成身份信息授权。',
+    image_key: 'task-assistant/ant-af/af_step_08.png',
+    intents: ['task_overview', 'real_person_verify', 'finish', 'screenshot_help'],
+  },
+];
+
+export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
+  const templateConfig = createTaskAssistantTemplateConfig();
+  const targetSteps = taskAssistantSteps.map((step) => step.id);
+  const nodes: PipelineWorkflowNode[] = [
+    workflowNode('start', 'start', '会话触发', '用户在网页、微信或企微发来咨询', { x: 80, y: 260 }, { trigger: 'message' }),
+    workflowNode('channel', 'channel', '渠道接入', '统一接收网页、微信、企微等渠道消息', { x: 330, y: 260 }, { channels: ['web', 'wechat', 'wecom'], keep_session: true }),
+    workflowNode('media_router', 'media', '消息类型判断', '区分文字、截图和语音', { x: 580, y: 260 }, {
+      routes: [
+        { when: 'has_text', target: 'text_input' },
+        { when: 'has_voice', target: 'voice_asr' },
+        { when: 'has_image', target: 'screenshot_input' },
+      ],
+    }),
+    workflowNode('text_input', 'custom', '文字问题', '整理用户文字问题和上下文', { x: 850, y: 90 }, {
+      output_key: 'user_text',
+      params: '{"from": "message_chain.plain_text"}',
+    }),
+    workflowNode('voice_asr', 'asr', '语音输入处理', '语音消息转成适合模型理解的任务上下文，避免聊天请求失败', { x: 850, y: 260 }, {
+      provider: 'bailian',
+      fallback_text: '用户发来一条语音咨询，请用适合语音播报的短句回复。',
+    }),
+    workflowNode('screenshot_input', 'vision', '截图识别', '识别用户卡在哪个页面或步骤', { x: 850, y: 430 }, {
+      model_uuid: templateConfig.model_uuid,
+      target_steps: targetSteps,
+    }),
+    workflowNode('intent', 'intent', '意图识别', '识别下载、登录、实名认证、截图卡点、完成确认等意图', { x: 1130, y: 260 }, {
+      intents: [
+        'task_overview',
+        'download_app',
+        'alipay_login',
+        'real_person_verify',
+        'finish',
+        'screenshot_help',
+        'voice_reply',
+      ],
+      confidence_threshold: 0.55,
+      image_intents: ['screenshot_help'],
+    }),
+    workflowNode('route_intent', 'router', '意图路由', '把用户问题分发到对应步骤节点', { x: 1400, y: 260 }, {
+      rules: [
+        'download_app -> download_qr, app_store_download',
+        'alipay_login -> alipay_login, alipay_login_confirm',
+        'real_person_verify -> open_profile, open_settings, open_real_person_verify, import_identity',
+        'screenshot_help -> matched_step',
+        'finish -> open_real_person_verify, import_identity',
+      ],
+    }),
+    workflowNode('knowledge_fallback', 'knowledge', '知识库兜底', '不属于固定步骤的问题，查知识库后再回答', { x: 1660, y: 620 }, {
+      knowledge_base_uuids: templateConfig.knowledge_base_uuids,
+      top_k: 4,
+    }),
+    workflowNode('reply', 'llm', '真人客服式回复', '生成自然、短句、可执行的下一步指引', { x: 3030, y: 260 }, {
+      model_uuid: templateConfig.model_uuid,
+      tone: '真人客服、短句、具体',
+      prompt: templateConfig.role_prompt,
+    }),
+    workflowNode('voice', 'voice', '火山语音回复', '用户发语音时，把文字回复转成语音一起发回去', { x: 3300, y: 160 }, templateConfig.voice),
+    workflowNode('end', 'end', '发送给用户', '发送文字、相关步骤图和必要时的语音', { x: 3300, y: 360 }, {}),
+  ];
+
+  const stepPositions = [
+    { x: 1660, y: 40 },
+    { x: 1660, y: 200 },
+    { x: 1940, y: 40 },
+    { x: 1940, y: 200 },
+    { x: 2220, y: 40 },
+    { x: 2220, y: 200 },
+    { x: 2500, y: 40 },
+    { x: 2500, y: 200 },
+  ];
+  const imagePositions = [
+    { x: 1660, y: 380 },
+    { x: 1660, y: 500 },
+    { x: 1940, y: 380 },
+    { x: 1940, y: 500 },
+    { x: 2220, y: 380 },
+    { x: 2220, y: 500 },
+    { x: 2500, y: 380 },
+    { x: 2500, y: 500 },
+  ];
+
+  taskAssistantSteps.forEach((step, index) => {
+    nodes.push(
+      workflowNode(`step_${step.id}`, 'task', step.title, step.detail, stepPositions[index], {
+        step_id: step.id,
+        step_no: index + 1,
+        instruction: step.detail,
+        trigger_intents: step.intents,
+        completion_check: '用户完成后继续下一步，最后检查是否显示已认证或任务完成。',
+      }),
+      workflowNode(`image_${step.id}`, 'image', `步骤图 ${index + 1}`, step.title, imagePositions[index], {
+        file_key: step.image_key,
+        caption: step.title,
+        trigger_intents: step.intents,
+        append_caption: false,
+      }),
+    );
+  });
+
+  const edges: PipelineWorkflowEdge[] = [
+    workflowEdge('e-start-channel', 'start', 'channel'),
+    workflowEdge('e-channel-media', 'channel', 'media_router'),
+    workflowEdge('e-media-text', 'media_router', 'text_input', '文字'),
+    workflowEdge('e-media-voice', 'media_router', 'voice_asr', '语音'),
+    workflowEdge('e-media-image', 'media_router', 'screenshot_input', '截图/图片'),
+    workflowEdge('e-text-intent', 'text_input', 'intent'),
+    workflowEdge('e-voice-intent', 'voice_asr', 'intent'),
+    workflowEdge('e-screenshot-intent', 'screenshot_input', 'intent'),
+    workflowEdge('e-intent-route', 'intent', 'route_intent'),
+    workflowEdge('e-route-knowledge', 'route_intent', 'knowledge_fallback', '兜底问题'),
+    workflowEdge('e-knowledge-reply', 'knowledge_fallback', 'reply'),
+    workflowEdge('e-reply-voice', 'reply', 'voice', '用户发语音'),
+    workflowEdge('e-reply-end', 'reply', 'end', '文字/图片'),
+    workflowEdge('e-voice-end', 'voice', 'end'),
+  ];
+
+  taskAssistantSteps.forEach((step) => {
+    edges.push(
+      workflowEdge(`e-route-${step.id}`, 'route_intent', `step_${step.id}`, step.intents.slice(0, 2).join('/')),
+      workflowEdge(`e-step-image-${step.id}`, `step_${step.id}`, `image_${step.id}`),
+      workflowEdge(`e-image-reply-${step.id}`, `image_${step.id}`, 'reply'),
+    );
+  });
+
+  const workflow: PipelineWorkflow = {
+    version: 1,
+    name: '任务助手模板配置版',
+    scenario: 'task',
+    metadata: {
+      scenario: 'task_assistant_ant_af',
+      source: '蚂蚁阿福.docx',
+      source_mode: 'template',
+      template_name: '任务助手模板配置版',
+      tts_provider: 'volcengine',
+    },
+    voice: templateConfig.voice,
+    memes: templateConfig.memes,
+    nodes,
+    edges,
+    variables: {
+      opening_message: templateConfig.opening_message,
+      recommended_questions: templateConfig.recommended_questions,
+      scheduled_push: templateConfig.scheduled_push,
+      interaction_radar: templateConfig.interaction_radar,
+      image_text_bindings: templateConfig.image_text_bindings,
+      memes: templateConfig.memes,
+    },
+  };
+
+  if (workflow.nodes.length !== 28 || workflow.edges.length !== 38) {
+    throw new Error('Task assistant workflow template must keep 28 nodes and 38 edges.');
+  }
+
+  return workflow;
+}
+
+const courseSalesSignupLink =
+  'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class';
+const courseSalesRadarLink = courseSalesSignupLink;
+const courseResourceCardLink =
+  'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347';
+const courseOpeningMessage =
+  '😊 您的图书配套学习资源点击👇️下方卡片激活查看；\n也可点击➡️查看扫码记录  https://mp.bookln.cn/user/history/moment.htm\n\n✅ 搜本页答案，点击👉#小程序://教辅好帮手/la0KWwjPCx8S26C\n\n✅ 出版社内购好物群：https://d.codeup.cn/d/UVruQn';
+const defaultHumanHandoff = {
+  enabled: true,
+  keywords: [
+    '转人工',
+    '人工',
+    '真人客服',
+    '班主任',
+    '电话联系',
+    '投诉',
+    '退款',
+    '退费',
+    '支付异常',
+    '看不到课',
+    '骗子',
+  ],
+  semantic_triggers: [
+    {
+      id: 'manual_request',
+      label: '明确要求转人工',
+      description: '客户明确要求人工、真人客服、班主任或电话联系。',
+      enabled: true,
+    },
+    {
+      id: 'payment_issue',
+      label: '支付订单异常',
+      description: '客户已支付但看不到课程、订单异常、没收到课、要求退款或退费。',
+      enabled: true,
+    },
+    {
+      id: 'high_risk_complaint',
+      label: '投诉或高风险负面',
+      description: '客户表达投诉、举报、诈骗、欺骗、维权、辱骂或强烈不满。',
+      enabled: true,
+    },
+  ],
+  stop_ai_reply: true,
+  stop_outreach: true,
+  notify_message: '我这边帮您记录好了，稍等我看下具体情况~',
+};
+const courseSalesProfile = {
+  course_name: '猿辅导英语自然拼读体验课/自然拼读集训营',
+  price: '9元体验',
+  lesson_count: '5天10节课',
+  target_grade: '大班至小学4年级',
+  schedule: '分两周进行：第一周五、周六；第二周五、周六、周日；晚上19:00-20:00；每天约60分钟。',
+  replay: '3年内无限次回放，手机和平板都可以学习。',
+  content: '5次绘本阅读实践、180次开口练习、360分钟配套视频，帮助孩子掌握自然拼读、口语发音和拼读规则。',
+  selling_point: '见词能拼、听音能写；用拼读方法替代死记硬背；提升英语兴趣和发音基础。',
+  gifts: '报名/完课活动可赠小猿篮球、护脊书包、小猿手办、宇航员文具盒、铅笔、转笔刀等，完课后随机发货其一。',
+  after_purchase: '提醒添加指导老师/班主任，留意电话短信，下载猿辅导素养课APP查看课程和开课时间。',
+};
+const courseSalesProfiles = [
+  {
+    key: 'phonics',
+    product_uuid: 'yuanfudao-phonics-course',
+    name: '猿辅导自然拼读体验课',
+    keywords: ['英语', '自然拼读', '拼读', '发音', '单词'],
+    facts: courseSalesProfile,
+  },
+];
+const courseResourceFaqs = [
+  { question: '怎么听音频/怎么看答案', answer: '引导用户点击已推送的资源卡片，或重新扫码查看。', keywords: ['音频', '答案', '怎么看', '听力'] },
+  { question: '验证码在哪里', answer: '提示验证码在书本封面或书上对应位置，主要用于验证正版，一码一书。', keywords: ['验证码', '正版', '码'] },
+  { question: '扫码看答案', answer: '提示重新扫书上二维码；如果仍无法打开，引导使用答案小程序或资源卡片入口。', keywords: ['扫码', '二维码', '答案小程序'] },
+  { question: '扫码后暂无资源', answer: '回复资源可能还在更新，请等待后台上传；如用户着急，收集图书二维码所在页清晰照片。', keywords: ['暂无资源', '没有资源', '打不开'] },
+  { question: '资源不对', answer: '收集图书二维码所在页和有问题页面照片，记录后反馈处理。', keywords: ['资源不对', '不是这本', '错了'] },
+  { question: '资料能不能下载', answer: '统一回复资料以在线查看为主，不支持直接下载；可打印资料按活动资料包说明引导。', keywords: ['下载', '打印', '保存'] },
+  { question: '资源类问题是否转人工', answer: '常规资源问题不转人工，由AI直接处理；只有用户强烈投诉或AI无法判断时才转人工。', keywords: ['人工', '客服', '投诉'] },
+];
+const courseFaqs = [
+  { intent: 'course_schedule', question: '什么时候上课', answer: '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。\n\n需要给孩子试试不，现在报名还送结课礼物。', keywords: ['什么时候', '几点', '上课时间', '课表'] },
+  { intent: 'course_intro', question: '这个是什么课/这是什么/你发是什么', answer: '这是猿辅导英语自然拼读集训营，9元5天10节，专为大班到小学4年级设计。课程包含5次绘本阅读实践、180次开口练习、360分钟配套视频，重点教孩子拼读规律，鼓励孩子多表达，提升口语能力。报名链接我发您。', keywords: ['什么课', '是什么', '自然拼读', '拼读', '发音', '9元课'] },
+  { intent: 'reading_thinking_intro', question: '阅读+思维/数学问题', answer: '家长，数学这块我们现在没有单独数学课哈。现在给您介绍的是猿辅导英语自然拼读9元体验课，主要帮孩子打英语发音、拼读和单词基础；如果孩子英语也想补基础，可以先9元体验一下。', keywords: ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'] },
+  { intent: 'course_content', question: '学习内容', answer: '每个年级的学习内容不一样，具体上课后才可以看到亲，是根据孩子年级匹配的。\n\n需要给孩子试试不，现在报名还送结课礼物。', keywords: ['学习内容', '内容', '学啥', '学什么', '课表', '课程安排'] },
+  { intent: 'teacher_service', question: '老师伴学服务是什么老师', answer: '伴学服务是猿辅导安排的指导老师/班主任，报名后会通过电话、短信或页面二维码联系您，提醒上课、答疑、反馈学习进度，也会协助登记开课和资料。', keywords: ['老师伴学', '伴学', '什么老师', '班主任', '指导老师', '老师服务'] },
+  { intent: 'course_replay', question: '支持回放吗', answer: '当然支持呀，3年内可以无限次看回放，手机和平板都能学。咱们课每次也就一小时左右，时间安排很灵活的。\n\n要不要试试看，现在报名，还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。', keywords: ['回放', '没时间', '错过', '直播没赶上'] },
+  { intent: 'course_conflict', question: '和其他课有冲突', answer: '不冲突的，这个课更侧重教孩子拼读技巧和方法，支持回放，可以给孩子试试哈。\n\n报名还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。\n\n主要是赠送实物的名额，就这一周有。我把报名链接发给您。', keywords: ['冲突', '没空', '时间不方便', '有课', '上班'] },
+  { intent: 'purchase', question: '要买/怎么买', answer: '点开报名链接，选择孩子年级，输入手机号验证并支付9元；成功后把截图发我，我帮您登记开课并安排资料。', keywords: ['要买', '怎么买', '报名', '链接', '领取', '我要报'] },
+  { intent: 'purchased', question: '买了/已报名', answer: '谢谢支持。报名后一般会分配指导老师/班主任，您留意电话短信；也可以下载猿辅导素养课APP查看课程和开课时间，完课礼品后续联系班主任登记。', keywords: ['买了', '已报名', '支付成功', '付了', '报名成功'] },
+  { intent: 'objection', question: '不买/考虑', answer: '没关系家长，您可以先考虑。这个主要是9元低成本让孩子体验自然拼读方法，报名还有资料和完课随机礼品，适合再继续，不适合也不耽误。', keywords: ['考虑', '不买', '贵', '再说', '不需要', '没兴趣'] },
+  { intent: 'gift', question: '赠品/资料', answer: '活动里有资料和完课礼，常见礼品包括小猿篮球、护脊书包、小猿手办、宇航员文具盒、铅笔、转笔刀等，完课后随机发货其一，具体以活动页和班主任登记为准。', keywords: ['赠品', '礼品', '资料', '篮球', '书包', '文具盒', '铅笔', '转笔刀'] },
+  { intent: 'grade', question: '适合几年级', answer: '自然拼读主要适合大班到小学4年级，三四年级尤其适合补拼读规律和单词记忆方法；如果孩子不在这个范围，我可以先帮您判断是否合适。', keywords: ['几年级', '大班', '一年级', '二年级', '三年级', '四年级', '初中'] },
+  { intent: 'link_error', question: '链接打不开/页面异常', answer: '我帮您看下，麻烦截一下当前页面；也可以先退出重进，或复制链接到浏览器打开。', keywords: ['打不开', '白屏', '点不进去', '页面', '卡住'] },
+  ...(yuanfudaoCourseQa as Array<Record<string, unknown>>),
+];
+const courseSalesLinks = [
+  {
+    id: 'phonics_resource_card',
+    title: '图书配套学习资源卡片',
+    url: courseResourceCardLink,
+    description: '首次打招呼发送，用于激活查看图书配套学习资源。',
+    radar_enabled: false,
+  },
+  {
+    id: 'phonics_radar_apply',
+    title: '猿辅导自然拼读9元体验课报名通道',
+    url: courseSalesRadarLink,
+    description: '报名链接卡片：发送时自动包装成服务器雷达追踪链接。',
+    radar_enabled: true,
+  },
+];
+const courseRadarConfig = {
+  enabled: true,
+  link_title: '猿辅导自然拼读9元体验课报名通道',
+  link_url: courseSalesRadarLink,
+  tracking_fields: ['session_id', 'campaign', 'clicked_at', 'browse_seconds', 'clicked_apply_button', 'paid'],
+  rules: [
+    { event: 'link_open', delay_minutes: 0, message: '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功短信，我给您登记开课并赠送资料。' },
+    { event: 'browse_30s', min_browse_seconds: 30, delay_minutes: 3, message: '家长我看到您刚刚看了报名页，是年级选择、支付还是上课时间这块不确定？我可以直接帮您看。' },
+    { event: 'click_apply_button', delay_minutes: 1, message: '您已经点到报名按钮了，下一步选择孩子年级并支付9元就行，成功后截图发我登记。' },
+    { event: 'no_payment_after_click', delay_minutes: 15, message: '家长，刚才报名页如果没有支付成功，可能是年级没选对或链接卡住了，您把页面截图发我，我帮您看。' },
+  ],
+};
+const courseStopRules = {
+  stop_keywords: [
+    '不需要',
+    '不买',
+    '不想买',
+    '不想报',
+    '不想报名',
+    '不想领取',
+    '不领取',
+    '不要再发',
+    '不感兴趣',
+    '没兴趣',
+    '别来烦',
+    '别联系',
+    '滚',
+    '骗子',
+    '诈骗',
+    '垃圾',
+    '再发投诉',
+    '没有孩子',
+    '不是目标年级',
+    '我是老师',
+    '已经学过',
+  ],
+  stop_tags: ['已报名', '已下单', '付费', '投诉', '明确拒绝', '人工接管', '无孩子', '非目标年级', '老师', '已学过'],
+  message: '好的家长，收到，不再打扰您了。后面有需要可以随时联系我。',
+};
+const courseStopPolicy = {
+  explicit_rejection_threshold: 2,
+  explicit_rejection_keywords: [
+    '不需要',
+    '不买',
+    '不想买',
+    '不想报',
+    '不想报名',
+    '不想领取',
+    '不领取',
+    '不要',
+    '不考虑',
+    '不感兴趣',
+    '没兴趣',
+  ],
+  immediate_stop_keywords: ['投诉', '没有孩子', '没孩子', '打错', '我是老师', '已报名', '已支付', '骗子', '诈骗', '垃圾', '滚'],
+};
+const courseImageBindings = [
+  {
+    step_id: 'gift_poster',
+    title: '完课好礼海报',
+    text: '表格内置素材：用户明确要报名、考虑、问赠品、问完课礼时发送。不要再发送SOP截图。',
+    file_key: 'course-sales/phonics/gift_poster.jpeg',
+    trigger_intents: ['gift', 'objection', 'course_schedule', 'course_content', 'course_replay', 'course_conflict', 'purchase'],
+    requires_course_sales_signup_link: true,
+    enabled: true,
+  },
+  {
+    step_id: 'gift_qr',
+    title: '书课通资料二维码',
+    text: '表格内置素材：用户已报名/已支付后发送，引导长按识别关注，领取2026年最新幼小资源。',
+    file_key: 'course-sales/phonics/gift_qr.jpeg',
+    trigger_intents: ['purchased', 'resource_help', 'screenshot_help'],
+    requires_course_sales_signup_link: false,
+    enabled: true,
+  },
+];
+const courseMemeScenes: Array<[string, string, string[], string]> = [
+  ['happy', '开心回应', ['开心', '高兴', '太好了', '哈哈', '顺利'], '开心'],
+  ['thanks', '感谢回应', ['谢谢', '感谢', '辛苦了', '麻烦你', '拜托'], '感谢'],
+  ['like', '认可点赞', ['不错', '可以', '赞', '认可', '支持'], '点赞'],
+  ['success', '完成确认', ['完成', '搞定', '成功', '好了', '已处理'], '完成'],
+  ['morning', '早上好', ['早上好', '早安', '上午好', '新的一天', '早'], '早上好'],
+  ['noon', '中午好', ['中午好', '午安', '吃饭', '午休', '中午'], '中午好'],
+  ['evening', '晚上好', ['晚上好', '晚好', '下班', '今晚', '晚上'], '晚上好'],
+  ['night', '晚安提醒', ['晚安', '早点休息', '明天看', '夜里', '休息'], '晚安'],
+  ['ok', '好的收到', ['好的', '好嘞', 'OK', '可以的', '没问题'], '好的'],
+  ['received', '收到记录', ['收到', '已记录', '我记下了', '明白', '了解'], '收到'],
+  ['cheer', '加油鼓励', ['加油', '坚持', '鼓励', '别着急', '慢慢来'], '加油'],
+  ['welcome', '欢迎咨询', ['欢迎', '你好', '您好', '在的', '来了'], '欢迎'],
+  ['question', '温和疑问', ['怎么', '哪里', '为什么', '不清楚', '疑问'], '疑问'],
+  ['thinking', '正在思考', ['我看看', '确认下', '稍等', '查一下', '核对'], '思考'],
+  ['sorry', '礼貌抱歉', ['抱歉', '不好意思', '久等', '给您添麻烦', '稍晚'], '抱歉'],
+  ['wait', '稍等一下', ['稍等', '等我下', '马上', '一会儿', '别急'], '稍等'],
+  ['checking', '正在核实', ['核实', '确认', '查看', '检查', '帮您看'], '核实'],
+  ['reminder', '温和提醒', ['提醒', '记得', '别忘了', '可以看看', '留意'], '提醒'],
+  ['deal', '成交喜悦', ['成交', '下单', '购买', '订了', '买好了'], '成交'],
+  ['signup', '报名成功', ['报名', '已报名', '报好了', '提交', '领课'], '报名'],
+  ['payment', '支付确认', ['支付', '付款', '付好了', '订单', '缴费'], '支付'],
+  ['link', '链接指引', ['链接', '入口', '打开', '点击', '访问'], '链接'],
+  ['resource', '资料资源', ['资料', '资源', '二维码', '听力', '答案'], '资料'],
+  ['class_time', '上课时间', ['上课', '时间', '几点', '安排', '课程表'], '上课时间'],
+  ['replay', '回放说明', ['回放', '录播', '错过', '补看', '复习'], '回放'],
+  ['gift', '礼品赠品', ['礼品', '赠品', '资料包', '奖励', '福利'], '礼品'],
+  ['trial', '体验课', ['体验', '试听', '试试', '体验课', '先看看'], '体验课'],
+  ['discount', '优惠提醒', ['优惠', '活动', '价格', '9元', '名额'], '优惠'],
+  ['grade', '年级确认', ['年级', '几年级', '大班', '一年级', '孩子'], '年级'],
+  ['parent', '家长沟通', ['家长', '妈妈', '爸爸', '您家', '孩子家长'], '家长'],
+  ['child', '孩子鼓励', ['孩子', '小朋友', '学习', '兴趣', '基础'], '孩子'],
+  ['homework', '作业练习', ['作业', '练习', '打卡', '预习', '复习'], '练习'],
+  ['reading', '阅读写作', ['阅读', '写作', '作文', '理解', '表达'], '阅读'],
+  ['phonics', '自然拼读', ['自然拼读', '发音', '拼读', '单词', '英语'], '自然拼读'],
+  ['followup', '跟进关怀', ['跟进', '回访', '看看', '需要帮忙', '进展'], '跟进'],
+  ['congrats', '恭喜祝贺', ['恭喜', '太棒了', '祝贺', '好消息', '进步'], '恭喜'],
+  ['polite', '礼貌亲切', ['请', '您', '方便', '麻烦', '辛苦'], '礼貌'],
+  ['calm', '安抚情绪', ['别急', '不着急', '慢慢来', '我帮您', '放心'], '安抚'],
+  ['service', '服务承接', ['我来帮您', '帮您看', '处理', '安排', '登记'], '服务'],
+  ['handoff_ready', '准备人工协助', ['人工', '老师联系', '班主任', '电话', '专人'], '协助'],
+];
+const courseMemeVariants: Array<[string, string]> = [
+  ['soft', '温和友好'],
+  ['bright', '轻松明亮'],
+  ['steady', '稳妥专业'],
+  ['cute', '亲切可爱'],
+  ['clean', '简洁礼貌'],
+];
+const courseMemeUsageScenes: Record<string, string> = {
+  happy: '客户情绪轻松、表达开心、咨询进展顺利',
+  thanks: '客户配合、表达感谢、完成信息确认或下单后',
+  like: '客户做出正向回应、认可方案、完成操作',
+  success: '报名、支付、资料领取、问题处理完成后',
+  morning: '客户早上首次进线或早安问候',
+  noon: '中午轻松问候、午间跟进',
+  evening: '晚上轻量问候、结束前温和提醒',
+  night: '晚间收尾、提醒客户早点休息',
+  ok: '确认收到、答复客户“可以/好的/没问题”',
+  received: '记录客户信息、确认已收到截图/年级/需求',
+  cheer: '鼓励客户或孩子完成学习、打卡、报名动作',
+  welcome: '客户首次进线、问你好/在吗/想咨询',
+  question: '客户提出疑问，需要温和承接问题',
+  thinking: '需要确认、查询、核对资料或稍作思考',
+  sorry: '出现等待、误解、服务不便，需要礼貌道歉',
+  wait: '需要客户稍等、客服正在查找或处理',
+  checking: '正在核实报名、支付、资料、课程安排',
+  reminder: '温和提醒客户查看链接、截图、上课或支付',
+  deal: '客户明确购买、下单、成交、报名意愿强',
+  signup: '客户准备报名、领取课程名额、需要报名链接',
+  payment: '客户支付、订单、截图、付款确认相关',
+  link: '发送或解释报名链接、资源入口、访问入口',
+  resource: '图书资源、二维码、听力、答案、资料包相关',
+  class_time: '上课时间、排课、日程、几点上课相关',
+  replay: '回放、录播、错过课程、补看相关',
+  gift: '赠品、资料包、完课好礼、福利说明相关',
+  trial: '体验课、试听、先体验再决定相关',
+  discount: '优惠、活动价、名额、限时权益相关',
+  grade: '询问孩子年级、基础、学段、适合课程',
+  parent: '面向家长的礼貌沟通、确认孩子情况',
+  child: '鼓励孩子学习、兴趣、基础提升',
+  homework: '作业、练习、打卡、预习、复习相关',
+  reading: '阅读、写作、作文、表达训练相关',
+  phonics: '自然拼读、发音、英语启蒙、单词拼读相关',
+  followup: '跟进客户进展、轻量回访、确认是否打开',
+  congrats: '恭喜客户完成报名、支付、领取或孩子进步',
+  polite: '通用礼貌承接、轻松但不冒犯的客服表达',
+  calm: '客户着急、不满、情绪波动，需要安抚',
+  service: '客服承接处理、帮客户查看、安排下一步',
+  handoff_ready: '客户要求人工、需要老师/班主任/专人协助',
+};
+const courseMemeUsageInstructions: Record<string, string> = {
+  welcome: '客户首次进线、打招呼、问“在吗/你好”时可以发；不要用于客户投诉或严肃质疑。',
+  thanks: '客户配合、下单、发截图、提供信息或表达感谢时可以发；不要用于催单施压。',
+  sorry: '等待过久、解释不清、给客户带来不便时可以发；不要反复发送造成打扰。',
+  calm: '客户着急、情绪激动、遇到问题时用于先共情安抚；不要用于成交庆祝。',
+  question: '客户提问、表达疑惑、需要进一步解释时可以发；不要用于客户已经明确拒绝的场景。',
+  thinking: '需要查询、核对、确认资料或报名状态时可以发；发送后要继续给出明确答复。',
+  wait: '需要客户稍等、正在处理或转接前可以发；不要让客户只看到表情没有正文。',
+  checking: '正在核实支付、截图、课程安排、资源入口时可以发；必须搭配处理说明。',
+  reminder: '提醒客户看链接、发截图、完成报名或留意上课时可以发；语气必须轻，不要催促压迫。',
+  deal: '客户明确要买、已下单、报名成功时可以发；不要在客户犹豫或拒绝时发。',
+  signup: '客户询问怎么报名、报名链接、领取体验课时可以发；不要用于投诉、道歉或情绪激动场景。',
+  payment: '客户付款、订单、支付截图、确认支付状态时可以发；不要在未确认意愿时催付。',
+  link: '发送真实报名链接、资源入口、卡片入口时可以发；不得替代真实链接。',
+  resource: '客户问听力、答案、二维码、图书资源时可以发；先解决资源问题再承接课程。',
+  class_time: '客户问几点上课、课程安排、日程时可以发；不要自行编造时间。',
+  replay: '客户错过课程、询问回放或录播时可以发；要说明具体查看方式。',
+  gift: '说明赠品、资料包、完课好礼、福利时可以发；不要夸大权益。',
+  trial: '客户考虑体验课、试听、先看看时可以发；不要强迫报名。',
+  discount: '说明优惠、活动、名额时可以发；价格和时效必须以真实链接为准。',
+  grade: '询问或确认孩子年级、基础、学习阶段时可以发；不要套用成人口吻。',
+  parent: '对家长表达礼貌感谢、确认孩子情况时可以发；不要显得过度亲昵。',
+  child: '鼓励孩子学习、打卡、进步时可以发；避免对效果作绝对承诺。',
+  homework: '作业、练习、预习、复习、打卡相关时可以发；语气鼓励为主。',
+  reading: '阅读、写作、作文、表达训练相关时可以发；不要脱离课程事实。',
+  phonics: '自然拼读、发音、英语启蒙、单词拼读相关时可以发；要配合课程说明。',
+  followup: '轻量回访、确认能否打开、是否领取成功时可以发；不要频繁打扰。',
+  congrats: '客户完成报名、支付、领取资料或孩子取得进步时可以发；不要用于催单。',
+  polite: '通用礼貌收尾、承接和感谢时可以发；避免每句话都发。',
+  service: '表达“我帮您看/我来处理/这边安排”时可以发；必须跟具体动作。',
+  handoff_ready: '客户说转人工、找老师、班主任、电话联系时可以发；随后要进入人工协助流程。',
+};
+
+function memeUsageScene(code: string, meaning: string, searchKeyword: string) {
+  return courseMemeUsageScenes[code] || `${meaning}、${searchKeyword} 等相近客服销售场景`;
+}
+
+function memeUsageInstruction(code: string, meaning: string, keywords: string[], variantLabel: string) {
+  const fallback = `当客户表达 ${meaning}，或出现“${keywords.slice(0, 4).join('、')}”等相近语义时可以发；必须礼貌、克制、和正文语境一致。`;
+  return `${courseMemeUsageInstructions[code] || fallback} 推荐风格：${variantLabel}。`;
+}
+
+const courseMemeFeishuEmojis: Record<string, string[]> = {
+  happy: ['[微笑]', '[愉快]', '[大笑]', '[欢呼]', '[耶]'],
+  thanks: ['[双手合十]', '[感谢]', '[抱拳]'],
+  like: ['[赞]', '[+1]', '[我看行]', '[强]', '[完成]'],
+  success: ['[完成]', '[勾号]', '[100分]', '[鼓掌]'],
+  morning: ['[微笑]', '[咖啡]'],
+  noon: ['[咖啡]', '[愉快]'],
+  evening: ['[咖啡]', '[微笑]'],
+  night: ['[再见]', '[鼾睡]'],
+  ok: ['[OK]', '[了解]', '[完成]'],
+  received: ['[了解]', '[OK]', '[完成]'],
+  cheer: ['[加油]', '[奋斗]', '[冲！]', '[鼓掌]'],
+  welcome: ['[挥手]', '[微笑]', '[愉快]'],
+  question: ['[思考]', '[什么？]', '[啊？]'],
+  thinking: ['[思考]', '[思考中]', '[稍等]'],
+  sorry: ['[抱拳]', '[双手合十]'],
+  wait: ['[稍等]', '[在做了]', '[思考中]'],
+  checking: ['[在做了]', '[稍等]', '[思考]'],
+  reminder: ['[图钉]', '[闹钟]', '[点击]'],
+  deal: ['[鼓掌]', '[欢呼]', '[撒花]'],
+  signup: ['[完成]', '[鼓掌]', '[撒花]'],
+  payment: ['[完成]', '[勾号]', '[100分]'],
+  link: ['[点击]', '[OK]', '[了解]'],
+  resource: ['[图钉]', '[点击]', '[了解]'],
+  class_time: ['[日程]', '[闹钟]', '[了解]'],
+  replay: ['[电视]', '[了解]', '[OK]'],
+  gift: ['[礼物]', '[送你小红花]', '[撒花]'],
+  trial: ['[微笑]', '[愉快]', '[挥手]'],
+  discount: ['[礼物]', '[火]', '[点击]'],
+  grade: ['[了解]', '[思考]', '[OK]'],
+  parent: ['[微笑]', '[了解]', '[双手合十]'],
+  child: ['[送你小红花]', '[加油]', '[比心]'],
+  homework: ['[奋斗]', '[加油]', '[100分]'],
+  reading: ['[100分]', '[送你小红花]', '[加油]'],
+  phonics: ['[音乐]', '[100分]', '[加油]'],
+  followup: ['[图钉]', '[了解]', '[微笑]'],
+  congrats: ['[鼓掌]', '[欢呼]', '[撒花]'],
+  polite: ['[双手合十]', '[感谢]', '[微笑]'],
+  calm: ['[摸头]', '[抱拳]', '[稍等]'],
+  service: ['[在做了]', '[了解]', '[OK]'],
+  handoff_ready: ['[举手]', '[稍等]', '[了解]'],
+};
+
+function buildDefaultMemeLibrary(): PipelineTemplateMemeLibraryItem[] {
+  return courseMemeScenes.flatMap(([code, meaning, keywords, searchKeyword]) =>
+    courseMemeVariants.map(([variant, variantLabel], index) => ({
+      id: `${code}-${variant}`,
+      enabled: true,
+      source: 'builtin',
+      meaning: `${meaning} · ${variantLabel}`,
+      trigger_keyword: `{${code}}`,
+      code,
+      emotion: code,
+      search_keyword: searchKeyword,
+      usage_scene: memeUsageScene(code, meaning, searchKeyword),
+      usage_instruction: memeUsageInstruction(code, meaning, keywords, variantLabel),
+      feishu_emoji: courseMemeFeishuEmojis[code]?.[index % courseMemeFeishuEmojis[code].length] || '[微笑]',
+      keywords,
+      tags: [code, meaning, variantLabel, searchKeyword],
+      file_key: `sales-memes/${code}/${variant}.png`,
+      image_url: '',
+    })),
+  );
+}
+
+const courseMemeConfig: PipelineTemplateMemeConfig = {
+  enabled: true,
+  large_enabled: true,
+  feishu_native_enabled: true,
+  smart_judge_enabled: true,
+  small_interval_rounds: 3,
+  large_interval_rounds: 5,
+  library_enabled: true,
+  api_fallback_enabled: true,
+  oiapi_enabled: true,
+  oiapi_limit: 5,
+  library: buildDefaultMemeLibrary(),
+};
+const courseFollowupSequences = [
+  {
+    stage: 'purchase',
+    label: '要买/怎么买',
+    messages: [
+      { delay_minutes: 0, message: '好哒' },
+      { delay_minutes: 0, message: '猿辅导英语自然拼读9元体验课点这里👉：', link_id: 'phonics_radar_apply', send_link_card: true },
+      { delay_minutes: 5, message: '家长领取到了吗？' },
+      { delay_minutes: 60, message: '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。' },
+      { delay_minutes: 0, schedule_time: '21:30', message: '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~' },
+    ],
+  },
+  {
+    stage: 'purchased',
+    label: '买了',
+    messages: [
+      { delay_minutes: 0, message: '谢谢支持 报名后会跳出一个微信二维码，是指导老师的，添加一下 老师会提醒你上课的哈，没添加也没关系，开课时老师也会主动联系你，留意下老师的电话和短信' },
+      { delay_minutes: 0, message: '家长这个是赠送的资料。您可以长按识别关注一下，有空都可以打开学。', image_key: 'course-sales/phonics/gift_qr.jpeg' },
+      { delay_minutes: 0, message: '实物的话，完课后 直接联系 猿辅导班主任就可以，想要什么私下和老师说哈' },
+    ],
+  },
+  {
+    stage: 'radar_clicked',
+    label: '点雷达',
+    messages: [
+      { delay_minutes: 0, message: '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功的短信，我给您登记开课并赠送资料' },
+      { delay_minutes: 0, message: '预约通道已经发给您了👆，支付成功以后截图给我哦，给您登记发赠课~', link_id: 'phonics_radar_apply', send_link_card: true },
+      { delay_minutes: 5, message: '家长领取到了吗？' },
+      { delay_minutes: 60, message: '孩子家长，你好，这边您给小孩领取好了吗？因为后台的话，每个年级的名额都不多了。您没领的话，抽空领一下。' },
+      { delay_minutes: 0, schedule_time: '21:30', message: '晚上好家长，忙完了么？现在方便给孩子预约下吗，赠送的名额还给您保留着呢。一直等您，辛苦您看到的话回复我一下吧~' },
+    ],
+  },
+];
+const courseLongTermBroadcasts = [
+  { day: 1, title: '第一天主打介绍', time: '10:05', message: '您好家长，再次打扰您了🤝 “9元共10节名师直播课”名额不多了，预约成功找我还免费赠送资料礼包。', image_key: '' },
+  { day: 2, title: '第二天再次提醒', time: '10:05', message: '对了家长，猿辅导推出五天共10节语数英名师直播课，课程有回放，随时可以学，限前39名哦。', image_key: '' },
+  { day: 3, title: '第三天最后确认', time: '10:05', message: '在嘛？家长，无论孩子体验不体验，给我个答复就行，优惠马上要截止了，我这边和您确定一下这个名额。', image_key: '' },
+];
+
+export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
+  const modelUuid = COURSE_SALES_REPLY_MODEL_UUID;
+  const intentModelUuid = COURSE_SALES_INTENT_MODEL_UUID;
+  const nodes: PipelineWorkflowNode[] = [
+    workflowNode('start', 'start', '用户进线', '用户扫码、添加微信/企微或在网页咨询课程与图书资源', { x: 80, y: 320 }, { trigger: 'message' }),
+    workflowNode('opening_message', 'custom', '首次开场白与资源卡片', '用户加好友/首次进线时先发开场白，再单独发送图书配套学习资源卡片', { x: 340, y: 320 }, {
+      trigger: 'first_contact',
+      message: courseOpeningMessage,
+      link_id: 'phonics_resource_card',
+      link_url: courseResourceCardLink,
+      send_link_card: true,
+      radar_enabled: false,
+    }),
+    workflowNode('channel', 'channel', '渠道接入', '统一接收网页、微信、企微、飞书等渠道消息', { x: 600, y: 320 }, { channels: ['web', 'wechat', 'wecom', 'lark'], keep_session: true }),
+    workflowNode('media_router', 'media', '消息类型判断', '区分文字、截图/图片和语音', { x: 860, y: 320 }, {
+      routes: [
+        { when: 'has_text', target: 'text_input' },
+        { when: 'has_voice', target: 'voice_asr' },
+        { when: 'has_image', target: 'screenshot_input' },
+      ],
+    }),
+    workflowNode('text_input', 'custom', '文字问题整理', '提取家长问题、孩子年级、是否点击链接、是否已报名', { x: 1160, y: 120 }, { output_key: 'user_text', params: '{"from": "message_chain.plain_text"}' }),
+    workflowNode('voice_asr', 'asr', '语音输入处理', '用户发语音时先理解课程咨询内容，语音回复开关开启时可用语音回复', { x: 1160, y: 320 }, { provider: 'volcengine', model_uuid: 'lna-doubao-bigasr-flash', fallback_text: '用户发来课程咨询语音，请用文字短句回复。' }),
+    workflowNode('screenshot_input', 'vision', '截图识别', '识别支付成功页、报名页、白屏、资源页或二维码页', { x: 1160, y: 520 }, { model_uuid: modelUuid, target_steps: ['gift_poster', 'gift_qr', 'link_error'] }),
+    workflowNode('intent', 'intent', '意图识别', '识别资源、课程、购买、已报名、拒绝、投诉、雷达点击等状态', { x: 1460, y: 320 }, {
+      model_uuid: intentModelUuid,
+      model_extra_args: COURSE_SALES_INTENT_MODEL_EXTRA_ARGS,
+      intents: [
+        'resource_help',
+        'resource_confirmed',
+        'course_intro',
+        'course_schedule',
+        'course_replay',
+        'course_content',
+        'reading_thinking_intro',
+        'teacher_service',
+        'purchase',
+        'purchased',
+        'objection',
+        'explicit_rejection',
+        'gift',
+        'grade',
+        'link_error',
+        'radar_clicked',
+        'handoff',
+        'stop',
+        'screenshot_help',
+        'no_reply',
+        'smalltalk',
+        'clarification',
+      ],
+      confidence_threshold: 0.55,
+      image_intents: ['screenshot_help', 'purchased', 'link_error'],
+    }),
+    workflowNode('stop_rules', 'condition', '停发规则', '已报名、投诉、拒绝、人工接管、无孩子等状态停止群发和促单', { x: 1740, y: 320 }, { ...courseStopRules, stop_policy: courseStopPolicy }),
+    workflowNode('resource_faq', 'knowledge', '图书资源FAQ', '听力、答案、验证码、暂无资源、资源不对、下载等问题', { x: 2040, y: 80 }, { resource_faqs: courseResourceFaqs, knowledge_base_uuids: [], top_k: 5 }),
+    workflowNode('course_faq', 'knowledge', '课程FAQ', '自然拼读课程介绍、上课时间、回放、赠品、冲突和年级适配', { x: 2040, y: 260 }, { course_faqs: courseFaqs, knowledge_base_uuids: [], top_k: 5 }),
+    workflowNode('course_product', 'product', '课程产品库', '绑定猿辅导自然拼读体验课产品，输出价格、卖点、适龄和报名方式', { x: 2040, y: 440 }, { product_uuids: ['yuanfudao-phonics-course'], course_profile: courseSalesProfile, course_profiles: courseSalesProfiles }),
+    workflowNode('sales_link', 'custom', '发送报名链接', '发送指定报名链接卡片，雷达链接自动包装 tracking URL', { x: 2340, y: 440 }, { links: courseSalesLinks, link_url: courseRadarConfig.link_url }),
+    workflowNode('radar', 'radar', '链接点击雷达', '通过 tracking URL 回调感知链接打开，并按规则触发跟进', { x: 2640, y: 440 }, courseRadarConfig),
+    workflowNode('radar_followup', 'outreach', '主动跟进话术矩阵', '按Excel跟进表在马上、5分钟、1小时、21:30主动跟进，必要时发送Excel素材图或报名链接卡片', { x: 2940, y: 440 }, { followup_sequences: courseFollowupSequences, radar_rules: courseRadarConfig.rules }),
+    workflowNode('long_term_broadcast', 'outreach', 'SOP定时群发', '按SOP图片识别出的文字在每日10:05群发；不发送SOP图片', { x: 2640, y: 700 }, { broadcasts: courseLongTermBroadcasts, stop_rules: courseStopRules }),
+    workflowNode('handoff', 'handoff', '转人工', '投诉、高风险、订单纠纷或人工主动介入后停止AI和群发', { x: 2040, y: 700 }, defaultHumanHandoff),
+    workflowNode('reply', 'llm', '真人客服回复', '按SOP生成短句、明确、有下一步的课程客服/销售回复', { x: 3240, y: 320 }, {
+      model_uuid: modelUuid,
+      model_extra_args: COURSE_SALES_REPLY_MODEL_EXTRA_ARGS,
+      tone: '真人客服、短句、先服务后转化',
+      prompt: '你是真人课程客服，先处理图书资源问题。用户确认资源能打开后，先问孩子几年级，不要直接安排课程或发链接；用户明确要报名时，先给完课好礼，再单独发报名链接。用户问数学、奥数、应用题或思维类问题时，先说明当前没有单独数学课，再自然介绍英语自然拼读体验课。不要输出{自然拼读}、{课程名}、[报名链接XXXXXXX]等模板占位符。',
+    }),
+    workflowNode('end', 'end', '发送给用户', '发送文字、链接卡片、Excel素材图；用户语音咨询时可按配置追加语音回复', { x: 3540, y: 420 }, {}),
+  ];
+
+  const imagePositions = [
+    { x: 2040, y: 40 },
+    { x: 2040, y: 180 },
+    { x: 2340, y: 40 },
+    { x: 2340, y: 180 },
+    { x: 2640, y: 40 },
+    { x: 2640, y: 180 },
+  ];
+  courseImageBindings.forEach((binding, index) => {
+    nodes.push(
+      workflowNode(`image_${binding.step_id}`, 'image', binding.title, binding.text, imagePositions[index % imagePositions.length], {
+        step_id: binding.step_id,
+        file_key: binding.file_key,
+        image_url: '',
+        caption: binding.title,
+        trigger_intents: binding.trigger_intents,
+        requires_course_sales_signup_link: binding.requires_course_sales_signup_link === true,
+        append_caption: false,
+        enabled: binding.enabled,
+      }),
+    );
+  });
+
+  const edges: PipelineWorkflowEdge[] = [
+    workflowEdge('e-start-opening', 'start', 'opening_message'),
+    workflowEdge('e-opening-channel', 'opening_message', 'channel'),
+    workflowEdge('e-channel-media', 'channel', 'media_router'),
+    workflowEdge('e-media-text', 'media_router', 'text_input', '文字'),
+    workflowEdge('e-media-voice', 'media_router', 'voice_asr', '语音'),
+    workflowEdge('e-media-image', 'media_router', 'screenshot_input', '截图/图片'),
+    workflowEdge('e-text-intent', 'text_input', 'intent'),
+    workflowEdge('e-voice-intent', 'voice_asr', 'intent'),
+    workflowEdge('e-screenshot-intent', 'screenshot_input', 'intent'),
+    workflowEdge('e-intent-stop', 'intent', 'stop_rules'),
+    workflowEdge('e-stop-handoff', 'stop_rules', 'handoff', '投诉/接管'),
+    workflowEdge('e-stop-resource', 'stop_rules', 'resource_faq', '资源问题'),
+    workflowEdge('e-stop-course', 'stop_rules', 'course_faq', '课程问题'),
+    workflowEdge('e-stop-product', 'stop_rules', 'course_product', '购买/课程承接'),
+    workflowEdge('e-product-link', 'course_product', 'sales_link'),
+    workflowEdge('e-link-radar', 'sales_link', 'radar'),
+    workflowEdge('e-radar-followup', 'radar', 'radar_followup'),
+    workflowEdge('e-radar-reply', 'radar_followup', 'reply'),
+    workflowEdge('e-broadcast-reply', 'long_term_broadcast', 'reply'),
+    workflowEdge('e-handoff-reply', 'handoff', 'reply'),
+    workflowEdge('e-resource-reply', 'resource_faq', 'reply'),
+    workflowEdge('e-course-reply', 'course_faq', 'reply'),
+    workflowEdge('e-link-reply', 'sales_link', 'reply'),
+    workflowEdge('e-reply-end', 'reply', 'end', '文字/图片/链接'),
+  ];
+
+  courseImageBindings.forEach((binding) => {
+    const source = binding.step_id === 'gift_qr' ? 'course_faq' : 'course_product';
+    const imageNodeId = `image_${binding.step_id}`;
+    edges.push(
+      workflowEdge(`e-${source}-${imageNodeId}`, source, imageNodeId),
+      workflowEdge(`e-${imageNodeId}-reply`, imageNodeId, 'reply'),
+    );
+  });
+
+  const workflow: PipelineWorkflow = {
+    version: 1,
+    name: '课程销售模板',
+    scenario: 'sales',
+    metadata: {
+      scenario: 'course_sales_yuanfudao_phonics',
+      runtime_engine: 'langgraph',
+      source_mode: 'template',
+      template_name: '课程销售模板',
+      source: 'SOP.doc（群发截图转文字）+ 猿辅导课程问答整理.xlsx',
+      tts_provider: 'volcengine',
+      langgraph_state: {
+        messages: 'list',
+        user_profile: 'dict',
+        intent: 'dict',
+        rewritten_query: 'str',
+        customer_stage: 'str',
+        radar_event: 'dict',
+        selected_assets: 'list',
+        outreach_plan: 'dict',
+      },
+    },
+    voice: {
+      model_uuid: 'lnv-doubao-seed-tts-2-0-standard',
+      provider: 'volcengine',
+      enabled: true,
+      voice_type: 'zh_female_vv_uranus_bigtts',
+      encoding: 'mp3',
+    },
+    memes: courseMemeConfig,
+    agent_orchestration: makeDefaultAgentOrchestration(),
+    nodes,
+    edges,
+    variables: {
+      customer_stage: 'resource_service',
+      intent: '',
+      opening_message: courseOpeningMessage,
+      radar_event: {},
+      selected_product_uuid: 'yuanfudao-phonics-course',
+      course_profile: courseSalesProfile,
+      course_profiles: courseSalesProfiles,
+      agent_orchestration: makeDefaultAgentOrchestration(),
+      source_materials: ['SOP.doc（群发截图转文字）', '猿辅导课程问答整理.xlsx'],
+      resource_faqs: courseResourceFaqs,
+      course_faqs: courseFaqs,
+      sales_links: courseSalesLinks,
+      radar: courseRadarConfig,
+      followup_sequences: courseFollowupSequences,
+      long_term_broadcasts: courseLongTermBroadcasts,
+      human_handoff: defaultHumanHandoff,
+      memes: courseMemeConfig,
+      special_cases: [],
+      stop_rules: courseStopRules,
+      stop_policy: courseStopPolicy,
+      image_text_bindings: courseImageBindings,
+    },
+  };
+
+  if (workflow.nodes.length !== 21 || workflow.edges.length !== 28) {
+    throw new Error('Course sales workflow template must keep 21 nodes and 28 edges.');
+  }
+
+  return workflow;
 }
 
 export function createDefaultWorkflow(): PipelineWorkflow {
   return createBlankWorkflow();
+}
+
+export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
+  return {
+    name: '',
+    role_prompt: '',
+    opening_message: '',
+    recommended_questions: [],
+    model_uuid: '',
+    model_extra_args: {},
+    intent_model_uuid: '',
+    intent_model_extra_args: {},
+    max_reasoning_steps: 0,
+    reference_rounds: 0,
+    response_diversity: 0.3,
+    knowledge_base_uuids: [],
+    product_uuids: [],
+    sales_links: [],
+    radar: {
+      enabled: false,
+      link_title: '',
+      link_url: '',
+      tracking_fields: [],
+      rules: [],
+    },
+    followup_sequences: [],
+    long_term_broadcasts: [],
+    course_profiles: [],
+    source_materials: [],
+    stop_rules: {
+      stop_keywords: [],
+      stop_tags: [],
+      message: '',
+    },
+    stop_policy: {
+      explicit_rejection_threshold: 1,
+      explicit_rejection_keywords: [],
+      immediate_stop_keywords: [],
+    },
+    tools: {
+      intent_recognition: false,
+      knowledge_base: false,
+      product_database: false,
+      image_recognition: false,
+      voice_reply: false,
+    },
+    reply_controls: {
+      multi_reply_enabled: false,
+      merge_reply_enabled: true,
+      merge_delay_seconds: 10,
+    },
+    agent_orchestration: makeDisabledAgentOrchestration(),
+    memory: {
+      variables_enabled: false,
+      table_enabled: false,
+      segments_enabled: false,
+    },
+    voice: {
+      model_uuid: '',
+      provider: '',
+      enabled: false,
+      voice_type: '',
+      encoding: '',
+    },
+    asr: {
+      model_uuid: '',
+      provider: '',
+      fallback_text: '用户发来一条语音咨询，请用短句回复。',
+    },
+    scheduled_push: {
+      enabled: false,
+      mode: 'daily',
+      time: '',
+      single_date: '',
+      message: '',
+      push_message: '',
+      loop_enabled: false,
+      items: [],
+    },
+    interaction_radar: {
+      enabled: false,
+      link_url: '',
+      click_reply: '',
+    },
+    human_handoff: {
+      ...defaultHumanHandoff,
+      enabled: false,
+      keywords: [],
+      semantic_triggers: defaultHumanHandoff.semantic_triggers.map((trigger) => ({
+        ...trigger,
+        enabled: false,
+      })),
+      notify_message: '',
+    },
+    resource_capture: {
+      enabled: true,
+      trigger_keywords: [
+        '扫码资源',
+        '图书资源',
+        '配套资源',
+        '资源卡片',
+        '二维码',
+        '扫码',
+        '听力资源',
+        '答案资源',
+        '打不开',
+        '不能打开',
+        '无法打开',
+        '点不开',
+        '进不去',
+        '资源缺失',
+        '资源为空',
+        '正在上传',
+      ],
+      required_image_count: 2,
+      max_followup_rounds: 4,
+      ask_message:
+        '我帮您记录这个扫码资源问题。麻烦您补充一下具体问题，再发一下出问题的二维码照片、以及出现问题的位置/页面照片',
+      ask_description_message:
+        '麻烦您描述一下具体问题，比如哪里打不开、提示什么、哪一题或哪一页不对',
+      ask_photo_message:
+        '再麻烦发一下出问题的二维码照片、以及出现问题的位置/页面照片',
+      completed_message:
+        '收到，我已经把这个资源问题和相关照片记录下来了，会同步给工作人员处理',
+    },
+    memes: {
+      ...courseMemeConfig,
+      library: buildDefaultMemeLibrary(),
+    },
+    special_cases: [],
+    image_text_bindings: [],
+  };
 }
 
 export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
@@ -349,11 +1587,30 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
     role_prompt: '你是真人客服，负责一步步引导用户完成蚂蚁阿福实名认证。回复要短、自然、像真人，不要自称 AI、机器人或任务助手。',
     opening_message: '我带你一步步完成实名认证。先用支付宝扫码下载蚂蚁阿福 App，完成后跟我说“下一步”。',
     recommended_questions: ['我应该怎么完成这个任务？', '我卡在这一步了怎么办？', '下一步怎么做？'],
-    model_uuid: 'task-assistant-qwen-vl-plus',
+    model_uuid: '',
+    model_extra_args: {},
+    intent_model_uuid: '',
+    intent_model_extra_args: {},
     max_reasoning_steps: 2,
     reference_rounds: 2,
+    response_diversity: 0.3,
     knowledge_base_uuids: [],
     product_uuids: [],
+    sales_links: [],
+    radar: {
+      enabled: false,
+      link_title: '',
+      link_url: '',
+      tracking_fields: [],
+      rules: [],
+    },
+    followup_sequences: [],
+    long_term_broadcasts: [],
+    stop_rules: {
+      stop_keywords: [],
+      stop_tags: [],
+      message: '',
+    },
     tools: {
       intent_recognition: true,
       knowledge_base: true,
@@ -361,16 +1618,28 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       image_recognition: true,
       voice_reply: true,
     },
+    reply_controls: {
+      multi_reply_enabled: false,
+      merge_reply_enabled: true,
+      merge_delay_seconds: 10,
+    },
+    agent_orchestration: makeDisabledAgentOrchestration(),
     memory: {
       variables_enabled: true,
       table_enabled: true,
       segments_enabled: false,
     },
     voice: {
+      model_uuid: '',
       provider: 'volcengine',
       enabled: true,
       voice_type: 'zh_female_yuanqinvyou_moon_bigtts',
       encoding: 'ogg_opus',
+    },
+    asr: {
+      model_uuid: 'lna-doubao-bigasr-flash',
+      provider: 'volcengine',
+      fallback_text: '用户发来一条语音咨询，请用短句回复。',
     },
     scheduled_push: {
       enabled: true,
@@ -379,7 +1648,40 @@ export function createTaskAssistantTemplateConfig(): PipelineTemplateConfig {
       single_date: '',
       message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
       push_message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+      loop_enabled: false,
+      items: [
+        {
+          day: 1,
+          time: '10:00',
+          message: '你好，今天继续完成蚂蚁阿福实名认证任务，有卡住的页面直接发截图给我。',
+        },
+      ],
     },
+    interaction_radar: {
+      enabled: false,
+      link_url: '',
+      click_reply: '我看到您刚刚点开了链接，如果有不清楚的地方可以直接问我。',
+    },
+    human_handoff: {
+      ...defaultHumanHandoff,
+      enabled: false,
+      notify_message: '我这边帮您记录好了，稍等我看下具体情况~',
+    },
+    memes: {
+      ...courseMemeConfig,
+      library: buildDefaultMemeLibrary(),
+    },
+    special_cases: [
+      {
+        id: 'phonics-listening-answer-card',
+        enabled: true,
+        condition: '用户在问书籍二维码里的听力、答案、音频或扫码资源怎么打开、怎么听、在哪里看。',
+        reply: '书籍二维码听力/答案，点击上面推送的【点击访问扫码前的资源】卡片。',
+        ai_rewrite: true,
+        file_key: '',
+        image_url: '',
+      },
+    ],
     image_text_bindings: bindings.map(([step_id, title, text, file_key]) => ({
       step_id,
       title,
@@ -401,6 +1703,8 @@ export function applyTemplateConfigToWorkflow(
   return {
     ...workflow,
     name: templateConfig.name || workflow.name,
+    special_cases: templateConfig.special_cases || [],
+    agent_orchestration: templateConfig.agent_orchestration,
     metadata: {
       ...(workflow.metadata || {}),
       source_mode: 'template',
@@ -410,6 +1714,7 @@ export function applyTemplateConfigToWorkflow(
       ...(workflow.voice || {}),
       ...templateConfig.voice,
     },
+    memes: templateConfig.memes,
     nodes: workflow.nodes.map((node) => {
       const stepId = typeof node.config?.step_id === 'string' ? node.config.step_id : '';
       const binding = bindingByStepId.get(stepId);
@@ -420,8 +1725,24 @@ export function applyTemplateConfigToWorkflow(
       if (node.type === 'llm' || node.type === 'vision') {
         nextNode.config.model_uuid = templateConfig.model_uuid;
       }
+      if (node.type === 'llm') {
+        nextNode.config.model_extra_args = templateConfig.model_extra_args || {};
+      }
+      if (node.type === 'intent') {
+        nextNode.config.model_uuid = templateConfig.intent_model_uuid || '';
+        nextNode.config.model_extra_args = templateConfig.intent_model_extra_args || {};
+      }
       if (node.type === 'voice') {
         nextNode.config = { ...nextNode.config, ...templateConfig.voice };
+      }
+      if (node.type === 'asr') {
+        nextNode.config = {
+          ...nextNode.config,
+          model_uuid: templateConfig.asr?.model_uuid || '',
+          provider: templateConfig.asr?.provider || nextNode.config.provider,
+          fallback_text:
+            templateConfig.asr?.fallback_text || nextNode.config.fallback_text,
+        };
       }
       if (binding && node.type === 'task') {
         nextNode.title = binding.title;
@@ -442,8 +1763,21 @@ export function applyTemplateConfigToWorkflow(
     variables: {
       ...(workflow.variables || {}),
       scheduled_push: templateConfig.scheduled_push,
+      interaction_radar: templateConfig.interaction_radar,
+      human_handoff: templateConfig.human_handoff,
+      memes: templateConfig.memes,
+      special_cases: templateConfig.special_cases || [],
       opening_message: templateConfig.opening_message,
       recommended_questions: templateConfig.recommended_questions,
+      sales_links: templateConfig.sales_links || [],
+      radar: templateConfig.radar,
+      followup_sequences: templateConfig.followup_sequences || [],
+      long_term_broadcasts: templateConfig.long_term_broadcasts || [],
+      course_profiles: templateConfig.course_profiles || [],
+      agent_orchestration: templateConfig.agent_orchestration,
+      source_materials: templateConfig.source_materials || [],
+      stop_rules: templateConfig.stop_rules,
+      stop_policy: templateConfig.stop_policy,
     },
   };
 }

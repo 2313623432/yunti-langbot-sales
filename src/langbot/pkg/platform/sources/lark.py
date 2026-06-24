@@ -24,6 +24,8 @@ from lark_oapi.api.im.v1 import *
 import pydantic
 from lark_oapi.api.cardkit.v1 import *
 from lark_oapi.api.auth.v3 import *
+from lark_oapi.api.contact.v3 import GetUserRequest
+from lark_oapi.core.enum import AccessTokenType, HttpMethod
 from lark_oapi.core.model import *
 
 import langbot_plugin.api.definition.abstract.platform.adapter as abstract_platform_adapter
@@ -60,6 +62,37 @@ class AESCipher(object):
 
 
 class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
+    _LAZY_IMAGE_ID_PREFIX = 'lark:'
+
+    @staticmethod
+    def supports_lark_sticker_file_key_components() -> bool:
+        """Return whether the shared platform message layer exposes Lark sticker file_key messages."""
+        return False
+
+    @staticmethod
+    def lark_sticker_file_key_from_component(msg: platform_message.MessageComponent) -> str | None:
+        """Return a Lark sticker file_key only when a shared sticker component exists.
+
+        Feishu/Lark only accepts sticker file_key values for stickers the bot has
+        received. The current shared message entities do not expose such a
+        component, so course-sales first replies must keep using text emoji.
+        """
+        return None
+
+    @staticmethod
+    def _lazy_image_id(message_id: str, image_key: str) -> str:
+        return f'{LarkMessageConverter._LAZY_IMAGE_ID_PREFIX}{message_id}:{image_key}'
+
+    @staticmethod
+    def _parse_lazy_image_id(image_id: str) -> tuple[str, str] | None:
+        if not image_id.startswith(LarkMessageConverter._LAZY_IMAGE_ID_PREFIX):
+            return None
+        payload = image_id[len(LarkMessageConverter._LAZY_IMAGE_ID_PREFIX) :]
+        message_id, separator, image_key = payload.partition(':')
+        if not separator or not message_id or not image_key:
+            return None
+        return message_id, image_key
+
     @staticmethod
     def _decode_base64_media_data(data: str) -> tuple[bytes, str | None]:
         mime_type = None
@@ -112,6 +145,28 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
         if mime_type == 'audio/wav':
             return {'file_type': 'stream', 'file_name': 'voice.wav'}
         return {'file_type': 'opus', 'file_name': 'voice.opus'}
+
+    @staticmethod
+    async def download_image_from_lark(image_id: str, api_client: lark_oapi.Client) -> typing.Optional[str]:
+        parsed = LarkMessageConverter._parse_lazy_image_id(image_id)
+        if parsed is None:
+            return None
+
+        message_id, image_key = parsed
+        request: GetMessageResourceRequest = (
+            GetMessageResourceRequest.builder().message_id(message_id).file_key(image_key).type('image').build()
+        )
+        response: GetMessageResourceResponse = await api_client.im.v1.message_resource.aget(request)
+
+        if not response.success():
+            raise Exception(
+                f'client.im.v1.message_resource.get failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}, resp: \n{json.dumps(json.loads(response.raw.content), indent=4, ensure_ascii=False)}'
+            )
+
+        image_bytes = response.file.read()
+        image_base64 = base64.b64encode(image_bytes).decode()
+        image_format = response.raw.headers.get('content-type', 'image/jpeg')
+        return f'data:{image_format};base64,{image_base64}'
 
     @staticmethod
     async def upload_image_to_lark(msg: platform_message.Image, api_client: lark_oapi.Client) -> typing.Optional[str]:
@@ -498,28 +553,11 @@ class LarkMessageConverter(abstract_platform_adapter.AbstractMessageConverter):
                 lb_msg_list.append(platform_message.At(target=ele['user_name']))
             elif ele['tag'] == 'img':
                 image_key = ele['image_key']
-
-                request: GetMessageResourceRequest = (
-                    GetMessageResourceRequest.builder()
-                    .message_id(message.message_id)
-                    .file_key(image_key)
-                    .type('image')
-                    .build()
-                )
-
-                response: GetMessageResourceResponse = await api_client.im.v1.message_resource.aget(request)
-
-                if not response.success():
-                    raise Exception(
-                        f'client.im.v1.message_resource.get failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}, resp: \n{json.dumps(json.loads(response.raw.content), indent=4, ensure_ascii=False)}'
+                lb_msg_list.append(
+                    platform_message.Image(
+                        image_id=LarkMessageConverter._lazy_image_id(message.message_id, image_key)
                     )
-
-                image_bytes = response.file.read()
-                image_base64 = base64.b64encode(image_bytes).decode()
-
-                image_format = response.raw.headers['content-type']
-
-                lb_msg_list.append(platform_message.Image(base64=f'data:{image_format};base64,{image_base64}'))
+                )
             elif ele['tag'] == 'audio':
                 file_key = ele['file_key']
                 duration = ele['duration']
@@ -634,6 +672,12 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
     _processed_thread_quote_cache: typing.ClassVar[dict[str, float]] = {}
     _processed_thread_quote_cache_max_size: typing.ClassVar[int] = 4096
     _processed_thread_quote_cache_ttl_seconds: typing.ClassVar[int] = 86400
+
+    @staticmethod
+    def _read_value(source: typing.Any, key: str) -> typing.Any:
+        if isinstance(source, dict):
+            return source.get(key)
+        return getattr(source, key, None)
 
     @classmethod
     def _prune_processed_thread_quote_cache(cls, now: typing.Optional[float] = None) -> None:
@@ -753,6 +797,103 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
         return quote_chain
 
     @staticmethod
+    def _first_display_name(*values: typing.Any) -> str:
+        for value in values:
+            text = str(value or '').strip()
+            if not text:
+                continue
+            if re.match(r'^(on|om|ou|oc|of)_[A-Za-z0-9_-]{12,}$', text):
+                continue
+            return text
+        return ''
+
+    @staticmethod
+    def _sender_display_name(sender: typing.Any) -> str:
+        candidates: list[typing.Any] = []
+        for key in ('name', 'display_name', 'nickname', 'sender_name', 'user_name'):
+            candidates.append(LarkEventConverter._read_value(sender, key))
+
+        user = LarkEventConverter._read_value(sender, 'user')
+        if user is not None:
+            for key in ('name', 'display_name', 'nickname', 'en_name', 'user_name'):
+                candidates.append(LarkEventConverter._read_value(user, key))
+
+        sender_id = LarkEventConverter._read_value(sender, 'sender_id')
+        if sender_id is not None:
+            for key in ('name', 'display_name', 'nickname', 'union_id'):
+                candidates.append(LarkEventConverter._read_value(sender_id, key))
+
+        return LarkEventConverter._first_display_name(*candidates)
+
+    @staticmethod
+    def _display_name_from_contact_user(user: typing.Any, fallback_name: str | None = None) -> str:
+        candidates: list[typing.Any] = []
+        for key in ('name', 'nickname', 'en_name', 'display_name', 'user_name', 'localized_name'):
+            candidates.append(LarkEventConverter._read_value(user, key))
+
+        i18n_name = LarkEventConverter._read_value(user, 'i18n_name')
+        if i18n_name is not None:
+            for key in ('zh_cn', 'zh-CN', 'zh_hans', 'en_us', 'en-US'):
+                candidates.append(LarkEventConverter._read_value(i18n_name, key))
+
+        candidates.append(fallback_name)
+        return LarkEventConverter._first_display_name(*candidates)
+
+    @staticmethod
+    def _compact_lark_id(value: str | None) -> str:
+        text = str(value or '').strip()
+        if len(text) <= 16:
+            return text
+        return f'{text[:8]}...{text[-6:]}'
+
+    @staticmethod
+    async def _log_display_name_lookup_failure(
+        logger: abstract_platform_logger.AbstractEventLogger | None,
+        message: str,
+    ):
+        if logger is None:
+            return
+        try:
+            await logger.warning(message)
+        except Exception:
+            pass
+
+    @staticmethod
+    async def _fetch_user_display_name(
+        api_client: lark_oapi.Client,
+        open_id: str | None,
+        fallback_name: str | None = None,
+        logger: abstract_platform_logger.AbstractEventLogger | None = None,
+    ) -> str:
+        if not api_client or not open_id:
+            return LarkEventConverter._first_display_name(fallback_name) or '飞书用户'
+        try:
+            request = GetUserRequest.builder().user_id(open_id).user_id_type('open_id').build()
+            response = await api_client.contact.v3.user.aget(request)
+            if response.success():
+                user = LarkEventConverter._read_value(getattr(response, 'data', None), 'user')
+                display_name = LarkEventConverter._display_name_from_contact_user(user, fallback_name)
+                if display_name:
+                    return display_name
+                await LarkEventConverter._log_display_name_lookup_failure(
+                    logger,
+                    f'Lark contact user lookup returned no display name for open_id='
+                    f'{LarkEventConverter._compact_lark_id(open_id)}',
+                )
+            else:
+                await LarkEventConverter._log_display_name_lookup_failure(
+                    logger,
+                    f'Lark contact user lookup failed for open_id={LarkEventConverter._compact_lark_id(open_id)}: '
+                    f'code={getattr(response, "code", "")}, msg={getattr(response, "msg", "")}',
+                )
+        except Exception as e:
+            await LarkEventConverter._log_display_name_lookup_failure(
+                logger,
+                f'Lark contact user lookup raised for open_id={LarkEventConverter._compact_lark_id(open_id)}: {e}',
+            )
+        return LarkEventConverter._first_display_name(fallback_name) or '飞书用户'
+
+    @staticmethod
     async def yiri2target(
         event: platform_events.MessageEvent,
     ) -> lark_oapi.im.v1.P2ImMessageReceiveV1:
@@ -760,9 +901,21 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
 
     @staticmethod
     async def target2yiri(
-        event: lark_oapi.im.v1.P2ImMessageReceiveV1, api_client: lark_oapi.Client
+        event: lark_oapi.im.v1.P2ImMessageReceiveV1,
+        api_client: lark_oapi.Client,
+        logger: abstract_platform_logger.AbstractEventLogger | None = None,
     ) -> platform_events.Event:
         message_chain = await LarkMessageConverter.target2yiri(event.event.message, api_client)
+        sender_id = event.event.sender.sender_id
+        sender_open_id = getattr(sender_id, 'open_id', None)
+        sender_union_id = getattr(sender_id, 'union_id', None)
+        sender_event_display_name = LarkEventConverter._sender_display_name(event.event.sender)
+        sender_display_name = await LarkEventConverter._fetch_user_display_name(
+            api_client,
+            sender_open_id,
+            sender_event_display_name or sender_union_id,
+            logger,
+        )
 
         # Check for quote/reply message
         # Extract files/images/voice from quote and add them as top-level components
@@ -792,8 +945,8 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
         if event.event.message.chat_type == 'p2p':
             return platform_events.FriendMessage(
                 sender=platform_entities.Friend(
-                    id=event.event.sender.sender_id.open_id,
-                    nickname=event.event.sender.sender_id.union_id,
+                    id=sender_open_id,
+                    nickname=sender_display_name,
                     remark='',
                 ),
                 message_chain=message_chain,
@@ -803,8 +956,8 @@ class LarkEventConverter(abstract_platform_adapter.AbstractEventConverter):
         elif event.event.message.chat_type == 'group':
             return platform_events.GroupMessage(
                 sender=platform_entities.GroupMember(
-                    id=event.event.sender.sender_id.open_id,
-                    member_name=event.event.sender.sender_id.union_id,
+                    id=sender_open_id,
+                    member_name=sender_display_name,
                     permission=platform_entities.Permission.Member,
                     group=platform_entities.Group(
                         id=event.event.message.chat_id,
@@ -826,6 +979,8 @@ CARD_ID_CACHE_MAX_LIFETIME = 20 * 60  # 20分钟
 class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     bot: lark_oapi.ws.Client = pydantic.Field(exclude=True)
     api_client: lark_oapi.Client = pydantic.Field(exclude=True)
+    lark_ping_task: asyncio.Task | None = pydantic.Field(exclude=True, default=None)
+    lark_event_loop: asyncio.AbstractEventLoop | None = pydantic.Field(exclude=True, default=None)
 
     bot_account_id: str  # 用于在流水线中识别at是否是本bot，直接以bot_name作为标识
     lark_tenant_key: str = pydantic.Field(exclude=True, default='')  # 飞书企业key
@@ -839,6 +994,10 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         typing.Callable[[platform_events.Event, abstract_platform_adapter.AbstractMessagePlatformAdapter], None],
     ]
 
+    contact_added_callback: typing.Callable[[dict[str, str]], typing.Awaitable[None]] | None = pydantic.Field(
+        default=None, exclude=True
+    )
+
     quart_app: quart.Quart = pydantic.Field(exclude=True)
 
     card_id_dict: dict[str, str]  # 消息id到卡片id的映射，便于创建卡片后的发送消息到指定卡片
@@ -849,6 +1008,9 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     # Final: reply Lark message ID → (monitoring_message_id, timestamp) (used by feedback callbacks)
     reply_to_monitoring_msg: dict[str, tuple[str, float]]
     _MONITORING_MAPPING_TTL = 600  # 10 minutes
+    processed_message_ids: dict[str, float] = pydantic.Field(default_factory=dict, exclude=True)
+    _PROCESSED_MESSAGE_CACHE_TTL_SECONDS: typing.ClassVar[int] = 10 * 60
+    _PROCESSED_MESSAGE_CACHE_MAX_SIZE: typing.ClassVar[int] = 2000
 
     seq: int  # 用于在发送卡片消息中识别消息顺序，直接以seq作为标识
     bot_uuid: str = None  # 机器人UUID
@@ -861,12 +1023,49 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         quart_app = quart.Quart(__name__)
 
         async def on_message(event: lark_oapi.im.v1.P2ImMessageReceiveV1):
-            lb_event = await self.event_converter.target2yiri(event, self.api_client)
+            await self.logger.info('Lark inbound message event received')
+            lb_event = await self.event_converter.target2yiri(event, self.api_client, self.logger)
 
             await self.listeners[type(lb_event)](lb_event, self)
 
         def sync_on_message(event: lark_oapi.im.v1.P2ImMessageReceiveV1):
-            asyncio.create_task(on_message(event))
+            message = getattr(getattr(event, 'event', None), 'message', None)
+            header = getattr(event, 'header', None)
+            message_id = getattr(message, 'message_id', None)
+            event_id = getattr(header, 'event_id', None)
+            if self._is_duplicate_lark_message(message_id, event_id):
+                self._schedule_lark_callback(
+                    self.logger.info(f'Skipped duplicate Lark message event: message_id={message_id}'),
+                    'duplicate message log',
+                )
+                return
+            self._schedule_lark_callback(on_message(event), 'message')
+
+        def sync_on_p2p_chat_access(event, event_type: str):
+            try:
+                event_payload = {'event_type': event_type}
+                if hasattr(event, 'event') and event.event is not None:
+                    if hasattr(event.event, 'operator'):
+                        operator = event.event.operator
+                        event_payload['operator'] = {
+                            'open_id': getattr(operator, 'open_id', None),
+                            'user_id': getattr(operator, 'user_id', None),
+                            'union_id': getattr(operator, 'union_id', None),
+                        }
+                    if hasattr(event.event, 'user_id'):
+                        event_payload['user_id'] = getattr(event.event, 'user_id', None)
+                self._schedule_lark_callback(self._handle_contact_added_event(event_payload), 'p2p chat access')
+            except Exception:
+                self._schedule_lark_callback(
+                    self.logger.error(f'Error in lark p2p chat created callback: {traceback.format_exc()}'),
+                    'p2p chat access error',
+                )
+
+        def sync_on_p2p_chat_created(event):
+            sync_on_p2p_chat_access(event, 'im.chat.access_event.bot_p2p_chat_created_v1')
+
+        def sync_on_p2p_chat_entered(event):
+            sync_on_p2p_chat_access(event, 'im.chat.access_event.bot_p2p_chat_entered_v1')
 
         def sync_on_card_action(event):
             try:
@@ -913,17 +1112,19 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 )
 
                 if platform_events.FeedbackEvent in self.listeners:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(self.listeners[platform_events.FeedbackEvent](feedback_event, self))
-                    else:
-                        loop.run_until_complete(self.listeners[platform_events.FeedbackEvent](feedback_event, self))
+                    self._schedule_lark_callback(
+                        self.listeners[platform_events.FeedbackEvent](feedback_event, self),
+                        'card feedback',
+                    )
 
                 from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
 
                 return P2CardActionTriggerResponse({'toast': {'type': 'success', 'content': '感谢您的反馈'}})
             except Exception:
-                asyncio.create_task(self.logger.error(f'Error in lark card action callback: {traceback.format_exc()}'))
+                self._schedule_lark_callback(
+                    self.logger.error(f'Error in lark card action callback: {traceback.format_exc()}'),
+                    'card action error',
+                )
                 from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTriggerResponse
 
                 return P2CardActionTriggerResponse({'toast': {'type': 'error', 'content': '反馈处理失败'}})
@@ -934,7 +1135,10 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             .register_p2_card_action_trigger(sync_on_card_action)
             .build()
         )
-
+        if hasattr(event_handler, 'register_p2_im_chat_access_event_bot_p2p_chat_created_v1'):
+            event_handler.register_p2_im_chat_access_event_bot_p2p_chat_created_v1(sync_on_p2p_chat_created)
+        if hasattr(event_handler, 'register_p2_im_chat_access_event_bot_p2p_chat_entered_v1'):
+            event_handler.register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(sync_on_p2p_chat_entered)
         bot_account_id = config['bot_name']
 
         domain = self._resolve_domain(config)
@@ -950,8 +1154,11 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             card_id_dict={},
             pending_monitoring_msg={},
             reply_to_monitoring_msg={},
+            processed_message_ids={},
             seq=1,
             listeners={},
+            contact_added_callback=None,
+            lark_event_loop=None,
             quart_app=quart_app,
             bot=bot,
             api_client=api_client,
@@ -959,6 +1166,137 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             cipher=cipher,
             **kwargs,
         )
+
+    def _schedule_lark_callback(self, coroutine: typing.Coroutine, context: str) -> bool:
+        loop = self.lark_event_loop
+
+        if loop is None or not loop.is_running():
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                coroutine.close()
+                return False
+            asyncio.create_task(self._run_lark_callback(coroutine, context))
+            return True
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is loop:
+            asyncio.create_task(self._run_lark_callback(coroutine, context))
+        else:
+            loop.call_soon_threadsafe(lambda: loop.create_task(self._run_lark_callback(coroutine, context)))
+        return True
+
+    async def _run_lark_callback(self, coroutine: typing.Coroutine, context: str) -> None:
+        try:
+            await coroutine
+        except Exception:
+            await self.logger.error(f'Error in lark {context} callback: {traceback.format_exc()}')
+
+    def _prepare_lark_ws_loop(self) -> None:
+        self.lark_event_loop = asyncio.get_running_loop()
+        try:
+            import lark_oapi.ws.client as lark_ws_client
+
+            lark_ws_client.loop = self.lark_event_loop
+        except Exception:
+            pass
+
+    def _lark_log_prefix(self) -> str:
+        bot_name = str(self.config.get('bot_name') or 'unknown')
+        app_id = str(self.config.get('app_id') or '')
+        safe_app_id = f'{app_id[:8]}...' if app_id else 'unknown-app'
+        return f'Lark bot={bot_name} app={safe_app_id}'
+
+    def _lark_websocket_alive(self) -> bool:
+        conn = getattr(self.bot, '_conn', None)
+        if conn is None:
+            return False
+        if getattr(conn, 'closed', False):
+            return False
+        if getattr(conn, 'close_code', None) is not None:
+            return False
+        state = getattr(conn, 'state', None)
+        state_name = getattr(state, 'name', None)
+        if state_name and state_name != 'OPEN':
+            return False
+        return True
+
+    def _reset_lark_websocket_state(self) -> None:
+        for attr, value in (
+            ('_conn', None),
+            ('_conn_url', ''),
+            ('_conn_id', ''),
+            ('_service_id', ''),
+        ):
+            if hasattr(self.bot, attr):
+                setattr(self.bot, attr, value)
+        if hasattr(self.bot, '_lock'):
+            self.bot._lock = asyncio.Lock()
+
+    async def _disconnect_stale_lark_websocket(self) -> None:
+        if getattr(self.bot, '_conn', None) is None:
+            return
+        try:
+            await asyncio.wait_for(self.bot._disconnect(), timeout=5)
+        except Exception as e:
+            print(f'{self._lark_log_prefix()} stale websocket disconnect failed: {e}')
+            self._reset_lark_websocket_state()
+
+    async def _ensure_lark_websocket_connected(self) -> None:
+        self._prepare_lark_ws_loop()
+
+        if not self._lark_websocket_alive():
+            await self._disconnect_stale_lark_websocket()
+            print(f'{self._lark_log_prefix()} websocket connecting')
+            try:
+                await asyncio.wait_for(self.bot._connect(), timeout=30)
+            except Exception:
+                self._reset_lark_websocket_state()
+                raise
+            print(f'{self._lark_log_prefix()} websocket connected')
+
+        if self.lark_ping_task is None or self.lark_ping_task.done():
+            self.lark_ping_task = asyncio.create_task(self.bot._ping_loop())
+            print(f'{self._lark_log_prefix()} heartbeat started')
+    def _prune_processed_message_cache(self, now: typing.Optional[float] = None) -> None:
+        if now is None:
+            now = time.time()
+
+        expire_before = now - self._PROCESSED_MESSAGE_CACHE_TTL_SECONDS
+        while self.processed_message_ids:
+            oldest_key, oldest_ts = next(iter(self.processed_message_ids.items()))
+            if oldest_ts >= expire_before:
+                break
+            self.processed_message_ids.pop(oldest_key, None)
+
+        while len(self.processed_message_ids) > self._PROCESSED_MESSAGE_CACHE_MAX_SIZE:
+            oldest_key = next(iter(self.processed_message_ids))
+            self.processed_message_ids.pop(oldest_key, None)
+
+    def _is_duplicate_lark_message(
+        self,
+        message_id: typing.Optional[str],
+        event_id: typing.Optional[str] = None,
+    ) -> bool:
+        key = str(message_id or event_id or '').strip()
+        if not key:
+            return False
+
+        if not isinstance(getattr(self, 'processed_message_ids', None), dict):
+            self.processed_message_ids = {}
+
+        now = time.time()
+        self._prune_processed_message_cache(now)
+        if key in self.processed_message_ids:
+            return True
+
+        self.processed_message_ids[key] = now
+        self._prune_processed_message_cache(now)
+        return False
 
     def request_app_ticket(self, api_client, config):
         app_id = config['app_id']
@@ -1096,6 +1434,18 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
             )
         return api_client
 
+    async def resolve_image(
+        self,
+        image: platform_message.Image,
+        message_event: platform_events.MessageEvent | None = None,
+    ) -> platform_message.Image | None:
+        if not image.image_id or image.base64 or image.url or image.path:
+            return image
+        image_base64 = await self.message_converter.download_image_from_lark(image.image_id, self.api_client)
+        if not image_base64:
+            return image
+        return platform_message.Image(image_id=image.image_id, base64=image_base64)
+
     async def send_message(self, target_type: str, target_id: str, message: platform_message.MessageChain):
         text_elements, media_items = await self.message_converter.yiri2target(message, self.api_client)
 
@@ -1181,6 +1531,43 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 raise Exception(
                     f'client.im.v1.message.create ({media["msg_type"]}) failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}, resp: \n{json.dumps(json.loads(response.raw.content), indent=4, ensure_ascii=False)}'
                 )
+
+    async def add_message_reaction(self, message_id: str, emoji_type: str) -> bool:
+        message_id = str(message_id or '').strip()
+        emoji_type = str(emoji_type or '').strip()
+        if not message_id or not emoji_type:
+            return False
+
+        request = (
+            BaseRequest.builder()
+            .http_method(HttpMethod.POST)
+            .uri(f'/open-apis/im/v1/messages/{message_id}/reactions')
+            .token_types({AccessTokenType.TENANT, AccessTokenType.USER})
+            .body({'reaction_type': {'emoji_type': emoji_type}})
+            .build()
+        )
+
+        app_access_token = self.get_app_access_token()
+        req_opt: RequestOption = RequestOption.builder().app_ticket(self.app_ticket).app_access_token(app_access_token).build()
+        response = await self.api_client.arequest(request, req_opt)
+        if response.success():
+            return True
+
+        logger = getattr(self, 'logger', None)
+        if logger is not None:
+            warning = getattr(logger, 'warning', None)
+            if callable(warning):
+                raw_content = getattr(getattr(response, 'raw', None), 'content', b'')
+                try:
+                    raw_text = raw_content.decode('utf-8') if isinstance(raw_content, bytes) else str(raw_content or '')
+                except Exception:
+                    raw_text = ''
+                result = warning(
+                    f'client.im.v1.message.reaction.create failed, code: {response.code}, msg: {response.msg}, resp: {raw_text}'
+                )
+                if asyncio.iscoroutine(result):
+                    await result
+        return False
 
     async def is_stream_output_supported(self) -> bool:
         is_stream = False
@@ -1465,6 +1852,14 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     ):
         # 不再需要了，因为message_id已经被包含到message_chain中
         # lark_event = await self.event_converter.yiri2target(message_source)
+        if not quote_origin:
+            if isinstance(message_source, platform_events.FriendMessage):
+                await self.send_message('person', message_source.sender.id, message)
+                return
+            if isinstance(message_source, platform_events.GroupMessage):
+                await self.send_message('group', message_source.sender.group.id, message)
+                return
+
         text_elements, media_items = await self.message_converter.yiri2target(message, self.api_client)
 
         # Send text message if there are text elements
@@ -1667,6 +2062,52 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
     async def is_muted(self, group_id: int) -> bool:
         return False
 
+    def set_contact_added_callback(
+        self,
+        callback: typing.Callable[[dict[str, str]], typing.Awaitable[None]] | None,
+    ) -> None:
+        self.contact_added_callback = callback
+
+    @staticmethod
+    def _is_contact_added_chat_access_event(event_type: str) -> bool:
+        return event_type in {
+            'im.chat.access_event.bot_p2p_chat_created_v1',
+            'im.chat.access_event.bot_p2p_chat_entered_v1',
+        }
+
+    def _lark_user_id_from_contact_event(self, event_payload: dict[str, typing.Any]) -> str:
+        operator = event_payload.get('operator') if isinstance(event_payload.get('operator'), dict) else {}
+        operator_id = operator.get('operator_id') if isinstance(operator.get('operator_id'), dict) else {}
+        root_operator_id = event_payload.get('operator_id') if isinstance(event_payload.get('operator_id'), dict) else {}
+        return str(
+            operator_id.get('open_id')
+            or operator_id.get('user_id')
+            or operator_id.get('union_id')
+            or operator.get('open_id')
+            or operator.get('user_id')
+            or operator.get('union_id')
+            or root_operator_id.get('open_id')
+            or root_operator_id.get('user_id')
+            or root_operator_id.get('union_id')
+            or event_payload.get('open_id')
+            or event_payload.get('user_id')
+            or ''
+        ).strip()
+
+    async def _handle_contact_added_event(self, event_payload: dict[str, typing.Any]) -> None:
+        if self.contact_added_callback is None:
+            return
+        user_id = self._lark_user_id_from_contact_event(event_payload)
+        if not user_id:
+            return
+        await self.contact_added_callback(
+            {
+                'user_id': user_id,
+                'platform': 'lark',
+                'event_type': str(event_payload.get('event_type') or event_payload.get('type') or '').strip(),
+            }
+        )
+
     def register_listener(
         self,
         event_type: typing.Type[platform_events.Event],
@@ -1724,14 +2165,21 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                 self.app_ticket = context.event['app_ticket']
             elif 'im.message.receive_v1' == type:
                 try:
+                    message_payload = context.event['message']
+                    message_id = message_payload.get('message_id') if isinstance(message_payload, dict) else None
+                    event_id = data.get('header', {}).get('event_id') if isinstance(data.get('header'), dict) else None
+                    if self._is_duplicate_lark_message(message_id, event_id):
+                        await self.logger.info(f'Skipped duplicate Lark message event: message_id={message_id}')
+                        return {'code': 200, 'message': 'ok'}
+
                     p2v1 = P2ImMessageReceiveV1()
                     p2v1.header = context.header
                     event = P2ImMessageReceiveV1Data()
-                    event.message = EventMessage(context.event['message'])
+                    event.message = EventMessage(message_payload)
                     event.sender = EventSender(context.event['sender'])
                     p2v1.event = event
                     p2v1.schema = context.schema
-                    event = await self.event_converter.target2yiri(p2v1, self.api_client)
+                    event = await self.event_converter.target2yiri(p2v1, self.api_client, self.logger)
                 except Exception:
                     await self.logger.error(f'Error in lark callback: {traceback.format_exc()}')
 
@@ -1789,6 +2237,13 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
                     await self.logger.error(f'Error in lark card action callback: {traceback.format_exc()}')
                     return {'toast': {'type': 'error', 'content': '反馈处理失败'}}
 
+            elif self._is_contact_added_chat_access_event(type):
+                try:
+                    event_payload = context.event if isinstance(context.event, dict) else {}
+                    await self._handle_contact_added_event({**event_payload, 'event_type': type})
+                except Exception:
+                    await self.logger.error(f'Error in lark p2p chat created webhook: {traceback.format_exc()}')
+
             elif 'im.chat.member.bot.added_v1' == type:
                 try:
                     bot_added_welcome_msg = self.config.get('bot_added_welcome', '')
@@ -1845,15 +2300,34 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
 
         if not enable_webhook:
             try:
-                await self.bot._connect()
+                try:
+                    self.bot.on_reconnecting = lambda: print(f'{self._lark_log_prefix()} websocket reconnecting')
+                    self.bot.on_reconnected = lambda: print(f'{self._lark_log_prefix()} websocket reconnected')
+                except Exception:
+                    pass
+
+                watchdog_interval = float(self.config.get('websocket-watchdog-interval', 10))
+                while True:
+                    try:
+                        await self._ensure_lark_websocket_connected()
+                    except lark_oapi.ws.exception.ClientException as e:
+                        raise e
+                    except Exception as e:
+                        await self.logger.error(f'Lark websocket connect failed: {e}\n{traceback.format_exc()}')
+                        print(f'{self._lark_log_prefix()} websocket connect failed: {e}')
+                    await asyncio.sleep(watchdog_interval)
             except lark_oapi.ws.exception.ClientException as e:
                 raise e
-            except Exception as e:
-                await self.bot._disconnect()
-                if self.bot._auto_reconnect:
-                    await self.bot._reconnect()
-                else:
-                    raise e
+            except asyncio.CancelledError:
+                raise
+            finally:
+                if self.lark_ping_task is not None and not self.lark_ping_task.done():
+                    self.lark_ping_task.cancel()
+                    try:
+                        await self.lark_ping_task
+                    except asyncio.CancelledError:
+                        pass
+                self.lark_ping_task = None
         else:
             # 统一 webhook 模式下，不启动独立的 Quart 应用
             # 保持运行但不启动独立端口
@@ -1869,5 +2343,12 @@ class LarkAdapter(abstract_platform_adapter.AbstractMessagePlatformAdapter):
         # 断开时lark.ws.Client的_receive_message_loop会打印error日志: receive message loop exit。然后进行重连，
         # 所以要设置_auto_reconnect=False,让其不重连。
         self.bot._auto_reconnect = False
+        if self.lark_ping_task is not None and not self.lark_ping_task.done():
+            self.lark_ping_task.cancel()
+            try:
+                await self.lark_ping_task
+            except asyncio.CancelledError:
+                pass
+        self.lark_ping_task = None
         await self.bot._disconnect()
         return False

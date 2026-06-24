@@ -1,10 +1,22 @@
+import datetime
+import json
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 import sqlalchemy
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from langbot.pkg.api.http.service.sales import SalesService
+from langbot.pkg.api.http.service.sales import SalesService, YUANFUDAO_CATALOG_PRODUCTS
+from langbot.pkg.entity.persistence.base import Base
+from langbot.pkg.entity.persistence import monitoring as persistence_monitoring
+from langbot.pkg.entity.persistence import sales as persistence_sales
+
+from langbot_plugin.api.entities.builtin.provider import session as provider_session
+from langbot_plugin.api.entities.builtin.provider import message as provider_message
+
+from langbot_plugin.api.entities.builtin.platform import message as platform_message
 
 
 def test_classify_intent_detects_handoff_request():
@@ -15,6 +27,110 @@ def test_classify_intent_detects_handoff_request():
     assert result['intent'] == 'handoff'
     assert result['requires_handoff'] is True
     assert result['confidence'] >= 0.8
+
+
+def test_normalize_handoff_reason_labels_known_manual_reasons():
+    service = SalesService(SimpleNamespace())
+
+    assert service.normalize_handoff_reason('child_spam') == 'child_spam'
+    assert service.normalize_handoff_reason('孩子刷屏发无意义消息') == 'child_spam'
+    assert service.normalize_handoff_reason('家长投诉课程体验') == 'parent_complaint'
+    assert service.normalize_handoff_reason('付款后没有开通') == 'payment_issue'
+    assert service.normalize_handoff_reason('图书扫码资源缺失') == 'resource_missing'
+    assert service.normalize_handoff_reason('需要老师讲解一下这道题') == 'needs_teacher'
+    assert service.normalize_handoff_reason('孩子是初中，不是目标年级') == 'non_target_grade'
+    assert service.normalize_handoff_reason('Manual takeover') == 'Manual takeover'
+
+
+def test_normalize_sales_message_content_preserves_text_image_voice_and_source_metadata():
+    service = SalesService(SimpleNamespace())
+    raw = json.dumps(
+        [
+            {'type': 'Source', 'id': 'source-1', 'timestamp': 1781173324},
+            {'type': 'Plain', 'text': '你好'},
+            {'type': 'Image', 'url': 'https://example.com/a.png', 'name': 'a.png'},
+            {'type': 'Voice', 'base64': 'data:audio/ogg;base64,AAAA', 'length': 3},
+        ],
+        ensure_ascii=False,
+    )
+
+    normalized = service.normalize_sales_message_content(raw)
+
+    assert normalized['preview'] == '你好 [图片] [语音]'
+    assert [part['kind'] for part in normalized['components']] == ['text', 'image', 'voice']
+    assert normalized['components'][1]['url'] == 'https://example.com/a.png'
+    assert normalized['components'][2]['base64'].startswith('data:audio/ogg;base64,')
+    assert normalized['metadata']['source']['id'] == 'source-1'
+
+
+def test_normalize_sales_message_content_keeps_unavailable_media_as_real_attachment():
+    service = SalesService(SimpleNamespace())
+    raw = json.dumps(
+        [
+            {'type': 'Voice', 'voice_id': 'file_v3_001', 'url': '', 'path': '', 'base64': ''},
+            {'type': 'Image', 'image_id': 'img_001'},
+        ],
+        ensure_ascii=False,
+    )
+
+    normalized = service.normalize_sales_message_content(raw)
+
+    assert normalized['preview'] == '[语音] [图片]'
+    assert normalized['components'][0]['kind'] == 'voice'
+    assert normalized['components'][0]['available'] is False
+    assert normalized['components'][0]['raw']['voice_id'] == 'file_v3_001'
+    assert normalized['components'][1]['kind'] == 'image'
+    assert normalized['components'][1]['available'] is False
+    assert normalized['components'][1]['raw']['image_id'] == 'img_001'
+
+
+def test_normalize_sales_message_content_summarizes_truncated_media_json():
+    service = SalesService(SimpleNamespace())
+    raw = (
+        '[{"type":"Source","id":"source-1"},'
+        '{"type":"Plain","text":"请看这个"},'
+        '{"type":"Image","image_id":"img_001","base64":"data:image/png;base64,'
+        + 'A' * 5000
+    )
+
+    normalized = service.normalize_sales_message_content(raw[:4000])
+
+    assert normalized['preview'] == '请看这个 [图片]'
+    assert [part['kind'] for part in normalized['components']] == ['text', 'image']
+    assert 'base64' not in normalized['preview']
+
+
+def test_normalize_sales_message_content_accepts_platform_media_alias_fields():
+    service = SalesService(SimpleNamespace())
+    raw = json.dumps(
+        [
+            {'type': 'Image', 'image_url': 'https://cdn.example.com/a.jpg', 'file_name': 'a.jpg'},
+            {'type': 'Voice', 'file_url': 'https://cdn.example.com/a.ogg', 'duration': 5},
+            {'type': 'Image', 'data': 'data:image/png;base64,AAAA'},
+            {'type': 'Voice', 'audio_base64': 'data:audio/ogg;base64,BBBB'},
+        ],
+        ensure_ascii=False,
+    )
+
+    normalized = service.normalize_sales_message_content(raw)
+
+    assert normalized['components'][0]['kind'] == 'image'
+    assert normalized['components'][0]['url'] == 'https://cdn.example.com/a.jpg'
+    assert normalized['components'][0]['available'] is True
+    assert normalized['components'][1]['kind'] == 'voice'
+    assert normalized['components'][1]['url'] == 'https://cdn.example.com/a.ogg'
+    assert normalized['components'][1]['length'] == 5
+    assert normalized['components'][1]['available'] is True
+    assert normalized['components'][2]['base64'] == 'data:image/png;base64,AAAA'
+    assert normalized['components'][3]['base64'] == 'data:audio/ogg;base64,BBBB'
+
+
+def test_format_datetime_marks_naive_monitoring_time_as_utc():
+    service = SalesService(SimpleNamespace())
+
+    formatted = service._format_datetime(datetime.datetime(2026, 6, 15, 6, 30, 0))
+
+    assert formatted == '2026-06-15T06:30:00+00:00'
 
 
 def test_select_best_product_matches_selling_points_and_pain_points():
@@ -66,6 +182,63 @@ def test_generate_pitch_uses_selling_points_link_and_customer_context():
     assert result['next_action'] == 'send_product_link'
 
 
+def test_serialize_keeps_connection_row_with_column_attributes():
+    class _ColumnRow:
+        uuid = 'product-1'
+        name = 'AI 销售助手'
+        product_line = ''
+        profile_key = ''
+        keywords = []
+        category = 'sales'
+        price = ''
+        link = ''
+        description = ''
+        selling_points = []
+        pain_points = []
+        objections = []
+        audience = []
+        enabled = True
+        created_at = None
+        updated_at = None
+
+        def __getitem__(self, _index):
+            return self.uuid
+
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=SimpleNamespace(
+                serialize_model=lambda model, row: {
+                    column.name: getattr(row, column.name)
+                    for column in model.__table__.columns
+                }
+            )
+        )
+    )
+
+    result = service._serialize(persistence_sales.SalesProduct, _ColumnRow())
+
+    assert result['uuid'] == 'product-1'
+
+
+def test_first_row_prefers_entity_from_mapped_row_when_id_is_first():
+    handoff = persistence_sales.SalesHandoff(id=7, bot_uuid='bot-uuid')
+
+    class _MappedRow:
+        _mapping = {
+            'id': 7,
+            persistence_sales.SalesHandoff: handoff,
+        }
+
+        def __getitem__(self, _index):
+            return 7
+
+    service = SalesService(SimpleNamespace())
+
+    result = service._first_row(_FakeResult(_MappedRow()))
+
+    assert result is handoff
+
+
 def test_compose_sales_prompt_includes_product_memory_and_handoff_policy():
     service = SalesService(SimpleNamespace())
 
@@ -83,6 +256,7 @@ def test_compose_sales_prompt_includes_product_memory_and_handoff_policy():
     assert '客户预算明确' in prompt
     assert 'comparison' in prompt
     assert '客户明确要求人工' in prompt
+    assert '不得输出 xxx、XXXX' in prompt
 
 
 @pytest.mark.asyncio
@@ -115,8 +289,9 @@ async def test_prepare_query_keeps_existing_open_handoff_in_manual_mode(monkeypa
 
 
 class _FakeResult:
-    def __init__(self, row):
+    def __init__(self, row, rowcount=1):
         self.row = row
+        self.rowcount = rowcount
 
     def first(self):
         return self.row
@@ -127,6 +302,1296 @@ class _FakeResult:
         if isinstance(self.row, list):
             return self.row
         return [self.row]
+
+
+class _AsyncSQLitePersistence:
+    def __init__(self, engine):
+        self.session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def execute_async(self, statement):
+        async with self.session_factory() as session:
+            result = await session.execute(statement)
+            await session.commit()
+            return result
+
+    def serialize_model(self, model, row):
+        item = row[0] if isinstance(row, tuple) else row
+        return {
+            column.name: getattr(item, column.name)
+            for column in model.__table__.columns
+        }
+
+
+@pytest.fixture
+async def sales_service_with_db():
+    engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=_AsyncSQLitePersistence(engine),
+            logger=_SilentLogger(),
+        )
+    )
+    try:
+        yield service
+    finally:
+        await engine.dispose()
+
+
+async def _insert_monitoring_session_with_messages(service, session_id='person_customer-1'):
+    now = datetime.datetime(2026, 6, 12, 6, 10)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringSession).values(
+            session_id=session_id,
+            bot_id='bot-uuid',
+            bot_name='猿辅导销售知识',
+            pipeline_id='pipeline-1',
+            pipeline_name='课程销售',
+            message_count=2,
+            start_time=now,
+            last_activity=now,
+            is_active=True,
+            platform='person',
+            user_id='ou_customer',
+            user_name='on_9a88cdb7b2b5b7df0f9700f591bddda8',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringMessage).values(
+            [
+                {
+                    'id': 'm1',
+                    'timestamp': now,
+                    'bot_id': 'bot-uuid',
+                    'bot_name': '猿辅导销售知识',
+                    'pipeline_id': 'pipeline-1',
+                    'pipeline_name': '课程销售',
+                    'message_content': '[{"type":"Source","id":"om_1"},{"type":"Plain","text":"三年级"}]',
+                    'session_id': session_id,
+                    'status': 'success',
+                    'level': 'info',
+                    'platform': 'person',
+                    'user_id': 'ou_customer',
+                    'user_name': 'on_9a88cdb7b2b5b7df0f9700f591bddda8',
+                    'role': 'user',
+                },
+                {
+                    'id': 'm2',
+                    'timestamp': now,
+                    'bot_id': 'bot-uuid',
+                    'bot_name': '猿辅导销售知识',
+                    'pipeline_id': 'pipeline-1',
+                    'pipeline_name': '课程销售',
+                    'message_content': '[{"type":"Plain","text":"想要期末复习资料"}]',
+                    'session_id': session_id,
+                    'status': 'success',
+                    'level': 'info',
+                    'platform': 'person',
+                    'user_id': 'ou_customer',
+                    'user_name': 'on_9a88cdb7b2b5b7df0f9700f591bddda8',
+                    'role': 'user',
+                },
+            ]
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_sales_session_context_clears_chat_state_for_current_session(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'person_customer-1'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id=session_id,
+            platform='person',
+            user_id='ou_customer',
+            summary='旧对话摘要',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesHandoff).values(
+            session_id=session_id,
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='ou_customer',
+            status='open',
+            reason='等待人工',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(
+            name='跟进计划',
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='ou_customer',
+            segment='course-sales:followup',
+            dedupe_key='followup-key',
+            enabled=True,
+        )
+    )
+    conversation = SimpleNamespace(messages=[provider_message.Message(role='user', content='旧消息')])
+    query = SimpleNamespace(
+        launcher_type=SimpleNamespace(value='person'),
+        launcher_id='customer-1',
+        sender_id='ou_customer',
+        bot_uuid='bot-uuid',
+        session=SimpleNamespace(using_conversation=conversation),
+    )
+
+    result = await service.reset_sales_session_context(query)
+
+    assert result['reset'] is True
+    assert conversation.messages == []
+    for model in (
+        persistence_monitoring.MonitoringMessage,
+        persistence_monitoring.MonitoringSession,
+        persistence_sales.SalesCustomerMemory,
+        persistence_sales.SalesHandoff,
+        persistence_sales.SalesOutreachPlan,
+    ):
+        count = await service.ap.persistence_mgr.execute_async(sqlalchemy.select(sqlalchemy.func.count()).select_from(model))
+        assert count.scalar() == 0
+
+
+@pytest.mark.asyncio
+async def test_outreach_module_filters_and_clears_scheduled_push_only(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 18, 10, 0, 0)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(
+            [
+                {
+                    'name': 'Day1 scheduled push',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:broadcast',
+                    'dedupe_key': 'scheduled-1',
+                    'message_template': 'day one',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+                {
+                    'name': 'Purchase followup',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:followup:purchase',
+                    'dedupe_key': 'followup-1',
+                    'message_template': 'follow up',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+                {
+                    'name': 'Opening resource card',
+                    'bot_uuid': 'bot-uuid',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:opening:resource-card',
+                    'dedupe_key': 'opening-1',
+                    'message_template': 'opening',
+                    'scheduled_at': now,
+                    'enabled': True,
+                },
+            ]
+        )
+    )
+
+    scheduled_push = await service.get_outreach_plans(kind='scheduled_push')
+    followups = await service.get_followup_plans()
+    deleted = await service.clear_scheduled_push_plans()
+    remaining = await service.get_outreach_plans()
+
+    assert [plan['segment'] for plan in scheduled_push] == ['course-sales:broadcast']
+    assert [plan['segment'] for plan in followups] == ['course-sales:followup:purchase']
+    assert deleted == 1
+    assert {plan['segment'] for plan in remaining} == {
+        'course-sales:followup:purchase',
+        'course-sales:opening:resource-card',
+    }
+
+
+@pytest.mark.asyncio
+async def test_scheduled_push_config_round_trips_real_outreach_plans(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesOutreachPlan).values(
+            [
+                {
+                    'name': 'D1 10:20',
+                    'product_uuid': 'product-1',
+                    'bot_uuid': 'bot-1',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:broadcast',
+                    'dedupe_key': 'scheduled-1',
+                    'message_template': 'first message',
+                    'message_components': [
+                        {'type': 'plain', 'text': 'first message'},
+                        {'type': 'image', 'file_key': 'data/scheduled-push/a.png', 'image_url': ''},
+                        {
+                            'type': 'link',
+                            'title': '报名通道',
+                            'description': '雷达链接',
+                            'url': 'https://example.com/radar',
+                        },
+                    ],
+                    'scheduled_at': datetime.datetime(2026, 6, 19, 10, 20),
+                    'interval_minutes': 2 * 24 * 60,
+                    'enabled': True,
+                },
+                {
+                    'name': 'D2 15:40',
+                    'product_uuid': 'product-1',
+                    'bot_uuid': 'bot-1',
+                    'target_type': 'person',
+                    'target_id': 'ou_customer',
+                    'segment': 'course-sales:broadcast',
+                    'dedupe_key': 'scheduled-2',
+                    'message_template': 'second message',
+                    'message_components': [{'type': 'plain', 'text': 'second message'}],
+                    'scheduled_at': datetime.datetime(2026, 6, 20, 15, 40),
+                    'interval_minutes': 2 * 24 * 60,
+                    'enabled': True,
+                },
+            ]
+        )
+    )
+
+    config = await service.get_scheduled_push_config()
+
+    assert config['plans_count'] == 2
+    assert config['scheduled_push']['enabled'] is True
+    assert config['scheduled_push']['loop_enabled'] is True
+    assert config['scheduled_push']['loop_days'] == 2
+    assert config['scheduled_push']['start_date'] == '2026-06-19'
+    assert config['scheduled_push']['items'][0] == {
+        'day': 1,
+        'time': '10:20',
+        'message': 'first message',
+        'image_key': 'data/scheduled-push/a.png',
+        'image_url': '',
+        'link_title': '报名通道',
+        'link_url': 'https://example.com/radar',
+        'link_description': '雷达链接',
+    }
+    assert config['scheduled_push']['items'][1]['day'] == 2
+    assert config['scheduled_push']['items'][1]['time'] == '15:40'
+
+    result = await service.replace_scheduled_push_config(
+        {
+            'scheduled_push': {
+                'enabled': True,
+                'loop_enabled': True,
+                'loop_days': 3,
+                'start_date': '2026-07-01',
+                'items': [
+                    {
+                        'day': 1,
+                        'time': '09:30',
+                        'message': 'updated message',
+                        'image_key': '',
+                        'link_title': '新报名通道',
+                        'link_url': 'https://example.com/new-radar',
+                        'link_description': '新的雷达链接',
+                    }
+                ],
+            }
+        }
+    )
+    updated = await service.get_scheduled_push_config()
+
+    assert result == {'deleted': 2, 'inserted': 1}
+    assert updated['plans_count'] == 1
+    assert updated['scheduled_push']['loop_days'] == 3
+    assert updated['scheduled_push']['items'][0]['message'] == 'updated message'
+    assert updated['scheduled_push']['items'][0]['link_url'] == 'https://example.com/new-radar'
+
+
+@pytest.mark.asyncio
+async def test_replace_scheduled_push_config_shifts_past_start_date_to_future(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    before_save = datetime.datetime.now()
+
+    result = await service.replace_scheduled_push_config(
+        {
+            'scheduled_push': {
+                'enabled': True,
+                'loop_enabled': True,
+                'loop_days': 2,
+                'start_date': '2020-01-01',
+                'items': [
+                    {'day': 1, 'time': '00:01', 'message': 'day one'},
+                    {'day': 2, 'time': '10:20', 'message': 'day two'},
+                ],
+            }
+        }
+    )
+
+    rows = await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_sales.SalesOutreachPlan).order_by(
+            persistence_sales.SalesOutreachPlan.scheduled_at.asc()
+        )
+    )
+    plans = [service._row_entity(row) for row in rows.all()]
+
+    assert result == {'deleted': 0, 'inserted': 2}
+    assert len(plans) == 2
+    assert all(plan.enabled for plan in plans)
+    assert min(plan.scheduled_at for plan in plans) > before_save
+    assert (plans[1].scheduled_at - plans[0].scheduled_at).days == 1
+
+
+@pytest.mark.asyncio
+async def test_get_memories_builds_customer_memory_from_monitoring_session_without_plugin(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await _insert_monitoring_session_with_messages(service)
+
+    memories = await service.get_memories()
+
+    assert len(memories) == 1
+    memory = memories[0]
+    assert memory['session_id'] == 'person_customer-1'
+    assert memory['platform'] == 'person'
+    assert memory['customer_name'] == '私聊客户'
+    assert memory['profile']['child_grade'] == '三年级'
+    assert memory['profile']['needs'] == '期末复习资料'
+    assert '三年级' in memory['summary']
+    assert '期末复习资料' in memory['summary']
+
+
+@pytest.mark.asyncio
+async def test_update_memory_creates_customer_memory_when_session_has_no_existing_memory(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await _insert_monitoring_session_with_messages(service)
+
+    memory = await service.update_memory(
+        'person_customer-1',
+        {
+            'customer_name': '张女士',
+            'stage': 'consideration',
+            'summary': '客户孩子三年级，关注期末资料',
+            'profile': {'wechat': 'parent_zhang'},
+        },
+    )
+
+    assert memory['customer_name'] == '张女士'
+    assert memory['stage'] == 'consideration'
+    assert memory['profile']['wechat'] == 'parent_zhang'
+    assert memory['profile']['child_grade'] == '三年级'
+
+
+@pytest.mark.asyncio
+async def test_apply_customer_profile_patch_from_query_updates_real_memory_without_overwriting_existing_values(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'person_customer-1'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id=session_id,
+            platform='person',
+            user_id='ou_customer',
+            customer_name='客户A',
+            profile={'phone': '13800000000'},
+        )
+    )
+    query = SimpleNamespace(
+        launcher_type=SimpleNamespace(value='person'),
+        launcher_id='customer-1',
+        sender_id='ou_customer',
+    )
+
+    memory = await service.apply_customer_profile_patch_from_query(
+        query,
+        {
+            '电话': '13900000000',
+            '孩子年级': '三年级',
+            '关注点': '自然拼读',
+            '空字段': '',
+        },
+    )
+
+    assert memory['session_id'] == session_id
+    assert memory['profile']['phone'] == '13800000000'
+    assert memory['profile']['child_grade'] == '三年级'
+    assert memory['profile']['needs'] == '自然拼读'
+    assert '空字段' not in memory['profile']
+
+
+@pytest.mark.asyncio
+async def test_apply_customer_profile_patch_uses_monitoring_session_key_for_enum_launcher_type(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id='person_customer-1',
+            platform='person',
+            user_id='customer-1',
+            customer_name='客户A',
+            profile={},
+        )
+    )
+    query = SimpleNamespace(
+        launcher_type=provider_session.LauncherTypes.PERSON,
+        launcher_id='customer-1',
+        sender_id='customer-1',
+        variables={},
+    )
+
+    memory = await service.apply_customer_profile_patch_from_query(
+        query,
+        {'孩子年级': '三年级'},
+    )
+
+    assert memory['session_id'] == 'person_customer-1'
+    assert memory['profile']['child_grade'] == '三年级'
+
+    result = await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.select(persistence_sales.SalesCustomerMemory.session_id)
+    )
+    assert sorted(row[0] for row in result.all()) == ['person_customer-1']
+
+
+class _ColumnRow:
+    def __init__(self, **values):
+        self._values = values
+        self._mapping = values
+
+    def __getitem__(self, index):
+        return list(self._values.values())[index]
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_uses_latest_real_monitoring_message_not_memory_summary():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=2,
+        start_time=datetime.datetime(2026, 6, 12, 9, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        is_active=True,
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    message = SimpleNamespace(
+        id='msg-2',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        session_id='person_customer-1',
+        role='assistant',
+        message_content=json.dumps([{'type': 'Plain', 'text': '真实AI回复'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    memory = SimpleNamespace(
+        session_id='person_customer-1',
+        customer_name='客户A',
+        summary='这不是聊天记录',
+        stage='new',
+        last_intent='general',
+        profile={},
+        intents=[],
+        last_seen_at=datetime.datetime(2026, 6, 12, 9, 1, 0),
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([memory]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == 'person_customer-1'
+    assert conversations[0]['latest_message_preview'] == '真实AI回复'
+    assert conversations[0]['latest_message_preview'] != '这不是聊天记录'
+    assert conversations[0]['handoff_status'] == 'ai_hosted'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_returns_lightweight_latest_message_without_media_payload(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 23, 5, 30, 0)
+    huge_image = 'data:image/jpeg;base64,' + ('A' * 1_000_000)
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringSession).values(
+            session_id=session_id,
+            bot_id='bot-uuid',
+            bot_name='私域机器人1',
+            pipeline_id='pipe-1',
+            pipeline_name='销售流程',
+            message_count=2,
+            start_time=now,
+            last_activity=now + datetime.timedelta(seconds=2),
+            is_active=True,
+            platform='person',
+            user_id='ou_customer',
+            user_name='夏般',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringMessage).values(
+            [
+                {
+                    'id': 'msg-image',
+                    'timestamp': now,
+                    'bot_id': 'bot-uuid',
+                    'bot_name': '私域机器人1',
+                    'pipeline_id': 'pipe-1',
+                    'pipeline_name': '销售流程',
+                    'message_content': json.dumps([{'type': 'Image', 'base64': huge_image}], ensure_ascii=False),
+                    'session_id': session_id,
+                    'status': 'success',
+                    'level': 'info',
+                    'platform': 'person',
+                    'user_id': 'ou_customer',
+                    'user_name': '夏般',
+                    'role': 'user',
+                },
+                {
+                    'id': 'msg-latest',
+                    'timestamp': now + datetime.timedelta(seconds=2),
+                    'bot_id': 'bot-uuid',
+                    'bot_name': '私域机器人1',
+                    'pipeline_id': 'pipe-1',
+                    'pipeline_name': '销售流程',
+                    'message_content': json.dumps([{'type': 'Plain', 'text': '我想买'}], ensure_ascii=False),
+                    'session_id': session_id,
+                    'status': 'success',
+                    'level': 'info',
+                    'platform': 'person',
+                    'user_id': 'ou_customer',
+                    'user_name': '夏般',
+                    'role': 'user',
+                },
+            ]
+        )
+    )
+
+    conversations = await service.get_sales_conversations(limit=20)
+
+    assert conversations[0]['customer_name'] == '夏般'
+    assert conversations[0]['latest_message_preview'] == '我想买'
+    assert conversations[0]['latest_message']['raw_message_content'] == ''
+    assert len(json.dumps(conversations, ensure_ascii=False)) < 20_000
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_summarizes_latest_truncated_image_without_base64(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 23, 5, 45, 0)
+    huge_image = 'data:image/png;base64,' + ('A' * 1_000_000)
+    session_id = 'LauncherTypes.PERSON_ou_customer_image'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringSession).values(
+            session_id=session_id,
+            bot_id='bot-uuid',
+            bot_name='私域机器人1',
+            pipeline_id='pipe-1',
+            pipeline_name='销售流程',
+            message_count=1,
+            start_time=now,
+            last_activity=now,
+            is_active=True,
+            platform='person',
+            user_id='ou_customer',
+            user_name='夏般',
+        )
+    )
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringMessage).values(
+            id='msg-latest-image',
+            timestamp=now,
+            bot_id='bot-uuid',
+            bot_name='私域机器人1',
+            pipeline_id='pipe-1',
+            pipeline_name='销售流程',
+            message_content=json.dumps(
+                [{'type': 'Plain', 'text': '我拍给你看'}, {'type': 'Image', 'base64': huge_image}],
+                ensure_ascii=False,
+            ),
+            session_id=session_id,
+            status='success',
+            level='info',
+            platform='person',
+            user_id='ou_customer',
+            user_name='夏般',
+            role='user',
+        )
+    )
+
+    conversations = await service.get_sales_conversations(limit=20)
+    current = next(item for item in conversations if item['session_id'] == session_id)
+    body = json.dumps(current, ensure_ascii=False)
+
+    assert current['latest_message_preview'] == '我拍给你看 [图片]'
+    assert current['latest_message']['components'][1]['base64'] == ''
+    assert 'data:image/png;base64' not in body
+    assert len(body) < 10_000
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_handles_column_rows_from_connection_execute():
+    session = _ColumnRow(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=2,
+        start_time=datetime.datetime(2026, 6, 12, 9, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        is_active=True,
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    message = _ColumnRow(
+        id='msg-2',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 2, 0),
+        session_id='person_customer-1',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '刚发的新消息'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == 'person_customer-1'
+    assert conversations[0]['latest_message_preview'] == '刚发的新消息'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_hides_technical_user_name_and_keeps_bot_name():
+    session = SimpleNamespace(
+        session_id='LauncherTypes.PERSON_ou_customer',
+        bot_id='bot-uuid',
+        bot_name='夏般的智能助手',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=2,
+        start_time=datetime.datetime(2026, 6, 15, 10, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 15, 10, 1, 0),
+        is_active=True,
+        platform='person',
+        user_id='ou_customer',
+        user_name='on_9a88cdb7b2b5b7df0f9700f591bddda8',
+    )
+    message = SimpleNamespace(
+        id='msg-1',
+        timestamp=datetime.datetime(2026, 6, 15, 10, 1, 0),
+        session_id='LauncherTypes.PERSON_ou_customer',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '你好'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='夏般的智能助手',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='ou_customer',
+        user_name='on_9a88cdb7b2b5b7df0f9700f591bddda8',
+        runner_name='',
+        variables=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    conversations = await service.get_sales_conversations()
+    serialized_message = service._serialize_sales_message(message)
+
+    assert conversations[0]['customer_name'] != 'on_9a88cdb7b2b5b7df0f9700f591bddda8'
+    assert conversations[0]['customer_name'] == '私聊客户'
+    assert conversations[0]['bot_name'] == '夏般的智能助手'
+    assert serialized_message['sender_label'] == '私聊客户'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_resolves_uuid_bot_name_from_bot_manager():
+    session = SimpleNamespace(
+        session_id='LauncherTypes.PERSON_ou_customer',
+        bot_id='12f70134-3e7e-4b55-8f19-6d3bc3b1f1d4',
+        bot_name='12f70134-3e7e-4b55-8f19-6d3bc3b1f1d4',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        message_count=1,
+        start_time=datetime.datetime(2026, 6, 15, 10, 0, 0),
+        last_activity=datetime.datetime(2026, 6, 15, 10, 1, 0),
+        is_active=True,
+        platform='person',
+        user_id='ou_customer',
+        user_name='夏般',
+    )
+    message = SimpleNamespace(
+        id='msg-1',
+        timestamp=datetime.datetime(2026, 6, 15, 10, 1, 0),
+        session_id='LauncherTypes.PERSON_ou_customer',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '你好'}], ensure_ascii=False),
+        bot_id=session.bot_id,
+        bot_name=session.bot_name,
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='ou_customer',
+        user_name='夏般',
+        runner_name='',
+        variables=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(
+            side_effect=[
+                _FakeResult([session]),
+                _FakeResult([message]),
+                _FakeResult([]),
+                _FakeResult([]),
+            ]
+        ),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    bot_mgr = SimpleNamespace(
+        get_bot=AsyncMock(return_value=SimpleNamespace(bot_entity=SimpleNamespace(name='私域机器人1')))
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr, bot_mgr=bot_mgr))
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['bot_name'] == '私域机器人1'
+
+
+@pytest.mark.asyncio
+async def test_open_handoff_from_query_uses_monitoring_session_id_for_pending_manual_queue(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    query = SimpleNamespace(
+        variables={'user_message_text': '转人工'},
+        launcher_type=provider_session.LauncherTypes.PERSON,
+        launcher_id='ou_customer',
+        sender_id='ou_customer',
+        bot_uuid='bot-uuid',
+    )
+
+    handoff = await service.open_handoff_from_query(query, 'manual_request', '转人工')
+    conversations = await service.get_sales_conversations(status='pending_manual')
+
+    assert handoff['session_id'] == session_id
+    assert handoff['reason'] == 'manual_request'
+    assert handoff['reason_label'] == 'manual_request'
+    assert len(conversations) == 1
+    assert conversations[0]['session_id'] == session_id
+    assert conversations[0]['handoff_status'] == 'pending_manual'
+    assert conversations[0]['handoff']['last_message'] == '转人工'
+    assert conversations[0]['handoff']['reason'] == 'manual_request'
+    assert conversations[0]['handoff']['reason_label'] == 'manual_request'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_maps_legacy_handoff_session_id_to_monitoring_session(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesHandoff).values(
+            session_id='person_ou_customer',
+            bot_uuid='bot-uuid',
+            target_type='person',
+            target_id='ou_customer',
+            platform='LarkAdapter',
+            user_id='ou_customer',
+            status='open',
+            reason='manual_request',
+            last_message='转人工',
+        )
+    )
+
+    conversations = await service.get_sales_conversations(status='pending_manual')
+
+    assert len(conversations) == 1
+    assert conversations[0]['session_id'] == session_id
+    assert conversations[0]['handoff_status'] == 'pending_manual'
+    assert conversations[0]['handoff']['session_id'] == 'person_ou_customer'
+    assert conversations[0]['handoff']['reason_label'] == 'manual_request'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversations_maps_legacy_memory_session_id_to_monitoring_session(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await _insert_monitoring_session_with_messages(service, session_id=session_id)
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesCustomerMemory).values(
+            session_id='person_ou_customer',
+            platform='person',
+            user_id='ou_customer',
+            customer_name='少华',
+            profile={'child_grade': '三年级'},
+        )
+    )
+
+    conversations = await service.get_sales_conversations()
+
+    assert conversations[0]['session_id'] == session_id
+    assert conversations[0]['customer_name'] == '少华'
+    assert conversations[0]['memory']['session_id'] == 'person_ou_customer'
+    assert conversations[0]['memory']['profile']['child_grade'] == '三年级'
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversation_messages_returns_ordered_components_and_sender_kind():
+    user_message = SimpleNamespace(
+        id='msg-1',
+        timestamp=datetime.datetime(2026, 6, 12, 9, 1, 0),
+        session_id='person_customer-1',
+        role='user',
+        message_content=json.dumps([{'type': 'Plain', 'text': '用户消息'}], ensure_ascii=False),
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        status='success',
+        level='info',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+        runner_name='',
+        variables=None,
+    )
+    operator_message = SimpleNamespace(
+        **{
+            **user_message.__dict__,
+            'id': 'msg-2',
+            'timestamp': datetime.datetime(2026, 6, 12, 9, 2, 0),
+            'role': 'assistant',
+            'message_content': json.dumps([{'type': 'Plain', 'text': '人工消息'}], ensure_ascii=False),
+            'runner_name': 'sales-admin',
+            'variables': json.dumps({'sales_sender_kind': 'operator'}, ensure_ascii=False),
+        }
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(return_value=_FakeResult([operator_message, user_message])),
+        serialize_model=lambda _model, value: value.__dict__,
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    result = await service.get_sales_conversation_messages('person_customer-1')
+
+    assert [message['id'] for message in result['messages']] == ['msg-1', 'msg-2']
+    assert result['messages'][0]['sender_kind'] == 'customer'
+    assert result['messages'][1]['sender_kind'] == 'operator'
+    assert result['messages'][1]['components'][0]['text'] == '人工消息'
+
+
+
+@pytest.mark.asyncio
+async def test_get_sales_conversation_messages_links_real_image_payload_for_detail_view(
+    sales_service_with_db,
+):
+    service = sales_service_with_db
+    now = datetime.datetime(2026, 6, 23, 5, 30, 0)
+    image_base64 = 'data:image/png;base64,AAAA'
+    session_id = 'LauncherTypes.PERSON_ou_customer'
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_monitoring.MonitoringMessage).values(
+            {
+                'id': 'msg-image',
+                'timestamp': now,
+                'bot_id': 'bot-uuid',
+                'bot_name': '私域机器人1',
+                'pipeline_id': 'pipe-1',
+                'pipeline_name': '销售流程',
+                'message_content': json.dumps(
+                    [{'type': 'Image', 'image_id': 'img_1', 'base64': image_base64}],
+                    ensure_ascii=False,
+                ),
+                'session_id': session_id,
+                'status': 'success',
+                'level': 'info',
+                'platform': 'person',
+                'user_id': 'ou_customer',
+                'user_name': '夏般',
+                'role': 'user',
+            }
+        )
+    )
+
+    result = await service.get_sales_conversation_messages(session_id)
+
+    assert result['messages'][0]['preview'] == '[图片]'
+    assert result['messages'][0]['components'][0]['kind'] == 'image'
+    assert result['messages'][0]['components'][0]['base64'] == ''
+    assert result['messages'][0]['components'][0]['media_url'].endswith('/api/v1/sales/messages/msg-image/media/0')
+    assert result['messages'][0]['raw_message_content'] == ''
+
+    media = await service.get_sales_message_media('msg-image', 0)
+
+    assert media['mime_type'] == 'image/png'
+    assert media['content'] == b'\x00\x00\x00'
+
+
+class _SilentLogger:
+    def warning(self, *_args, **_kwargs):
+        pass
+
+
+class _FakeStorageProvider:
+    async def load(self, _file_key):
+        return b'image-bytes'
+
+
+@pytest.mark.asyncio
+async def test_build_outreach_message_chain_supports_plain_link_and_image_without_voice():
+    service = SalesService(
+        SimpleNamespace(
+            storage_mgr=SimpleNamespace(storage_provider=_FakeStorageProvider()),
+            logger=_SilentLogger(),
+        )
+    )
+    plan = SimpleNamespace(
+        message_template='',
+        message_components=[
+            {'type': 'plain', 'text': '家长您好'},
+            {
+                'type': 'link',
+                'title': '报名链接卡片',
+                'description': '9元体验课报名通道',
+                'url': 'https://example.com/apply',
+            },
+            {'type': 'image', 'file_key': 'course-sales/phonics/gift_poster.jpeg'},
+        ],
+    )
+
+    chain = await service._build_outreach_message_chain(plan, {})
+
+    assert any(isinstance(component, platform_message.Plain) and component.text == '家长您好' for component in chain)
+    assert any(isinstance(component, platform_message.WeChatLink) and component.link_url == 'https://example.com/apply' for component in chain)
+    assert any(isinstance(component, platform_message.Image) and component.base64.startswith('data:image/jpeg;base64,') for component in chain)
+    assert not any(isinstance(component, platform_message.Voice) for component in chain)
+
+
+class _CaptureAdapter:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, target_type, target_id, message_chain):
+        self.sent.append((target_type, target_id, message_chain))
+
+
+class _CapturePlatformManager:
+    def __init__(self, adapter):
+        self.adapter = adapter
+
+    async def get_bot_by_uuid(self, _bot_uuid):
+        return SimpleNamespace(adapter=self.adapter)
+
+
+class _ConversationPersistence:
+    def __init__(self, session=None, handoff=None):
+        self.session = session
+        self.handoff = handoff
+        self.statements = []
+
+    async def execute_async(self, statement):
+        self.statements.append(statement)
+        text = str(statement)
+        if 'monitoring_sessions' in text:
+            return _FakeResult(self.session)
+        if 'sales_handoffs' in text and 'SELECT' in text.upper():
+            return _FakeResult(self.handoff)
+        return _FakeResult(None)
+
+
+@pytest.mark.asyncio
+async def test_send_operator_message_from_session_does_not_create_handoff_when_ai_hosted():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        bot_name='销售数字员工',
+        pipeline_id='pipe-1',
+        pipeline_name='销售流程',
+        platform='person',
+        user_id='customer-1',
+        user_name='客户A',
+    )
+    adapter = _CaptureAdapter()
+    monitoring_service = SimpleNamespace(record_message=AsyncMock(return_value='manual-msg-id'))
+    persistence_mgr = _ConversationPersistence(session=session)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            monitoring_service=monitoring_service,
+        )
+    )
+
+    result = await service.send_operator_message_from_session(
+        'person_customer-1',
+        '人工主动补充一句',
+        assigned_to='sales-admin',
+        pause_ai=False,
+    )
+
+    assert result['sent'] is True
+    assert result['handoff_id'] is None
+    assert adapter.sent[0][0] == 'person'
+    assert adapter.sent[0][1] == 'customer-1'
+    monitoring_service.record_message.assert_awaited_once()
+    assert not any('INSERT INTO sales_handoffs' in str(statement) for statement in persistence_mgr.statements)
+
+
+@pytest.mark.asyncio
+async def test_reply_handoff_keeps_status_open_so_ai_stays_paused():
+    handoff = SimpleNamespace(
+        id=7,
+        session_id='person_customer-1',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        platform='person',
+        user_id='customer-1',
+        status='open',
+    )
+    adapter = _CaptureAdapter()
+    persistence_mgr = SimpleNamespace(execute_async=AsyncMock(side_effect=[_FakeResult(handoff), _FakeResult(None)]))
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            monitoring_service=SimpleNamespace(record_message=AsyncMock(return_value='manual-msg-id')),
+        )
+    )
+
+    await service.reply_handoff(7, '人工处理中回复', 'sales-admin')
+
+    update_statement = persistence_mgr.execute_async.await_args_list[-1].args[0]
+    update_values = dict(update_statement.compile().params)
+    assert update_values['status'] == 'open'
+    assert update_values['operator_reply'] == '人工处理中回复'
+
+
+@pytest.mark.asyncio
+async def test_restore_ai_hosting_closes_open_handoff():
+    handoff = SimpleNamespace(id=7, session_id='person_customer-1', status='open', assigned_to='')
+    persistence_mgr = SimpleNamespace(execute_async=AsyncMock(side_effect=[_FakeResult(handoff), _FakeResult(None)]))
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    result = await service.restore_ai_hosting_from_session('person_customer-1', 'sales-admin')
+
+    assert result == {'restored': True, 'handoff_id': 7}
+    update_statement = persistence_mgr.execute_async.await_args_list[-1].args[0]
+    update_values = dict(update_statement.compile().params)
+    assert update_values['status'] == 'ai_resumed'
+
+
+class _OutreachPersistence:
+    def __init__(self, plan, claim_rowcount=1):
+        self.plan = plan
+        self.claim_rowcount = claim_rowcount
+        self.select_statement = None
+        self.update_values = []
+
+    async def execute_async(self, statement):
+        if getattr(statement, 'is_update', False):
+            values = dict(statement.compile().params)
+            self.update_values.append(values)
+            if len(self.update_values) == 1:
+                return _FakeResult(None, rowcount=self.claim_rowcount)
+            return _FakeResult(None, rowcount=1)
+        self.select_statement = statement
+        return _FakeResult([self.plan])
+
+
+@pytest.mark.asyncio
+async def test_run_due_outreach_once_sends_components_and_marks_one_shot_disabled(monkeypatch):
+    plan = SimpleNamespace(
+        id=12,
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        product_uuid='',
+        message_template='',
+        message_components=[{'type': 'plain', 'text': 'SOP定时群发内容'}],
+        interval_minutes=0,
+    )
+    adapter = _CaptureAdapter()
+    persistence_mgr = _OutreachPersistence(plan)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            logger=_SilentLogger(),
+        )
+    )
+    monkeypatch.setattr(service, 'get_products', AsyncMock(return_value=[]))
+
+    sent = await service.run_due_outreach_once()
+
+    assert sent == 1
+    assert adapter.sent[0][0] == 'person'
+    assert adapter.sent[0][1] == 'customer-1'
+    assert any(component.text == 'SOP定时群发内容' for component in adapter.sent[0][2] if isinstance(component, platform_message.Plain))
+    assert persistence_mgr.update_values[-1]['enabled'] is False
+    assert 'ORDER BY' in str(persistence_mgr.select_statement)
+
+
+@pytest.mark.asyncio
+async def test_run_due_outreach_once_skips_plan_when_concurrent_claim_loses(monkeypatch):
+    plan = SimpleNamespace(
+        id=12,
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        product_uuid='',
+        message_template='',
+        message_components=[{'type': 'plain', 'text': 'SOP定时群发内容'}],
+        interval_minutes=0,
+    )
+    adapter = _CaptureAdapter()
+    persistence_mgr = _OutreachPersistence(plan, claim_rowcount=0)
+    service = SalesService(
+        SimpleNamespace(
+            persistence_mgr=persistence_mgr,
+            platform_mgr=_CapturePlatformManager(adapter),
+            logger=_SilentLogger(),
+        )
+    )
+    monkeypatch.setattr(service, 'get_products', AsyncMock(return_value=[]))
+
+    sent = await service.run_due_outreach_once()
+
+    assert sent == 0
+    assert adapter.sent == []
+    assert persistence_mgr.update_values[0]['enabled'] is False
+
+
+@pytest.mark.asyncio
+async def test_get_chatted_outreach_targets_uses_sessions_with_user_messages():
+    sessions = [
+        SimpleNamespace(
+            session_id='person_customer-1',
+            bot_id='bot-uuid',
+            pipeline_id='course-sales-template-pipeline',
+            platform='person',
+            user_id='customer-1',
+        ),
+        SimpleNamespace(
+            session_id='person_customer-1',
+            bot_id='bot-uuid',
+            pipeline_id='course-sales-template-pipeline',
+            platform='person',
+            user_id='customer-1',
+        ),
+        SimpleNamespace(
+            session_id='group_room-1',
+            bot_id='bot-uuid',
+            pipeline_id='course-sales-template-pipeline',
+            platform='group',
+            user_id='customer-2',
+        ),
+    ]
+    persistence_mgr = SimpleNamespace(execute_async=AsyncMock(return_value=_FakeResult(sessions)))
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    targets = await service.get_chatted_outreach_targets(pipeline_uuids=['course-sales-template-pipeline'])
+
+    assert targets == [
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'customer-1',
+            'session_id': 'person_customer-1',
+            'pipeline_uuid': 'course-sales-template-pipeline',
+            'user_id': 'customer-1',
+        },
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'group',
+            'target_id': 'room-1',
+            'session_id': 'group_room-1',
+            'pipeline_uuid': 'course-sales-template-pipeline',
+            'user_id': 'customer-2',
+        },
+    ]
 
 
 class _FakePersistenceManager:
@@ -230,6 +1695,26 @@ async def test_open_handoff_from_monitoring_session_creates_open_handoff():
 
 
 @pytest.mark.asyncio
+async def test_open_handoff_from_monitoring_session_stores_normalized_granular_reason():
+    session = SimpleNamespace(
+        session_id='person_customer-1',
+        bot_id='bot-uuid',
+        platform='person',
+        user_id='customer-1',
+        user_name='Alice',
+    )
+    message = SimpleNamespace(message_content='付款后还没有开通')
+    persistence_mgr = _SessionHandoffPersistence(session, message)
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    handoff = await service.open_handoff_from_session('person_customer-1', '付款后没有开通', 'sales-admin')
+
+    assert handoff['reason'] == 'payment_issue'
+    assert handoff['reason_label'] == 'payment_issue'
+    assert persistence_mgr.insert_values['reason'] == 'payment_issue'
+
+
+@pytest.mark.asyncio
 async def test_open_handoff_from_monitoring_session_reuses_existing_open_handoff():
     session = SimpleNamespace(
         session_id='group_room-1',
@@ -266,3 +1751,359 @@ async def test_reply_handoff_from_session_opens_then_replies(monkeypatch):
     assert result == {'sent': True, 'handoff_id': 7}
     open_handoff.assert_awaited_once_with('person_customer-1', '人工直接回复', 'sales-admin')
     reply_handoff.assert_awaited_once_with(7, '人工已接入', 'sales-admin')
+
+
+@pytest.mark.asyncio
+async def test_create_resource_issue_from_session_records_user_target_and_summary(sales_service_with_db):
+    service = sales_service_with_db
+    await _insert_monitoring_session_with_messages(service)
+
+    issue = await service.create_resource_issue_from_session(
+        'person_customer-1',
+        {
+            'issue_type': 'content_error',
+            'book_id': '266414',
+            'merchant': '开源图书',
+            'question_location': '宁五6 第三大题，第2小题和第3小题',
+            'user_description': '听力音频都是一样的，和题目对不上',
+            'evidence_images': ['book_qr.jpg', 'wrong_question.jpg'],
+        },
+    )
+
+    assert issue['status'] == 'open'
+    assert issue['session_id'] == 'person_customer-1'
+    assert issue['bot_uuid'] == 'bot-uuid'
+    assert issue['target_type'] == 'person'
+    assert issue['target_id'] == 'customer-1'
+    assert issue['user_id'] == 'ou_customer'
+    assert issue['book_id'] == '266414'
+    assert issue['merchant'] == '开源图书'
+    assert '听力音频都是一样的' in issue['issue_summary']
+    assert issue['evidence_images'] == ['book_qr.jpg', 'wrong_question.jpg']
+
+
+@pytest.mark.asyncio
+async def test_resolve_resource_issue_replies_to_original_user(sales_service_with_db):
+    class _FakeAdapter:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, target_type, target_id, message_chain):
+            self.sent.append((target_type, target_id, message_chain))
+
+    service = sales_service_with_db
+    await _insert_monitoring_session_with_messages(service)
+    issue = await service.create_resource_issue_from_session(
+        'person_customer-1',
+        {
+            'issue_type': 'missing_resource',
+            'book_id': '266414',
+            'merchant': '开源图书',
+            'user_description': '资源为空，页面显示正在上传中',
+        },
+    )
+    fake_adapter = _FakeAdapter()
+    service.ap.platform_mgr = SimpleNamespace(
+        get_bot_by_uuid=AsyncMock(return_value=SimpleNamespace(adapter=fake_adapter))
+    )
+
+    updated = await service.resolve_resource_issue(
+        issue['id'],
+        {
+            'status': 'resolved',
+            'resolution_note': '书商已补传资源',
+            'operator': 'sass运营',
+            'reply_user': True,
+        },
+    )
+
+    assert updated['status'] == 'replied'
+    assert updated['resolution_note'] == '书商已补传资源'
+    assert updated['replied_at'] is not None
+    assert len(fake_adapter.sent) == 1
+    target_type, target_id, message_chain = fake_adapter.sent[0]
+    assert target_type == 'person'
+    assert target_id == 'customer-1'
+    assert isinstance(message_chain, platform_message.MessageChain)
+    assert '已经处理好了' in message_chain[0].text
+
+async def test_generate_sales_reply_suggestion_uses_configured_llm(monkeypatch):
+    unconfigured_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='space-model',
+            name='space-model',
+            provider_uuid='00000000-0000-0000-0000-000000000000',
+            extra_args={},
+        ),
+        provider=SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                uuid='00000000-0000-0000-0000-000000000000',
+                requester='space-chat-completions',
+                api_keys=[],
+            )
+        ),
+    )
+    runtime_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='model-1',
+            name='real-chat-model',
+            provider_uuid='provider-1',
+            extra_args={},
+        ),
+        provider=SimpleNamespace(
+            provider_entity=SimpleNamespace(
+                uuid='provider-1',
+                requester='openai-chat-completions',
+                api_keys=['sk-test'],
+            ),
+            invoke_llm=AsyncMock(
+                return_value=provider_message.Message(
+                    role='assistant',
+                    content='这是根据真实模型生成的人工推荐回复。',
+                )
+            )
+        ),
+    )
+    ap = SimpleNamespace(
+        model_mgr=SimpleNamespace(
+            llm_models=[unconfigured_model, runtime_model],
+            get_model_by_uuid=AsyncMock(return_value=runtime_model),
+        )
+    )
+    service = SalesService(ap)
+    monkeypatch.setattr(
+        service,
+        'get_sales_conversation_messages',
+        AsyncMock(
+            return_value={
+                'messages': [
+                    {'role': 'user', 'sender_name': 'Customer', 'preview': '价格有点贵，想找人工确认'},
+                    {'role': 'assistant', 'sender_name': 'AI', 'preview': '可以，我帮您看一下。'},
+                ]
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        'get_products',
+        AsyncMock(
+            return_value=[
+                {
+                    'uuid': 'product-1',
+                    'name': '猿辅导体验课',
+                    'price': '9元',
+                    'link': 'https://example.com',
+                    'description': '自然拼读课程',
+                    'selling_points': ['先体验再决定'],
+                    'pain_points': ['价格顾虑'],
+                    'objections': ['担心没效果'],
+                    'audience': ['小学家长'],
+                    'enabled': True,
+                }
+            ]
+        ),
+    )
+
+    result = await service.generate_sales_reply_suggestion_from_session('person_customer-1')
+
+    assert result['suggestion']['message'] == '这是根据真实模型生成的人工推荐回复。'
+    assert result['suggestion']['tone'] == 'consultative'
+    assert result['source'] == 'llm'
+    assert result['model_name'] == 'real-chat-model'
+    ap.model_mgr.get_model_by_uuid.assert_awaited_once_with('model-1')
+    runtime_model.provider.invoke_llm.assert_awaited_once()
+
+
+
+@pytest.mark.asyncio
+async def test_get_product_returns_serialized_product():
+    product_row = SimpleNamespace(
+        uuid='product-1',
+        name='AI 销售助手',
+        category='sales',
+        price='299/月',
+        link='https://example.com',
+        description='desc',
+        selling_points=['卖点'],
+        pain_points=[],
+        objections=[],
+        audience=[],
+        enabled=True,
+        created_at=None,
+        updated_at=None,
+    )
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(return_value=_FakeResult(product_row)),
+        serialize_model=lambda _model, row: {
+            'uuid': row.uuid,
+            'name': row.name,
+            'category': row.category,
+            'price': row.price,
+            'link': row.link,
+            'description': row.description,
+            'selling_points': row.selling_points,
+            'pain_points': row.pain_points,
+            'objections': row.objections,
+            'audience': row.audience,
+            'enabled': row.enabled,
+        },
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    result = await service.get_product('product-1')
+
+    assert result['uuid'] == 'product-1'
+    assert result['name'] == 'AI 销售助手'
+
+
+@pytest.mark.asyncio
+async def test_get_product_raises_when_missing():
+    persistence_mgr = SimpleNamespace(
+        execute_async=AsyncMock(return_value=_FakeResult(None)),
+    )
+    service = SalesService(SimpleNamespace(persistence_mgr=persistence_mgr))
+
+    with pytest.raises(ValueError, match='Product not found'):
+        await service.get_product('missing-product')
+
+
+@pytest.mark.asyncio
+async def test_create_product_requires_name():
+    service = SalesService(SimpleNamespace(persistence_mgr=SimpleNamespace(execute_async=AsyncMock())))
+
+    with pytest.raises(ValueError, match='Product name is required'):
+        await service.create_product({'name': '   '})
+
+
+def test_clean_product_payload_supports_product_line_fields():
+    service = SalesService(SimpleNamespace())
+
+    payload = service._clean_product_payload(
+        {
+            'name': '猿辅导阅读+思维特训营',
+            'product_line': '猿辅导',
+            'profile_key': 'reading_thinking',
+            'keywords': ['阅读', '思维'],
+            'category': '阅读+思维',
+            'price': '9元体验',
+        }
+    )
+
+    assert payload['product_line'] == '猿辅导'
+    assert payload['profile_key'] == 'reading_thinking'
+    assert payload['keywords'] == ['阅读', '思维']
+
+
+def test_yuanfudao_catalog_products_include_reading_thinking_course():
+    products_by_uuid = {product['uuid']: product for product in YUANFUDAO_CATALOG_PRODUCTS}
+
+    assert set(products_by_uuid) == {
+        'yuanfudao-phonics-course',
+        'yuanfudao-reading-thinking-course',
+    }
+    assert products_by_uuid['yuanfudao-phonics-course']['product_line'] == '猿辅导'
+    assert products_by_uuid['yuanfudao-reading-thinking-course']['profile_key'] == 'reading_thinking'
+    for product in products_by_uuid.values():
+        assert product['link'].startswith('https://m.yuanfudao.com/primary/templates/package?')
+        assert 'xxx' not in product['link'].lower()
+
+
+@pytest.mark.asyncio
+async def test_ensure_catalog_products_fills_missing_yuanfudao_link(sales_service_with_db):
+    service = sales_service_with_db
+    await service.ap.persistence_mgr.execute_async(
+        sqlalchemy.insert(persistence_sales.SalesProduct).values(
+            {
+                'uuid': 'yuanfudao-reading-thinking-course',
+                'product_line': '猿辅导',
+                'profile_key': 'reading_thinking',
+                'keywords': ['阅读', '思维'],
+                'name': '猿辅导阅读+思维特训营',
+                'category': '阅读+思维',
+                'price': '9元体验',
+                'link': '',
+                'description': '旧产品行',
+                'selling_points': [],
+                'pain_points': [],
+                'objections': [],
+                'audience': [],
+                'enabled': True,
+            }
+        )
+    )
+
+    await service.ensure_catalog_products()
+
+    product = await service.get_product('yuanfudao-reading-thinking-course')
+    assert product['link'].startswith('https://m.yuanfudao.com/primary/templates/package?')
+
+
+def test_build_radar_tracking_url_wraps_destination_with_token():
+    service = SalesService(
+        SimpleNamespace(
+            instance_config={'api': {'host': '127.0.0.1', 'port': 5300}},
+        )
+    )
+
+    url = service.build_radar_tracking_url(
+        destination_url='https://m.yuanfudao.com/apply',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        link_id='phonics_radar_apply',
+        session_id='person_customer-1',
+    )
+
+    assert url.startswith('http://127.0.0.1:5300/api/v1/sales/radar/click/')
+    payload = service.decode_radar_tracking_token(url.rsplit('/', 1)[-1])
+    assert payload['d'] == 'https://m.yuanfudao.com/apply'
+    assert payload['b'] == 'bot-uuid'
+    assert payload['i'] == 'customer-1'
+
+
+def test_build_radar_tracking_url_uses_public_base_url_when_configured():
+    service = SalesService(
+        SimpleNamespace(
+            instance_config=SimpleNamespace(
+                data={
+                    'api': {'host': '127.0.0.1', 'port': 5300},
+                    'sales': {'radar_public_base_url': 'https://bot.example.com/base/'},
+                }
+            ),
+        )
+    )
+
+    url = service.build_radar_tracking_url(
+        destination_url='https://m.yuanfudao.com/primary/templates/package?pageId=6641',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+    )
+
+    assert url.startswith('https://bot.example.com/base/api/v1/sales/radar/click/')
+
+
+@pytest.mark.asyncio
+async def test_handle_radar_tracking_click_schedules_followup_and_returns_destination():
+    task_assistant = SimpleNamespace(handle_course_sales_radar_event=AsyncMock(return_value={'handled': True}))
+    service = SalesService(
+        SimpleNamespace(
+            task_assistant_service=task_assistant,
+            logger=_SilentLogger(),
+            instance_config={'api': {'host': '127.0.0.1', 'port': 5300}},
+        )
+    )
+    token = service.build_radar_tracking_url(
+        destination_url='https://m.yuanfudao.com/apply',
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='customer-1',
+        link_id='phonics_radar_apply',
+        session_id='person_customer-1',
+        event='link_open',
+    ).rsplit('/', 1)[-1]
+
+    destination = await service.handle_radar_tracking_click(token)
+
+    assert destination == 'https://m.yuanfudao.com/apply'
+    task_assistant.handle_course_sales_radar_event.assert_awaited_once()

@@ -4,7 +4,10 @@ import {
   ApiRespProviderRequester,
   ApiRespProviderLLMModels,
   ApiRespProviderLLMModel,
+  ApiRespWorkflows,
+  ApiRespWorkflowComponents,
   LLMModel,
+  TestLLMModelResult,
   ApiRespPipelines,
   Pipeline,
   ApiRespPlatformAdapters,
@@ -24,9 +27,13 @@ import {
   SalesProduct,
   SalesCustomerMemory,
   SalesHandoff,
+  SalesConversation,
+  SalesConversationMessage,
+  SalesConversationStatus,
   SalesOutreachPlan,
   SalesIntent,
   SalesPitchResp,
+  SalesReplySuggestionResp,
   GetPipelineResponseData,
   GetPipelineMetadataResponseData,
   AsyncTask,
@@ -55,6 +62,10 @@ import {
   RagMigrationStatusResp,
   ApiRespTools,
   ApiRespToolDetail,
+  ApiRespAutoTestTargets,
+  ApiRespAutoTestRuns,
+  ApiRespAutoTestRun,
+  AutoTestTargetType,
 } from '@/app/infra/entities/api';
 import { Plugin } from '@/app/infra/entities/plugin';
 import { GetBotLogsRequest } from '@/app/infra/http/requestParam/bots/GetBotLogsRequest';
@@ -78,6 +89,18 @@ export class BackendClient extends BaseHttpClient {
 
   public getProviderRequester(name: string): Promise<ApiRespProviderRequester> {
     return this.get(`/api/v1/provider/requesters/${name}`);
+  }
+
+  public getProviderIconURL(providerUuid: string, requester?: string): string {
+    if (this.instance.defaults.baseURL === '/') {
+      const url = window.location.href;
+      const baseURL = url.split('/').slice(0, 3).join('/');
+      return `${baseURL}/api/v1/provider/providers/${providerUuid}/icon`;
+    }
+    return (
+      this.instance.defaults.baseURL +
+      `/api/v1/provider/providers/${providerUuid}/icon`
+    );
   }
 
   public getProviderRequesterIconURL(name: string): string {
@@ -129,8 +152,17 @@ export class BackendClient extends BaseHttpClient {
   // ============ Provider Model LLM ============
   public getProviderLLMModels(
     providerUuid?: string,
+    options?: {
+      include_space_models?: boolean;
+      include_system_models?: boolean;
+      only_configured_providers?: boolean;
+      model_category?: 'text' | 'voice' | 'asr' | 'pdf' | 'all';
+    },
   ): Promise<ApiRespProviderLLMModels> {
-    const params = providerUuid ? { provider_uuid: providerUuid } : {};
+    const params = {
+      ...(providerUuid ? { provider_uuid: providerUuid } : {}),
+      ...(options || {}),
+    };
     return this.get('/api/v1/provider/models/llm', params);
   }
 
@@ -153,15 +185,24 @@ export class BackendClient extends BaseHttpClient {
     return this.put(`/api/v1/provider/models/llm/${uuid}`, model);
   }
 
-  public testLLMModel(uuid: string, model: LLMModel): Promise<object> {
+  public testLLMModel(
+    uuid: string,
+    model: LLMModel,
+  ): Promise<TestLLMModelResult | null> {
     return this.post(`/api/v1/provider/models/llm/${uuid}/test`, model);
   }
 
   // ============ Provider Model Embedding ============
   public getProviderEmbeddingModels(
     providerUuid?: string,
+    options?: {
+      only_configured_providers?: boolean;
+    },
   ): Promise<ApiRespProviderEmbeddingModels> {
-    const params = providerUuid ? { provider_uuid: providerUuid } : {};
+    const params = {
+      ...(providerUuid ? { provider_uuid: providerUuid } : {}),
+      ...(options || {}),
+    };
     return this.get('/api/v1/provider/models/embedding', params);
   }
 
@@ -196,8 +237,14 @@ export class BackendClient extends BaseHttpClient {
   // ============ Provider Model Rerank ============
   public getProviderRerankModels(
     providerUuid?: string,
+    options?: {
+      only_configured_providers?: boolean;
+    },
   ): Promise<ApiRespProviderRerankModels> {
-    const params = providerUuid ? { provider_uuid: providerUuid } : {};
+    const params = {
+      ...(providerUuid ? { provider_uuid: providerUuid } : {}),
+      ...(options || {}),
+    };
     return this.get('/api/v1/provider/models/rerank', params);
   }
 
@@ -263,6 +310,84 @@ export class BackendClient extends BaseHttpClient {
 
   public copyPipeline(uuid: string): Promise<{ uuid: string }> {
     return this.post(`/api/v1/pipelines/${uuid}/copy`);
+  }
+
+  // ============ Auto Test API ============
+  public getAutoTestTargets(): Promise<ApiRespAutoTestTargets> {
+    return this.get('/api/v1/autotest/targets');
+  }
+
+  public getAutoTestRuns(params?: {
+    target_type?: AutoTestTargetType;
+    target_uuid?: string;
+    limit?: number;
+  }): Promise<ApiRespAutoTestRuns> {
+    return this.get('/api/v1/autotest/runs', params);
+  }
+
+  public startAutoTestRun(data: {
+    target_type: AutoTestTargetType;
+    target_uuid: string;
+    scenario?: string;
+    turns?: number;
+    sop_text?: string;
+    sop_filename?: string;
+  }): Promise<ApiRespAutoTestRun> {
+    return this.post('/api/v1/autotest/runs', data);
+  }
+
+  public submitAutoTestFeedback(
+    runUuid: string,
+    data: {
+      feedback: 'satisfied' | 'unsatisfied';
+      reason?: string;
+    },
+  ): Promise<ApiRespAutoTestRun> {
+    return this.post(`/api/v1/autotest/runs/${runUuid}/feedback`, data);
+  }
+
+  public revertAutoTestRunOptimization(
+    runUuid: string,
+  ): Promise<ApiRespAutoTestRun> {
+    return this.post(`/api/v1/autotest/runs/${runUuid}/revert`);
+  }
+
+  // ============ Workflow Library API ============
+  public getWorkflows(): Promise<ApiRespWorkflows> {
+    return this.get('/api/v1/workflows');
+  }
+
+  public getWorkflowComponents(): Promise<ApiRespWorkflowComponents> {
+    return this.get('/api/v1/workflows/components');
+  }
+
+  public createWorkflow(workflow: {
+    folder: string;
+    name: string;
+    description: string;
+    workflow: object;
+  }): Promise<{ uuid: string }> {
+    return this.post('/api/v1/workflows', workflow);
+  }
+
+  public updateWorkflow(
+    uuid: string,
+    workflow: {
+      folder?: string;
+      name?: string;
+      description?: string;
+      workflow?: object;
+    },
+  ): Promise<object> {
+    return this.put(`/api/v1/workflows/${uuid}`, workflow);
+  }
+
+  public deleteWorkflow(uuid: string): Promise<object> {
+    return this.delete(`/api/v1/workflows/${uuid}`);
+  }
+
+  public createWorkflowFolder(name: string): Promise<object> {
+    return this.post('/api/v1/workflows/folders', { name });
   }
 
   public getPipelineExtensions(uuid: string): Promise<{
@@ -912,11 +1037,20 @@ export class BackendClient extends BaseHttpClient {
     return this.get('/api/v1/sales/products');
   }
 
-  public createSalesProduct(product: Partial<SalesProduct>): Promise<{ uuid: string }> {
+  public getSalesProduct(uuid: string): Promise<{ product: SalesProduct }> {
+    return this.get(`/api/v1/sales/products/${uuid}`);
+  }
+
+  public createSalesProduct(
+    product: Partial<SalesProduct>,
+  ): Promise<{ uuid: string }> {
     return this.post('/api/v1/sales/products', product);
   }
 
-  public updateSalesProduct(uuid: string, product: Partial<SalesProduct>): Promise<object> {
+  public updateSalesProduct(
+    uuid: string,
+    product: Partial<SalesProduct>,
+  ): Promise<object> {
     return this.put(`/api/v1/sales/products/${uuid}`, product);
   }
 
@@ -942,8 +1076,106 @@ export class BackendClient extends BaseHttpClient {
     return this.get('/api/v1/sales/memories');
   }
 
-  public getSalesHandoffs(status?: string): Promise<{ handoffs: SalesHandoff[] }> {
+  public updateSalesMemory(
+    sessionId: string,
+    data: {
+      customer_name?: string;
+      stage?: string;
+      summary?: string;
+      profile?: Record<string, unknown>;
+    },
+  ): Promise<{ memory: SalesCustomerMemory }> {
+    return this.put(
+      `/api/v1/sales/memories/${encodeURIComponent(sessionId)}`,
+      data,
+    );
+  }
+
+  public getSalesHandoffs(
+    status?: string,
+  ): Promise<{ handoffs: SalesHandoff[] }> {
     return this.get('/api/v1/sales/handoffs', status ? { status } : undefined);
+  }
+
+  public getSalesConversations(params?: {
+    status?: SalesConversationStatus | 'all';
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    conversations: SalesConversation[];
+    limit: number;
+    offset: number;
+  }> {
+    return this.get('/api/v1/sales/conversations', params);
+  }
+
+  public getSalesConversationMessages(
+    sessionId: string,
+    limit: number = 200,
+    offset: number = 0,
+  ): Promise<{
+    messages: SalesConversationMessage[];
+    total: number;
+    limit: number;
+    offset: number;
+  }> {
+    return this.get(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/messages`,
+      { limit, offset },
+    );
+  }
+
+  public sendSalesConversationManualReply(
+    sessionId: string,
+    reply: string,
+    assignedTo?: string,
+  ): Promise<{ sent: boolean; handoff_id: number | null }> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/manual-reply`,
+      { reply, assigned_to: assignedTo || '' },
+    );
+  }
+
+  public startSalesConversationHandoff(
+    sessionId: string,
+    reason?: string,
+    assignedTo?: string,
+  ): Promise<{ handoff: SalesHandoff }> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/handoff/start`,
+      { reason: reason || '人工主动介入', assigned_to: assignedTo || '' },
+    );
+  }
+
+  public replySalesConversationHandoff(
+    sessionId: string,
+    reply: string,
+    assignedTo?: string,
+  ): Promise<{ sent: boolean; handoff_id: number }> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/handoff/reply`,
+      { reply, assigned_to: assignedTo || '' },
+    );
+  }
+
+  public restoreSalesConversationAiHosting(
+    sessionId: string,
+    assignedTo?: string,
+  ): Promise<{ restored: boolean; handoff_id: number | null }> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/handoff/restore`,
+      { assigned_to: assignedTo || '' },
+    );
+  }
+
+  public generateSalesConversationReplySuggestion(
+    sessionId: string,
+    data?: { product_uuid?: string; tone?: string },
+  ): Promise<SalesReplySuggestionResp> {
+    return this.post(
+      `/api/v1/sales/conversations/${encodeURIComponent(sessionId)}/ai-suggestion`,
+      data || {},
+    );
   }
 
   public openSalesHandoffFromSession(data: {
@@ -973,16 +1205,53 @@ export class BackendClient extends BaseHttpClient {
     });
   }
 
-  public getSalesOutreachPlans(): Promise<{ plans: SalesOutreachPlan[] }> {
-    return this.get('/api/v1/sales/outreach');
+  public getSalesOutreachPlans(
+    kind: 'all' | 'scheduled_push' | 'followup' = 'scheduled_push',
+  ): Promise<{ plans: SalesOutreachPlan[] }> {
+    return this.get(`/api/v1/sales/outreach?kind=${encodeURIComponent(kind)}`);
   }
 
-  public createSalesOutreachPlan(plan: Partial<SalesOutreachPlan>): Promise<{ id: number }> {
+  public createSalesOutreachPlan(
+    plan: Partial<SalesOutreachPlan>,
+  ): Promise<{ id: number }> {
     return this.post('/api/v1/sales/outreach', plan);
   }
 
-  public runDueSalesOutreach(): Promise<{ sent: number }> {
-    return this.post('/api/v1/sales/outreach/run-due');
+  public runDueSalesOutreach(
+    kind: 'all' | 'scheduled_push' | 'followup' = 'scheduled_push',
+  ): Promise<{ sent: number }> {
+    return this.post('/api/v1/sales/outreach/run-due', { kind });
+  }
+
+  public clearSalesScheduledPushPlans(): Promise<{ deleted: number }> {
+    return this.post('/api/v1/sales/outreach/clear');
+  }
+
+  public getSalesScheduledPushConfig(): Promise<
+    import('@/app/infra/entities/api').SalesScheduledPushConfig
+  > {
+    return this.get('/api/v1/sales/outreach/scheduled-push-config');
+  }
+
+  public saveSalesScheduledPushConfig(
+    config: Partial<
+      import('@/app/infra/entities/api').SalesScheduledPushConfig
+    >,
+  ): Promise<
+    import('@/app/infra/entities/api').SalesScheduledPushConfig & {
+      deleted: number;
+      inserted: number;
+    }
+  > {
+    return this.put('/api/v1/sales/outreach/scheduled-push-config', config);
+  }
+
+  public getSalesFollowupPlans(): Promise<{ plans: SalesOutreachPlan[] }> {
+    return this.get('/api/v1/sales/followups');
+  }
+
+  public runDueSalesFollowups(): Promise<{ sent: number }> {
+    return this.post('/api/v1/sales/followups/run-due');
   }
 
   public getSpaceCredits(): Promise<{ credits: number | null }> {

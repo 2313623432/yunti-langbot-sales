@@ -10,6 +10,7 @@ Tests cover:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 from importlib import import_module
 
@@ -17,6 +18,53 @@ from importlib import import_module
 def get_load_config_module():
     """Lazy import to avoid circular import issues."""
     return import_module('langbot.pkg.core.stages.load_config')
+
+
+class TestLoadLocalEnvFiles:
+    """Tests for local environment file loading."""
+
+    def test_loads_env_local_without_overriding_existing_environment(self, tmp_path, monkeypatch):
+        load_config = get_load_config_module()
+        env_file = tmp_path / '.env.local'
+        env_file.write_text(
+            '\n'.join(
+                [
+                    'DATABASE_PUBLIC_URL=postgresql://file_user:file_pass@localhost:5432/file_db',
+                    'API__PORT=5310',
+                ]
+            ),
+            encoding='utf-8',
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with patch.dict(os.environ, {'API__PORT': '5300'}, clear=True):
+            loaded = load_config._load_local_env_files()
+
+            assert loaded == [Path('.env.local')]
+            assert os.environ['DATABASE_PUBLIC_URL'] == 'postgresql://file_user:file_pass@localhost:5432/file_db'
+            assert os.environ['API__PORT'] == '5300'
+
+    def test_loads_quoted_env_values_and_ignores_comments(self, tmp_path, monkeypatch):
+        load_config = get_load_config_module()
+        (tmp_path / '.env').write_text(
+            '\n'.join(
+                [
+                    '# local config',
+                    'DATABASE_PUBLIC_URL="postgresql://user:pass@example.com:43901/postgres"',
+                    "SYSTEM__INSTANCE_ID='local-instance'",
+                    'INVALID_LINE',
+                ]
+            ),
+            encoding='utf-8',
+        )
+
+        monkeypatch.chdir(tmp_path)
+        with patch.dict(os.environ, {}, clear=True):
+            loaded = load_config._load_local_env_files()
+
+            assert loaded == [Path('.env')]
+            assert os.environ['DATABASE_PUBLIC_URL'] == 'postgresql://user:pass@example.com:43901/postgres'
+            assert os.environ['SYSTEM__INSTANCE_ID'] == 'local-instance'
 
 
 class TestApplyEnvOverridesToConfig:
@@ -178,7 +226,7 @@ class TestApplyEnvOverridesToConfig:
         cfg = {'system': {'name': 'default'}}
         env = {'system__name': 'should_not_apply'}
 
-        with patch.dict(os.environ, env, clear=True):
+        with patch.object(load_config.os, 'environ', env):
             result = load_config._apply_env_overrides_to_config(cfg)
 
         assert result['system']['name'] == 'default'
@@ -288,3 +336,68 @@ class TestApplyEnvOverridesToConfig:
             result = load_config._apply_env_overrides_to_config(cfg)
 
         assert result['api']['extra_webhook_prefix'] == 'https://extra.example.com'
+
+    def test_sensitive_env_override_logs_masked_value(self, capsys):
+        """Sensitive environment override values are applied but not printed."""
+        load_config = get_load_config_module()
+
+        cfg = {'database': {'postgresql': {'password': ''}}}
+        env = {'DATABASE__POSTGRESQL__PASSWORD': 'super-secret-password'}
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_env_overrides_to_config(cfg)
+
+        output = capsys.readouterr().out
+        assert result['database']['postgresql']['password'] == 'super-secret-password'
+        assert 'DATABASE__POSTGRESQL__PASSWORD' in output
+        assert 'env_value: ***' in output
+        assert 'super-secret-password' not in output
+
+    def test_database_url_applies_postgresql_config(self, capsys):
+        """DATABASE_URL can configure PostgreSQL without exposing credentials in logs."""
+        load_config = get_load_config_module()
+        cfg = {'database': {'use': 'sqlite', 'postgresql': {}}}
+        env = {'DATABASE_URL': 'postgres://user:pass%40123@example.com:5433/sales_db'}
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_database_url_to_config(cfg)
+
+        output = capsys.readouterr().out
+        assert result['database']['use'] == 'postgresql'
+        assert result['database']['postgresql']['host'] == 'example.com'
+        assert result['database']['postgresql']['port'] == 5433
+        assert result['database']['postgresql']['user'] == 'user'
+        assert result['database']['postgresql']['password'] == 'pass@123'
+        assert result['database']['postgresql']['database'] == 'sales_db'
+        assert 'DATABASE_URL' in output
+        assert 'pass@123' not in output
+
+    def test_database_url_ignores_non_postgres_urls(self):
+        """Non-PostgreSQL URLs should not mutate database config."""
+        load_config = get_load_config_module()
+        cfg = {'database': {'use': 'sqlite'}}
+        env = {'DATABASE_URL': 'sqlite:///data/langbot.db'}
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_database_url_to_config(cfg)
+
+        assert result == {'database': {'use': 'sqlite'}}
+
+    def test_database_public_url_applies_postgresql_config_when_database_url_missing(self, capsys):
+        """DATABASE_PUBLIC_URL lets local Railway runs use the same PostgreSQL database as cloud."""
+        load_config = get_load_config_module()
+        cfg = {'database': {'use': 'sqlite', 'postgresql': {}}}
+        env = {'DATABASE_PUBLIC_URL': 'postgresql://public:secret%21456@proxy.example.com:43901/railway'}
+
+        with patch.dict(os.environ, env, clear=True):
+            result = load_config._apply_database_url_to_config(cfg)
+
+        output = capsys.readouterr().out
+        assert result['database']['use'] == 'postgresql'
+        assert result['database']['postgresql']['host'] == 'proxy.example.com'
+        assert result['database']['postgresql']['port'] == 43901
+        assert result['database']['postgresql']['user'] == 'public'
+        assert result['database']['postgresql']['password'] == 'secret!456'
+        assert result['database']['postgresql']['database'] == 'railway'
+        assert 'DATABASE_PUBLIC_URL' in output
+        assert 'secret!456' not in output

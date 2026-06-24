@@ -349,3 +349,18 @@ class TestHandlerQueryLookup:
 
         assert response.code == 0
         assert response.data == {'bot_uuid': 'test-bot-uuid'}
+
+
+class TestGetBotInfo:
+    @pytest.mark.asyncio
+    async def test_missing_bot_returns_error(self):
+        app = Mock()
+        app.bot_service = SimpleNamespace(get_runtime_bot_info=AsyncMock(return_value=None))
+        runtime_handler = make_handler(app)
+
+        response = await runtime_handler.actions[PluginToRuntimeAction.GET_BOT_INFO.value]({
+            'bot_uuid': 'missing-bot',
+        })
+
+        assert response.code != 0
+        assert 'missing-bot' in response.message

@@ -452,11 +452,10 @@ class PluginsRouterGroup(group.RouterGroup):
             if file is None:
                 return self.http_status(400, -1, 'file is required')
 
-            # Check file size (10MB limit)
-            MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+            # Check file size (500MB limit)
             file_bytes = file.read()
-            if len(file_bytes) > MAX_FILE_SIZE:
-                return self.http_status(400, -1, 'file size exceeds 10MB limit')
+            if len(file_bytes) > group.MAX_FILE_SIZE:
+                return self.http_status(400, -1, 'file size exceeds 500MB limit')
 
             # Generate unique file key with original extension
             original_filename = file.filename

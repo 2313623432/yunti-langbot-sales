@@ -12,6 +12,7 @@ import {
 } from '@/app/infra/http';
 import { extractI18nObject } from '@/i18n/I18nProvider';
 import { isNewerVersion } from '@/app/utils/versionCompare';
+import { agentAvatarUrl } from '@/app/home/pipelines/components/agent-avatar/agentAvatar';
 
 // Lightweight entity item for sidebar display
 export interface SidebarEntityItem {
@@ -21,6 +22,8 @@ export interface SidebarEntityItem {
   emoji?: string;
   iconURL?: string;
   updatedAt?: string; // ISO timestamp for sorting by most recently edited
+  isDefault?: boolean;
+  isBuiltin?: boolean;
   // Bot-specific fields
   enabled?: boolean;
   // MCP-specific fields
@@ -108,13 +111,24 @@ export function SidebarDataProvider({
     try {
       const resp = await httpClient.getPipelines();
       setPipelines(
-        resp.pipelines.map((p) => ({
-          id: p.uuid || '',
-          name: p.name,
-          description: p.description,
-          emoji: p.emoji,
-          updatedAt: p.updated_at,
-        })),
+        resp.pipelines.map((p) => {
+          const pipelineConfig = p.config as Record<string, any> | undefined;
+          const avatar =
+            typeof pipelineConfig?.basic?.avatar === 'string'
+              ? pipelineConfig.basic.avatar
+              : '';
+
+          return {
+            id: p.uuid || '',
+            name: p.name,
+            description: p.description,
+            emoji: p.emoji,
+            iconURL: agentAvatarUrl(avatar),
+            updatedAt: p.updated_at,
+            isDefault: p.is_default,
+            isBuiltin: p.is_builtin,
+          };
+        }),
       );
     } catch (error) {
       console.error('Failed to fetch pipelines for sidebar:', error);

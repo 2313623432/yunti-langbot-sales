@@ -6,6 +6,7 @@ import sqlalchemy
 from .. import group
 from .....utils import constants
 from .....entity.persistence.metadata import Metadata
+from .....api.http.service.wizard import sanitize_wizard_progress
 
 
 @group.group_class('system', '/api/v1/system')
@@ -30,6 +31,19 @@ class SystemRouterGroup(group.RouterGroup):
                             wizard_progress = None
             except Exception:
                 pass
+
+            if wizard_progress and wizard_progress.get('created_bot_uuid'):
+                try:
+                    created_bot = await self.ap.bot_service.get_bot(
+                        wizard_progress['created_bot_uuid'],
+                        include_secret=False,
+                    )
+                    wizard_progress = sanitize_wizard_progress(
+                        wizard_progress,
+                        created_bot_exists=created_bot is not None,
+                    )
+                except Exception:
+                    wizard_progress = sanitize_wizard_progress(wizard_progress, created_bot_exists=None)
 
             return self.success(
                 data={

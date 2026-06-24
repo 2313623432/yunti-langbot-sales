@@ -4,6 +4,8 @@ import sqlalchemy
 
 from ....core import app
 from ....entity.persistence import rag as persistence_rag
+from ....rag import embedding_bootstrap
+from ....rag.knowledge import builtin_engine
 
 
 class KnowledgeService:
@@ -16,23 +18,33 @@ class KnowledgeService:
 
     async def get_knowledge_bases(self) -> list[dict]:
         """获取所有知识库"""
-        return await self.ap.rag_mgr.get_all_knowledge_base_details()
+        kb_list = await self.ap.rag_mgr.get_all_knowledge_base_details()
+        await self._attach_file_counts(kb_list)
+        return kb_list
 
     async def get_knowledge_base(self, kb_uuid: str) -> dict | None:
         """获取知识库"""
-        return await self.ap.rag_mgr.get_knowledge_base_details(kb_uuid)
+        kb_dict = await self.ap.rag_mgr.get_knowledge_base_details(kb_uuid)
+        if kb_dict is not None:
+            await self._attach_file_counts([kb_dict])
+        return kb_dict
 
     async def create_knowledge_base(self, kb_data: dict) -> str:
         """创建知识库"""
         # In new architecture, we delegate entirely to RAGManager which uses plugins.
         # Legacy internal KB creation is removed.
 
-        knowledge_engine_plugin_id = kb_data.get('knowledge_engine_plugin_id')
-        if not knowledge_engine_plugin_id:
-            raise ValueError('knowledge_engine_plugin_id is required')
+        knowledge_engine_plugin_id = (
+            kb_data.get('knowledge_engine_plugin_id') or builtin_engine.BUILTIN_KNOWLEDGE_ENGINE_ID
+        )
+        creation_settings = dict(kb_data.get('creation_settings') or {})
+        retrieval_settings = dict(kb_data.get('retrieval_settings') or {})
 
-        creation_settings = kb_data.get('creation_settings', {})
-        retrieval_settings = kb_data.get('retrieval_settings', {})
+        if builtin_engine.is_builtin_knowledge_engine(knowledge_engine_plugin_id):
+            creation_settings, retrieval_settings = await self._apply_builtin_defaults(
+                creation_settings,
+                retrieval_settings,
+            )
 
         # Validate required fields based on plugin's creation_schema and retrieval_schema
         await self._validate_schema_required_fields(
@@ -49,6 +61,25 @@ class KnowledgeService:
             description=kb_data.get('description', ''),
         )
         return kb.uuid
+
+    async def _apply_builtin_defaults(
+        self,
+        creation_settings: dict,
+        retrieval_settings: dict,
+    ) -> tuple[dict, dict]:
+        """Apply sensible defaults for the built-in knowledge engine."""
+        if not str(creation_settings.get('embedding_model_uuid') or '').strip():
+            embedding_model_uuid = await embedding_bootstrap.resolve_preferred_embedding_model_uuid(self.ap)
+            if embedding_model_uuid:
+                creation_settings['embedding_model_uuid'] = embedding_model_uuid
+
+        if creation_settings.get('chunk_size') is None:
+            creation_settings['chunk_size'] = builtin_engine.DEFAULT_CHUNK_SIZE
+        if creation_settings.get('chunk_overlap') is None:
+            creation_settings['chunk_overlap'] = builtin_engine.DEFAULT_CHUNK_OVERLAP
+        if retrieval_settings.get('top_k') is None:
+            retrieval_settings['top_k'] = 5
+        return creation_settings, retrieval_settings
 
     async def _validate_schema_required_fields(
         self,
@@ -71,7 +102,10 @@ class KnowledgeService:
         """
         # Validate creation_schema
         try:
-            creation_schema = await self.ap.plugin_connector.get_rag_creation_schema(plugin_id)
+            if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+                creation_schema = builtin_engine.get_builtin_creation_schema()
+            else:
+                creation_schema = await self.ap.plugin_connector.get_rag_creation_schema(plugin_id)
             self._check_required_fields(creation_schema, creation_settings, 'creation_settings')
         except ValueError:
             raise
@@ -80,7 +114,10 @@ class KnowledgeService:
 
         # Validate retrieval_schema
         try:
-            retrieval_schema = await self.ap.plugin_connector.get_rag_retrieval_schema(plugin_id)
+            if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+                retrieval_schema = builtin_engine.get_builtin_retrieval_schema()
+            else:
+                retrieval_schema = await self.ap.plugin_connector.get_rag_retrieval_schema(plugin_id)
             self._check_required_fields(retrieval_schema, retrieval_settings, 'retrieval_settings')
         except ValueError:
             raise
@@ -227,7 +264,56 @@ class KnowledgeService:
             sqlalchemy.select(persistence_rag.File).where(persistence_rag.File.kb_id == kb_uuid)
         )
         files = result.all()
-        return [self.ap.persistence_mgr.serialize_model(persistence_rag.File, file) for file in files]
+        file_dicts = [self.ap.persistence_mgr.serialize_model(persistence_rag.File, file) for file in files]
+        await self._attach_chunk_counts(kb_uuid, file_dicts)
+        return file_dicts
+
+    async def _attach_file_counts(self, kb_list: list[dict]) -> None:
+        if not kb_list:
+            return
+        kb_ids = [str(kb.get('uuid') or '') for kb in kb_list if kb.get('uuid')]
+        if not kb_ids:
+            return
+        count_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(
+                persistence_rag.File.kb_id,
+                sqlalchemy.func.count(persistence_rag.File.uuid),
+            )
+            .where(persistence_rag.File.kb_id.in_(kb_ids))
+            .group_by(persistence_rag.File.kb_id)
+        )
+        counts = {row[0]: int(row[1]) for row in count_result.all()}
+        for kb in kb_list:
+            kb_uuid = str(kb.get('uuid') or '')
+            kb['file_count'] = counts.get(kb_uuid, 0)
+
+    async def _attach_chunk_counts(self, kb_uuid: str, file_dicts: list[dict]) -> None:
+        if not file_dicts:
+            return
+        kb_dict = await self.ap.rag_mgr.get_knowledge_base_details(kb_uuid)
+        if kb_dict is None:
+            return
+        plugin_id = str(kb_dict.get('knowledge_engine_plugin_id') or '')
+        if not builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            for file_dict in file_dicts:
+                file_dict['chunk_count'] = 0
+            return
+
+        collection_id = str(kb_dict.get('collection_id') or kb_uuid)
+        for file_dict in file_dicts:
+            if str(file_dict.get('status') or '') != 'completed':
+                file_dict['chunk_count'] = 0
+                continue
+            try:
+                items, _ = await self.ap.rag_runtime_service.vector_list(
+                    collection_id,
+                    filters={'file_id': str(file_dict.get('uuid') or '')},
+                    limit=10000,
+                )
+                file_dict['chunk_count'] = len(items)
+            except Exception as exc:
+                self.ap.logger.debug('Failed to count chunks for file %s: %s', file_dict.get('uuid'), exc)
+                file_dict['chunk_count'] = 0
 
     async def delete_file(self, kb_uuid: str, file_id: str) -> None:
         """删除文件"""
@@ -276,7 +362,7 @@ class KnowledgeService:
 
     async def list_knowledge_engines(self) -> list[dict]:
         """List all available Knowledge Engines from plugins."""
-        engines = []
+        engines = [builtin_engine.get_builtin_engine_info()]
 
         if not self.ap.plugin_connector.is_enable_plugin:
             return engines
@@ -305,6 +391,8 @@ class KnowledgeService:
 
     async def get_engine_creation_schema(self, plugin_id: str) -> dict:
         """Get creation settings schema for a specific Knowledge Engine."""
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            return {'schema': builtin_engine.get_builtin_creation_schema()}
         try:
             return await self.ap.plugin_connector.get_rag_creation_schema(plugin_id)
         except Exception as e:
@@ -313,6 +401,8 @@ class KnowledgeService:
 
     async def get_engine_retrieval_schema(self, plugin_id: str) -> dict:
         """Get retrieval settings schema for a specific Knowledge Engine."""
+        if builtin_engine.is_builtin_knowledge_engine(plugin_id):
+            return {'schema': builtin_engine.get_builtin_retrieval_schema()}
         try:
             return await self.ap.plugin_connector.get_rag_retrieval_schema(plugin_id)
         except Exception as e:

@@ -1,14 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -17,16 +10,22 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import KBForm from '@/app/home/knowledge/components/kb-form/KBForm';
+import KBEditDialog from '@/app/home/knowledge/components/kb-form/KBEditDialog';
 import KBDoc from '@/app/home/knowledge/components/kb-docs/KBDoc';
-import KBRetrieveGeneric from '@/app/home/knowledge/components/kb-retrieve/KBRetrieveGeneric';
 import { httpClient } from '@/app/infra/http/HttpClient';
 import { useSidebarData } from '@/app/home/components/home-sidebar/SidebarDataContext';
 import { useTranslation } from 'react-i18next';
 import { KnowledgeBase } from '@/app/infra/entities/api';
 import { CustomApiError } from '@/app/infra/entities/common';
 import { toast } from 'sonner';
-import { FileText, FolderOpen, Search, Trash2 } from 'lucide-react';
+import { ChevronRight, Database, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 
 export default function KBDetailContent({ id }: { id: string }) {
   const isCreateMode = id === 'new';
@@ -35,7 +34,6 @@ export default function KBDetailContent({ id }: { id: string }) {
   const { refreshKnowledgeBases, knowledgeBases, setDetailEntityName } =
     useSidebarData();
 
-  // Set breadcrumb entity name
   useEffect(() => {
     if (isCreateMode) {
       setDetailEntityName(t('knowledge.createKnowledgeBase'));
@@ -46,10 +44,9 @@ export default function KBDetailContent({ id }: { id: string }) {
     return () => setDetailEntityName(null);
   }, [id, isCreateMode, knowledgeBases, setDetailEntityName, t]);
 
-  const [activeTab, setActiveTab] = useState('metadata');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [kbInfo, setKbInfo] = useState<KnowledgeBase | null>(null);
-  const [formDirty, setFormDirty] = useState(false);
 
   const loadKbInfo = useCallback(
     async (kbId: string) => {
@@ -66,19 +63,11 @@ export default function KBDetailContent({ id }: { id: string }) {
     [t],
   );
 
-  // Load KB info for determining capabilities (e.g. doc_ingestion)
   useEffect(() => {
     if (!isCreateMode) {
       loadKbInfo(id);
     }
   }, [id, isCreateMode, loadKbInfo]);
-
-  const hasDocumentCapability = (): boolean => {
-    if (!kbInfo || !kbInfo.knowledge_engine) return false;
-    return (
-      kbInfo.knowledge_engine.capabilities?.includes('doc_ingestion') ?? false
-    );
-  };
 
   function handleKbDeleted() {
     refreshKnowledgeBases();
@@ -107,24 +96,52 @@ export default function KBDetailContent({ id }: { id: string }) {
     }
   }
 
-  const retrieveFunction = async (kbId: string, query: string) => {
-    return await httpClient.retrieveKnowledgeBase(kbId, query);
-  };
+  const kbDisplayName =
+    kbInfo?.name ??
+    knowledgeBases.find((k) => k.id === id)?.name ??
+    (isCreateMode ? t('knowledge.createKnowledgeBase') : id);
 
-  // ==================== Create Mode ====================
+  function renderBreadcrumb(currentLabel: string) {
+    return (
+      <nav
+        aria-label="breadcrumb"
+        className="mb-4 flex shrink-0 flex-wrap items-center gap-1 text-sm text-muted-foreground"
+      >
+        <Button
+          type="button"
+          variant="link"
+          className="h-auto p-0 text-muted-foreground"
+          onClick={() => navigate('/home/knowledge')}
+        >
+          {t('knowledge.title')}
+        </Button>
+        <ChevronRight className="size-4 shrink-0" />
+        <span className="font-medium text-foreground">{currentLabel}</span>
+      </nav>
+    );
+  }
+
   if (isCreateMode) {
     return (
-      <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between pb-4 shrink-0">
-          <h1 className="text-xl font-semibold">
-            {t('knowledge.createKnowledgeBase')}
-          </h1>
-          <Button type="submit" form="kb-form">
-            {t('common.submit')}
-          </Button>
+      <div className="flex h-full min-h-0 flex-col bg-slate-50">
+        <div className="shrink-0 border-b border-slate-200 bg-white px-6 py-4">
+          {renderBreadcrumb(t('knowledge.createKnowledgeBase'))}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-semibold text-slate-950">
+                {t('knowledge.createKnowledgeBase')}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t('knowledge.createDialogDescription')}
+              </p>
+            </div>
+            <Button type="submit" form="kb-form">
+              {t('common.submit')}
+            </Button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <div className="mx-auto max-w-3xl pb-8">
             <KBForm
               initKbId={undefined}
@@ -137,133 +154,83 @@ export default function KBDetailContent({ id }: { id: string }) {
     );
   }
 
-  // ==================== Edit Mode ====================
   return (
     <>
-      <div className="flex h-full flex-col">
-        {/* Sticky Header: title + save button */}
-        <div className="flex items-center justify-between pb-4 shrink-0">
-          <h1 className="text-xl font-semibold">
-            {t('knowledge.editKnowledgeBase')}
-          </h1>
-          <Button
-            type="submit"
-            form="kb-form"
-            disabled={!formDirty}
-            className={activeTab !== 'metadata' ? 'invisible' : ''}
-          >
-            {t('common.save')}
-          </Button>
+      <div className="flex h-full min-h-0 flex-col bg-slate-50">
+        <div className="shrink-0 px-6 pt-4">
+          {renderBreadcrumb(kbDisplayName)}
         </div>
 
-        {/* Horizontal Tabs */}
-        <Tabs
-          key={id}
-          value={activeTab}
-          onValueChange={setActiveTab}
-          className="flex flex-1 flex-col min-h-0"
-        >
-          <TabsList className="shrink-0">
-            <TabsTrigger value="metadata" className="gap-1.5">
-              <FileText className="size-3.5" />
-              {t('knowledge.metadata')}
-            </TabsTrigger>
-            {hasDocumentCapability() && (
-              <TabsTrigger value="documents" className="gap-1.5">
-                <FolderOpen className="size-3.5" />
-                {t('knowledge.documents')}
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="retrieve" className="gap-1.5">
-              <Search className="size-3.5" />
-              {t('knowledge.retrieve')}
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Tab: Metadata */}
-          <TabsContent
-            value="metadata"
-            className="flex-1 min-h-0 overflow-y-auto mt-4"
-          >
-            <div className="mx-auto max-w-3xl space-y-6 pb-8">
-              <KBForm
-                initKbId={id}
-                onNewKbCreated={handleNewKbCreated}
-                onKbUpdated={handleKbUpdated}
-                onDirtyChange={setFormDirty}
-              />
-
-              {/* Danger Zone Card */}
-              <Card className="border-destructive/50">
-                <CardHeader>
-                  <CardTitle className="text-destructive">
-                    {t('knowledge.dangerZone')}
-                  </CardTitle>
-                  <CardDescription>
-                    {t('knowledge.dangerZoneDescription')}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">
-                        {t('knowledge.deleteKbAction')}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {t('knowledge.deleteKbHint')}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => setShowDeleteConfirm(true)}
-                    >
-                      <Trash2 className="size-4 mr-1.5" />
-                      {t('common.delete')}
-                    </Button>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
+          <div className="mx-auto max-w-5xl space-y-4">
+            <Card className="border-slate-200 bg-white shadow-none">
+              <CardContent className="space-y-4 p-5">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                    <Database className="size-5" />
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
+                  <div className="min-w-0">
+                    <h1 className="truncate text-lg font-semibold text-slate-950">
+                      {kbDisplayName}
+                    </h1>
+                    <p className="mt-1 text-sm leading-6 text-slate-500">
+                      {kbInfo?.description || t('knowledge.defaultDescription')}
+                    </p>
+                  </div>
+                </div>
 
-          {/* Tab: Documents */}
-          {hasDocumentCapability() && (
-            <TabsContent
-              value="documents"
-              className="flex-1 min-h-0 overflow-y-auto mt-4"
-            >
-              <KBDoc
-                kbId={id}
-                ragEngineName={kbInfo?.knowledge_engine?.name}
-                ragEngineCapabilities={kbInfo?.knowledge_engine?.capabilities}
-              />
-            </TabsContent>
-          )}
+                <div className="flex justify-end border-t border-slate-100 pt-3">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="gap-1.5">
+                        <MoreHorizontal className="size-4" />
+                        {t('knowledge.moreActions')}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
+                        <Pencil className="size-4" />
+                        {t('knowledge.editKbInfo')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => setShowDeleteConfirm(true)}
+                      >
+                        <Trash2 className="size-4" />
+                        {t('common.delete')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Tab: Retrieve */}
-          <TabsContent
-            value="retrieve"
-            className="flex-1 min-h-0 overflow-y-auto mt-4"
-          >
-            <KBRetrieveGeneric kbId={id} retrieveFunction={retrieveFunction} />
-          </TabsContent>
-        </Tabs>
+            <KBDoc
+              kbId={id}
+              ragEngineName={kbInfo?.knowledge_engine?.name}
+              ragEngineCapabilities={kbInfo?.knowledge_engine?.capabilities}
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Delete confirmation dialog */}
+      <KBEditDialog
+        open={showEditDialog}
+        onOpenChange={setShowEditDialog}
+        kbId={id}
+        initialName={kbInfo?.name ?? kbDisplayName}
+        initialDescription={kbInfo?.description}
+        onUpdated={handleKbUpdated}
+      />
+
       <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('common.confirmDelete')}</DialogTitle>
-            <DialogDescription className="sr-only">
+            <DialogDescription>
               {t('knowledge.deleteKnowledgeBaseConfirmation')}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            {t('knowledge.deleteKnowledgeBaseConfirmation')}
-          </div>
           <DialogFooter>
             <Button
               variant="outline"

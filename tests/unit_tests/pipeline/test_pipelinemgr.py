@@ -38,6 +38,37 @@ async def test_pipeline_manager_initialize(mock_app):
 
 
 @pytest.mark.asyncio
+async def test_load_pipeline_from_serialized_dict_ignores_api_only_fields(mock_app):
+    """Serialized pipeline dicts may include API-only fields such as is_builtin."""
+    pipelinemgr = get_pipelinemgr_module()
+    persistence_pipeline = get_persistence_pipeline_module()
+
+    mock_app.persistence_mgr.execute_async = AsyncMock(return_value=Mock(all=Mock(return_value=[])))
+
+    manager = pipelinemgr.PipelineManager(mock_app)
+    await manager.initialize()
+
+    pipeline_dict = {
+        'uuid': 'test-uuid',
+        'name': 'Test pipeline',
+        'description': 'desc',
+        'for_version': '1.0.0',
+        'is_default': False,
+        'stages': [],
+        'config': {'test': 'config'},
+        'extensions_preferences': {'plugins': []},
+        'is_builtin': True,
+        'created_at': '2026-01-01T00:00:00',
+        'updated_at': '2026-01-01T00:00:00',
+    }
+
+    await manager.load_pipeline(pipeline_dict)
+
+    assert len(manager.pipelines) == 1
+    assert manager.pipelines[0].pipeline_entity.uuid == 'test-uuid'
+
+
+@pytest.mark.asyncio
 async def test_load_pipeline(mock_app):
     """Test loading a single pipeline"""
     pipelinemgr = get_pipelinemgr_module()
@@ -89,6 +120,35 @@ async def test_get_pipeline_by_uuid(mock_app):
     # Test non-existent UUID
     result = await manager.get_pipeline_by_uuid('non-existent')
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_pipeline_by_uuid_loads_missing_pipeline_from_db(mock_app):
+    """Test loading a missing runtime pipeline from the database on demand."""
+    pipelinemgr = get_pipelinemgr_module()
+    persistence_pipeline = get_persistence_pipeline_module()
+
+    db_pipeline = Mock(spec=persistence_pipeline.LegacyPipeline)
+    db_pipeline.uuid = 'db-uuid'
+    db_pipeline.stages = []
+    db_pipeline.config = {}
+    db_pipeline.extensions_preferences = {'plugins': []}
+
+    mock_app.persistence_mgr.execute_async = AsyncMock(
+        side_effect=[
+            Mock(all=Mock(return_value=[])),
+            Mock(first=Mock(return_value=db_pipeline)),
+        ]
+    )
+
+    manager = pipelinemgr.PipelineManager(mock_app)
+    await manager.initialize()
+
+    result = await manager.get_pipeline_by_uuid('db-uuid', load_if_missing=True)
+
+    assert result is not None
+    assert result.pipeline_entity.uuid == 'db-uuid'
+    assert len(manager.pipelines) == 1
 
 
 @pytest.mark.asyncio

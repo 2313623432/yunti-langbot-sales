@@ -50,12 +50,22 @@ export default function KBRetrieveGeneric({
     if (getResultTitle) {
       return getResultTitle(result);
     }
-    // Default: use document_name from metadata, fallback to file_id or id
     return (
       (result.metadata.document_name as string) ||
+      (result.metadata.filename as string) ||
       (result.metadata.file_id as string) ||
       result.id
     );
+  };
+
+  const formatPreviewText = (text: string): string => {
+    return text
+      .replace(/!\[[^\]]*\]\([^)]+\)/g, ' ')
+      .replace(/https?:\/\/[^\s)\]"'<>]+/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   };
 
   /**
@@ -112,7 +122,7 @@ export default function KBRetrieveGeneric({
               </CardHeader>
               <CardContent>
                 <p className="text-sm whitespace-pre-wrap">
-                  {extractTextFromContent(result)}
+                  {formatPreviewText(extractTextFromContent(result))}
                 </p>
               </CardContent>
             </Card>

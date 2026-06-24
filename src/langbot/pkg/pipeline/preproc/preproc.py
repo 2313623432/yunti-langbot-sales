@@ -8,6 +8,7 @@ import langbot_plugin.api.entities.events as events
 import langbot_plugin.api.entities.builtin.platform.message as platform_message
 import langbot_plugin.api.entities.builtin.pipeline.query as pipeline_query
 import langbot_plugin.api.entities.builtin.platform.events as platform_events
+from ...provider.modelmgr import audio_content
 
 
 @stage.stage_class('PreProcessor')
@@ -24,6 +25,33 @@ class PreProcessor(stage.PipelineStage):
         - use_model
         - use_funcs
     """
+
+    async def _resolve_image_component(
+        self,
+        image: platform_message.Image,
+        query: pipeline_query.Query,
+    ) -> platform_message.Image:
+        if image.base64 or image.url or image.path or not image.image_id:
+            return image
+
+        resolver = getattr(query.adapter, 'resolve_image', None)
+        if resolver is None:
+            return image
+
+        try:
+            resolved = await resolver(image, query.message_event)
+        except Exception as exc:
+            self.ap.logger.warning(f'Failed to resolve image {image.image_id}: {exc}')
+            return image
+
+        if not isinstance(resolved, platform_message.Image):
+            return image
+
+        image.base64 = resolved.base64
+        image.url = resolved.url
+        image.path = resolved.path
+        image.image_id = resolved.image_id or image.image_id
+        return image
 
     async def process(
         self,
@@ -172,14 +200,17 @@ class PreProcessor(stage.PipelineStage):
                 if selected_runner != 'local-agent' or (
                     llm_model and llm_model.model_entity.abilities.__contains__('vision')
                 ):
-                    if me.base64 is not None:
+                    me = await self._resolve_image_component(me, query)
+                    if me.base64:
                         content_list.append(provider_message.ContentElement.from_image_base64(me.base64))
+                    elif me.url:
+                        content_list.append(provider_message.ContentElement.from_image_url(me.url))
             elif isinstance(me, platform_message.Voice):
-                # 转成文件链接，让下游 runner 上传到目标模型
+                voice_filename = audio_content.infer_voice_filename(me)
                 if me.base64:
-                    content_list.append(provider_message.ContentElement.from_file_base64(me.base64, 'voice.silk'))
+                    content_list.append(provider_message.ContentElement.from_file_base64(me.base64, voice_filename))
                 elif me.url:
-                    content_list.append(provider_message.ContentElement.from_file_url(me.url, 'voice'))
+                    content_list.append(provider_message.ContentElement.from_file_url(me.url, voice_filename))
             elif isinstance(me, platform_message.File):
                 if me.base64:
                     content_list.append(provider_message.ContentElement.from_file_base64(me.base64, me.name))
@@ -193,20 +224,24 @@ class PreProcessor(stage.PipelineStage):
                         if selected_runner != 'local-agent' or (
                             llm_model and llm_model.model_entity.abilities.__contains__('vision')
                         ):
-                            if msg.base64 is not None:
+                            msg = await self._resolve_image_component(msg, query)
+                            if msg.base64:
                                 content_list.append(provider_message.ContentElement.from_image_base64(msg.base64))
+                            elif msg.url:
+                                content_list.append(provider_message.ContentElement.from_image_url(msg.url))
                     elif isinstance(msg, platform_message.File):
                         if msg.base64:
                             content_list.append(provider_message.ContentElement.from_file_base64(msg.base64, msg.name))
                         elif msg.url:
                             content_list.append(provider_message.ContentElement.from_file_url(msg.url, msg.name))
                     elif isinstance(msg, platform_message.Voice):
+                        voice_filename = audio_content.infer_voice_filename(msg)
                         if msg.base64:
                             content_list.append(
-                                provider_message.ContentElement.from_file_base64(msg.base64, 'voice.silk')
+                                provider_message.ContentElement.from_file_base64(msg.base64, voice_filename)
                             )
                         elif msg.url:
-                            content_list.append(provider_message.ContentElement.from_file_url(msg.url, 'voice'))
+                            content_list.append(provider_message.ContentElement.from_file_url(msg.url, voice_filename))
 
         query.variables['user_message_text'] = plain_text
 
@@ -240,6 +275,12 @@ class PreProcessor(stage.PipelineStage):
         task_assistant_handled = False
         if getattr(self.ap, 'task_assistant_service', None) is not None:
             task_result = await self.ap.task_assistant_service.prepare_query(query)
+            if task_result.get('interrupted'):
+                return entities.StageProcessResult(
+                    result_type=entities.ResultType.INTERRUPT,
+                    new_query=query,
+                    user_notice=task_result.get('notice', ''),
+                )
             task_assistant_handled = task_result.get('handled', False)
 
         if not task_assistant_handled and getattr(self.ap, 'sales_service', None) is not None:

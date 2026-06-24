@@ -16,14 +16,16 @@ import SpaceCallbackPage from '@/app/auth/space/callback/page';
 import MonitoringPage from '@/app/home/monitoring/page';
 import BotsPage from '@/app/home/bots/page';
 import PipelinesPage from '@/app/home/pipelines/page';
+import WorkflowsPage from '@/app/home/workflows/page';
 import PluginsPage from '@/app/home/plugins/page';
-import MarketPage from '@/app/home/market/page';
 import MCPPage from '@/app/home/mcp/page';
 import KnowledgePage from '@/app/home/knowledge/page';
 import PluginPagesPage from '@/app/home/plugin-pages/page';
 import SalesPage from '@/app/home/sales/page';
+import SalesChatPage from '@/app/home/sales-chat/page';
+import ProductsPage from '@/app/home/products/page';
 import AiAgentsPage from '@/app/home/ai-agents/page';
-import WorkflowsPage from '@/app/home/workflows/page';
+import AutoTestPage from '@/app/home/auto-test/page';
 
 const Loading = () => <div>加载中...</div>;
 
@@ -85,6 +87,16 @@ export const router = createBrowserRouter([
     ),
   },
   {
+    path: '/home/sales-chat',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <SalesChatPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
     path: '/home/ai-agents',
     element: (
       <Suspense fallback={<Loading />}>
@@ -100,6 +112,16 @@ export const router = createBrowserRouter([
       <Suspense fallback={<Loading />}>
         <HomeLayout>
           <WorkflowsPage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/auto-test',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <AutoTestPage />
         </HomeLayout>
       </Suspense>
     ),
@@ -146,13 +168,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/home/market',
-    element: (
-      <Suspense fallback={<Loading />}>
-        <HomeLayout>
-          <MarketPage />
-        </HomeLayout>
-      </Suspense>
-    ),
+    element: <Navigate to="/home/plugins" replace />,
   },
   {
     path: '/home/mcp',
@@ -170,6 +186,16 @@ export const router = createBrowserRouter([
       <Suspense fallback={<Loading />}>
         <HomeLayout>
           <KnowledgePage />
+        </HomeLayout>
+      </Suspense>
+    ),
+  },
+  {
+    path: '/home/products',
+    element: (
+      <Suspense fallback={<Loading />}>
+        <HomeLayout>
+          <ProductsPage />
         </HomeLayout>
       </Suspense>
     ),

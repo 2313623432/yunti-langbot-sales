@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 import datetime
+import json
+import re
 import sqlalchemy
 
 from ....core import app
@@ -152,6 +154,7 @@ class MonitoringService:
     ) -> str:
         """Record a message"""
         message_id = str(uuid.uuid4())
+        variables = self._with_sales_reply_quality_metrics(message_content, variables, role)
         message_data = {
             'id': message_id,
             'timestamp': datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
@@ -176,6 +179,55 @@ class MonitoringService:
         )
 
         return message_id
+
+    def _with_sales_reply_quality_metrics(
+        self,
+        message_content: str,
+        variables: str | None,
+        role: str,
+    ) -> str | None:
+        if role != 'assistant':
+            return variables
+
+        parsed_variables = {}
+        if variables:
+            try:
+                parsed = json.loads(variables)
+                if isinstance(parsed, dict):
+                    parsed_variables = parsed
+            except json.JSONDecodeError:
+                return variables
+
+        text = self._extract_message_text(message_content)
+        parsed_variables['sales_reply_quality'] = self._build_sales_reply_quality_metrics(text)
+        return json.dumps(parsed_variables, ensure_ascii=False)
+
+    def _build_sales_reply_quality_metrics(self, text: str) -> dict:
+        stripped = text.strip()
+        lines = text.splitlines() or ['']
+        markers = []
+        for marker in (
+            '作为AI助手',
+            '作为一个AI',
+            'language model',
+            '我是一个AI',
+            '人工智能',
+            'AI助手',
+            '作为AI',
+            'as an ai',
+        ):
+            if marker in text or marker.lower() in text.lower():
+                if not any(marker in existing for existing in markers):
+                    markers.append(marker)
+
+        return {
+            'text_length': len(text),
+            'max_line_length': max(len(line) for line in lines),
+            'ends_with_question': stripped.endswith(('?', '？')),
+            'contains_link': re.search(r'https?://|www\.', text) is not None,
+            'has_ai_like_phrasing': bool(markers),
+            'ai_like_markers': markers,
+        }
 
     async def record_llm_call(
         self,
@@ -363,6 +415,7 @@ class MonitoringService:
         status: str,
         level: str | None = None,
         variables: str | None = None,
+        message_content: str | None = None,
     ) -> None:
         """Update message status and optionally variables"""
         update_values = {'status': status}
@@ -370,6 +423,8 @@ class MonitoringService:
             update_values['level'] = level
         if variables is not None:
             update_values['variables'] = variables
+        if message_content is not None:
+            update_values['message_content'] = message_content
 
         await self.ap.persistence_mgr.execute_async(
             sqlalchemy.update(persistence_monitoring.MonitoringMessage)
@@ -519,11 +574,63 @@ class MonitoringService:
         serialized = []
         for row in messages_rows:
             # Extract model instance from Row (SQLAlchemy returns Row objects)
-            msg = row[0] if isinstance(row, tuple) else row
+            msg = self._row_entity(row)
             serialized_msg = self.ap.persistence_mgr.serialize_model(persistence_monitoring.MonitoringMessage, msg)
+            serialized_msg['message_content'] = self._compact_message_content_for_list(
+                serialized_msg.get('message_content', '')
+            )
             serialized.append(serialized_msg)
 
         return (serialized, total)
+
+    def _row_entity(self, row):
+        mapping = getattr(row, '_mapping', None)
+        if mapping:
+            mapped_values = list(mapping.values())
+            for value in mapped_values:
+                if hasattr(value, '__table__'):
+                    return value
+            string_keys = {str(key): value for key, value in mapping.items() if isinstance(key, str)}
+            if string_keys:
+                from types import SimpleNamespace
+
+                return SimpleNamespace(**string_keys)
+        try:
+            return row[0]
+        except (TypeError, KeyError, IndexError):
+            return row
+
+    def _compact_message_content_for_list(self, message_content: str) -> str:
+        """Return lightweight message content for monitoring lists without inline media payloads."""
+        if not message_content:
+            return ''
+        try:
+            parsed = json.loads(message_content)
+        except (TypeError, json.JSONDecodeError):
+            text = str(message_content)
+            return text[:4000] if len(text) > 4000 else text
+        if not isinstance(parsed, list):
+            return message_content
+
+        compact_components = []
+        media_payload_keys = {
+            'base64',
+            'data',
+            'image_base64',
+            'voice_base64',
+            'audio_base64',
+            'file_base64',
+        }
+        for component in parsed:
+            if not isinstance(component, dict):
+                continue
+            compact = {key: value for key, value in component.items() if key not in media_payload_keys}
+            if component.get('type') in {'Image', 'Voice'} and any(component.get(key) for key in media_payload_keys):
+                compact['media_omitted'] = True
+            if compact.get('type') == 'Plain' and isinstance(compact.get('text'), str) and len(compact['text']) > 2000:
+                compact['text'] = compact['text'][:2000]
+            compact_components.append(compact)
+        return json.dumps(compact_components, ensure_ascii=False)
 
     async def get_llm_calls(
         self,

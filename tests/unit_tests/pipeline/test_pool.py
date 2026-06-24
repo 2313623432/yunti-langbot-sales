@@ -199,6 +199,35 @@ class TestQueryPoolAddQuery:
             call_kwargs = MockQuery.call_args[1]
             assert call_kwargs['variables']['_routed_by_rule'] is True
 
+    async def test_add_query_preserves_raw_monitoring_message_ids(self):
+        """Query keeps raw monitoring ids for later monitoring reuse."""
+        pool = QueryPool()
+
+        mock_query = Mock()
+        mock_query.query_id = 0
+        mock_query.variables = {
+            '_routed_by_rule': False,
+            '_raw_monitoring_message_ids': ['raw-1', 'raw-2'],
+        }
+
+        with patch('langbot.pkg.pipeline.pool.pipeline_query.Query') as MockQuery:
+            MockQuery.return_value = mock_query
+
+            await pool.add_query(
+                bot_uuid='bot1',
+                launcher_type=Mock(),
+                launcher_id=1,
+                sender_id=1,
+                message_event=Mock(),
+                message_chain=Mock(),
+                adapter=Mock(),
+                raw_monitoring_message_ids=['raw-1', 'raw-2'],
+            )
+
+            call_kwargs = MockQuery.call_args[1]
+            assert call_kwargs['variables']['_routed_by_rule'] is False
+            assert call_kwargs['variables']['_raw_monitoring_message_ids'] == ['raw-1', 'raw-2']
+
     async def test_add_query_notifier_condition(self):
         """add_query notifies waiting consumers."""
         pool = QueryPool()

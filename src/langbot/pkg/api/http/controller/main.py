@@ -46,7 +46,7 @@ class HTTPController:
             return quart.jsonify(
                 {
                     'code': 400,
-                    'msg': 'File size exceeds 10MB limit. Please split large files into smaller parts.',
+                    'msg': 'File size exceeds 500MB limit. Please split large files into smaller parts.',
                 }
             ), 400
 

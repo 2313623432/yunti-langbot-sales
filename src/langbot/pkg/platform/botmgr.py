@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import traceback
+import typing
 import sqlalchemy
 
 from ..core import app, entities as core_entities, taskmgr
@@ -321,6 +322,40 @@ class RuntimeBot:
 
         self.adapter.register_listener(platform_events.FriendMessage, on_friend_message)
         self.adapter.register_listener(platform_events.GroupMessage, on_group_message)
+
+        async def on_contact_added(contact_info: dict[str, str]) -> None:
+            task_assistant = getattr(self.ap, 'task_assistant_service', None)
+            if task_assistant is None:
+                return
+            user_id = str(contact_info.get('user_id') or '').strip()
+            if not user_id:
+                return
+            pipeline_uuid = self.bot_entity.use_pipeline_uuid or ''
+            pipeline_config: dict[str, typing.Any] = {}
+            if pipeline_uuid:
+                try:
+                    pipeline_result = await self.ap.persistence_mgr.execute_async(
+                        sqlalchemy.select(persistence_pipeline.LegacyPipeline.config).where(
+                            persistence_pipeline.LegacyPipeline.uuid == pipeline_uuid
+                        )
+                    )
+                    pipeline_row = pipeline_result.first()
+                    if pipeline_row and isinstance(pipeline_row[0], dict):
+                        pipeline_config = pipeline_row[0]
+                except Exception:
+                    pass
+            await task_assistant.handle_course_sales_contact_added(
+                bot_uuid=self.bot_entity.uuid,
+                target_type='person',
+                target_id=user_id,
+                pipeline_uuid=pipeline_uuid,
+                user_id=user_id,
+                pipeline_config=pipeline_config,
+                source_event=str(contact_info.get('event_type') or ''),
+            )
+
+        if hasattr(self.adapter, 'set_contact_added_callback'):
+            self.adapter.set_contact_added_callback(on_contact_added)
 
         # Register feedback listener (only effective on adapters that support it)
         async def on_feedback(

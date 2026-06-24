@@ -17,16 +17,31 @@ class SalesRouterGroup(group.RouterGroup):
             if quart.request.method == 'GET':
                 return self.success(data={'products': await self.ap.sales_service.get_products()})
             data = await quart.request.json
-            product_uuid = await self.ap.sales_service.create_product(data)
+            try:
+                product_uuid = await self.ap.sales_service.create_product(data)
+            except ValueError as exc:
+                return self.http_status(400, -1, str(exc))
             return self.success(data={'uuid': product_uuid})
 
-        @self.route('/products/<product_uuid>', methods=['PUT', 'DELETE'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        @self.route('/products/<product_uuid>', methods=['GET', 'PUT', 'DELETE'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _(product_uuid: str) -> str:
+            if quart.request.method == 'GET':
+                try:
+                    product = await self.ap.sales_service.get_product(product_uuid)
+                except ValueError:
+                    return self.http_status(404, -1, 'Product not found')
+                return self.success(data={'product': product})
             if quart.request.method == 'PUT':
                 data = await quart.request.json
-                await self.ap.sales_service.update_product(product_uuid, data)
+                try:
+                    await self.ap.sales_service.update_product(product_uuid, data)
+                except ValueError as exc:
+                    return self.http_status(400, -1, str(exc))
                 return self.success()
-            await self.ap.sales_service.delete_product(product_uuid)
+            try:
+                await self.ap.sales_service.delete_product(product_uuid)
+            except ValueError:
+                return self.http_status(404, -1, 'Product not found')
             return self.success()
 
         @self.route('/intent', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
@@ -54,9 +69,105 @@ class SalesRouterGroup(group.RouterGroup):
             )
             return self.success(data={'pitch': pitch, 'product': product})
 
+        @self.route('/conversations', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            status = quart.request.args.get('status')
+            limit = int(quart.request.args.get('limit', 100))
+            offset = int(quart.request.args.get('offset', 0))
+            conversations = await self.ap.sales_service.get_sales_conversations(
+                status=status,
+                limit=limit,
+                offset=offset,
+            )
+            return self.success(data={'conversations': conversations, 'limit': limit, 'offset': offset})
+
+        @self.route('/conversations/<path:session_id>/messages', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(session_id: str) -> str:
+            limit = int(quart.request.args.get('limit', 200))
+            offset = int(quart.request.args.get('offset', 0))
+            result = await self.ap.sales_service.get_sales_conversation_messages(
+                session_id,
+                limit=limit,
+                offset=offset,
+            )
+            return self.success(data={**result, 'limit': limit, 'offset': offset})
+
+        @self.route('/messages/<message_id>/media/<int:component_index>', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(message_id: str, component_index: int) -> quart.Response:
+            try:
+                media = await self.ap.sales_service.get_sales_message_media(message_id, component_index)
+            except ValueError as exc:
+                return self.http_status(404, -1, str(exc))
+            return quart.Response(media['content'], mimetype=media['mime_type'])
+
+        @self.route('/conversations/<path:session_id>/manual-reply', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(session_id: str) -> str:
+            data = await quart.request.json
+            reply = data.get('reply', '').strip()
+            if not reply:
+                return self.http_status(400, -1, 'reply is required')
+            result = await self.ap.sales_service.send_operator_message_from_session(
+                session_id,
+                reply,
+                data.get('assigned_to', ''),
+                pause_ai=False,
+            )
+            return self.success(data=result)
+
+        @self.route('/conversations/<path:session_id>/handoff/start', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(session_id: str) -> str:
+            data = await quart.request.json
+            handoff = await self.ap.sales_service.open_handoff_from_session(
+                session_id,
+                data.get('reason', '人工主动介入'),
+                data.get('assigned_to', ''),
+            )
+            return self.success(data={'handoff': handoff})
+
+        @self.route('/conversations/<path:session_id>/handoff/reply', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(session_id: str) -> str:
+            data = await quart.request.json
+            reply = data.get('reply', '').strip()
+            if not reply:
+                return self.http_status(400, -1, 'reply is required')
+            result = await self.ap.sales_service.reply_handoff_from_session(
+                session_id,
+                reply,
+                data.get('assigned_to', ''),
+            )
+            return self.success(data=result)
+
+        @self.route('/conversations/<path:session_id>/handoff/restore', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(session_id: str) -> str:
+            data = await quart.request.json
+            result = await self.ap.sales_service.restore_ai_hosting_from_session(
+                session_id,
+                data.get('assigned_to', ''),
+            )
+            return self.success(data=result)
+
+        @self.route('/conversations/<path:session_id>/ai-suggestion', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(session_id: str) -> str:
+            data = await quart.request.json
+            try:
+                suggestion = await self.ap.sales_service.generate_sales_reply_suggestion_from_session(
+                    session_id,
+                    product_uuid=data.get('product_uuid', ''),
+                    tone=data.get('tone', 'consultative'),
+                )
+            except ValueError as exc:
+                return self.http_status(404, -1, str(exc))
+            return self.success(data=suggestion)
+
         @self.route('/memories', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
             return self.success(data={'memories': await self.ap.sales_service.get_memories()})
+
+        @self.route('/memories/<session_id>', methods=['PUT'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(session_id: str) -> str:
+            data = await quart.request.json
+            memory = await self.ap.sales_service.update_memory(session_id, data or {})
+            return self.success(data={'memory': memory})
 
         @self.route('/handoffs', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
@@ -101,15 +212,82 @@ class SalesRouterGroup(group.RouterGroup):
             await self.ap.sales_service.reply_handoff(handoff_id, reply, data.get('assigned_to', ''))
             return self.success(data={'sent': True})
 
+        @self.route('/resource-issues', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            status = quart.request.args.get('status')
+            return self.success(data={'issues': await self.ap.sales_service.get_resource_issues(status=status)})
+
+        @self.route('/resource-issues/from-session', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            data = await quart.request.json
+            session_id = data.get('session_id', '').strip()
+            if not session_id:
+                return self.http_status(400, -1, 'session_id is required')
+            issue = await self.ap.sales_service.create_resource_issue_from_session(session_id, data)
+            return self.success(data={'issue': issue})
+
+        @self.route('/resource-issues/<int:issue_id>', methods=['PUT'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(issue_id: int) -> str:
+            data = await quart.request.json
+            issue = await self.ap.sales_service.resolve_resource_issue(issue_id, data or {})
+            return self.success(data={'issue': issue})
+
+        @self.route(
+            '/resource-issues/<int:issue_id>/resolve',
+            methods=['POST'],
+            auth_type=group.AuthType.USER_TOKEN_OR_API_KEY,
+        )
+        async def _(issue_id: int) -> str:
+            data = await quart.request.json
+            payload = {'status': 'resolved', **(data or {})}
+            issue = await self.ap.sales_service.resolve_resource_issue(issue_id, payload)
+            return self.success(data={'issue': issue})
+
         @self.route('/outreach', methods=['GET', 'POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
             if quart.request.method == 'GET':
-                return self.success(data={'plans': await self.ap.sales_service.get_outreach_plans()})
+                kind = quart.request.args.get('kind', 'scheduled_push')
+                return self.success(data={'plans': await self.ap.sales_service.get_outreach_plans(kind=kind)})
             data = await quart.request.json
+            data = data or {}
+            data.setdefault('segment', 'course-sales:broadcast')
             plan_id = await self.ap.sales_service.create_outreach_plan(data)
             return self.success(data={'id': plan_id})
 
         @self.route('/outreach/run-due', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
-            sent = await self.ap.sales_service.run_due_outreach_once()
+            data = await quart.request.json if quart.request.is_json else {}
+            kind = (data or {}).get('kind') or quart.request.args.get('kind') or 'scheduled_push'
+            sent = await self.ap.sales_service.run_due_outreach_once(kind=kind)
             return self.success(data={'sent': sent})
+
+        @self.route('/outreach/clear', methods=['POST', 'DELETE'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            deleted = await self.ap.sales_service.clear_scheduled_push_plans()
+            return self.success(data={'deleted': deleted})
+
+        @self.route('/outreach/scheduled-push-config', methods=['GET', 'PUT'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            if quart.request.method == 'GET':
+                return self.success(data=await self.ap.sales_service.get_scheduled_push_config())
+            data = await quart.request.json
+            result = await self.ap.sales_service.replace_scheduled_push_config(data or {})
+            config = await self.ap.sales_service.get_scheduled_push_config()
+            return self.success(data={**result, **config})
+
+        @self.route('/followups', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            return self.success(data={'plans': await self.ap.sales_service.get_followup_plans()})
+
+        @self.route('/followups/run-due', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            sent = await self.ap.sales_service.run_due_followup_once()
+            return self.success(data={'sent': sent})
+
+        @self.route('/radar/click/<token>', methods=['GET'], auth_type=group.AuthType.NONE)
+        async def _(token: str):
+            try:
+                destination = await self.ap.sales_service.handle_radar_tracking_click(token)
+            except ValueError as exc:
+                return self.http_status(400, -1, str(exc))
+            return quart.redirect(destination)

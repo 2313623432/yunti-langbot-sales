@@ -15,3 +15,9 @@ class VolcArkChatCompletions(chatcmpl.OpenAIChatCompletions):
         'base_url': 'https://ark.cn-beijing.volces.com/api/v3',
         'timeout': 120,
     }
+
+    def _prepare_extra_body(self, extra_body: dict | None = None) -> dict:
+        prepared = super()._prepare_extra_body(extra_body)
+        prepared.setdefault('thinking', {'type': 'disabled'})
+        prepared.setdefault('reasoning_effort', 'minimal')
+        return prepared

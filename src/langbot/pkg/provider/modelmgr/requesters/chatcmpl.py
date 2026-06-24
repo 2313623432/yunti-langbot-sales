@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import typing
 
 import openai
@@ -93,6 +94,13 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
             'ocr',
             'omni',
         )
+        audio_keywords = (
+            'audio',
+            'speech',
+            'asr',
+            'voice',
+            'omni',
+        )
         function_call_keywords = (
             'function',
             'tool',
@@ -105,6 +113,14 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
 
         if any(any(keyword in token for keyword in vision_keywords) for token in combined_tokens):
             abilities.add('vision')
+
+        input_modalities = self._normalize_modalities(item.get('input_modalities'))
+        if not input_modalities:
+            input_modalities = self._normalize_modalities(item.get('inputModalities'))
+        if 'audio' in input_modalities:
+            abilities.add('audio')
+        elif any(any(keyword in token for keyword in audio_keywords) for token in combined_tokens):
+            abilities.add('audio')
 
         if any(any(keyword in token for keyword in function_call_keywords) for token in combined_tokens):
             abilities.add('func_call')
@@ -222,15 +238,48 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
         args: dict,
         extra_body: dict = {},
     ) -> chat_completion_module.ChatCompletion:
-        return await self.client.chat.completions.create(**args, extra_body=extra_body)
+        return await self.client.chat.completions.create(**args, extra_body=self._prepare_extra_body(extra_body))
 
     async def _req_stream(
         self,
         args: dict,
         extra_body: dict = {},
     ):
-        async for chunk in await self.client.chat.completions.create(**args, extra_body=extra_body):
+        async for chunk in await self.client.chat.completions.create(**args, extra_body=self._prepare_extra_body(extra_body)):
             yield chunk
+
+    def _prepare_extra_body(self, extra_body: dict | None = None) -> dict:
+        return dict(extra_body or {})
+
+    def _remove_think_tags(self, content: str) -> str:
+        if not content:
+            return content
+        return re.sub(r'<think>.*?(?:</think>|$)', '', content, flags=re.DOTALL).strip()
+
+    def _remove_think_delta(self, content: str, inside_think: bool) -> tuple[str, bool]:
+        if not content:
+            return content, inside_think
+
+        output = ''
+        remaining = content
+        while remaining:
+            if inside_think:
+                end = remaining.find('</think>')
+                if end == -1:
+                    return output, True
+                remaining = remaining[end + len('</think>') :]
+                inside_think = False
+                continue
+
+            start = remaining.find('<think>')
+            if start == -1:
+                output += remaining
+                break
+            output += remaining[:start]
+            remaining = remaining[start + len('<think>') :]
+            inside_think = True
+
+        return output, inside_think
 
     async def _make_msg(
         self,
@@ -287,9 +336,7 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
             thinking_content = reasoning_content
 
         # 2. 从 content 中提取 <think> 标签内容
-        if content and '<think>' in content and '</think>' in content:
-            import re
-
+        if content and '<think>' in content:
             think_pattern = r'<think>(.*?)</think>'
             think_matches = re.findall(think_pattern, content, re.DOTALL)
             if think_matches:
@@ -299,11 +346,11 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
                 else:
                     thinking_content = '\n'.join(think_matches)
                 # 移除 content 中的 <think> 标签
-                content = re.sub(think_pattern, '', content, flags=re.DOTALL).strip()
+                content = self._remove_think_tags(content)
 
         # 3. 根据 remove_think 参数决定是否保留思维链
         if remove_think:
-            return content, ''
+            return self._remove_think_tags(content), ''
         else:
             # 如果有思维链内容，将其以 <think> 格式添加到 content 开头
             if thinking_content:
@@ -353,6 +400,7 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
         tool_id = ''
         tool_name = ''
         # accumulated_reasoning = ''  # 仅用于判断何时结束思维链
+        inside_content_think = False
 
         async for chunk in self._req_stream(args, extra_body=extra_args):
             # 解析 chunk 数据
@@ -393,12 +441,11 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
                 thinking_ended = True
                 delta_content = '\n</think>\n' + delta_content
 
-            # 处理 content 中已有的 <think> 标签（如果需要移除）
-            # if delta_content and remove_think and '<think>' in delta_content:
-            #     import re
-            #
-            #     # 移除 <think> 标签及其内容
-            #     delta_content = re.sub(r'<think>.*?</think>', '', delta_content, flags=re.DOTALL)
+            if remove_think and delta_content:
+                delta_content, inside_content_think = self._remove_think_delta(
+                    delta_content,
+                    inside_content_think,
+                )
 
             # 处理工具调用增量
             # delta_tool_calls = None
@@ -553,6 +600,7 @@ class OpenAIChatCompletions(requester.ProviderAPIRequester):
             args.update(model.model_entity.extra_args)
 
         args.update(extra_args)
+        args.pop('display_name', None)
 
         try:
             resp = await self.client.embeddings.create(**args)

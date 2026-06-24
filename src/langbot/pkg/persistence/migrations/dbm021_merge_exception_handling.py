@@ -49,7 +49,7 @@ class DBMigrateMergeExceptionHandling(migration.DBMigration):
             misc['exception-handling'] = exception_handling
 
             # Add failure-hint with default value
-            misc['failure-hint'] = 'Request failed.'
+            misc['failure-hint'] = 'AI回复失败，请检查模型配置、API地址或Key是否可用，然后再试一次'
 
             # Remove legacy fields
             misc.pop('hide-exception', None)

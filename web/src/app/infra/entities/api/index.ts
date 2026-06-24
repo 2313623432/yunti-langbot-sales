@@ -50,6 +50,10 @@ export interface ModelProvider {
   llm_count?: number;
   embedding_count?: number;
   rerank_count?: number;
+  is_builtin?: boolean;
+  protocol?: 'openai' | 'claude' | 'gemini';
+  api_key_required?: boolean;
+  sort_order?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -97,6 +101,11 @@ export interface LLMModel {
   provider?: ModelProvider;
   abilities?: string[];
   extra_args?: object;
+  test_audio_base64?: string;
+}
+
+export interface TestLLMModelResult {
+  transcription?: string;
 }
 
 export interface ApiRespProviderEmbeddingModels {
@@ -135,6 +144,111 @@ export interface ApiRespPipelines {
   pipelines: Pipeline[];
 }
 
+export type AutoTestTargetType = 'pipeline' | 'workflow';
+
+export interface AutoTestTarget {
+  type: AutoTestTargetType;
+  uuid: string;
+  name: string;
+  description: string;
+  folder?: string;
+  is_builtin?: boolean;
+}
+
+export interface AutoTestMessage {
+  role: 'user' | 'assistant';
+  sender: string;
+  content_type: 'text' | 'image' | 'voice' | 'file';
+  content: string;
+  turn: number;
+}
+
+export interface AutoTestRun {
+  uuid: string;
+  target_type: AutoTestTargetType;
+  target_uuid: string;
+  target_name: string;
+  status: string;
+  scenario: string;
+  messages: AutoTestMessage[];
+  evaluation: {
+    score?: number;
+    max_score?: number;
+    checks?: Record<string, boolean>;
+    suggestions?: string[];
+  };
+  user_feedback: '' | 'satisfied' | 'unsatisfied';
+  feedback_reason: string;
+  optimization_summary: string;
+  optimization_patch: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ApiRespAutoTestTargets {
+  pipelines: AutoTestTarget[];
+  workflows: AutoTestTarget[];
+}
+
+export interface ApiRespAutoTestRuns {
+  runs: AutoTestRun[];
+}
+
+export interface ApiRespAutoTestRun {
+  run: AutoTestRun;
+}
+
+export interface WorkflowProject {
+  uuid: string;
+  folder: string;
+  name: string;
+  description: string;
+  workflow: object;
+  is_builtin?: boolean;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ApiRespWorkflows {
+  folders: string[];
+  workflows: WorkflowProject[];
+}
+
+export interface WorkflowComponentField {
+  name: string;
+  label: string;
+  type: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | 'tags' | 'json';
+  default?: unknown;
+  options?: unknown[];
+  advanced?: boolean;
+}
+
+export interface WorkflowComponentPort {
+  name: string;
+  types: string[];
+}
+
+export interface WorkflowComponentSchema {
+  type: string;
+  display_name: string;
+  description: string;
+  icon: string;
+  inputs: WorkflowComponentPort[];
+  outputs: WorkflowComponentPort[];
+  fields: WorkflowComponentField[];
+}
+
+export interface WorkflowComponentFamily {
+  id: string;
+  label: string;
+  components: WorkflowComponentSchema[];
+}
+
+export interface ApiRespWorkflowComponents {
+  version: number;
+  families: WorkflowComponentFamily[];
+}
+
 export interface Pipeline {
   uuid?: string;
   name: string;
@@ -143,6 +257,7 @@ export interface Pipeline {
   config: object;
   stages?: string[];
   is_default?: boolean;
+  is_builtin?: boolean;
   created_at?: string;
   updated_at?: string;
   emoji?: string;
@@ -230,6 +345,7 @@ export interface KnowledgeBase {
   creation_settings?: Record<string, unknown>;
   retrieval_settings?: Record<string, unknown>;
   knowledge_engine?: KnowledgeEngineInfo;
+  file_count?: number;
 }
 
 // Knowledge Engine types
@@ -273,6 +389,8 @@ export interface KnowledgeBaseFile {
   uuid: string;
   file_name: string;
   status: string;
+  created_at?: string;
+  chunk_count?: number;
 }
 
 // plugins
@@ -399,6 +517,9 @@ export interface SalesIntent {
 export interface SalesProduct {
   uuid?: string;
   name: string;
+  product_line?: string;
+  profile_key?: string;
+  keywords?: string[];
   category: string;
   price: string;
   link: string;
@@ -422,6 +543,7 @@ export interface SalesCustomerMemory {
   stage: string;
   last_intent: string;
   preferred_product_uuid: string;
+  profile?: Record<string, unknown>;
   intents: Array<Record<string, unknown>>;
   last_seen_at?: string;
   updated_at?: string;
@@ -443,6 +565,115 @@ export interface SalesHandoff {
   updated_at?: string;
 }
 
+export type SalesConversationStatus =
+  | 'ai_hosted'
+  | 'pending_manual'
+  | 'manual_handling';
+
+export type SalesMessageComponent =
+  | {
+      kind: 'text';
+      text: string;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'image';
+      url?: string;
+      media_url?: string;
+      base64?: string;
+      path?: string;
+      name?: string;
+      available: boolean;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'voice';
+      url?: string;
+      media_url?: string;
+      base64?: string;
+      path?: string;
+      length?: number;
+      available: boolean;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'file';
+      name: string;
+      url?: string;
+      path?: string;
+      available: boolean;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'link';
+      title: string;
+      description?: string;
+      url: string;
+      thumb_url?: string;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'quote';
+      text: string;
+      raw?: Record<string, unknown>;
+    }
+  | {
+      kind: 'attachment';
+      type: string;
+      label: string;
+      raw?: Record<string, unknown>;
+    };
+
+export interface SalesConversationMessage {
+  id: string;
+  timestamp: string;
+  session_id: string;
+  role: string | null;
+  sender_kind: 'customer' | 'assistant' | 'operator';
+  sender_label: string;
+  bot_id: string;
+  bot_name: string;
+  platform: string | null;
+  user_id: string | null;
+  user_name: string | null;
+  runner_name: string | null;
+  status: string;
+  level: string;
+  preview: string;
+  components: SalesMessageComponent[];
+  metadata: Record<string, unknown>;
+  raw_message_content: string;
+}
+
+export interface SalesConversation {
+  session_id: string;
+  customer_name: string;
+  platform: string;
+  user_id: string;
+  user_name: string;
+  bot_id: string;
+  bot_name: string;
+  message_count: number;
+  last_activity: string;
+  latest_message: SalesConversationMessage | null;
+  latest_message_preview: string;
+  handoff_status: SalesConversationStatus;
+  handoff: SalesHandoff | null;
+  memory: SalesCustomerMemory | null;
+}
+
+export interface SalesReplySuggestionResp {
+  suggestion: {
+    tone: string;
+    message: string;
+    next_action: string;
+  };
+  product: SalesProduct;
+  source?: 'llm' | 'fallback';
+  model_uuid?: string;
+  model_name?: string;
+}
+
 export interface SalesOutreachPlan {
   id?: number;
   name: string;
@@ -451,11 +682,42 @@ export interface SalesOutreachPlan {
   target_type: 'person' | 'group';
   target_id: string;
   segment: string;
+  dedupe_key?: string;
   message_template: string;
+  message_components?: Array<Record<string, unknown>>;
   scheduled_at?: string;
   interval_minutes: number;
   enabled: boolean;
   last_sent_at?: string | null;
+}
+
+export interface SalesScheduledPushConfig {
+  plans_count: number;
+  product_uuid: string;
+  bot_uuid: string;
+  target_type: 'person' | 'group';
+  target_id: string;
+  scheduled_push: {
+    enabled: boolean;
+    mode: 'daily' | 'single_day';
+    time: string;
+    single_date: string;
+    message: string;
+    push_message?: string;
+    loop_enabled?: boolean;
+    loop_days?: number;
+    start_date?: string;
+    items?: Array<{
+      day: number;
+      time: string;
+      message: string;
+      image_key?: string;
+      image_url?: string;
+      link_title?: string;
+      link_url?: string;
+      link_description?: string;
+    }>;
+  };
 }
 
 export interface SalesOverview {
@@ -463,10 +725,13 @@ export interface SalesOverview {
   customers_count: number;
   open_handoffs_count: number;
   outreach_plans_count: number;
+  scheduled_push_plans_count?: number;
+  followup_plans_count?: number;
   products: SalesProduct[];
   recent_memories: SalesCustomerMemory[];
   open_handoffs: SalesHandoff[];
   outreach_plans: SalesOutreachPlan[];
+  followup_plans?: SalesOutreachPlan[];
 }
 
 export interface SalesPitchResp {

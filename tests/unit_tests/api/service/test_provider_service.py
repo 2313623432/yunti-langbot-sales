@@ -328,6 +328,31 @@ class TestModelProviderServiceUpdateProvider:
         # Verify
         ap.model_mgr.reload_provider.assert_called_once()
 
+    async def test_update_builtin_provider_preserves_catalog_requester(self):
+        """Does not let protocol form data overwrite built-in provider requesters."""
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        ap.model_mgr = SimpleNamespace()
+        ap.model_mgr.reload_provider = AsyncMock()
+        ap.persistence_mgr.execute_async = AsyncMock()
+
+        service = ModelProviderService(ap)
+
+        await service.update_provider(
+            'lno-paddleocr',
+            {
+                'name': 'PaddleOCR-VL',
+                'protocol': 'openai',
+                'requester': 'openai-chat-completions',
+                'base_url': 'https://paddleocr.aistudio-app.com/api/v2/ocr/jobs',
+                'api_keys': ['key'],
+            },
+        )
+
+        update_call = ap.persistence_mgr.execute_async.await_args.args[0]
+        assert update_call.compile().params['requester'] == 'paddleocr-vl'
+        ap.model_mgr.reload_provider.assert_called_once_with('lno-paddleocr')
+
 
 class TestModelProviderServiceDeleteProvider:
     """Tests for delete_provider method."""
@@ -412,6 +437,14 @@ class TestModelProviderServiceDeleteProvider:
         # Execute & Verify - should raise rerank error (LLM and embedding checks pass, rerank check fails)
         with pytest.raises(ValueError, match='Cannot delete provider: Rerank models'):
             await service.delete_provider('provider-with-rerank')
+
+    async def test_delete_provider_builtin_raises_error(self):
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        service = ModelProviderService(ap)
+
+        with pytest.raises(ValueError, match='built-in provider'):
+            await service.delete_provider('lnp-openai')
 
     async def test_delete_provider_no_models_success(self):
         """Deletes provider when no models reference it."""
@@ -715,6 +748,56 @@ class TestModelProviderServiceScanProviderModels:
         # Verify
         assert 'models' in result
         assert len(result['models']) == 2
+
+    async def test_scan_provider_strips_ui_metadata_before_runtime_load(self):
+        """Does not pass UI-only provider fields to runtime provider loading."""
+        # Setup
+        ap = SimpleNamespace()
+        ap.persistence_mgr = SimpleNamespace()
+        ap.model_mgr = SimpleNamespace()
+        ap.llm_model_service = SimpleNamespace()
+        ap.embedding_models_service = SimpleNamespace()
+
+        provider = _create_mock_provider(provider_uuid='scan-metadata-uuid')
+
+        mock_result = _create_mock_result([], first_item=provider)
+        ap.persistence_mgr.execute_async = AsyncMock(return_value=mock_result)
+        ap.persistence_mgr.serialize_model = Mock(
+            return_value={
+                'uuid': 'scan-metadata-uuid',
+                'name': 'Scan Metadata Provider',
+                'requester': 'openai',
+                'base_url': 'https://api.openai.com',
+                'api_keys': ['key'],
+                'is_builtin': False,
+                'protocol': 'openai',
+                'api_key_required': True,
+            }
+        )
+
+        runtime_provider = Mock()
+        runtime_provider.requester = Mock()
+        runtime_provider.token_mgr = Mock()
+        runtime_provider.token_mgr.get_token = Mock(return_value='token')
+        runtime_provider.token_mgr.tokens = ['token']
+        runtime_provider.requester.scan_models = AsyncMock(return_value={'models': []})
+        ap.model_mgr.load_provider = AsyncMock(return_value=runtime_provider)
+
+        ap.llm_model_service.get_llm_models_by_provider = AsyncMock(return_value=[])
+        ap.embedding_models_service.get_embedding_models_by_provider = AsyncMock(return_value=[])
+
+        service = ModelProviderService(ap)
+
+        # Execute
+        await service.scan_provider_models('scan-metadata-uuid')
+
+        # Verify
+        loaded_provider = ap.model_mgr.load_provider.call_args.args[0]
+        assert 'is_builtin' not in loaded_provider
+        assert 'protocol' not in loaded_provider
+        assert 'api_key_required' not in loaded_provider
+        assert loaded_provider['uuid'] == 'scan-metadata-uuid'
+        assert loaded_provider['api_keys'] == ['key']
 
     async def test_scan_provider_filter_by_model_type(self):
         """Returns filtered models by type."""

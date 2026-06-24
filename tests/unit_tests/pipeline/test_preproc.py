@@ -86,6 +86,45 @@ class TestPreProcessorNormalText:
         assert result.new_query is not None
 
     @pytest.mark.asyncio
+    async def test_task_assistant_interrupt_result_stops_pipeline(self):
+        preproc = get_preproc_module()
+        entities = get_entities_module()
+
+        app = FakeApp()
+        mock_session = Mock()
+        mock_session.launcher_type = Mock(value='person')
+        mock_session.launcher_id = 12345
+        app.sess_mgr.get_session = AsyncMock(return_value=mock_session)
+
+        mock_conversation = Mock()
+        mock_conversation.prompt = Mock(messages=[])
+        mock_conversation.prompt.copy = Mock(return_value=Mock(messages=[]))
+        mock_conversation.messages = []
+        mock_conversation.uuid = None
+        app.sess_mgr.get_conversation = AsyncMock(return_value=mock_conversation)
+
+        mock_model = Mock()
+        mock_model.model_entity = Mock(uuid='test-model', abilities=['func_call'])
+        app.model_mgr.get_model_by_uuid = AsyncMock(return_value=mock_model)
+        app.tool_mgr.get_all_tools = AsyncMock(return_value=[])
+
+        mock_event_ctx = Mock()
+        mock_event_ctx.event = Mock(default_prompt=[], prompt=[])
+        app.plugin_connector.emit_event = AsyncMock(return_value=mock_event_ctx)
+        app.task_assistant_service = Mock(
+            prepare_query=AsyncMock(
+                return_value={'handled': True, 'interrupted': True, 'notice': '已重置当前会话。'}
+            )
+        )
+        app.sales_service = Mock(prepare_query=AsyncMock())
+
+        result = await preproc.PreProcessor(app).process(text_query('/new'), 'PreProcessor')
+
+        assert result.result_type == entities.ResultType.INTERRUPT
+        assert result.user_notice == '已重置当前会话。'
+        app.sales_service.prepare_query.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_normal_text_sets_user_message(self):
         """PreProcessor should set user_message from text content."""
         preproc = get_preproc_module()
@@ -208,6 +247,56 @@ class TestPreProcessorImageSegment:
         assert result.result_type == preproc.entities.ResultType.CONTINUE
         # User message should have content
         assert result.new_query.user_message.content is not None
+
+    @pytest.mark.asyncio
+    async def test_lazy_image_id_is_resolved_before_llm_content(self):
+        """Lazy platform image references should be resolved before provider content is built."""
+        preproc = get_preproc_module()
+
+        app = FakeApp()
+        mock_session = Mock()
+        mock_session.launcher_type = Mock(value='person')
+        mock_session.launcher_id = 12345
+        app.sess_mgr.get_session = AsyncMock(return_value=mock_session)
+
+        mock_conversation = Mock()
+        mock_conversation.prompt = Mock(messages=[])
+        mock_conversation.prompt.copy = Mock(return_value=Mock(messages=[]))
+        mock_conversation.messages = []
+        mock_conversation.uuid = None
+        app.sess_mgr.get_conversation = AsyncMock(return_value=mock_conversation)
+
+        mock_model = Mock()
+        mock_model.model_entity = Mock(uuid='vision-model', abilities=['func_call', 'vision'])
+        app.model_mgr.get_model_by_uuid = AsyncMock(return_value=mock_model)
+        app.tool_mgr.get_all_tools = AsyncMock(return_value=[])
+
+        mock_event_ctx = Mock()
+        mock_event_ctx.event = Mock(default_prompt=[], prompt=[])
+        app.plugin_connector.emit_event = AsyncMock(return_value=mock_event_ctx)
+
+        import langbot_plugin.api.entities.builtin.platform.message as platform_message
+
+        chain = platform_message.MessageChain([
+            platform_message.Plain(text="看看这个"),
+            platform_message.Image(image_id='lark:om_message:img_key'),
+        ])
+        query = image_query(text="看看这个", url=None)
+        query.message_chain = chain
+        query.message_event.message_chain = chain
+        query.adapter.resolve_image = AsyncMock(
+            return_value=platform_message.Image(
+                image_id='lark:om_message:img_key',
+                base64='data:image/jpeg;base64,aW1n',
+            )
+        )
+
+        result = await preproc.PreProcessor(app).process(query, 'PreProcessor')
+
+        image_part = result.new_query.user_message.content[1]
+        assert image_part.type == 'image_base64'
+        assert image_part.image_base64 == 'data:image/jpeg;base64,aW1n'
+        assert result.new_query.message_chain[1].base64 == 'data:image/jpeg;base64,aW1n'
 
     @pytest.mark.asyncio
     async def test_image_without_vision_model(self):

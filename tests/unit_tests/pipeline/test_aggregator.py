@@ -19,11 +19,13 @@ from importlib import import_module
 from tests.factories import (
     FakeApp,
     text_chain,
+    image_chain,
     friend_message_event,
     mock_adapter,
 )
 
 import langbot_plugin.api.entities.builtin.provider.session as provider_session
+import langbot_plugin.api.entities.builtin.platform.message as platform_message
 
 
 def get_aggregator_module():
@@ -40,6 +42,14 @@ def make_aggregator_app():
     app.pipeline_mgr = AsyncMock()
     app.pipeline_mgr.get_pipeline_by_uuid = AsyncMock(return_value=None)
     return app
+
+
+def attach_monitoring_service(app):
+    app.monitoring_service = AsyncMock()
+    app.monitoring_service.record_message = AsyncMock(return_value='raw-monitoring-message-id')
+    app.monitoring_service.update_session_activity = AsyncMock(return_value=True)
+    app.monitoring_service.record_session_start = AsyncMock()
+    return app.monitoring_service
 
 
 class TestPendingMessage:
@@ -297,6 +307,31 @@ class TestMessageAggregatorConfig:
 
         assert delay == 1.5  # Default
 
+    @pytest.mark.asyncio
+    async def test_config_pipeline_aggregation_defaults_disabled_when_enabled_is_missing(self):
+        """A message-aggregation section without enabled should not change existing disabled default."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+
+        mock_pipeline = Mock()
+        mock_pipeline.pipeline_entity = Mock()
+        mock_pipeline.pipeline_entity.config = {
+            'trigger': {
+                'message-aggregation': {
+                    'delay': 2.0,
+                }
+            }
+        }
+        app.pipeline_mgr.get_pipeline_by_uuid = AsyncMock(return_value=mock_pipeline)
+
+        agg = aggregator.MessageAggregator(app)
+
+        enabled, delay = await agg._get_aggregation_config('test-pipeline')
+
+        assert enabled is False
+        assert delay == 2.0
+
 
 class TestMessageAggregatorAddMessage:
     """Tests for add_message behavior."""
@@ -326,6 +361,98 @@ class TestMessageAggregatorAddMessage:
 
         # Should have called query_pool.add_query
         assert app.query_pool.add_query.called
+
+    @pytest.mark.asyncio
+    async def test_records_each_raw_message_before_queueing(self):
+        """Each platform message should be visible in monitoring even before aggregation."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        monitoring_service = attach_monitoring_service(app)
+        agg = aggregator.MessageAggregator(app)
+
+        chain = text_chain('first raw user message')
+        event = friend_message_event(chain)
+        adapter = mock_adapter()
+
+        await agg.add_message(
+            bot_uuid='test-bot',
+            launcher_type=provider_session.LauncherTypes.PERSON,
+            launcher_id='customer-1',
+            sender_id='customer-1',
+            message_event=event,
+            message_chain=chain,
+            adapter=adapter,
+            pipeline_uuid=None,
+        )
+
+        monitoring_service.record_message.assert_awaited_once()
+        record_kwargs = monitoring_service.record_message.await_args.kwargs
+        assert record_kwargs['session_id'] == 'LauncherTypes.PERSON_customer-1'
+        assert record_kwargs['role'] == 'user'
+        assert 'first raw user message' in record_kwargs['message_content']
+        assert app.query_pool.add_query.await_args.kwargs['raw_monitoring_message_ids'] == [
+            'raw-monitoring-message-id'
+        ]
+
+    @pytest.mark.asyncio
+    async def test_drops_duplicate_source_message_id_before_queueing(self):
+        """Webhook retries with the same Source id should not create duplicate queries."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        agg = aggregator.MessageAggregator(app)
+
+        chain = platform_message.MessageChain([
+            platform_message.Source(id='msg-duplicate', time=0),
+            platform_message.Image(base64='data:image/png;base64,aW1n'),
+        ])
+        event = friend_message_event(chain)
+        adapter = mock_adapter()
+
+        for _ in range(2):
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id=12345,
+                sender_id=12345,
+                message_event=event,
+                message_chain=chain,
+                adapter=adapter,
+                pipeline_uuid=None,
+            )
+
+        assert app.query_pool.add_query.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_same_source_id_with_different_content_is_not_dropped(self):
+        """Some adapters reuse Source ids during aggregation; different payloads should survive."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        agg = aggregator.MessageAggregator(app)
+        event = friend_message_event(text_chain('unused'))
+        adapter = mock_adapter()
+
+        for text in ['第一条', '第二条']:
+            chain = platform_message.MessageChain(
+                [
+                    platform_message.Source(id='msg-reused', time=0),
+                    platform_message.Plain(text=text),
+                ]
+            )
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id=12345,
+                sender_id=12345,
+                message_event=event,
+                message_chain=chain,
+                adapter=adapter,
+                pipeline_uuid=None,
+            )
+
+        assert app.query_pool.add_query.call_count == 2
 
     @pytest.mark.asyncio
     async def test_enabled_buffers_message(self):
@@ -408,6 +535,98 @@ class TestMessageAggregatorAddMessage:
         session_id = agg._get_session_id('test-bot', provider_session.LauncherTypes.PERSON, 12345)
         assert session_id not in agg.buffers or len(agg.buffers[session_id].messages) == 0
 
+    @pytest.mark.asyncio
+    async def test_course_sales_spam_opens_handoff_without_queueing_query(self):
+        """Rapid child-like spam should open a manual handoff and avoid model invocation."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        app.sales_service = Mock()
+        app.sales_service.open_handoff_from_aggregated_messages = AsyncMock(return_value={'id': 9})
+
+        mock_pipeline = Mock()
+        mock_pipeline.pipeline_entity = Mock()
+        mock_pipeline.pipeline_entity.config = {
+            'workflow': {
+                'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+            },
+            'trigger': {
+                'message-aggregation': {
+                    'enabled': True,
+                    'delay': 10.0,
+                    'spam_handoff_enabled': True,
+                    'spam_message_limit': 4,
+                }
+            },
+        }
+        app.pipeline_mgr.get_pipeline_by_uuid = AsyncMock(return_value=mock_pipeline)
+
+        agg = aggregator.MessageAggregator(app)
+        event = friend_message_event(text_chain('unused'))
+        adapter = mock_adapter()
+
+        for text in ['111', '222', '333', '444']:
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id='customer-1',
+                sender_id='customer-1',
+                message_event=event,
+                message_chain=text_chain(text),
+                adapter=adapter,
+                pipeline_uuid='test-pipeline',
+            )
+
+        assert app.query_pool.add_query.await_count == 0
+        app.sales_service.open_handoff_from_aggregated_messages.assert_awaited_once()
+        handoff_kwargs = app.sales_service.open_handoff_from_aggregated_messages.await_args.kwargs
+        assert handoff_kwargs['reason'] == 'spam_flood'
+        assert [str(message.message_chain) for message in handoff_kwargs['messages']] == ['111', '222', '333', '444']
+        session_id = agg._get_session_id('test-bot', provider_session.LauncherTypes.PERSON, 'customer-1')
+        assert session_id not in agg.buffers
+
+    @pytest.mark.asyncio
+    async def test_enabled_debounces_three_consecutive_text_messages_into_one_query(self):
+        """Consecutive user messages should become one merged query after the idle window."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+
+        mock_pipeline = Mock()
+        mock_pipeline.pipeline_entity = Mock()
+        mock_pipeline.pipeline_entity.config = {
+            'trigger': {
+                'message-aggregation': {
+                    'enabled': True,
+                    'delay': 1.0,
+                }
+            }
+        }
+        app.pipeline_mgr.get_pipeline_by_uuid = AsyncMock(return_value=mock_pipeline)
+
+        agg = aggregator.MessageAggregator(app)
+        adapter = mock_adapter()
+
+        for text in ['三年级', '记单词比较吃力', '还有课表也想看看']:
+            chain = text_chain(text)
+            await agg.add_message(
+                bot_uuid='test-bot',
+                launcher_type=provider_session.LauncherTypes.PERSON,
+                launcher_id=12345,
+                sender_id=12345,
+                message_event=friend_message_event(chain),
+                message_chain=chain,
+                adapter=adapter,
+                pipeline_uuid='test-pipeline',
+            )
+            await asyncio.sleep(0.2)
+
+        await asyncio.sleep(1.1)
+
+        assert app.query_pool.add_query.call_count == 1
+        merged_chain = app.query_pool.add_query.await_args.kwargs['message_chain']
+        assert str(merged_chain) == '三年级\n记单词比较吃力\n还有课表也想看看'
+
 
 class TestMessageAggregatorMerge:
     """Tests for message merging."""
@@ -478,6 +697,44 @@ class TestMessageAggregatorMerge:
         merged_str = str(merged.message_chain)
         assert "hello" in merged_str
         assert "world" in merged_str
+
+    def test_merge_text_then_image_keeps_single_combined_chain(self):
+        """Text followed by an image should become one user message."""
+        aggregator = get_aggregator_module()
+
+        app = make_aggregator_app()
+        agg = aggregator.MessageAggregator(app)
+
+        chain1 = text_chain("这题选什么")
+        chain2 = image_chain(url="https://example.com/question.png")
+        event = friend_message_event(chain1)
+        adapter = mock_adapter()
+
+        pending1 = aggregator.PendingMessage(
+            bot_uuid='test-bot',
+            launcher_type=provider_session.LauncherTypes.PERSON,
+            launcher_id=12345,
+            sender_id=12345,
+            message_event=event,
+            message_chain=chain1,
+            adapter=adapter,
+            pipeline_uuid=None,
+        )
+        pending2 = aggregator.PendingMessage(
+            bot_uuid='test-bot',
+            launcher_type=provider_session.LauncherTypes.PERSON,
+            launcher_id=12345,
+            sender_id=12345,
+            message_event=event,
+            message_chain=chain2,
+            adapter=adapter,
+            pipeline_uuid=None,
+        )
+
+        merged = agg._merge_messages([pending1, pending2])
+
+        assert str(merged.message_chain) == '这题选什么\n[Image]'
+        assert [component.type for component in merged.message_chain] == ['Plain', 'Plain', 'Image']
 
     def test_merge_messages_preserves_routed_by_rule_if_any_input_matches(self):
         """Merged PendingMessage should keep routed_by_rule when any input was rule-routed."""

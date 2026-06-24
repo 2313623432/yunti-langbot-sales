@@ -329,6 +329,56 @@ class TestChatHandlerExceptions:
         assert results[0].error_notice is not None
 
     @pytest.mark.asyncio
+    async def test_runner_exception_without_custom_hint_uses_actionable_default(
+        self,
+        fake_app,
+        mock_event_ctx,
+        set_runner,
+    ):
+        """Missing failure-hint falls back to an actionable default notice."""
+        from tests.factories import text_query
+        from langbot_plugin.api.entities.builtin.provider.message import Message
+
+        chat = get_chat_handler()
+        entities = get_entities()
+
+        mock_event_ctx.is_prevented_default.return_value = False
+        fake_app.plugin_connector.emit_event = AsyncMock(return_value=mock_event_ctx)
+
+        query = text_query('fail test')
+        query.adapter = Mock()
+        query.adapter.is_stream_output_supported = AsyncMock(return_value=False)
+        query.user_message = Message(role='user', content=[])
+
+        query.pipeline_config = {
+            'output': {'misc': {'exception-handling': 'show-hint'}},
+            'ai': {'runner': {'runner': 'local-agent'}, 'local-agent': {'prompt': 'default', 'model': {'primary': 'test'}}},
+        }
+
+        class FailingRunner:
+            name = 'local-agent'
+            def __init__(self, app, config):
+                self.app = app
+                self.config = config
+            async def run(self, query):
+                raise ValueError('API error')
+                yield
+
+        set_runner(FailingRunner)
+
+        handler = chat.ChatMessageHandler(fake_app)
+
+        results = []
+        async for result in handler.handle(query):
+            results.append(result)
+
+        assert len(results) == 1
+        assert results[0].result_type == entities.ResultType.INTERRUPT
+        assert results[0].user_notice == chat.DEFAULT_FAILURE_HINT
+        assert results[0].user_notice != 'Request failed.'
+        assert '模型' in results[0].user_notice
+
+    @pytest.mark.asyncio
     async def test_exception_show_error_mode(self, fake_app, mock_event_ctx, set_runner):
         """show-error mode shows actual exception."""
         from tests.factories import text_query

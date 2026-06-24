@@ -91,7 +91,12 @@ export default function DynamicFormItemComponent({
 
   const fetchLlmModels = () => {
     httpClient
-      .getProviderLLMModels()
+      .getProviderLLMModels(undefined, {
+        include_space_models: false,
+        include_system_models: false,
+        only_configured_providers: true,
+        model_category: 'text',
+      })
       .then((resp) => {
         setLlmModels(resp.models);
       })
@@ -108,7 +113,7 @@ export default function DynamicFormItemComponent({
   };
 
   const handleFileUpload = async (file: File): Promise<IFileConfig | null> => {
-    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
 
     if (file.size > MAX_FILE_SIZE) {
       toast.error(t('plugins.fileUpload.tooLarge'));
@@ -172,7 +177,9 @@ export default function DynamicFormItemComponent({
   useEffect(() => {
     if (config.type === DynamicFormItemType.EMBEDDING_MODEL_SELECTOR) {
       httpClient
-        .getProviderEmbeddingModels()
+        .getProviderEmbeddingModels(undefined, {
+          only_configured_providers: true,
+        })
         .then((resp) => {
           setEmbeddingModels(resp.models);
         })
@@ -185,7 +192,9 @@ export default function DynamicFormItemComponent({
   useEffect(() => {
     if (config.type === DynamicFormItemType.RERANK_MODEL_SELECTOR) {
       httpClient
-        .getProviderRerankModels()
+        .getProviderRerankModels(undefined, {
+          only_configured_providers: true,
+        })
         .then((resp) => {
           setRerankModels(resp.models);
         })

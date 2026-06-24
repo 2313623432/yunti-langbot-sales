@@ -196,6 +196,7 @@ const ruRU = {
     selectModelAbilities: 'Выберите возможности модели',
     visionAbility: 'Распознавание изображений',
     functionCallAbility: 'Вызов функций',
+    ttsAbility: 'Синтез речи',
     extraParameters: 'Дополнительные параметры',
     addParameter: 'Добавить параметр',
     keyName: 'Имя ключа',
@@ -288,6 +289,8 @@ const ruRU = {
     providerSaveError: 'Ошибка сохранения провайдера: ',
     providerDeleted: 'Провайдер удалён',
     providerDeleteError: 'Ошибка удаления провайдера: ',
+    providerDeleteBlocked:
+      'Сначала удалите все модели этого провайдера, затем удалите провайдера',
     deleteProviderConfirmation:
       'Вы уверены, что хотите удалить этого провайдера?',
     loadError: 'Не удалось загрузить данные',

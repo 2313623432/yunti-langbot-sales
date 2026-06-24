@@ -1,0 +1,65 @@
+[2m10:32:12[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m10:32:28[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m10:33:07[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m10:33:46[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m10:49:38[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m10:58:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/system/tasks?kind=plugin-operation[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m10:58:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/overview[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m10:58:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/survey/pending[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m10:59:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/system/tasks?kind=plugin-operation[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m10:59:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/overview[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m10:59:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/survey/pending[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:07:31[22m [33m[1m[vite][22m[39m [33m[2m(client)[22m[39m [2m[console.warn] [22mi18next is maintained with support from locize.com — consider powering your project with managed localization (AI, CDN, integrations): https://locize.com
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/conversations/LauncherTypes.PERSON_ou_26bd1e35ee9080c67ce49964c53ded27/messages?limit=200&offset=0[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/user/info[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/system/tasks?kind=plugin-operation[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/survey/pending[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/user/auto-login[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mFailed to initialize user info: {"code":502,"msg":"Request failed with status code 502","data":null}
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m [2m[console.error] [22mFailed to initialize user info: {"code":502,"msg":"Request failed with status code 502","data":null}
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/overview[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/products[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/memories[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/monitoring/data?startTime=2026-05-18T03%3A51%3A13.808Z&endTime=2026-06-17T03%3A51%3A13.808Z&limit=100[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/handoffs?status=open[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/outreach[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/conversations?status=all&limit=100&offset=0[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)
+[2m11:51:13[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/v1/sales/conversations?status=all&limit=100&offset=0[39m
+Error: connect ECONNREFUSED 127.0.0.1:5300
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1705:16)

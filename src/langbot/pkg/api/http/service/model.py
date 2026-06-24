@@ -8,7 +8,92 @@ from langbot_plugin.api.entities.builtin.provider import message as provider_mes
 from ....core import app
 from ....entity.persistence import model as persistence_model
 from ....entity.persistence import pipeline as persistence_pipeline
+from ....provider.modelmgr import asr_invoke
+from ....provider.modelmgr import builtin_registry
 from ....provider.modelmgr import requester as model_requester
+from ....provider.modelmgr import tts_invoke
+
+
+SYSTEM_SEEDED_PROVIDER_UUIDS = {'task-assistant-bailian-provider'}
+SYSTEM_SEEDED_LLM_MODEL_UUIDS = {'task-assistant-qwen-vl-plus'}
+PDF_PARSE_TEST_FILENAME = 'langbot-pdf-parse-test.pdf'
+PDF_PARSE_TEST_CONTENT = (
+    b'%PDF-1.4\n'
+    b'1 0 obj\n'
+    b'<< /Type /Catalog /Pages 2 0 R >>\n'
+    b'endobj\n'
+    b'2 0 obj\n'
+    b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>\n'
+    b'endobj\n'
+    b'3 0 obj\n'
+    b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] '
+    b'/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\n'
+    b'endobj\n'
+    b'4 0 obj\n'
+    b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n'
+    b'endobj\n'
+    b'5 0 obj\n'
+    b'<< /Length 47 >>\n'
+    b'stream\n'
+    b'BT /F1 12 Tf 72 72 Td (LangBot PDF test) Tj ET\n'
+    b'endstream\n'
+    b'endobj\n'
+    b'xref\n'
+    b'0 6\n'
+    b'0000000000 65535 f \n'
+    b'0000000009 00000 n \n'
+    b'0000000058 00000 n \n'
+    b'0000000115 00000 n \n'
+    b'0000000241 00000 n \n'
+    b'0000000311 00000 n \n'
+    b'trailer\n'
+    b'<< /Size 6 /Root 1 0 R >>\n'
+    b'startxref\n'
+    b'407\n'
+    b'%%EOF\n'
+)
+
+
+def _is_voice_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'tts' in abilities and all(ability == 'tts' for ability in abilities)
+
+
+def _is_asr_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'asr' in abilities and all(ability == 'asr' for ability in abilities)
+
+
+def _is_pdf_only_model(model_data: dict) -> bool:
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        return False
+    return 'pdf_parse' in abilities and all(ability == 'pdf_parse' for ability in abilities)
+
+
+def _matches_model_category(model_data: dict, model_category: str | None) -> bool:
+    if model_category in (None, '', 'all'):
+        return True
+    abilities = model_data.get('abilities')
+    if not isinstance(abilities, list):
+        abilities = []
+    if model_category == 'voice':
+        return 'tts' in abilities
+    if model_category == 'asr':
+        return 'asr' in abilities
+    if model_category == 'pdf':
+        return 'pdf_parse' in abilities
+    if model_category == 'text':
+        return (
+            not _is_voice_only_model(model_data)
+            and not _is_pdf_only_model(model_data)
+            and not _is_asr_only_model(model_data)
+        )
+    return True
 
 
 def _parse_provider_api_keys(provider_dict: dict) -> dict:
@@ -21,6 +106,11 @@ def _parse_provider_api_keys(provider_dict: dict) -> dict:
         except Exception:
             provider_dict['api_keys'] = []
     return provider_dict
+
+
+def _provider_is_configured_for_selection(provider_dict: dict) -> bool:
+    enriched_provider = builtin_registry.enrich_provider_dict(dict(provider_dict))
+    return builtin_registry.is_provider_configured(enriched_provider)
 
 
 def _runtime_model_data(model_uuid: str, model_data: dict) -> dict:
@@ -40,7 +130,14 @@ class LLMModelsService:
     def __init__(self, ap: app.Application) -> None:
         self.ap = ap
 
-    async def get_llm_models(self, include_secret: bool = True) -> list[dict]:
+    async def get_llm_models(
+        self,
+        include_secret: bool = True,
+        include_space_models: bool = True,
+        include_system_models: bool = True,
+        only_configured_providers: bool = False,
+        model_category: str | None = None,
+    ) -> list[dict]:
         """Get all LLM models with provider info"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.LLMModel))
         models = result.all()
@@ -53,11 +150,24 @@ class LLMModelsService:
 
         models_list = []
         for model in models:
+            if not include_system_models and (
+                model.uuid in SYSTEM_SEEDED_LLM_MODEL_UUIDS or model.provider_uuid in SYSTEM_SEEDED_PROVIDER_UUIDS
+            ):
+                continue
             model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, model)
+            if not _matches_model_category(model_dict, model_category):
+                continue
             provider = providers.get(model.provider_uuid)
-            if provider:
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
+                if not include_space_models and provider.requester == 'space-chat-completions':
+                    continue
                 provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
                 provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
                 if not include_secret:
                     provider_dict['api_keys'] = ['***'] * len(provider_dict.get('api_keys', []))
                 model_dict['provider'] = provider_dict
@@ -65,7 +175,7 @@ class LLMModelsService:
 
         return models_list
 
-    async def get_llm_models_by_provider(self, provider_uuid: str) -> list[dict]:
+    async def get_llm_models_by_provider(self, provider_uuid: str, model_category: str | None = None) -> list[dict]:
         """Get LLM models by provider UUID"""
         result = await self.ap.persistence_mgr.execute_async(
             sqlalchemy.select(persistence_model.LLMModel).where(
@@ -73,7 +183,12 @@ class LLMModelsService:
             )
         )
         models = result.all()
-        return [self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, m) for m in models]
+        models_list = []
+        for model in models:
+            model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.LLMModel, model)
+            if _matches_model_category(model_dict, model_category):
+                models_list.append(model_dict)
+        return models_list
 
     async def create_llm_model(
         self, model_data: dict, preserve_uuid: bool = False, auto_set_to_default_pipeline: bool = True
@@ -108,7 +223,9 @@ class LLMModelsService:
         )
         self.ap.model_mgr.llm_models.append(runtime_llm_model)
 
-        if auto_set_to_default_pipeline:
+        if auto_set_to_default_pipeline and not _is_voice_only_model(model_data) and not _is_pdf_only_model(
+            model_data
+        ) and not _is_asr_only_model(model_data):
             # set the default pipeline model to this model
             result = await self.ap.persistence_mgr.execute_async(
                 sqlalchemy.select(persistence_pipeline.LegacyPipeline).where(
@@ -196,7 +313,7 @@ class LLMModelsService:
         )
         await self.ap.model_mgr.remove_llm_model(model_uuid)
 
-    async def test_llm_model(self, model_uuid: str, model_data: dict) -> None:
+    async def test_llm_model(self, model_uuid: str, model_data: dict) -> dict | None:
         """Test an LLM model"""
         runtime_llm_model: model_requester.RuntimeLLMModel | None = None
 
@@ -210,12 +327,110 @@ class LLMModelsService:
         else:
             runtime_llm_model = await self.ap.model_mgr.init_temporary_runtime_llm_model(model_data)
 
+        abilities = model_data.get('abilities')
+        if not isinstance(abilities, list):
+            abilities = list(runtime_llm_model.model_entity.abilities or [])
+        if _is_voice_only_model({'abilities': abilities}):
+            await self._test_tts_model(runtime_llm_model, model_data)
+            return None
+        if _is_asr_only_model({'abilities': abilities}):
+            text = await self._test_asr_model(runtime_llm_model, model_data)
+            if not text:
+                raise Exception('ASR test failed: no transcription returned')
+            return {'transcription': text}
+        if _is_pdf_only_model({'abilities': abilities}):
+            text = await self._test_pdf_model(runtime_llm_model, model_data)
+            if not text:
+                raise Exception('PDF parse test failed: no text returned')
+            return {'text': text}
+
         extra_args = model_data.get('extra_args', {})
         await runtime_llm_model.provider.invoke_llm(
             query=None,
             model=runtime_llm_model,
             messages=[provider_message.Message(role='user', content='Hello, world! Please just reply a "Hello".')],
             funcs=[],
+            extra_args=extra_args,
+        )
+        return None
+
+    async def _test_tts_model(
+        self,
+        runtime_llm_model: model_requester.RuntimeLLMModel,
+        model_data: dict,
+    ) -> None:
+        extra_args = model_data.get('extra_args', {})
+        if not isinstance(extra_args, dict):
+            extra_args = dict(runtime_llm_model.model_entity.extra_args or {})
+
+        provider_entity = runtime_llm_model.provider.provider_entity
+        model_name = str(model_data.get('name') or runtime_llm_model.model_entity.name or '').strip()
+        voice_config = tts_invoke.apply_provider_api_keys(
+            {
+                'requester': provider_entity.requester or '',
+                'provider': extra_args.get('provider') or provider_entity.requester or '',
+                'model': model_name,
+                'base_url': provider_entity.base_url or '',
+                'voice_type': extra_args.get('voice_type') or extra_args.get('default_voice_type') or 'Cherry',
+                'language_type': extra_args.get('language_type') or 'Chinese',
+                'encoding': extra_args.get('encoding') or 'wav',
+                **extra_args,
+            },
+            requester=provider_entity.requester or '',
+            api_keys=runtime_llm_model.provider.token_mgr.tokens,
+        )
+        tts_config = tts_invoke.build_tts_invoke_config(
+            voice_config,
+            '你好，这是一条语音合成测试。',
+        )
+        audio_base64 = await tts_invoke.invoke_tts(tts_config, logger=self.ap.logger)
+        if not audio_base64:
+            raise Exception('TTS test failed: no audio returned')
+
+    async def _test_asr_model(
+        self,
+        runtime_llm_model: model_requester.RuntimeLLMModel,
+        model_data: dict,
+    ) -> str:
+        extra_args = model_data.get('extra_args', {})
+        if not isinstance(extra_args, dict):
+            extra_args = dict(runtime_llm_model.model_entity.extra_args or {})
+
+        provider_entity = runtime_llm_model.provider.provider_entity
+        model_name = str(model_data.get('name') or runtime_llm_model.model_entity.name or '').strip()
+        asr_config = asr_invoke.apply_provider_api_keys(
+            {
+                'requester': provider_entity.requester or '',
+                'provider': extra_args.get('provider') or provider_entity.requester or '',
+                'model': model_name,
+                'base_url': provider_entity.base_url or '',
+                'audio_base64': model_data.get('test_audio_base64') or model_data.get('audio_base64') or '',
+                'audio_url': model_data.get('test_audio_url') or extra_args.get('sample_audio_url') or '',
+                'language_type': extra_args.get('language_type') or 'Chinese',
+                **extra_args,
+            },
+            requester=provider_entity.requester or '',
+            api_keys=runtime_llm_model.provider.token_mgr.tokens,
+        )
+        config = asr_invoke.build_asr_invoke_config(asr_config)
+        text = await asr_invoke.invoke_asr(config, logger=self.ap.logger)
+        if not text:
+            raise Exception('ASR test failed: no transcription returned')
+        return text
+
+    async def _test_pdf_model(
+        self,
+        runtime_llm_model: model_requester.RuntimeLLMModel,
+        model_data: dict,
+    ) -> str:
+        extra_args = model_data.get('extra_args', {})
+        if not isinstance(extra_args, dict):
+            extra_args = dict(runtime_llm_model.model_entity.extra_args or {})
+
+        return await runtime_llm_model.provider.invoke_pdf_parse(
+            model=runtime_llm_model,
+            filename=PDF_PARSE_TEST_FILENAME,
+            content=PDF_PARSE_TEST_CONTENT,
             extra_args=extra_args,
         )
 
@@ -226,7 +441,7 @@ class EmbeddingModelsService:
     def __init__(self, ap: app.Application) -> None:
         self.ap = ap
 
-    async def get_embedding_models(self) -> list[dict]:
+    async def get_embedding_models(self, only_configured_providers: bool = False) -> list[dict]:
         """Get all embedding models with provider info"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.EmbeddingModel))
         models = result.all()
@@ -240,9 +455,15 @@ class EmbeddingModelsService:
         for model in models:
             model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.EmbeddingModel, model)
             provider = providers.get(model.provider_uuid)
-            if provider:
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
                 provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
-                model_dict['provider'] = _parse_provider_api_keys(provider_dict)
+                provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
+                model_dict['provider'] = provider_dict
             models_list.append(model_dict)
 
         return models_list
@@ -386,7 +607,7 @@ class RerankModelsService:
     def __init__(self, ap: app.Application) -> None:
         self.ap = ap
 
-    async def get_rerank_models(self) -> list[dict]:
+    async def get_rerank_models(self, only_configured_providers: bool = False) -> list[dict]:
         """Get all rerank models with provider info"""
         result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_model.RerankModel))
         models = result.all()
@@ -400,9 +621,15 @@ class RerankModelsService:
         for model in models:
             model_dict = self.ap.persistence_mgr.serialize_model(persistence_model.RerankModel, model)
             provider = providers.get(model.provider_uuid)
-            if provider:
+            if provider is None:
+                if only_configured_providers:
+                    continue
+            else:
                 provider_dict = self.ap.persistence_mgr.serialize_model(persistence_model.ModelProvider, provider)
-                model_dict['provider'] = _parse_provider_api_keys(provider_dict)
+                provider_dict = _parse_provider_api_keys(provider_dict)
+                if only_configured_providers and not _provider_is_configured_for_selection(provider_dict):
+                    continue
+                model_dict['provider'] = provider_dict
             models_list.append(model_dict)
 
         return models_list
