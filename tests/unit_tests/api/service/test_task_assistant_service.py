@@ -1008,6 +1008,7 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_course_sales_workflow_pipeline = AsyncMock()
     service._ensure_course_sales_template_pipeline = AsyncMock()
     service._ensure_yuanfudao_enhanced_template_pipeline = AsyncMock()
+    service._ensure_course_sales_bots_use_latest_workflow = AsyncMock()
     service._ensure_course_sales_outreach_for_chatted_users = AsyncMock()
     service._ensure_builtin_pipeline_default_models = AsyncMock()
     service._ensure_course_sales_doubao_model_defaults = AsyncMock()
@@ -1021,6 +1022,7 @@ async def test_ensure_default_resources_removes_seeded_digital_employee_template
     service._ensure_template_pipeline.assert_awaited_once()
     service._ensure_course_sales_template_pipeline.assert_awaited_once()
     service._ensure_yuanfudao_enhanced_template_pipeline.assert_awaited_once()
+    service._ensure_course_sales_bots_use_latest_workflow.assert_awaited_once()
     service._ensure_course_sales_doubao_model_defaults.assert_awaited_once()
     service._ensure_course_sales_runtime_defaults.assert_awaited_once()
     removed_pipeline_uuids = [call.args[0] for call in ap.pipeline_mgr.remove_pipeline.await_args_list]
@@ -1164,6 +1166,56 @@ async def test_yuanfudao_enhanced_template_seed_inserts_configurable_demo():
         'phonics',
         'reading_thinking',
     }
+
+
+@pytest.mark.asyncio
+async def test_course_sales_bots_are_routed_to_latest_enhanced_workflow():
+    service = TaskAssistantService(SimpleNamespace())
+    old_sales_pipeline_uuid = 'old-course-sales-copy'
+    sales_pipeline = SimpleNamespace(
+        uuid=old_sales_pipeline_uuid,
+        config=service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced'),
+    )
+    non_sales_pipeline = SimpleNamespace(
+        uuid='normal-pipeline',
+        config={'workflow': {'metadata': {'scenario': 'normal'}}},
+    )
+    sales_bot = SimpleNamespace(
+        uuid='bot-sales',
+        use_pipeline_uuid=old_sales_pipeline_uuid,
+        pipeline_routing_rules=[
+            {'type': 'launcher_type', 'operator': 'eq', 'value': 'person', 'pipeline_uuid': old_sales_pipeline_uuid}
+        ],
+    )
+    normal_bot = SimpleNamespace(
+        uuid='bot-normal',
+        use_pipeline_uuid='normal-pipeline',
+        pipeline_routing_rules=[],
+    )
+    ap = SimpleNamespace(
+        persistence_mgr=SimpleNamespace(
+            execute_async=AsyncMock(
+                side_effect=[
+                    _ListResult([sales_pipeline, non_sales_pipeline]),
+                    _ListResult([sales_bot, normal_bot]),
+                    None,
+                ]
+            )
+        ),
+        logger=SimpleNamespace(info=Mock()),
+    )
+    service.ap = ap
+
+    await service._ensure_course_sales_bots_use_latest_workflow()
+
+    assert ap.persistence_mgr.execute_async.await_count == 3
+    update_statement = ap.persistence_mgr.execute_async.await_args_list[2].args[0]
+    params = update_statement.compile().params
+    assert params['use_pipeline_uuid'] == YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
+    assert params['pipeline_routing_rules'][0]['pipeline_uuid'] == YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
+    compiled = str(update_statement.compile())
+    assert 'bots.uuid' in compiled
+    assert 'bot-normal' not in compiled
 
 
 @pytest.mark.asyncio
@@ -1994,8 +2046,14 @@ async def test_prepare_course_sales_query_records_resource_issue_ticket(monkeypa
 
     result = await service.prepare_query(query)
 
-    assert result['interrupted'] is True
-    assert '照片' in result['notice']
+    assert result['handled'] is True
+    assert result.get('interrupted') is not True
+    capture_state = query.variables['course_resource_capture_state']
+    assert capture_state['status'] == 'pending'
+    assert capture_state['missing'] == ['photos']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '不要照抄固定模板' in context_text
+    assert '二维码照片和出问题页面/位置照片' in context_text
     sales_service.create_resource_issue_from_query.assert_not_awaited()
 
 
@@ -2018,10 +2076,15 @@ async def test_course_sales_resource_capture_asks_for_description_and_photos_bef
 
     result = await service.prepare_query(query)
 
-    assert result['interrupted'] is True
-    assert '具体问题' in result['notice']
-    assert '二维码' in result['notice']
-    assert '照片' in result['notice']
+    assert result['handled'] is True
+    assert result.get('interrupted') is not True
+    capture_state = query.variables['course_resource_capture_state']
+    assert capture_state['status'] == 'pending'
+    assert capture_state['missing'] == ['description', 'photos']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '不要照抄固定模板' in context_text
+    assert '具体问题描述' in context_text
+    assert '二维码照片和出问题页面/位置照片' in context_text
     sales_service.create_resource_issue_from_query.assert_not_awaited()
 
 
@@ -2058,8 +2121,12 @@ async def test_course_sales_resource_capture_records_ticket_after_description_an
 
     result = await service.prepare_query(second_query)
 
-    assert result['interrupted'] is True
-    assert '记录' in result['notice']
+    assert result['handled'] is True
+    assert result.get('interrupted') is not True
+    capture_state = second_query.variables['course_resource_capture_state']
+    assert capture_state['status'] == 'recorded'
+    context_text = '\n'.join(item.text for item in second_query.user_message.content if item.type == 'text')
+    assert '自然确认已帮用户登记' in context_text
     sales_service.create_resource_issue_from_query.assert_awaited_once()
     _, payload = sales_service.create_resource_issue_from_query.await_args.args
     assert payload['issue_type'] == 'missing_resource'
@@ -2087,12 +2154,18 @@ async def test_prepare_course_sales_query_records_resource_issue_image_evidence(
 
     result = await service.prepare_query(query)
 
-    assert result['interrupted'] is True
+    assert result['handled'] is True
+    assert result.get('interrupted') is not True
     intent = query.variables['workflow_intent']
     assert intent['intent'] == 'resource_help'
     assert intent['resource_issue_type'] == 'content_error'
     assert intent['has_evidence_image'] is True
-    assert '照片' in result['notice']
+    capture_state = query.variables['course_resource_capture_state']
+    assert capture_state['status'] == 'pending'
+    assert capture_state['missing'] == ['photos']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '不要照抄固定模板' in context_text
+    assert '二维码照片和出问题页面/位置照片' in context_text
     sales_service.create_resource_issue_from_query.assert_not_awaited()
 
 
@@ -2115,8 +2188,9 @@ async def test_course_sales_content_error_records_ticket_after_description_and_t
     first_query.pipeline_config = pipeline_config
     first_result = await service.prepare_query(first_query)
 
-    assert first_result['interrupted'] is True
-    assert '照片' in first_result['notice']
+    assert first_result['handled'] is True
+    assert first_result.get('interrupted') is not True
+    assert first_query.variables['course_resource_capture_state']['missing'] == ['photos']
 
     second_query = _query(
         image_chain(text='听力音频和题目不匹配，内容是错的', url='https://example.com/qr.jpg'),
@@ -2132,8 +2206,12 @@ async def test_course_sales_content_error_records_ticket_after_description_and_t
 
     result = await service.prepare_query(second_query)
 
-    assert result['interrupted'] is True
-    assert '记录' in result['notice']
+    assert result['handled'] is True
+    assert result.get('interrupted') is not True
+    capture_state = second_query.variables['course_resource_capture_state']
+    assert capture_state['status'] == 'recorded'
+    context_text = '\n'.join(item.text for item in second_query.user_message.content if item.type == 'text')
+    assert '自然确认已帮用户登记' in context_text
     sales_service.create_resource_issue_from_query.assert_awaited_once()
     _, payload = sales_service.create_resource_issue_from_query.await_args.args
     assert payload['issue_type'] == 'content_error'
@@ -3318,10 +3396,15 @@ async def test_course_sales_resource_open_failure_context_requests_resend_link_a
     result = await service.prepare_query(query)
 
     assert query.variables['workflow_intent']['intent'] == 'resource_help'
-    assert result['interrupted'] is True
-    assert '具体问题' in result['notice']
-    assert '二维码照片' in result['notice']
-    assert '位置/页面照片' in result['notice']
+    assert result['handled'] is True
+    assert result.get('interrupted') is not True
+    capture_state = query.variables['course_resource_capture_state']
+    assert capture_state['status'] == 'pending'
+    assert capture_state['missing'] == ['description', 'photos']
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '不要照抄固定模板' in context_text
+    assert '具体问题描述' in context_text
+    assert '二维码照片和出问题页面/位置照片' in context_text
 
 
 @pytest.mark.asyncio

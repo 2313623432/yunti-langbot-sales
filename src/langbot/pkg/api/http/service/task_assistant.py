@@ -18,6 +18,7 @@ from langbot_plugin.api.entities.builtin.provider import message as provider_mes
 
 from ....core import app
 from ....entity.persistence import model as persistence_model
+from ....entity.persistence import bot as persistence_bot
 from ....entity.persistence import pipeline as persistence_pipeline
 from ....entity.persistence import rag as persistence_rag
 from ....entity.persistence import sales as persistence_sales
@@ -2019,9 +2020,21 @@ class TaskAssistantService:
         if capture_result is not None:
             query.variables['workflow_intent'] = intent
             return capture_result
-        await self._record_course_resource_issue_for_query(query, intent, text)
+        resource_capture_state = query.variables.get('course_resource_capture_state')
+        resource_capture_ai_flow = isinstance(resource_capture_state, dict) and resource_capture_state.get('status') in {
+            'pending',
+            'recorded',
+        }
+        if resource_capture_ai_flow:
+            intent = dict(intent)
+            intent['step_ids'] = []
+            intent['max_images'] = 0
+            intent['assets'] = []
+        if not resource_capture_ai_flow:
+            await self._record_course_resource_issue_for_query(query, intent, text)
         query.variables['course_sales_radar_link'] = intent.get('link_url') or COURSE_SALES_RADAR_LINK
-        await self._schedule_course_sales_outreach_for_query(query, workflow, intent)
+        if not resource_capture_ai_flow:
+            await self._schedule_course_sales_outreach_for_query(query, workflow, intent)
         intent = self._apply_course_faq_short_answer(intent, text, workflow, query)
         query.variables['workflow_intent'] = intent
         self._apply_lark_reaction_for_intent(query, intent)
@@ -3074,12 +3087,17 @@ class TaskAssistantService:
 
         if missing:
             capture['ask_count'] = int(capture.get('ask_count') or 0) + 1
-            return {
-                'handled': True,
-                'interrupted': True,
-                'intent': intent,
-                'notice': self._course_resource_capture_notice(capture, config, missing),
+            query.variables['course_resource_capture_state'] = {
+                'status': 'pending',
+                'missing': list(missing),
+                'issue_type': capture.get('issue_type') or 'resource_error',
+                'ask_count': capture['ask_count'],
+                'required_image_count': required_image_count,
+                'evidence_image_count': len(evidence_images),
+                'description_count': len(capture.get('descriptions') or []),
+                'reply_goal': self._course_resource_capture_notice(capture, config, missing),
             }
+            return None
 
         sales_service = getattr(self.ap, 'sales_service', None)
         if not sales_service or not hasattr(sales_service, 'create_resource_issue_from_query'):
@@ -3106,12 +3124,14 @@ class TaskAssistantService:
             return None
 
         progress.pop('resource_capture', None)
-        return {
-            'handled': True,
-            'interrupted': True,
-            'intent': intent,
-            'notice': str(config.get('completed_message') or COURSE_RESOURCE_CAPTURE_CONFIG['completed_message']),
+        query.variables['course_resource_capture_state'] = {
+            'status': 'recorded',
+            'issue_type': payload['issue_type'],
+            'issue_id': query.variables.get('course_resource_issue_id'),
+            'evidence_image_count': len(evidence_images),
+            'reply_goal': str(config.get('completed_message') or COURSE_RESOURCE_CAPTURE_CONFIG['completed_message']),
         }
+        return None
 
     def classify_course_sales_intent(
         self,
@@ -4092,13 +4112,39 @@ class TaskAssistantService:
                 '用户明确拒绝或命中停发规则。本轮只确认收到并停止打扰，不要再推课、不要发链接、不要发图片。'
             )
         elif intent_name == 'resource_help':
+            capture_state = query.variables.get('course_resource_capture_state')
             control_text = (
                 '\n\n[课程销售上下文]\n'
                 '本轮只处理图书资源问题，不推课、不卖课、不发报名链接。'
                 '不要发送或承诺发送图书配套学习资源卡片、资源链接、二维码卡片或资料卡片。'
                 '请安抚用户，并让用户发出问题页面截图、二维码照片、题目/听力/答案所在位置照片，便于记录资源问题。'
                 '不要承接英语自然拼读体验课，不要提课程卖点、价格、报名、优惠或完课礼。'
+                '回复必须像真人客服，不要照抄固定模板；可以换一种自然说法，但核心意思不能少。'
             )
+            if isinstance(capture_state, dict):
+                missing = capture_state.get('missing') if isinstance(capture_state.get('missing'), list) else []
+                status = str(capture_state.get('status') or '')
+                if status == 'pending':
+                    missing_labels = []
+                    if 'description' in missing:
+                        missing_labels.append('具体问题描述')
+                    if 'photos' in missing:
+                        missing_labels.append('二维码照片和出问题页面/位置照片')
+                    missing_text = '、'.join(missing_labels) or '问题截图/照片'
+                    control_text += (
+                        '\n\n[资源问题采集]\n'
+                        f'当前资料还不够，需要继续向用户补充索要：{missing_text}。'
+                        '请用自然、口语化、安抚的方式追问，不要机械复述系统句子。'
+                        '如果用户已经说了问题，就不要再问“具体是什么问题”，只补要缺少的照片；'
+                        '如果用户只发了文字没发图，就请他补发二维码页和出错页面照片。'
+                        '一次回复最多两三句，不要顺带推荐课程，不要发任何资源卡片。'
+                    )
+                elif status == 'recorded':
+                    control_text += (
+                        '\n\n[资源问题采集]\n'
+                        '资源问题和照片已经记录。请自然确认已帮用户登记，会同步工作人员处理；'
+                        '不要固定复述系统确认句，不要卖课，不要发链接或资料卡片。'
+                    )
         elif intent_name == 'resource_confirmed':
             control_text = (
                 '\n\n[课程销售上下文]\n'
@@ -4963,6 +5009,7 @@ class TaskAssistantService:
         await self._ensure_template_pipeline()
         await self._ensure_course_sales_template_pipeline()
         await self._ensure_yuanfudao_enhanced_template_pipeline()
+        await self._ensure_course_sales_bots_use_latest_workflow()
         await self._ensure_builtin_pipeline_default_models()
         await self._ensure_course_sales_doubao_text_models()
         await self._ensure_course_sales_doubao_model_defaults()
@@ -7803,6 +7850,69 @@ class TaskAssistantService:
                 },
             )
         )
+
+    def _pipeline_config_is_course_sales(self, config: Any) -> bool:
+        if not isinstance(config, dict):
+            return False
+        try:
+            return self._is_course_sales_workflow(self.active_workflow_from_config(config))
+        except Exception:
+            return False
+
+    async def _course_sales_pipeline_uuids(self) -> set[str]:
+        uuids = {
+            COURSE_SALES_WORKFLOW_PIPELINE_UUID,
+            COURSE_SALES_TEMPLATE_PIPELINE_UUID,
+            YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
+        }
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_pipeline.LegacyPipeline))
+        for pipeline in result.all():
+            pipeline_uuid = str(getattr(pipeline, 'uuid', '') or '').strip()
+            if not pipeline_uuid:
+                continue
+            if self._pipeline_config_is_course_sales(getattr(pipeline, 'config', None)):
+                uuids.add(pipeline_uuid)
+        return uuids
+
+    async def _ensure_course_sales_bots_use_latest_workflow(self) -> None:
+        """Route every course-sales bot to the latest enhanced workflow."""
+        course_pipeline_uuids = await self._course_sales_pipeline_uuids()
+        result = await self.ap.persistence_mgr.execute_async(sqlalchemy.select(persistence_bot.Bot))
+        for bot in result.all():
+            bot_uuid = str(getattr(bot, 'uuid', '') or '').strip()
+            if not bot_uuid:
+                continue
+            current_pipeline_uuid = str(getattr(bot, 'use_pipeline_uuid', '') or '').strip()
+            routing_rules = getattr(bot, 'pipeline_routing_rules', None)
+            normalized_rules = copy.deepcopy(routing_rules) if isinstance(routing_rules, list) else []
+            changed = current_pipeline_uuid in course_pipeline_uuids and current_pipeline_uuid != YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
+
+            for rule in normalized_rules:
+                if not isinstance(rule, dict):
+                    continue
+                target_pipeline_uuid = str(rule.get('pipeline_uuid') or '').strip()
+                if target_pipeline_uuid in course_pipeline_uuids and target_pipeline_uuid != YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID:
+                    rule['pipeline_uuid'] = YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
+                    changed = True
+
+            if not changed:
+                continue
+
+            values: dict[str, Any] = {
+                'use_pipeline_uuid': YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
+                'pipeline_routing_rules': normalized_rules,
+            }
+            await self.ap.persistence_mgr.execute_async(
+                sqlalchemy.update(persistence_bot.Bot).where(persistence_bot.Bot.uuid == bot_uuid).values(**values)
+            )
+            logger_obj = getattr(self.ap, 'logger', None)
+            if logger_obj is not None and hasattr(logger_obj, 'info'):
+                logger_obj.info(
+                    '[CourseSalesWorkflow] Routed bot %s from %s to %s',
+                    bot_uuid,
+                    current_pipeline_uuid or '<empty>',
+                    YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID,
+                )
 
     @staticmethod
     def _parse_volcengine_tts_ws_audio_message(message: bytes) -> tuple[bytes, bool]:
