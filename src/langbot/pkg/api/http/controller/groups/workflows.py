@@ -8,6 +8,10 @@ from .. import group
 @group.group_class('workflows', '/api/v1/workflows')
 class WorkflowsRouterGroup(group.RouterGroup):
     async def initialize(self) -> None:
+        @self.route('/components', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _() -> str:
+            return self.success(data=await self.ap.workflow_service.get_component_library())
+
         @self.route('', methods=['GET', 'POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _() -> str:
             if quart.request.method == 'GET':

@@ -1353,20 +1353,145 @@ async def test_respback_lark_course_sales_without_meme_config_still_uses_default
 
 
 @pytest.mark.asyncio
-async def test_respback_prefixes_first_course_sales_reply_with_light_emoji():
+async def test_respback_uses_feishu_native_emoji_for_first_course_sales_reply():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
     query = text_query('你好')
-    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.adapter.__class__.__name__ = 'LarkAdapter'
+    query.pipeline_config = {
+        **_course_pipeline_config(multi_reply_enabled=False),
+        'workflow': {
+            'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+            'memes': {
+                'enabled': True,
+                'large_enabled': False,
+                'feishu_native_enabled': True,
+                'library_enabled': True,
+                'small_interval_rounds': 1,
+                'library': [
+                    {
+                        'id': 'welcome-wave',
+                        'enabled': True,
+                        'meaning': 'polite welcome reply',
+                        'trigger_keyword': '{welcome}',
+                        'code': 'welcome',
+                        'emotion': 'welcome',
+                        'search_keyword': 'welcome',
+                        'feishu_emoji': '[挥手]',
+                        'tags': ['welcome'],
+                        'keywords': ['hello'],
+                    }
+                ],
+            },
+        },
+    }
     query.variables['course_sales_first_contact'] = True
     query.resp_message_chain = [
-        platform_message.MessageChain([platform_message.Plain(text='家长您好，孩子现在几年级呀。')])
+        platform_message.MessageChain([platform_message.Plain(text='家长您好，孩子现在几年级呀😊')])
     ]
 
     await stage.process(query, 'SendResponseBackStage')
 
     sent_chain = query.adapter.reply_message.await_args.kwargs['message']
-    assert str(sent_chain) == '😊 家长您好，孩子现在几年级呀'
+    assert str(sent_chain) == '家长您好，孩子现在几年级呀 [挥手]'
+
+
+@pytest.mark.asyncio
+async def test_respback_strips_course_sales_trailing_unicode_emoji_before_feishu_native():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('我想买')
+    query.adapter.__class__.__name__ = 'LarkAdapter'
+    query.pipeline_config = {
+        **_course_pipeline_config(multi_reply_enabled=False),
+        'workflow': {
+            'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+            'memes': {
+                'enabled': True,
+                'large_enabled': False,
+                'feishu_native_enabled': True,
+                'library_enabled': True,
+                'small_interval_rounds': 1,
+                'library': [
+                    {
+                        'id': 'signup-ok',
+                        'enabled': True,
+                        'meaning': 'polite purchase guidance reply',
+                        'trigger_keyword': '{signup}',
+                        'code': 'signup',
+                        'emotion': 'signup',
+                        'search_keyword': 'signup',
+                        'feishu_emoji': '[完成]',
+                        'tags': ['signup'],
+                        'keywords': ['buy'],
+                    }
+                ],
+            },
+        },
+    }
+    query.variables['auto_meme_emotion'] = 'signup'
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='我正在整理自然拼读体验课的相关资料哦🫡')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args_list[0].kwargs['message']
+    assert str(sent_chain) == '我正在整理自然拼读体验课的相关资料哦 [完成]'
+
+
+@pytest.mark.asyncio
+async def test_respback_uses_received_feishu_native_emoji_for_resource_confirmation():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('可以打开')
+    query.adapter.__class__.__name__ = 'LarkAdapter'
+    query.pipeline_config = {
+        **_course_pipeline_config(multi_reply_enabled=False),
+        'workflow': {
+            'metadata': {'scenario': 'course_sales_yuanfudao_phonics'},
+            'memes': {
+                'enabled': True,
+                'large_enabled': False,
+                'feishu_native_enabled': True,
+                'library_enabled': True,
+                'small_interval_rounds': 1,
+                'library': [
+                    {
+                        'id': 'received-ok',
+                        'enabled': True,
+                        'meaning': 'polite received reply',
+                        'trigger_keyword': '{received}',
+                        'code': 'received',
+                        'emotion': 'received',
+                        'search_keyword': 'received',
+                        'feishu_emoji': '[了解]',
+                        'tags': ['received'],
+                        'keywords': ['open'],
+                    },
+                    {
+                        'id': 'happy-smile',
+                        'enabled': True,
+                        'meaning': 'happy reply',
+                        'trigger_keyword': '{happy}',
+                        'code': 'happy',
+                        'emotion': 'happy',
+                        'search_keyword': 'happy',
+                        'feishu_emoji': '[微笑]',
+                        'tags': ['happy'],
+                        'keywords': ['happy'],
+                    },
+                ],
+            },
+        },
+    }
+    query.variables['workflow_intent'] = {'intent': 'resource_confirmed', 'confidence': 0.9}
+    query.resp_message_chain = [platform_message.MessageChain([platform_message.Plain(text='好的，孩子现在几年级呀')])]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_chain = query.adapter.reply_message.await_args_list[0].kwargs['message']
+    assert str(sent_chain) == '好的，孩子现在几年级呀 [了解]'
 
 
 @pytest.mark.asyncio

@@ -92,6 +92,14 @@ class SalesRouterGroup(group.RouterGroup):
             )
             return self.success(data={**result, 'limit': limit, 'offset': offset})
 
+        @self.route('/messages/<message_id>/media/<int:component_index>', methods=['GET'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
+        async def _(message_id: str, component_index: int) -> quart.Response:
+            try:
+                media = await self.ap.sales_service.get_sales_message_media(message_id, component_index)
+            except ValueError as exc:
+                return self.http_status(404, -1, str(exc))
+            return quart.Response(media['content'], mimetype=media['mime_type'])
+
         @self.route('/conversations/<path:session_id>/manual-reply', methods=['POST'], auth_type=group.AuthType.USER_TOKEN_OR_API_KEY)
         async def _(session_id: str) -> str:
             data = await quart.request.json

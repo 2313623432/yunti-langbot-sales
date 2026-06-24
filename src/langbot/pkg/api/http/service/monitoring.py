@@ -574,11 +574,63 @@ class MonitoringService:
         serialized = []
         for row in messages_rows:
             # Extract model instance from Row (SQLAlchemy returns Row objects)
-            msg = row[0] if isinstance(row, tuple) else row
+            msg = self._row_entity(row)
             serialized_msg = self.ap.persistence_mgr.serialize_model(persistence_monitoring.MonitoringMessage, msg)
+            serialized_msg['message_content'] = self._compact_message_content_for_list(
+                serialized_msg.get('message_content', '')
+            )
             serialized.append(serialized_msg)
 
         return (serialized, total)
+
+    def _row_entity(self, row):
+        mapping = getattr(row, '_mapping', None)
+        if mapping:
+            mapped_values = list(mapping.values())
+            for value in mapped_values:
+                if hasattr(value, '__table__'):
+                    return value
+            string_keys = {str(key): value for key, value in mapping.items() if isinstance(key, str)}
+            if string_keys:
+                from types import SimpleNamespace
+
+                return SimpleNamespace(**string_keys)
+        try:
+            return row[0]
+        except (TypeError, KeyError, IndexError):
+            return row
+
+    def _compact_message_content_for_list(self, message_content: str) -> str:
+        """Return lightweight message content for monitoring lists without inline media payloads."""
+        if not message_content:
+            return ''
+        try:
+            parsed = json.loads(message_content)
+        except (TypeError, json.JSONDecodeError):
+            text = str(message_content)
+            return text[:4000] if len(text) > 4000 else text
+        if not isinstance(parsed, list):
+            return message_content
+
+        compact_components = []
+        media_payload_keys = {
+            'base64',
+            'data',
+            'image_base64',
+            'voice_base64',
+            'audio_base64',
+            'file_base64',
+        }
+        for component in parsed:
+            if not isinstance(component, dict):
+                continue
+            compact = {key: value for key, value in component.items() if key not in media_payload_keys}
+            if component.get('type') in {'Image', 'Voice'} and any(component.get(key) for key in media_payload_keys):
+                compact['media_omitted'] = True
+            if compact.get('type') == 'Plain' and isinstance(compact.get('text'), str) and len(compact['text']) > 2000:
+                compact['text'] = compact['text'][:2000]
+            compact_components.append(compact)
+        return json.dumps(compact_components, ensure_ascii=False)
 
     async def get_llm_calls(
         self,

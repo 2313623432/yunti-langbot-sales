@@ -10,13 +10,21 @@ export type WorkflowNodeType =
   | 'task'
   | 'vision'
   | 'llm'
+  | 'ai_suggestion'
   | 'condition'
+  | 'special_case'
   | 'lead'
   | 'image'
   | 'memory'
+  | 'resource_capture'
   | 'radar'
   | 'outreach'
+  | 'scheduled_message'
+  | 'followup'
   | 'handoff'
+  | 'resume_ai'
+  | 'link_card'
+  | 'meme'
   | 'http'
   | 'plugin'
   | 'mcp'
@@ -165,6 +173,17 @@ export interface PipelineTemplateHumanHandoff {
   notify_message: string;
 }
 
+export interface PipelineTemplateResourceCapture {
+  enabled: boolean;
+  trigger_keywords: string[];
+  required_image_count: number;
+  max_followup_rounds: number;
+  ask_message: string;
+  ask_description_message: string;
+  ask_photo_message: string;
+  completed_message: string;
+}
+
 export interface PipelineTemplateSpecialCase {
   id: string;
   enabled: boolean;
@@ -303,6 +322,7 @@ export interface PipelineTemplateConfig {
     click_reply: string;
   };
   human_handoff: PipelineTemplateHumanHandoff;
+  resource_capture?: PipelineTemplateResourceCapture;
   memes?: PipelineTemplateMemeConfig;
   special_cases: PipelineTemplateSpecialCase[];
   image_text_bindings: PipelineTemplateImageTextBinding[];

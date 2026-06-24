@@ -8,6 +8,7 @@ import {
   PipelineWorkflowNode,
   WorkflowNodeType,
 } from './types';
+import yuanfudaoCourseQa from './yuanfudaoCourseQa.json';
 
 const COURSE_SALES_REPLY_MODEL_UUID = 'doubao-seed-2-0-pro-260215';
 const COURSE_SALES_INTENT_MODEL_UUID = 'doubao-seed-2-0-mini-260215';
@@ -206,10 +207,29 @@ const nodeDefaults: Record<
         '根据客户意图、知识库结果和产品资料，生成一句自然、具体、有下一步动作的回复。',
     },
   },
+  ai_suggestion: {
+    title: '人工回复推荐',
+    description: '人工接管时，点击后由 AI 给客服一条可采纳的回复建议',
+    config: {
+      enabled: true,
+      style: '自然客服',
+      prompt: '结合完整聊天历史，给人工客服一条可直接发送的短回复。',
+    },
+  },
   condition: {
     title: '条件分流',
     description: '按意图、置信度、客户阶段分支',
     config: { rules: ['requires_handoff == true', 'intent in image_intents'] },
+  },
+  special_case: {
+    title: '特殊情况处理',
+    description: '按客户表达的语义触发固定场景回复',
+    config: {
+      condition: '例如：问怎么听、资源在哪里、答案怎么看',
+      reply: '书籍二维码听力/答案，点击上面推送的“点击访问扫码前的资源”卡片。',
+      ai_rewrite: true,
+      image_url: '',
+    },
   },
   lead: {
     title: '收集线索',
@@ -233,6 +253,18 @@ const nodeDefaults: Record<
     title: '更新客户记忆',
     description: '沉淀客户阶段、兴趣产品和摘要',
     config: { stage: 'new', tags: ['高意向', '待跟进'] },
+  },
+  resource_capture: {
+    title: '资源问题收集',
+    description: '客户遇到扫码、听力、答案、资源打不开时追问并记录',
+    config: {
+      enabled: true,
+      trigger_keywords: ['二维码打不开', '听力在哪里', '答案在哪里', '扫码失败', '资源打不开'],
+      required_image_count: 2,
+      max_followup_rounds: 3,
+      ask_message: '您具体是哪个资源打不开呀？可以描述一下问题，再拍一下出问题的二维码和页面截图发我。',
+      completed_message: '收到，我已经帮您记录了，会尽快帮您处理。',
+    },
   },
   radar: {
     title: '链接点击雷达',
@@ -259,10 +291,61 @@ const nodeDefaults: Record<
       message_template: '您好，给您同步一下上次关注的产品资料。',
     },
   },
+  scheduled_message: {
+    title: '单条定时消息',
+    description: '第几天几点自动发送一条消息，可带图片和链接',
+    config: {
+      day: 1,
+      time: '10:20',
+      message: '',
+      image_url: '',
+      link_title: '',
+      link_url: '',
+    },
+  },
+  followup: {
+    title: '多轮跟进',
+    description: '按客户阶段安排下一轮销售跟进',
+    config: {
+      stage: '未报名',
+      delay_minutes: 1440,
+      message: '',
+      stop_when_replied: true,
+    },
+  },
   handoff: {
     title: '人工介入',
     description: '进入人工接待队列',
     config: { reason: '客户需要人工协助', assigned_to: '' },
+  },
+  resume_ai: {
+    title: '恢复AI托管',
+    description: '人工处理完成后恢复 AI 自动回复',
+    config: {
+      enabled: true,
+      resume_message: '好的，后面我会继续帮您跟进。',
+    },
+  },
+  link_card: {
+    title: '链接卡片',
+    description: '发送报名、资源或扫码记录链接',
+    config: {
+      title: '点击访问扫码前的资源',
+      url: '',
+      description: '',
+      radar_enabled: true,
+    },
+  },
+  meme: {
+    title: '发送表情包',
+    description: '根据情绪发送礼貌、可爱的飞书小表情或大表情包',
+    config: {
+      enabled: true,
+      emotion: '开心鼓励',
+      small_enabled: true,
+      large_enabled: true,
+      min_rounds: 3,
+    },
   },
   http: {
     title: 'HTTP 请求',
@@ -723,6 +806,7 @@ export function createTaskAssistantWorkflowTemplate(): PipelineWorkflow {
 
 const courseSalesSignupLink =
   'https://m.yuanfudao.com/primary/templates/package?pageId=6641&solutionId=27246&keyfrom=yfd-qudaohezuo-xiaoxue-9yyy-CPA-yunti9-siyu-yangzy-yingtao3class';
+const courseSalesRadarLink = courseSalesSignupLink;
 const courseResourceCardLink =
   'https://mp.zhizhuma.com/webappv2/videoLecture/video-tbxvm9.htm?resId=99132427&idSign=f6b025&resType=104&bookId=593223&bookIdSign=04d70c&targetId=2207977&_wxPage=teaVideo&crId=71099576&crIdSign=4f6334&entityId=593223&entityType=1&_wxId=593223&_wxType=1&_wxSrc=116&_rand=1773575505347';
 const courseOpeningMessage =
@@ -799,7 +883,7 @@ const courseResourceFaqs = [
 const courseFaqs = [
   { intent: 'course_schedule', question: '什么时候上课', answer: '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。\n\n需要给孩子试试不，现在报名还送结课礼物。', keywords: ['什么时候', '几点', '上课时间', '课表'] },
   { intent: 'course_intro', question: '这个是什么课/这是什么/你发是什么', answer: '这是猿辅导英语自然拼读集训营，9元5天10节，专为大班到小学4年级设计。课程包含5次绘本阅读实践、180次开口练习、360分钟配套视频，重点教孩子拼读规律，鼓励孩子多表达，提升口语能力。报名链接我发您。', keywords: ['什么课', '是什么', '自然拼读', '拼读', '发音', '9元课'] },
-  { intent: 'reading_thinking_intro', question: '阅读+思维是什么课', answer: '阅读+思维课是另一个9元体验方向，主要解决阅读没头绪、作文凑字数、数学粗心马虎和做题难变通；如果您问的是英语自然拼读，我还是优先按自然拼读给您介绍。', keywords: ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'] },
+  { intent: 'reading_thinking_intro', question: '阅读+思维/数学问题', answer: '家长，数学这块我们现在没有单独数学课哈。现在给您介绍的是猿辅导英语自然拼读9元体验课，主要帮孩子打英语发音、拼读和单词基础；如果孩子英语也想补基础，可以先9元体验一下。', keywords: ['阅读', '作文', '写作', '数学', '思维', '应用题', '粗心', '马虎', '变通'] },
   { intent: 'course_content', question: '学习内容', answer: '每个年级的学习内容不一样，具体上课后才可以看到亲，是根据孩子年级匹配的。\n\n需要给孩子试试不，现在报名还送结课礼物。', keywords: ['学习内容', '内容', '学啥', '学什么', '课表', '课程安排'] },
   { intent: 'teacher_service', question: '老师伴学服务是什么老师', answer: '伴学服务是猿辅导安排的指导老师/班主任，报名后会通过电话、短信或页面二维码联系您，提醒上课、答疑、反馈学习进度，也会协助登记开课和资料。', keywords: ['老师伴学', '伴学', '什么老师', '班主任', '指导老师', '老师服务'] },
   { intent: 'course_replay', question: '支持回放吗', answer: '当然支持呀，3年内可以无限次看回放，手机和平板都能学。咱们课每次也就一小时左右，时间安排很灵活的。\n\n要不要试试看，现在报名，还独家赠送小猿篮球/护脊书包/小猿手办/宇航员文具盒/铅笔/转笔刀，完课后随机发货其一。', keywords: ['回放', '没时间', '错过', '直播没赶上'] },
@@ -810,6 +894,7 @@ const courseFaqs = [
   { intent: 'gift', question: '赠品/资料', answer: '活动里有资料和完课礼，常见礼品包括小猿篮球、护脊书包、小猿手办、宇航员文具盒、铅笔、转笔刀等，完课后随机发货其一，具体以活动页和班主任登记为准。', keywords: ['赠品', '礼品', '资料', '篮球', '书包', '文具盒', '铅笔', '转笔刀'] },
   { intent: 'grade', question: '适合几年级', answer: '自然拼读主要适合大班到小学4年级，三四年级尤其适合补拼读规律和单词记忆方法；如果孩子不在这个范围，我可以先帮您判断是否合适。', keywords: ['几年级', '大班', '一年级', '二年级', '三年级', '四年级', '初中'] },
   { intent: 'link_error', question: '链接打不开/页面异常', answer: '我帮您看下，麻烦截一下当前页面；也可以先退出重进，或复制链接到浏览器打开。', keywords: ['打不开', '白屏', '点不进去', '页面', '卡住'] },
+  ...(yuanfudaoCourseQa as Array<Record<string, unknown>>),
 ];
 const courseSalesLinks = [
   {
@@ -822,15 +907,15 @@ const courseSalesLinks = [
   {
     id: 'phonics_radar_apply',
     title: '猿辅导自然拼读9元体验课报名通道',
-    url: courseSalesSignupLink,
-    description: '报名链接卡片：通过 tracking URL 记录打开并触发雷达跟进。',
+    url: courseSalesRadarLink,
+    description: '报名链接卡片：发送时自动包装成服务器雷达追踪链接。',
     radar_enabled: true,
   },
 ];
 const courseRadarConfig = {
   enabled: true,
   link_title: '猿辅导自然拼读9元体验课报名通道',
-  link_url: courseSalesSignupLink,
+  link_url: courseSalesRadarLink,
   tracking_fields: ['session_id', 'campaign', 'clicked_at', 'browse_seconds', 'clicked_apply_button', 'paid'],
   rules: [
     { event: 'link_open', delay_minutes: 0, message: '家长，看您进入报名通道了，支付以后麻烦您发我支付成功截图或者报名成功短信，我给您登记开课并赠送资料。' },
@@ -1220,7 +1305,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       model_uuid: modelUuid,
       model_extra_args: COURSE_SALES_REPLY_MODEL_EXTRA_ARGS,
       tone: '真人客服、短句、先服务后转化',
-      prompt: '你是真人课程客服，先处理图书资源问题。用户确认资源能打开后，先问孩子几年级，不要直接安排课程或发链接；用户明确要报名时，先给完课好礼，再单独发报名链接。',
+      prompt: '你是真人课程客服，先处理图书资源问题。用户确认资源能打开后，先问孩子几年级，不要直接安排课程或发链接；用户明确要报名时，先给完课好礼，再单独发报名链接。用户问数学、奥数、应用题或思维类问题时，先说明当前没有单独数学课，再自然介绍英语自然拼读体验课。不要输出{自然拼读}、{课程名}、[报名链接XXXXXXX]等模板占位符。',
     }),
     workflowNode('end', 'end', '发送给用户', '发送文字、链接卡片、Excel素材图；用户语音咨询时可按配置追加语音回复', { x: 3540, y: 420 }, {}),
   ];
@@ -1293,7 +1378,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       runtime_engine: 'langgraph',
       source_mode: 'template',
       template_name: '课程销售模板',
-      source: 'SOP.doc（群发截图转文字）+ 猿辅导自然拼读常见问题(1).xlsx',
+      source: 'SOP.doc（群发截图转文字）+ 猿辅导课程问答整理.xlsx',
       tts_provider: 'volcengine',
       langgraph_state: {
         messages: 'list',
@@ -1326,7 +1411,7 @@ export function createCourseSalesWorkflowTemplate(): PipelineWorkflow {
       course_profile: courseSalesProfile,
       course_profiles: courseSalesProfiles,
       agent_orchestration: makeDefaultAgentOrchestration(),
-      source_materials: ['SOP.doc（群发截图转文字）', '猿辅导自然拼读常见问题(1).xlsx'],
+      source_materials: ['SOP.doc（群发截图转文字）', '猿辅导课程问答整理.xlsx'],
       resource_faqs: courseResourceFaqs,
       course_faqs: courseFaqs,
       sales_links: courseSalesLinks,
@@ -1444,6 +1529,37 @@ export function createBlankAgentTemplateConfig(): PipelineTemplateConfig {
         enabled: false,
       })),
       notify_message: '',
+    },
+    resource_capture: {
+      enabled: true,
+      trigger_keywords: [
+        '扫码资源',
+        '图书资源',
+        '配套资源',
+        '资源卡片',
+        '二维码',
+        '扫码',
+        '听力资源',
+        '答案资源',
+        '打不开',
+        '不能打开',
+        '无法打开',
+        '点不开',
+        '进不去',
+        '资源缺失',
+        '资源为空',
+        '正在上传',
+      ],
+      required_image_count: 2,
+      max_followup_rounds: 4,
+      ask_message:
+        '我帮您记录这个扫码资源问题。麻烦您补充一下具体问题，再发一下出问题的二维码照片、以及出现问题的位置/页面照片',
+      ask_description_message:
+        '麻烦您描述一下具体问题，比如哪里打不开、提示什么、哪一题或哪一页不对',
+      ask_photo_message:
+        '再麻烦发一下出问题的二维码照片、以及出现问题的位置/页面照片',
+      completed_message:
+        '收到，我已经把这个资源问题和相关照片记录下来了，会同步给工作人员处理',
     },
     memes: {
       ...courseMemeConfig,

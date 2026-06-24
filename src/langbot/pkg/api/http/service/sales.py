@@ -2361,6 +2361,40 @@ class SalesService:
             return '私聊客户'
         return '客户'
 
+    def _customer_name_from_memory(self, memory: Any | None, session: Any) -> str:
+        customer_name = getattr(memory, 'customer_name', '') if memory is not None else ''
+        if customer_name and not self._is_technical_identifier(customer_name):
+            return customer_name
+        return self._customer_name_from_session(session)
+
+    def _display_user_name_from_session(self, session: Any) -> str:
+        user_name = getattr(session, 'user_name', '') or ''
+        if user_name and not self._is_technical_identifier(user_name):
+            return user_name
+        return self._customer_name_from_session(session)
+
+    async def _display_bot_name_from_session(self, session: Any) -> str:
+        bot_name = getattr(session, 'bot_name', '') or ''
+        if bot_name and not self._is_technical_identifier(bot_name):
+            return bot_name
+        bot_id = getattr(session, 'bot_id', '') or ''
+        if bot_id:
+            resolved = await self._resolve_bot_display_name(bot_id)
+            if resolved and not self._is_technical_identifier(resolved):
+                return resolved
+        return bot_name or bot_id
+
+    async def _resolve_bot_display_name(self, bot_uuid: str) -> str:
+        bot_mgr = getattr(self.ap, 'bot_mgr', None)
+        get_bot = getattr(bot_mgr, 'get_bot', None)
+        if get_bot is None:
+            return bot_uuid
+        try:
+            bot = await get_bot(bot_uuid)
+            return getattr(getattr(bot, 'bot_entity', None), 'name', '') or bot_uuid
+        except Exception:
+            return bot_uuid
+
     def _is_technical_identifier(self, value: str) -> bool:
         text = str(value or '').strip()
         if not text:
@@ -2368,6 +2402,12 @@ class SalesService:
         return (
             'LauncherTypes.' in text
             or re.match(r'^(on|om|ou|oc|of)_[A-Za-z0-9_-]{12,}$', text) is not None
+            or re.match(r'^websocket_[0-9a-fA-F-]{12,}$', text) is not None
+            or re.match(
+                r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+                text,
+            )
+            is not None
             or re.match(r'^[A-Za-z]+Types\.[A-Z_]+_', text) is not None
         )
 
@@ -2378,7 +2418,9 @@ class SalesService:
         try:
             parsed = json.loads(raw_content)
         except (TypeError, json.JSONDecodeError):
-            parsed = [{'type': 'Plain', 'text': raw_content}] if raw_content else []
+            parsed = self._normalize_truncated_sales_message_content(raw_content)
+            if not parsed:
+                parsed = [{'type': 'Plain', 'text': raw_content}] if raw_content else []
 
         if not isinstance(parsed, list):
             parsed = [{'type': 'Plain', 'text': raw_content}]
@@ -2399,6 +2441,30 @@ class SalesService:
             'preview': self._sales_message_preview(components),
             'metadata': metadata,
         }
+
+    def _normalize_truncated_sales_message_content(self, raw_content: str) -> list[dict[str, Any]]:
+        text = str(raw_content or '').strip()
+        if not text.startswith(('[', '{')) or '"type"' not in text:
+            return []
+
+        components: list[dict[str, Any]] = []
+        matches = list(re.finditer(r'"type"\s*:\s*"([^"]+)"', text))
+        for index, match in enumerate(matches):
+            component_type = match.group(1)
+            if component_type == 'Source':
+                continue
+            component: dict[str, Any] = {'type': component_type}
+            if component_type == 'Plain':
+                next_start = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+                chunk = text[match.end() : next_start]
+                text_match = re.search(r'"text"\s*:\s*"((?:\\.|[^"\\])*)"', chunk)
+                if text_match:
+                    try:
+                        component['text'] = json.loads(f'"{text_match.group(1)}"')
+                    except json.JSONDecodeError:
+                        component['text'] = text_match.group(1)
+            components.append(component)
+        return components
 
     def _normalize_sales_message_component(self, component: dict[str, Any]) -> dict[str, Any] | None:
         component_type = str(component.get('type') or '').strip()
@@ -2538,7 +2604,7 @@ class SalesService:
             return 'assistant'
         return 'customer'
 
-    def _serialize_sales_message(self, message: Any) -> dict[str, Any]:
+    def _serialize_sales_message(self, message: Any, compact: bool = False, link_media: bool = False) -> dict[str, Any]:
         normalized = self.normalize_sales_message_content(getattr(message, 'message_content', '') or '')
         sender_kind = self._sales_sender_kind(message)
         if sender_kind == 'operator':
@@ -2547,6 +2613,17 @@ class SalesService:
             sender_label = getattr(message, 'bot_name', '') or '数字员工'
         else:
             sender_label = self._customer_name_from_message(message)
+        components = normalized['components']
+        raw_message_content = getattr(message, 'message_content', '')
+        if compact:
+            components = [self._compact_sales_message_component(component) for component in components]
+            raw_message_content = ''
+        elif link_media:
+            components = [
+                self._link_sales_message_media_component(getattr(message, 'id', ''), index, component)
+                for index, component in enumerate(components)
+            ]
+            raw_message_content = ''
         return {
             'id': getattr(message, 'id', ''),
             'timestamp': self._format_datetime(getattr(message, 'timestamp', None)),
@@ -2563,10 +2640,40 @@ class SalesService:
             'status': getattr(message, 'status', ''),
             'level': getattr(message, 'level', ''),
             'preview': normalized['preview'],
-            'components': normalized['components'],
+            'components': components,
             'metadata': normalized['metadata'],
-            'raw_message_content': getattr(message, 'message_content', ''),
+            'raw_message_content': raw_message_content,
         }
+
+    def _link_sales_message_media_component(
+        self,
+        message_id: str,
+        component_index: int,
+        component: dict[str, Any],
+    ) -> dict[str, Any]:
+        linked = {key: value for key, value in component.items() if key != 'raw'}
+        if linked.get('kind') in {'image', 'voice'} and linked.get('base64'):
+            linked['media_url'] = f'/api/v1/sales/messages/{message_id}/media/{component_index}'
+            linked['base64'] = ''
+            linked['available'] = True
+        return linked
+
+    def _compact_sales_message_component(self, component: dict[str, Any]) -> dict[str, Any]:
+        compact = {key: value for key, value in component.items() if key != 'raw'}
+        if compact.get('kind') in {'image', 'voice'}:
+            compact['base64'] = ''
+            if self._is_browser_unsafe_media_source(compact.get('url')):
+                compact['url'] = ''
+            if self._is_browser_unsafe_media_source(compact.get('path')):
+                compact['path'] = ''
+            compact['available'] = bool(compact.get('url') or compact.get('path'))
+        return compact
+
+    def _is_browser_unsafe_media_source(self, value: Any) -> bool:
+        text = str(value or '').strip()
+        if not text:
+            return False
+        return text.startswith('file://') or re.match(r'^[A-Za-z]:[\\/]', text) is not None or text.startswith('\\\\')
 
     def _format_datetime(self, value: Any) -> str:
         if value is None:
@@ -2601,10 +2708,45 @@ class SalesService:
                 candidate_handoff_session_ids.add(alias)
                 handoff_session_aliases[alias] = session.session_id
 
-        message_result = await self.ap.persistence_mgr.execute_async(
-            sqlalchemy.select(persistence_monitoring.MonitoringMessage)
+        latest_message_rank = (
+            sqlalchemy.select(
+                persistence_monitoring.MonitoringMessage.id.label('id'),
+                sqlalchemy.func.row_number()
+                .over(
+                    partition_by=persistence_monitoring.MonitoringMessage.session_id,
+                    order_by=(
+                        persistence_monitoring.MonitoringMessage.timestamp.desc(),
+                        persistence_monitoring.MonitoringMessage.id.desc(),
+                    ),
+                )
+                .label('rn'),
+            )
             .where(persistence_monitoring.MonitoringMessage.session_id.in_(session_ids))
-            .order_by(persistence_monitoring.MonitoringMessage.timestamp.desc())
+            .subquery()
+        )
+        message_result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(
+                persistence_monitoring.MonitoringMessage.id,
+                persistence_monitoring.MonitoringMessage.timestamp,
+                persistence_monitoring.MonitoringMessage.bot_id,
+                persistence_monitoring.MonitoringMessage.bot_name,
+                persistence_monitoring.MonitoringMessage.pipeline_id,
+                persistence_monitoring.MonitoringMessage.pipeline_name,
+                sqlalchemy.func.substr(persistence_monitoring.MonitoringMessage.message_content, 1, 4000).label(
+                    'message_content'
+                ),
+                persistence_monitoring.MonitoringMessage.session_id,
+                persistence_monitoring.MonitoringMessage.status,
+                persistence_monitoring.MonitoringMessage.level,
+                persistence_monitoring.MonitoringMessage.platform,
+                persistence_monitoring.MonitoringMessage.user_id,
+                persistence_monitoring.MonitoringMessage.user_name,
+                persistence_monitoring.MonitoringMessage.runner_name,
+                persistence_monitoring.MonitoringMessage.variables,
+                persistence_monitoring.MonitoringMessage.role,
+            )
+            .join(latest_message_rank, persistence_monitoring.MonitoringMessage.id == latest_message_rank.c.id)
+            .where(latest_message_rank.c.rn == 1)
         )
         latest_by_session: dict[str, Any] = {}
         for row in message_result.all():
@@ -2646,17 +2788,20 @@ class SalesService:
             if status and status != 'all' and normalized_status != status:
                 continue
             latest_message = latest_by_session.get(session.session_id)
-            latest = self._serialize_sales_message(latest_message) if latest_message else None
+            latest = self._serialize_sales_message(latest_message, compact=True) if latest_message else None
             memory = memories.get(session.session_id)
+            customer_name = self._customer_name_from_memory(memory, session)
+            user_name = self._display_user_name_from_session(session)
+            bot_name = await self._display_bot_name_from_session(session)
             conversations.append(
                 {
                     'session_id': session.session_id,
-                    'customer_name': getattr(memory, 'customer_name', '') or self._customer_name_from_session(session),
+                    'customer_name': customer_name,
                     'platform': getattr(session, 'platform', '') or '',
                     'user_id': getattr(session, 'user_id', '') or '',
-                    'user_name': getattr(session, 'user_name', '') or '',
+                    'user_name': user_name,
                     'bot_id': getattr(session, 'bot_id', '') or '',
-                    'bot_name': getattr(session, 'bot_name', '') or '',
+                    'bot_name': bot_name,
                     'message_count': getattr(session, 'message_count', 0) or 0,
                     'last_activity': self._format_datetime(getattr(session, 'last_activity', None)),
                     'latest_message': latest,
@@ -2684,8 +2829,42 @@ class SalesService:
             .offset(offset)
         )
         rows = [self._row_entity(row) for row in result.all()]
-        messages = [self._serialize_sales_message(message) for message in sorted(rows, key=lambda item: item.timestamp)]
+        messages = [
+            self._serialize_sales_message(message, link_media=True)
+            for message in sorted(rows, key=lambda item: item.timestamp)
+        ]
         return {'messages': messages, 'total': len(messages)}
+
+    async def get_sales_message_media(self, message_id: str, component_index: int) -> dict[str, Any]:
+        result = await self.ap.persistence_mgr.execute_async(
+            sqlalchemy.select(persistence_monitoring.MonitoringMessage).where(
+                persistence_monitoring.MonitoringMessage.id == message_id
+            )
+        )
+        row = result.first()
+        if row is None:
+            raise ValueError('Message not found')
+        message = self._row_entity(row)
+        components = self.normalize_sales_message_content(getattr(message, 'message_content', '') or '')['components']
+        if component_index < 0 or component_index >= len(components):
+            raise ValueError('Media component not found')
+        component = components[component_index]
+        if component.get('kind') not in {'image', 'voice'}:
+            raise ValueError('Component is not media')
+        base64_data = str(component.get('base64') or '')
+        if not base64_data:
+            raise ValueError('Media payload not available')
+        mime_type = 'audio/ogg' if component.get('kind') == 'voice' else 'image/png'
+        payload = base64_data
+        data_url_match = re.match(r'^data:([^;,]+);base64,(.*)$', base64_data, re.DOTALL)
+        if data_url_match:
+            mime_type = data_url_match.group(1)
+            payload = data_url_match.group(2)
+        try:
+            content = base64.b64decode(payload, validate=False)
+        except Exception as exc:
+            raise ValueError('Invalid media payload') from exc
+        return {'content': content, 'mime_type': mime_type}
 
     async def generate_sales_reply_suggestion_from_session(
         self,

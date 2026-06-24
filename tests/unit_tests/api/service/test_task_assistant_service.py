@@ -120,6 +120,125 @@ def test_course_sales_pipeline_uses_actionable_failure_hint():
     assert '模型' in failure_hint
 
 
+def test_course_sales_math_question_uses_boundary_intent_and_no_link():
+    service = TaskAssistantService(SimpleNamespace())
+
+    intent = service.classify_course_sales_intent('数学不好怎么办', text_chain('数学不好怎么办'), {})
+    answer = service._faq_answer_for_intent('reading_thinking_intro', {})
+
+    assert intent['intent'] == 'reading_thinking_intro'
+    assert 'link_url' not in intent
+    assert '没有单独数学课' in answer
+    assert '英语自然拼读' in answer
+
+
+def test_enhanced_course_sales_math_question_does_not_select_reading_thinking_product():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+
+    intent = service.classify_course_sales_intent('数学不好怎么办', text_chain('数学不好怎么办'), workflow)
+    answer = service._faq_answer_for_intent('reading_thinking_intro', workflow)
+
+    assert intent['intent'] == 'reading_thinking_intro'
+    assert intent['product_key'] == 'phonics'
+    assert '阅读+思维' not in intent['course_profile']['course_name']
+    assert '数学这块我们现在没有单独数学课' in answer
+
+
+def test_enhanced_course_sales_template_normalizes_math_boundary_faq():
+    service = TaskAssistantService(SimpleNamespace())
+
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    faq = next(item for item in template['course_faqs'] if item['intent'] == 'reading_thinking_intro')
+
+    assert faq['question'] == '阅读+思维/数学问题'
+    assert '数学这块我们现在没有单独数学课' in faq['answer']
+    assert '阅读+思维课是另一个9元体验方向' not in faq['answer']
+
+
+def test_course_sales_template_includes_course_qa_spreadsheet_special_cases():
+    service = TaskAssistantService(SimpleNamespace())
+
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    questions = {faq.get('question') for faq in template['course_faqs']}
+
+    assert '那个篮球书包质量怎么样？能装什么？' in questions
+    assert '孩子一年级零基础，能听懂吗？' in questions
+    assert '今天错过了/没时间看直播怎么办？能看回放吗？' in questions
+
+
+def test_course_sales_sop_question_semantic_match_uses_spreadsheet_answer():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+
+    intent = service.classify_course_sales_intent('书包质量咋样，能装东西吗', text_chain('书包质量咋样，能装东西吗'), workflow)
+    answer = service._faq_answer_for_intent(intent['intent'], workflow)
+
+    assert intent['intent'].startswith('sop_qa_')
+    assert '质量特别好' in answer
+    assert '容量也大' in answer
+
+
+def test_course_sales_schedule_question_not_stolen_by_generic_sop_terms():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+
+    intent = service.classify_course_sales_intent(
+        '我想了解自然拼读什么时候上课',
+        text_chain('我想了解自然拼读什么时候上课'),
+        workflow,
+    )
+
+    assert intent['intent'] == 'course_schedule'
+
+
+def test_course_sales_runtime_normalizes_saved_legacy_math_workflow():
+    service = TaskAssistantService(SimpleNamespace())
+    workflow = service.build_course_sales_workflow_config(
+        template_config=service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    )
+    workflow['course_faqs'] = [
+        {
+            'intent': 'reading_thinking_intro',
+            'question': '阅读+思维是什么课',
+            'answer': '阅读+思维课是另一个9元体验方向，主要解决数学思维问题。',
+            'keywords': ['数学', '思维'],
+        }
+    ]
+
+    active = service.active_workflow_from_config({'workflow': workflow})
+    faq = next(item for item in active['course_faqs'] if item['intent'] == 'reading_thinking_intro')
+
+    assert faq['question'] == '阅读+思维/数学问题'
+    assert '数学这块我们现在没有单独数学课' in faq['answer']
+
+
+def test_course_sales_model_math_misclassification_is_corrected():
+    service = TaskAssistantService(SimpleNamespace())
+
+    intent = service._parse_course_sales_model_intent(
+        '{"intent":"course_intro","confidence":0.92,"reason":"模型误判课程介绍","step_ids":[],"include_link":true}',
+        {},
+        '孩子数学不好怎么办',
+    )
+
+    assert intent is not None
+    assert intent['intent'] == 'reading_thinking_intro'
+    assert 'link_url' not in intent
+
+
+def test_course_sales_reply_cleanup_removes_template_placeholders():
+    service = TaskAssistantService(SimpleNamespace())
+
+    cleaned = service._clean_course_agent_text('咱们现在有英语自然拼读体验课哦 {自然拼读}\n[报名链接XXXXXXX]')
+
+    assert '{自然拼读}' not in cleaned
+    assert '报名链接XXXX' not in cleaned
+
+
 def test_primary_model_resolution_prefers_runtime_local_agent_model():
     service = TaskAssistantService(SimpleNamespace())
     query = SimpleNamespace(
@@ -1520,6 +1639,75 @@ async def test_prepare_course_sales_query_records_resource_issue_ticket(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_course_sales_resource_capture_asks_for_description_and_photos_before_ticket(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    query = _query(
+        text_chain('扫码资源打不开'),
+        '扫码资源打不开',
+        session_id='customer-resource-capture',
+    )
+    query.bot_uuid = 'bot-uuid'
+    query.sender_id = 'ou_customer'
+    query.adapter = SimpleNamespace()
+    query.pipeline_uuid = 'pipeline-1'
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.prepare_query(query)
+
+    assert result['interrupted'] is True
+    assert '具体问题' in result['notice']
+    assert '二维码' in result['notice']
+    assert '照片' in result['notice']
+    sales_service.create_resource_issue_from_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_course_sales_resource_capture_records_ticket_after_description_and_two_photos(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    first_query = _query(
+        text_chain('扫码资源打不开'),
+        '扫码资源打不开',
+        session_id='customer-resource-capture',
+    )
+    first_query.bot_uuid = 'bot-uuid'
+    first_query.sender_id = 'ou_customer'
+    first_query.adapter = SimpleNamespace()
+    first_query.pipeline_uuid = 'pipeline-1'
+    first_query.pipeline_config = pipeline_config
+    await service.prepare_query(first_query)
+
+    second_query = _query(
+        image_chain(text='页面提示资源缺失，这是二维码和报错页面', url='https://example.com/qr.jpg'),
+        '页面提示资源缺失，这是二维码和报错页面',
+        session_id='customer-resource-capture',
+    )
+    second_query.message_chain.extend(image_chain(url='https://example.com/page.jpg'))
+    second_query.bot_uuid = 'bot-uuid'
+    second_query.sender_id = 'ou_customer'
+    second_query.adapter = SimpleNamespace()
+    second_query.pipeline_uuid = 'pipeline-1'
+    second_query.pipeline_config = pipeline_config
+
+    result = await service.prepare_query(second_query)
+
+    assert result['interrupted'] is True
+    assert '记录' in result['notice']
+    sales_service.create_resource_issue_from_query.assert_awaited_once()
+    _, payload = sales_service.create_resource_issue_from_query.await_args.args
+    assert payload['issue_type'] == 'missing_resource'
+    assert '扫码资源打不开' in payload['user_description']
+    assert '页面提示资源缺失' in payload['user_description']
+    assert payload['evidence_images'] == ['https://example.com/qr.jpg', 'https://example.com/page.jpg']
+
+
+@pytest.mark.asyncio
 async def test_prepare_course_sales_query_records_resource_issue_image_evidence(monkeypatch):
     sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
     service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
@@ -2364,7 +2552,7 @@ async def test_delete_retired_yuanfudao_seed_documents_removes_only_retired_pdf(
 
 
 @pytest.mark.asyncio
-async def test_enhanced_runtime_selects_reading_thinking_product_from_config():
+async def test_enhanced_runtime_keeps_math_boundary_on_phonics_product():
     sales_service = _CourseOutreachSalesService(user_message_count=2)
     service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
     config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
@@ -2378,11 +2566,13 @@ async def test_enhanced_runtime_selects_reading_thinking_product_from_config():
 
     assert result['handled'] is True
     intent = query.variables['workflow_intent']
-    assert intent['product_key'] == 'reading_thinking'
-    assert intent['selected_product_uuid'] == 'yuanfudao-reading-thinking-course'
+    assert intent['intent'] == 'reading_thinking_intro'
+    assert intent['product_key'] == 'phonics'
+    assert intent['selected_product_uuid'] == 'yuanfudao-phonics-course'
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '阅读+思维' in context_text
-    assert any(plan['segment'] == 'course-sales:followup:reading_thinking_purchase' for plan in sales_service.plans)
+    assert '没有单独数学课' in context_text
+    assert '英语自然拼读9元体验课' in context_text
+    assert not any(plan['segment'] == 'course-sales:followup:reading_thinking_purchase' for plan in sales_service.plans)
 
 
 @pytest.mark.asyncio
@@ -2414,6 +2604,10 @@ def test_compose_course_sales_prompt_is_compact_persona_only():
     assert '不要自称 AI' in prompt
     assert '不要整段塞话术' in prompt
     assert '不得输出 xxx、XXXX' in prompt
+    assert '不要在正文里手写普通 Unicode 表情符号' in prompt
+    assert '{{trigger}}' not in prompt
+    assert '{trigger}' in prompt
+    assert '轻松表情符号' not in prompt
     assert '课程统一口径：' not in prompt
     assert '图书资源FAQ：' not in prompt
     assert '雷达模拟规则：' not in prompt
@@ -2621,7 +2815,7 @@ async def test_course_sales_payment_screenshot_stops_promotional_outreach_before
 
 
 @pytest.mark.asyncio
-async def test_course_sales_open_confirmation_marks_lark_reaction():
+async def test_course_sales_open_confirmation_uses_received_meme_not_smile_reaction():
     service = TaskAssistantService(SimpleNamespace(sales_service=None, logger=SimpleNamespace(warning=lambda *_: None)))
     query = _query(text_chain('可以打开'), '可以打开', session_id='customer-open-ok')
     query.pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
@@ -2630,7 +2824,33 @@ async def test_course_sales_open_confirmation_marks_lark_reaction():
     await service.prepare_query(query)
 
     assert query.variables['workflow_intent']['intent'] == 'resource_confirmed'
-    assert query.variables['lark_reaction_emoji_type'] == 'SMILE'
+    assert 'lark_reaction_emoji_type' not in query.variables
+    assert query.variables['auto_meme_emotion'] == 'received'
+
+
+def test_course_sales_meme_emotion_mapping_covers_sales_scenarios_without_smile_fallback():
+    service = TaskAssistantService(SimpleNamespace(sales_service=None, logger=SimpleNamespace(warning=lambda *_: None)))
+
+    scenarios = {
+        'resource_confirmed': 'received',
+        'resource_help': 'resource',
+        'course_schedule': 'class_time',
+        'course_replay': 'replay',
+        'course_content': 'reading',
+        'gift': 'gift',
+        'grade': 'grade',
+        'link_error': 'link',
+        'screenshot_help': 'checking',
+        'purchase': 'signup',
+        'purchased': 'success',
+    }
+
+    for intent_name, expected_emotion in scenarios.items():
+        query = _query(text_chain('test'), 'test', session_id=f'emotion-{intent_name}')
+        service._apply_lark_reaction_for_intent(query, {'intent': intent_name})
+        assert query.variables.get('auto_meme_emotion') == expected_emotion
+        if intent_name != 'purchased':
+            assert query.variables.get('lark_reaction_emoji_type') != 'SMILE'
 
 
 @pytest.mark.asyncio
@@ -2666,14 +2886,13 @@ async def test_course_sales_resource_open_failure_context_requests_resend_link_a
     query.pipeline_uuid = YUANFUDAO_ENHANCED_TEMPLATE_PIPELINE_UUID
     query.prompt = SimpleNamespace(messages=[])
 
-    await service.prepare_query(query)
+    result = await service.prepare_query(query)
 
     assert query.variables['workflow_intent']['intent'] == 'resource_help'
-    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '再发一遍图书配套学习资源卡片链接' in context_text
-    assert '方便发我一张截图吗' in context_text
-    assert '不要再问“能打开吗”' in context_text
-    assert '本轮要给报名动作和报名链接卡片' not in context_text
+    assert result['interrupted'] is True
+    assert '具体问题' in result['notice']
+    assert '二维码照片' in result['notice']
+    assert '位置/页面照片' in result['notice']
 
 
 @pytest.mark.asyncio
@@ -2810,7 +3029,7 @@ def test_enhanced_yuanfudao_template_uses_latest_tracking_destination_link():
     template = config['template_config']
     links_by_id = {link['id']: link for link in template['sales_links']}
 
-    assert 'yingtao3class' in template['radar']['link_url']
+    assert template['radar']['link_url'] == COURSE_SALES_RADAR_LINK
     assert 'reduceProxy' not in template['radar']['link_url']
     assert links_by_id['phonics_radar_apply']['url'] == template['radar']['link_url']
 

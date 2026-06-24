@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type DragEvent as ReactDragEvent,
   type ElementType,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -14,6 +15,7 @@ import {
   Bot,
   Brain,
   Cable,
+  Code2,
   GitBranch,
   Handshake,
   Eye,
@@ -27,12 +29,14 @@ import {
   PackageSearch,
   PanelRightClose,
   PanelRightOpen,
+  PlayCircle,
   Plug,
   Plus,
   RadioTower,
   Save,
   Search,
   Send,
+  Settings2,
   Sparkles,
   Tags,
   Trash2,
@@ -48,6 +52,9 @@ import {
   KnowledgeBase,
   LLMModel,
   SalesProduct,
+  WorkflowComponentFamily,
+  WorkflowComponentField,
+  WorkflowComponentSchema,
 } from '@/app/infra/entities/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -59,6 +66,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
@@ -164,10 +172,22 @@ const nodeMeta: Record<
     icon: Bot,
     accent: 'border-indigo-200 bg-indigo-50 text-indigo-700',
   },
+  ai_suggestion: {
+    label: '人工回复推荐',
+    group: 'AI',
+    icon: Sparkles,
+    accent: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+  },
   condition: {
     label: '条件分支',
     group: '控制',
     icon: GitBranch,
+    accent: 'border-slate-200 bg-slate-50 text-slate-700',
+  },
+  special_case: {
+    label: '特殊情况处理',
+    group: '条件与流程',
+    icon: ListChecks,
     accent: 'border-slate-200 bg-slate-50 text-slate-700',
   },
   lead: {
@@ -188,6 +208,12 @@ const nodeMeta: Record<
     icon: Tags,
     accent: 'border-lime-200 bg-lime-50 text-lime-700',
   },
+  resource_capture: {
+    label: '资源问题收集',
+    group: '资料与记忆',
+    icon: BookOpen,
+    accent: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  },
   radar: {
     label: '雷达监测',
     group: '销售',
@@ -200,11 +226,41 @@ const nodeMeta: Record<
     icon: Bell,
     accent: 'border-orange-200 bg-orange-50 text-orange-700',
   },
+  scheduled_message: {
+    label: '单条定时消息',
+    group: '销售动作',
+    icon: Bell,
+    accent: 'border-orange-200 bg-orange-50 text-orange-700',
+  },
+  followup: {
+    label: '多轮跟进',
+    group: '销售动作',
+    icon: ListChecks,
+    accent: 'border-orange-200 bg-orange-50 text-orange-700',
+  },
   handoff: {
     label: '人工介入',
     group: '客服',
     icon: Handshake,
     accent: 'border-red-200 bg-red-50 text-red-700',
+  },
+  resume_ai: {
+    label: '恢复AI托管',
+    group: '客服',
+    icon: Bot,
+    accent: 'border-red-200 bg-red-50 text-red-700',
+  },
+  link_card: {
+    label: '链接卡片',
+    group: '销售动作',
+    icon: RadioTower,
+    accent: 'border-sky-200 bg-sky-50 text-sky-700',
+  },
+  meme: {
+    label: '发送表情包',
+    group: '发送给客户',
+    icon: ImageIcon,
+    accent: 'border-cyan-200 bg-cyan-50 text-cyan-700',
   },
   http: {
     label: 'HTTP',
@@ -256,13 +312,21 @@ const paletteOrder: WorkflowNodeType[] = [
   'task',
   'vision',
   'llm',
+  'ai_suggestion',
   'condition',
+  'special_case',
   'lead',
   'image',
   'memory',
+  'resource_capture',
   'radar',
   'outreach',
+  'scheduled_message',
+  'followup',
   'handoff',
+  'resume_ai',
+  'link_card',
+  'meme',
   'http',
   'plugin',
   'mcp',
@@ -270,6 +334,31 @@ const paletteOrder: WorkflowNodeType[] = [
   'custom',
   'end',
 ];
+
+const iconByName: Record<string, ElementType> = {
+  Bell,
+  BookOpen,
+  Bot,
+  Brain,
+  Cable,
+  Code2,
+  Eye,
+  GitBranch,
+  Handshake,
+  Image: ImageIcon,
+  ImageIcon,
+  ListChecks,
+  MessageSquare,
+  PackageSearch,
+  Plug,
+  RadioTower,
+  Send,
+  Sparkles,
+  Tags,
+  UserRoundCheck,
+  Volume2,
+  Wrench,
+};
 
 interface PipelineWorkflowEditorProps {
   value?: PipelineWorkflow;
@@ -317,6 +406,31 @@ function listToText(value: unknown): string {
   return asStringList(value).join('\n');
 }
 
+function groupPaletteTypes(types: WorkflowNodeType[]) {
+  return types.reduce<Record<string, WorkflowNodeType[]>>((groups, type) => {
+    const group = nodeMeta[type].group;
+    groups[group] = groups[group] || [];
+    groups[group].push(type);
+    return groups;
+  }, {});
+}
+
+function filterPaletteTypes(query: string, includeStart = false) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const availableTypes = paletteOrder.filter(
+    (type) => includeStart || type !== 'start',
+  );
+  if (!normalizedQuery) return availableTypes;
+  return availableTypes.filter((type) => {
+    const meta = nodeMeta[type];
+    return (
+      meta.label.toLowerCase().includes(normalizedQuery) ||
+      meta.group.toLowerCase().includes(normalizedQuery) ||
+      type.toLowerCase().includes(normalizedQuery)
+    );
+  });
+}
+
 function makeEdge(source: string, target: string): PipelineWorkflowEdge {
   const id =
     typeof crypto !== 'undefined' && crypto.randomUUID
@@ -343,6 +457,10 @@ export default function PipelineWorkflowEditor({
   const [addNodeMenuSourceId, setAddNodeMenuSourceId] = useState<string>('');
   const [nodePaletteOpen, setNodePaletteOpen] = useState(false);
   const [nodePaletteSearch, setNodePaletteSearch] = useState('');
+  const [librarySearch, setLibrarySearch] = useState('');
+  const [componentFamilies, setComponentFamilies] = useState<
+    WorkflowComponentFamily[]
+  >([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [llmModels, setLlmModels] = useState<LLMModel[]>([]);
   const [salesProducts, setSalesProducts] = useState<SalesProduct[]>([]);
@@ -365,6 +483,16 @@ export default function PipelineWorkflowEditor({
     (node) => node.id === selectedNodeId,
   );
   const imageNodes = workflow.nodes.filter((node) => node.type === 'image');
+  const draftConnectionSourceId = draftConnection?.sourceId;
+  const componentSchemaByType = useMemo(() => {
+    const schemas: Record<string, WorkflowComponentSchema> = {};
+    componentFamilies.forEach((family) => {
+      family.components.forEach((component) => {
+        schemas[component.type] = component;
+      });
+    });
+    return schemas;
+  }, [componentFamilies]);
 
   useEffect(() => {
     if (!selectedNodeId && workflow.nodes[0]) {
@@ -396,10 +524,16 @@ export default function PipelineWorkflowEditor({
       })
       .then((resp) => setLlmModels(resp.models || []))
       .catch((error) => console.warn('Failed to load LLM models', error));
+    httpClient
+      .getWorkflowComponents()
+      .then((resp) => setComponentFamilies(resp.families || []))
+      .catch((error) =>
+        console.warn('Failed to load workflow components', error),
+      );
   }, []);
 
   useEffect(() => {
-    if (!draftConnection) return;
+    if (!draftConnectionSourceId) return;
 
     function handleWindowPointerMove(event: PointerEvent) {
       setDraftConnection((current) =>
@@ -423,7 +557,7 @@ export default function PipelineWorkflowEditor({
       window.removeEventListener('pointermove', handleWindowPointerMove);
       window.removeEventListener('pointerup', handleWindowPointerUp);
     };
-  }, [draftConnection?.sourceId]);
+  }, [draftConnectionSourceId]);
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -502,16 +636,20 @@ export default function PipelineWorkflowEditor({
     });
   }
 
-  function addNode(type: WorkflowNodeType, sourceId?: string) {
+  function addNodeAt(
+    type: WorkflowNodeType,
+    position: CanvasPoint,
+    sourceId?: string,
+  ) {
     const source = sourceId
       ? workflow.nodes.find((node) => node.id === sourceId)
       : undefined;
-    const canvas = canvasScrollRef.current;
-    const visibleX = canvas ? canvas.scrollLeft + 96 : 120;
-    const visibleY = canvas ? canvas.scrollTop + 96 : 120;
     const nextNode = createWorkflowNode(type, {
-      x: Math.max(24, source ? source.position.x + NODE_WIDTH + 100 : visibleX),
-      y: Math.max(24, source ? source.position.y : visibleY),
+      x: Math.max(
+        24,
+        source ? source.position.x + NODE_WIDTH + 100 : position.x,
+      ),
+      y: Math.max(24, source ? source.position.y : position.y),
     });
     const edges = [...workflow.edges];
     if (source && type !== 'start') {
@@ -537,6 +675,13 @@ export default function PipelineWorkflowEditor({
           behavior: 'smooth',
         });
     });
+  }
+
+  function addNode(type: WorkflowNodeType, sourceId?: string) {
+    const canvas = canvasScrollRef.current;
+    const visibleX = canvas ? canvas.scrollLeft + 96 : 120;
+    const visibleY = canvas ? canvas.scrollTop + 96 : 120;
+    addNodeAt(type, { x: visibleX, y: visibleY }, sourceId);
   }
 
   function openAddNodeMenu(sourceId: string) {
@@ -586,6 +731,15 @@ export default function PipelineWorkflowEditor({
     });
   }
 
+  function updateEdge(edgeId: string, patch: Partial<PipelineWorkflowEdge>) {
+    commit({
+      ...workflow,
+      edges: workflow.edges.map((edge) =>
+        edge.id === edgeId ? { ...edge, ...patch } : edge,
+      ),
+    });
+  }
+
   function handleNodePointerDown(
     event: ReactPointerEvent<HTMLDivElement>,
     node: PipelineWorkflowNode,
@@ -619,9 +773,7 @@ export default function PipelineWorkflowEditor({
     }
   }
 
-  function handleCanvasPointerDown(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (
@@ -642,22 +794,29 @@ export default function PipelineWorkflowEditor({
     };
   }
 
-  function handleCanvasPointerMove(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const pan = canvasPanRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
-    event.currentTarget.scrollLeft = pan.scrollLeft - (event.clientX - pan.startX);
-    event.currentTarget.scrollTop = pan.scrollTop - (event.clientY - pan.startY);
+    event.currentTarget.scrollLeft =
+      pan.scrollLeft - (event.clientX - pan.startX);
+    event.currentTarget.scrollTop =
+      pan.scrollTop - (event.clientY - pan.startY);
   }
 
-  function handleCanvasPointerUp(
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) {
+  function handleCanvasPointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     const pan = canvasPanRef.current;
     if (!pan || pan.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
     canvasPanRef.current = null;
+  }
+
+  function handleCanvasDrop(event: ReactDragEvent<HTMLDivElement>) {
+    const type = event.dataTransfer.getData(
+      'application/x-yunti-workflow-node',
+    ) as WorkflowNodeType;
+    if (!type || !paletteOrder.includes(type)) return;
+    event.preventDefault();
+    addNodeAt(type, clientPointToCanvasPoint(event.clientX, event.clientY));
   }
 
   function clientPointToCanvasPoint(
@@ -754,60 +913,85 @@ export default function PipelineWorkflowEditor({
   );
 
   const filteredAddMenuPalette = useMemo(() => {
-    const query = nodePaletteSearch.trim().toLowerCase();
-    const availableTypes = paletteOrder.filter((type) => type !== 'start');
-    const matchedTypes = query
-      ? availableTypes.filter((type) => {
-          const meta = nodeMeta[type];
-          return (
-            meta.label.toLowerCase().includes(query) ||
-            meta.group.toLowerCase().includes(query) ||
-            type.toLowerCase().includes(query)
-          );
-        })
-      : availableTypes;
-    return matchedTypes.reduce<Record<string, WorkflowNodeType[]>>(
-      (groups, type) => {
-        const group = nodeMeta[type].group;
-        groups[group] = groups[group] || [];
-        groups[group].push(type);
-        return groups;
-      },
-      {},
-    );
+    return groupPaletteTypes(filterPaletteTypes(nodePaletteSearch));
   }, [nodePaletteSearch]);
+
+  const libraryFamilies = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+    if (!componentFamilies.length) {
+      return Object.entries(
+        groupPaletteTypes(filterPaletteTypes(librarySearch)),
+      ).map(([label, types]) => ({
+        id: label,
+        label,
+        components: types.map((type) => ({
+          type,
+          display_name: nodeMeta[type].label,
+          description: nodeMeta[type].group,
+          icon: '',
+          inputs: [],
+          outputs: [],
+          fields: [],
+        })),
+      })) as WorkflowComponentFamily[];
+    }
+    if (!query) return componentFamilies;
+    return componentFamilies
+      .map((family) => ({
+        ...family,
+        components: family.components.filter((component) => {
+          return (
+            family.label.toLowerCase().includes(query) ||
+            component.type.toLowerCase().includes(query) ||
+            component.display_name.toLowerCase().includes(query) ||
+            component.description.toLowerCase().includes(query)
+          );
+        }),
+      }))
+      .filter((family) => family.components.length > 0);
+  }, [componentFamilies, librarySearch]);
 
   const editor = (
     <div
       className={cn(
-        'relative flex overflow-hidden border-slate-200 bg-slate-50/80 text-slate-950 shadow-sm',
+        'relative flex overflow-hidden border-slate-200 bg-[#f6f7fb] text-slate-950 shadow-sm',
         isFullscreen
           ? 'h-full w-full'
           : 'h-[calc(100vh-218px)] min-h-[620px] rounded-xl border',
       )}
+      data-langflow-editor
     >
+      <WorkflowLibraryPanel
+        families={libraryFamilies}
+        search={librarySearch}
+        nodesCount={workflow.nodes.length}
+        edgesCount={workflow.edges.length}
+        onSearchChange={setLibrarySearch}
+        onAddNode={(type) => addNode(type)}
+      />
+
       <main className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2 border-b border-slate-200 bg-white/95 px-3 py-2.5">
           <Input
             value={workflow.name}
             onChange={(event) => updateWorkflow({ name: event.target.value })}
-            className="h-9 max-w-[280px] rounded-lg border-slate-200 bg-slate-50/70 font-medium shadow-none focus-visible:bg-white"
+            className="h-9 max-w-[280px] rounded-md border-slate-200 bg-slate-50/70 font-medium shadow-none focus-visible:bg-white"
           />
           <Button
             type="button"
             size="sm"
             data-node-palette-trigger
-            className="h-9 gap-1.5 rounded-lg bg-blue-600 px-3 text-white hover:bg-blue-700"
+            className="h-9 gap-1.5 rounded-md bg-slate-950 px-3 text-white hover:bg-slate-800"
             onClick={openNodePalette}
           >
             <Plus className="size-4" />
-            添加节点
+            添加组件
           </Button>
           <Button
             type="button"
             size="sm"
             variant="outline"
-            className="hidden h-9 rounded-lg border-slate-200 bg-white px-3 lg:inline-flex"
+            className="hidden h-9 rounded-md border-slate-200 bg-white px-3 lg:inline-flex"
             title="导入销售模板，会替换当前画布"
             onClick={() => {
               const next = createSalesWorkflowTemplate();
@@ -821,7 +1005,7 @@ export default function PipelineWorkflowEditor({
             type="button"
             size="sm"
             variant="outline"
-            className="hidden h-9 rounded-lg border-slate-200 bg-white px-3 lg:inline-flex"
+            className="hidden h-9 rounded-md border-slate-200 bg-white px-3 lg:inline-flex"
             title="导入客服模板，会替换当前画布"
             onClick={() => {
               const next = createSupportWorkflowTemplate();
@@ -833,13 +1017,13 @@ export default function PipelineWorkflowEditor({
           </Button>
           <Badge
             variant="secondary"
-            className="rounded-md bg-blue-50 px-2.5 py-1 text-blue-700"
+            className="rounded-md bg-slate-100 px-2.5 py-1 text-slate-700"
           >
             {workflow.nodes.length} 个节点
           </Badge>
           <Badge
             variant="secondary"
-            className="rounded-md bg-emerald-50 px-2.5 py-1 text-emerald-700"
+            className="rounded-md bg-teal-50 px-2.5 py-1 text-teal-700"
           >
             {workflow.edges.length} 条连线
           </Badge>
@@ -852,7 +1036,7 @@ export default function PipelineWorkflowEditor({
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden max-w-[210px] text-xs leading-tight text-muted-foreground 2xl:inline-flex 2xl:items-center 2xl:gap-1.5">
               <MousePointer2 className="size-3.5" />
-              悬停节点右侧可添加节点，或从圆点拖拽连线
+              从左侧拖入组件，或拖拽端口连接 Flow
             </span>
             {rightPanelCollapsed && (
               <Button
@@ -890,13 +1074,15 @@ export default function PipelineWorkflowEditor({
           onPointerMove={handleCanvasPointerMove}
           onPointerUp={handleCanvasPointerUp}
           onPointerCancel={handleCanvasPointerUp}
-          className="relative min-h-0 flex-1 cursor-grab overflow-auto bg-[#f8faf7] active:cursor-grabbing"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={handleCanvasDrop}
+          className="relative min-h-0 flex-1 cursor-grab overflow-auto bg-[#f8fafc] active:cursor-grabbing"
         >
           <div
             className="relative min-h-[760px] min-w-[2360px]"
             style={{
               backgroundImage:
-                'linear-gradient(rgba(15,23,42,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.045) 1px, transparent 1px), radial-gradient(circle at 24px 24px, rgba(37,99,235,0.07) 1px, transparent 1.5px)',
+                'radial-gradient(circle at 1px 1px, rgba(15,23,42,0.13) 1px, transparent 0)',
               backgroundSize: '24px 24px',
             }}
           >
@@ -970,12 +1156,16 @@ export default function PipelineWorkflowEditor({
 
             {workflow.nodes.map((node) => {
               const meta = nodeMeta[node.type];
-              const Icon = meta.icon;
+              const schema = componentSchemaByType[node.type];
+              const Icon = schema?.icon
+                ? iconByName[schema.icon] || meta.icon
+                : meta.icon;
               const selected = selectedNodeId === node.id;
               const connecting = draftConnection?.sourceId === node.id;
               const receiving = connectionTargetId === node.id;
               const canReceive = node.type !== 'start';
               const canSend = node.type !== 'end';
+              const configCount = Object.keys(node.config || {}).length;
               const showOutputActions =
                 canSend &&
                 (hoveredOutputNodeId === node.id ||
@@ -988,11 +1178,11 @@ export default function PipelineWorkflowEditor({
                   onPointerMove={handleNodePointerMove}
                   onPointerUp={handleNodePointerUp}
                   className={cn(
-                    'absolute cursor-grab select-none rounded-xl border border-slate-200 bg-white p-3.5 shadow-[0_10px_24px_rgba(15,23,42,0.08)] transition-[box-shadow,border-color,transform] active:cursor-grabbing',
-                    'hover:border-blue-200 hover:shadow-[0_14px_30px_rgba(15,23,42,0.12)]',
-                    selected && 'border-blue-400 ring-4 ring-blue-100',
+                    'absolute cursor-grab select-none rounded-lg border border-slate-200 bg-white shadow-[0_8px_22px_rgba(15,23,42,0.08)] transition-[box-shadow,border-color,transform] active:cursor-grabbing',
+                    'hover:border-slate-300 hover:shadow-[0_14px_30px_rgba(15,23,42,0.12)]',
+                    selected && 'border-slate-950 ring-4 ring-slate-200/80',
                     connecting && 'ring-2 ring-amber-500',
-                    receiving && 'ring-2 ring-blue-500',
+                    receiving && 'ring-2 ring-teal-500',
                   )}
                   style={{
                     left: node.position.x,
@@ -1031,9 +1221,9 @@ export default function PipelineWorkflowEditor({
                             openAddNodeMenu(node.id);
                           }}
                           className={cn(
-                            'flex size-8 items-center justify-center rounded-full border border-blue-200 bg-white text-blue-600 shadow-lg shadow-blue-950/10 transition-colors hover:border-blue-400 hover:bg-blue-50',
+                            'flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg shadow-slate-950/10 transition-colors hover:border-slate-400 hover:bg-slate-50',
                             addNodeMenuSourceId === node.id &&
-                              'border-blue-300 bg-blue-50 text-blue-600 ring-2 ring-blue-100',
+                              'border-slate-400 bg-slate-50 text-slate-950 ring-2 ring-slate-200',
                           )}
                         >
                           <Plus className="size-4" />
@@ -1070,7 +1260,7 @@ export default function PipelineWorkflowEditor({
                         'absolute -left-2 top-1/2 z-10 size-4 -translate-y-1/2 rounded-full border-2 border-white bg-slate-300 shadow-sm transition-colors',
                         draftConnection &&
                           draftConnection.sourceId !== node.id &&
-                          'bg-blue-500 ring-4 ring-blue-100',
+                          'bg-teal-500 ring-4 ring-teal-100',
                       )}
                     />
                   )}
@@ -1084,33 +1274,59 @@ export default function PipelineWorkflowEditor({
                         handleConnectionStart(event, node)
                       }
                       className={cn(
-                        'absolute -right-2 top-1/2 z-10 size-4 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-slate-800 shadow-sm transition-colors hover:bg-blue-600',
-                        connecting && 'bg-blue-600 ring-4 ring-blue-100',
+                        'absolute -right-2 top-1/2 z-10 size-4 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-slate-800 shadow-sm transition-colors hover:bg-teal-600',
+                        connecting && 'bg-teal-600 ring-4 ring-teal-100',
                       )}
                     />
                   )}
-                  <div className="flex items-start gap-3">
-                    <div className={cn('rounded-lg border p-2', meta.accent)}>
-                      <Icon className="size-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold">
-                        {node.title}
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {node.description || meta.label}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        data-node-action
-                        title="删除节点"
-                        onClick={() => deleteNode(node.id)}
-                        className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  <div className="rounded-t-lg border-b border-slate-100 px-3 py-2">
+                    <div className="flex items-start gap-2.5">
+                      <div
+                        className={cn(
+                          'mt-0.5 rounded-md border p-1.5',
+                          meta.accent,
+                        )}
                       >
-                        <Trash2 className="size-3.5" />
-                      </button>
+                        <Icon className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">
+                          {node.title}
+                        </div>
+                        <div className="truncate text-[11px] text-muted-foreground">
+                          {node.description ||
+                            schema?.description ||
+                            meta.label}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          data-node-action
+                          title="删除节点"
+                          onClick={() => deleteNode(node.id)}
+                          className="rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 text-[11px] text-slate-500">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {canReceive && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">
+                          输入
+                        </span>
+                      )}
+                      {canSend && (
+                        <span className="rounded bg-slate-100 px-1.5 py-0.5">
+                          输出
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate">
+                      {configCount ? `${configCount} 项配置` : '无需配置'}
                     </div>
                   </div>
                 </div>
@@ -1271,12 +1487,12 @@ export default function PipelineWorkflowEditor({
       )}
 
       {!rightPanelCollapsed ? (
-        <aside className="flex w-[320px] shrink-0 flex-col border-l border-slate-200 bg-white">
+        <aside className="flex w-[360px] shrink-0 flex-col border-l border-slate-200 bg-white">
           <div className="border-b border-slate-200 p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-xs font-semibold text-slate-500">
-                  节点配置
+                  配置面板
                 </div>
                 <div className="mt-0.5 truncate text-sm font-semibold">
                   {selectedNode?.title ?? '未选择节点'}
@@ -1297,68 +1513,79 @@ export default function PipelineWorkflowEditor({
               </div>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {selectedNode ? (
-              <NodeConfigPanel
-                imageNodes={imageNodes}
-                knowledgeBases={knowledgeBases}
-                llmModels={llmModels}
-                node={selectedNode}
-                products={salesProducts}
-                uploading={uploadingNodeId === selectedNode.id}
-                imageAssetUrl={imageAssetUrl}
-                onNodeChange={(patch) => updateNode(selectedNode.id, patch)}
-                onConfigChange={(patch) =>
-                  updateNodeConfig(selectedNode.id, patch)
-                }
-                onUploadImage={(event) =>
-                  uploadImageForNode(selectedNode, event)
-                }
-              />
-            ) : (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                请选择一个节点
-              </div>
-            )}
-
-            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-              <div className="mb-2 text-xs font-semibold text-slate-500">
-                连线
-              </div>
-              <div className="space-y-1.5">
-                {workflow.edges.map((edge) => {
-                  const source = workflow.nodes.find(
-                    (node) => node.id === edge.source,
-                  );
-                  const target = workflow.nodes.find(
-                    (node) => node.id === edge.target,
-                  );
-                  return (
-                    <div
-                      key={edge.id}
-                      className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs"
-                    >
-                      <span className="min-w-0 flex-1 truncate">
-                        {`${source?.title ?? edge.source} -> ${target?.title ?? edge.target}`}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => deleteEdge(edge.id)}
-                        className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </div>
-                  );
-                })}
-                {!workflow.edges.length && (
-                  <div className="rounded-lg border border-dashed border-slate-200 bg-white p-3 text-xs text-muted-foreground">
-                    暂无连线
-                  </div>
-                )}
-              </div>
+          <Tabs defaultValue="params" className="min-h-0 flex-1 gap-0">
+            <div className="border-b border-slate-200 px-3 py-2">
+              <TabsList className="grid h-9 w-full grid-cols-3 rounded-md bg-slate-100 p-1">
+                <TabsTrigger value="params" className="gap-1 text-xs">
+                  <Settings2 className="size-3.5" />
+                  配置
+                </TabsTrigger>
+                <TabsTrigger value="io" className="gap-1 text-xs">
+                  <Code2 className="size-3.5" />
+                  流数据
+                </TabsTrigger>
+                <TabsTrigger value="run" className="gap-1 text-xs">
+                  <PlayCircle className="size-3.5" />
+                  预览测试
+                </TabsTrigger>
+              </TabsList>
             </div>
-          </div>
+            <TabsContent value="params" className="min-h-0 overflow-y-auto p-3">
+              {selectedNode ? (
+                <NodeConfigPanel
+                  imageNodes={imageNodes}
+                  knowledgeBases={knowledgeBases}
+                  llmModels={llmModels}
+                  node={selectedNode}
+                  componentSchema={componentSchemaByType[selectedNode.type]}
+                  products={salesProducts}
+                  uploading={uploadingNodeId === selectedNode.id}
+                  imageAssetUrl={imageAssetUrl}
+                  onNodeChange={(patch) => updateNode(selectedNode.id, patch)}
+                  onConfigChange={(patch) =>
+                    updateNodeConfig(selectedNode.id, patch)
+                  }
+                  onUploadImage={(event) =>
+                    uploadImageForNode(selectedNode, event)
+                  }
+                />
+              ) : (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  请选择一个节点
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="io" className="min-h-0 overflow-y-auto p-3">
+              <WorkflowIoPanel
+                workflow={workflow}
+                selectedNode={selectedNode}
+                componentSchema={
+                  selectedNode
+                    ? componentSchemaByType[selectedNode.type]
+                    : undefined
+                }
+                onDeleteEdge={deleteEdge}
+                onEdgeChange={updateEdge}
+                onSelectNode={setSelectedNodeId}
+              />
+            </TabsContent>
+            <TabsContent value="run" className="min-h-0 overflow-y-auto p-3">
+              <WorkflowExecutionPanel
+                workflow={workflow}
+                onWorkflowChange={updateWorkflow}
+                onLoadSalesTemplate={() => {
+                  const next = createSalesWorkflowTemplate();
+                  commit(next);
+                  setSelectedNodeId(next.nodes[0]?.id ?? '');
+                }}
+                onLoadSupportTemplate={() => {
+                  const next = createSupportWorkflowTemplate();
+                  commit(next);
+                  setSelectedNodeId(next.nodes[0]?.id ?? '');
+                }}
+              />
+            </TabsContent>
+          </Tabs>
         </aside>
       ) : null}
     </div>
@@ -1394,7 +1621,381 @@ export default function PipelineWorkflowEditor({
   return editor;
 }
 
+function WorkflowLibraryPanel({
+  edgesCount,
+  families,
+  nodesCount,
+  search,
+  onAddNode,
+  onSearchChange,
+}: {
+  edgesCount: number;
+  families: WorkflowComponentFamily[];
+  nodesCount: number;
+  search: string;
+  onAddNode: (type: WorkflowNodeType) => void;
+  onSearchChange: (value: string) => void;
+}) {
+  return (
+    <aside className="hidden w-[286px] shrink-0 flex-col border-r border-slate-200 bg-white xl:flex">
+      <div className="border-b border-slate-200 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-slate-950">
+              组件库
+            </div>
+            <div className="mt-0.5 text-xs text-slate-500">
+              拖到画布，或点击快速添加
+            </div>
+          </div>
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-500">
+            {nodesCount}/{edgesCount}
+          </div>
+        </div>
+        <div className="relative mt-3">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="搜索组件"
+            className="h-9 rounded-md border-slate-200 bg-slate-50/80 pl-8 shadow-none focus-visible:bg-white"
+          />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {families.length ? (
+          <div className="space-y-4">
+            {families.map((family) => (
+              <div key={family.id}>
+                <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-500">
+                  <span>{family.label}</span>
+                  <span>{family.components.length}</span>
+                </div>
+                <div className="grid gap-1.5">
+                  {family.components.map((component) => {
+                    const type = component.type as WorkflowNodeType;
+                    const meta = nodeMeta[type] || nodeMeta.custom;
+                    const Icon = component.icon
+                      ? iconByName[component.icon] || meta.icon
+                      : meta.icon;
+                    return (
+                      <button
+                        key={`${family.id}-${component.type}`}
+                        type="button"
+                        draggable
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData(
+                            'application/x-yunti-workflow-node',
+                            component.type,
+                          );
+                          event.dataTransfer.effectAllowed = 'copy';
+                        }}
+                        onClick={() => {
+                          if (paletteOrder.includes(type)) onAddNode(type);
+                        }}
+                        className="group flex min-h-12 items-center gap-2.5 rounded-md border border-slate-200 bg-white px-2.5 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        <span
+                          className={cn(
+                            'flex size-8 shrink-0 items-center justify-center rounded-md border',
+                            meta.accent,
+                          )}
+                        >
+                          <Icon className="size-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-slate-900">
+                            {component.display_name || meta.label}
+                          </span>
+                          <span className="block truncate text-[11px] text-slate-500">
+                            {component.description || component.type}
+                          </span>
+                        </span>
+                        <Plus className="size-3.5 text-slate-400 group-hover:text-slate-900" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center text-sm text-muted-foreground">
+            没有匹配的节点
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function WorkflowIoPanel({
+  workflow,
+  selectedNode,
+  componentSchema,
+  onDeleteEdge,
+  onEdgeChange,
+  onSelectNode,
+}: {
+  workflow: PipelineWorkflow;
+  selectedNode?: PipelineWorkflowNode;
+  componentSchema?: WorkflowComponentSchema;
+  onDeleteEdge: (edgeId: string) => void;
+  onEdgeChange: (edgeId: string, patch: Partial<PipelineWorkflowEdge>) => void;
+  onSelectNode: (nodeId: string) => void;
+}) {
+  if (!selectedNode) {
+    return (
+      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+        请选择一个节点查看输入输出
+      </div>
+    );
+  }
+
+  const incoming = workflow.edges.filter(
+    (edge) => edge.target === selectedNode.id,
+  );
+  const outgoing = workflow.edges.filter(
+    (edge) => edge.source === selectedNode.id,
+  );
+
+  function nodeTitle(nodeId: string) {
+    return workflow.nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
+  }
+
+  return (
+    <div className="space-y-4">
+      {componentSchema && (
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <div className="mb-2 text-xs font-semibold text-slate-500">
+            输入输出
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <PortList title="输入" ports={componentSchema.inputs} />
+            <PortList title="输出" ports={componentSchema.outputs} />
+          </div>
+        </div>
+      )}
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="mb-2 text-xs font-semibold text-slate-500">输入</div>
+        <EdgeList
+          edges={incoming}
+          emptyText="暂无上游输入"
+          labelFor={(edge) => nodeTitle(edge.source)}
+          onDeleteEdge={onDeleteEdge}
+          onEdgeChange={onEdgeChange}
+          onSelect={(edge) => onSelectNode(edge.source)}
+        />
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="mb-2 text-xs font-semibold text-slate-500">输出</div>
+        <EdgeList
+          edges={outgoing}
+          emptyText="暂无下游输出"
+          labelFor={(edge) => nodeTitle(edge.target)}
+          onDeleteEdge={onDeleteEdge}
+          onEdgeChange={onEdgeChange}
+          onSelect={(edge) => onSelectNode(edge.target)}
+        />
+      </div>
+      <JsonLikeTextarea
+        label="当前配置"
+        value={JSON.stringify(selectedNode.config, null, 2)}
+        onChange={() => {}}
+        readOnly
+      />
+    </div>
+  );
+}
+
+function PortList({
+  ports,
+  title,
+}: {
+  ports: WorkflowComponentSchema['inputs'];
+  title: string;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+      <div className="mb-1 font-semibold text-slate-600">{title}</div>
+      <div className="space-y-1">
+        {ports.map((port) => (
+          <div
+            key={`${title}-${port.name}`}
+            className="rounded border border-slate-200 bg-white px-2 py-1"
+          >
+            <span className="font-medium">{port.name}</span>
+            <span className="ml-1 text-slate-400">
+              {port.types?.join(' | ')}
+            </span>
+          </div>
+        ))}
+        {!ports.length && <div className="text-slate-400">无</div>}
+      </div>
+    </div>
+  );
+}
+
+function EdgeList({
+  edges,
+  emptyText,
+  labelFor,
+  onDeleteEdge,
+  onEdgeChange,
+  onSelect,
+}: {
+  edges: PipelineWorkflowEdge[];
+  emptyText: string;
+  labelFor: (edge: PipelineWorkflowEdge) => string;
+  onDeleteEdge: (edgeId: string) => void;
+  onEdgeChange: (edgeId: string, patch: Partial<PipelineWorkflowEdge>) => void;
+  onSelect: (edge: PipelineWorkflowEdge) => void;
+}) {
+  if (!edges.length) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-white p-3 text-xs text-muted-foreground">
+        {emptyText}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {edges.map((edge) => (
+        <div
+          key={edge.id}
+          className="rounded-lg border border-slate-200 bg-white p-2"
+        >
+          <div className="mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSelect(edge)}
+              className="min-w-0 flex-1 truncate text-left text-xs font-medium text-slate-700 hover:text-blue-700"
+            >
+              {labelFor(edge)}
+            </button>
+            <button
+              type="button"
+              onClick={() => onDeleteEdge(edge.id)}
+              className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              title="删除连线"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          </div>
+          <Input
+            value={edge.label ?? ''}
+            placeholder="连线标签，例如：已报名 / 未报名"
+            onChange={(event) =>
+              onEdgeChange(edge.id, { label: event.target.value })
+            }
+            className="h-8 rounded-md border-slate-200 bg-slate-50 text-xs shadow-none"
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WorkflowExecutionPanel({
+  workflow,
+  onLoadSalesTemplate,
+  onLoadSupportTemplate,
+  onWorkflowChange,
+}: {
+  workflow: PipelineWorkflow;
+  onLoadSalesTemplate: () => void;
+  onLoadSupportTemplate: () => void;
+  onWorkflowChange: (patch: Partial<PipelineWorkflow>) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+        <div className="mb-3 text-xs font-semibold text-slate-500">
+          工作流设置
+        </div>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-muted-foreground">
+              场景
+            </label>
+            <Select
+              value={workflow.scenario}
+              onValueChange={(value) =>
+                onWorkflowChange({
+                  scenario: value as PipelineWorkflow['scenario'],
+                })
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="sales">销售</SelectItem>
+                <SelectItem value="support">客服</SelectItem>
+                <SelectItem value="task">任务助手</SelectItem>
+                <SelectItem value="custom">自定义</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <JsonLikeTextarea
+            label="全局配置（高级）"
+            value={JSON.stringify(workflow.variables || {}, null, 2)}
+            onChange={(value) => {
+              try {
+                onWorkflowChange({ variables: JSON.parse(value) });
+              } catch {
+                onWorkflowChange({
+                  variables: { raw_variables: value },
+                });
+              }
+            }}
+          />
+        </div>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="mb-3 text-xs font-semibold text-slate-500">
+          快速模板
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-lg border-slate-200"
+            onClick={onLoadSalesTemplate}
+          >
+            销售模板
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="rounded-lg border-slate-200"
+            onClick={onLoadSupportTemplate}
+          >
+            客服模板
+          </Button>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+          <div className="text-2xl font-semibold text-blue-700">
+            {workflow.nodes.length}
+          </div>
+          <div className="mt-1 text-xs text-blue-700/80">节点</div>
+        </div>
+        <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+          <div className="text-2xl font-semibold text-emerald-700">
+            {workflow.edges.length}
+          </div>
+          <div className="mt-1 text-xs text-emerald-700/80">连线</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NodeConfigPanel({
+  componentSchema,
   imageNodes,
   imageAssetUrl,
   knowledgeBases,
@@ -1406,6 +2007,7 @@ function NodeConfigPanel({
   onNodeChange,
   onUploadImage,
 }: {
+  componentSchema?: WorkflowComponentSchema;
   imageNodes: PipelineWorkflowNode[];
   imageAssetUrl: (fileKey: string) => string;
   knowledgeBases: KnowledgeBase[];
@@ -1423,6 +2025,7 @@ function NodeConfigPanel({
   const previewUrl = fileKey ? imageAssetUrl(fileKey) : imageUrl;
   const selectedKbIds = asStringList(node.config.knowledge_base_uuids);
   const selectedProductIds = asStringList(node.config.product_uuids);
+  const shouldUseSchemaConfig = Boolean(componentSchema);
 
   function toggleListValue(field: string, value: string) {
     const current = asStringList(node.config[field]);
@@ -1456,7 +2059,83 @@ function NodeConfigPanel({
         />
       </div>
 
-      {node.type === 'llm' && (
+      {componentSchema && (
+        <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold text-slate-500">
+                组件说明
+              </div>
+              <div className="mt-0.5 text-sm font-semibold text-slate-900">
+                {componentSchema.display_name}
+              </div>
+              <div className="mt-1 text-xs leading-relaxed text-slate-500">
+                {componentSchema.description}
+              </div>
+            </div>
+            <Badge variant="secondary" className="rounded-md">
+              {node.type}
+            </Badge>
+          </div>
+          <div className="space-y-3">
+            {componentSchema.fields.map((field) => (
+              <WorkflowFieldEditor
+                key={field.name}
+                field={field}
+                value={
+                  node.config[field.name] === undefined
+                    ? field.default
+                    : node.config[field.name]
+                }
+                onChange={(value) => onConfigChange({ [field.name]: value })}
+              />
+            ))}
+            {node.type === 'image' && (
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                <label className="text-xs font-medium text-muted-foreground">
+                  上传图片
+                </label>
+                <input
+                  id={`workflow-image-schema-${node.id}`}
+                  className="hidden"
+                  type="file"
+                  accept="image/*"
+                  onChange={onUploadImage}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() =>
+                    document
+                      .getElementById(`workflow-image-schema-${node.id}`)
+                      ?.click()
+                  }
+                >
+                  <Upload className="mr-1.5 size-4" />
+                  {uploading ? '上传中' : '选择图片'}
+                </Button>
+                {previewUrl && (
+                  <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <img
+                      src={previewUrl}
+                      alt={node.title}
+                      className="max-h-44 w-full object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            {!componentSchema.fields.length && (
+              <div className="rounded-lg border border-dashed border-slate-200 p-3 text-xs text-slate-500">
+                这个组件没有可配置字段
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!shouldUseSchemaConfig && node.type === 'llm' && (
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
             回复模型
@@ -1473,7 +2152,10 @@ function NodeConfigPanel({
             <SelectContent>
               <SelectItem value="__none__">跟随数字员工默认模型</SelectItem>
               {llmModels
-                .filter((model) => model.provider?.requester !== 'space-chat-completions')
+                .filter(
+                  (model) =>
+                    model.provider?.requester !== 'space-chat-completions',
+                )
                 .map((model) => (
                   <SelectItem key={model.uuid} value={model.uuid}>
                     {model.name}
@@ -1488,7 +2170,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'intent' && (
+      {!shouldUseSchemaConfig && node.type === 'intent' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -1555,7 +2237,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'knowledge' && (
+      {!shouldUseSchemaConfig && node.type === 'knowledge' && (
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
             关联知识库
@@ -1596,7 +2278,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'product' && (
+      {!shouldUseSchemaConfig && node.type === 'product' && (
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
             关联产品
@@ -1636,7 +2318,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'llm' && (
+      {!shouldUseSchemaConfig && node.type === 'llm' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -1672,7 +2354,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'image' && (
+      {!shouldUseSchemaConfig && node.type === 'image' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -1747,7 +2429,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'condition' && (
+      {!shouldUseSchemaConfig && node.type === 'condition' && (
         <div className="space-y-2">
           <label className="text-xs font-medium text-muted-foreground">
             分支规则
@@ -1762,7 +2444,7 @@ function NodeConfigPanel({
         </div>
       )}
 
-      {node.type === 'lead' && (
+      {!shouldUseSchemaConfig && node.type === 'lead' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -1792,7 +2474,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'handoff' && (
+      {!shouldUseSchemaConfig && node.type === 'handoff' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -1819,7 +2501,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'outreach' && (
+      {!shouldUseSchemaConfig && node.type === 'outreach' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -1849,7 +2531,7 @@ function NodeConfigPanel({
         </>
       )}
 
-      {node.type === 'radar' && (
+      {!shouldUseSchemaConfig && node.type === 'radar' && (
         <>
           <div className="space-y-2">
             <label className="text-xs font-medium text-muted-foreground">
@@ -1903,9 +2585,202 @@ function NodeConfigPanel({
         'vision',
         'voice',
         'end',
-      ].includes(node.type) && (
+      ].includes(node.type) && !shouldUseSchemaConfig && (
         <GenericConfig node={node} onConfigChange={onConfigChange} />
       )}
+    </div>
+  );
+}
+
+function summarizeAdvancedValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value.length ? `已配置 ${value.length} 条。` : '暂未配置。';
+  }
+  if (value && typeof value === 'object') {
+    const count = Object.keys(value as Record<string, unknown>).length;
+    return count ? `已配置 ${count} 项。` : '暂未配置。';
+  }
+  const text = asString(value).trim();
+  return text ? '已填写。' : '暂未填写。';
+}
+
+function WorkflowFieldEditor({
+  field,
+  value,
+  onChange,
+}: {
+  field: WorkflowComponentField;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const label = (
+    <label className="text-xs font-medium text-muted-foreground">
+      {field.label}
+    </label>
+  );
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  if (field.advanced && !advancedOpen) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-slate-600">
+              {field.label}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              高级配置，一般不用改。{summarizeAdvancedValue(value)}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0"
+            onClick={() => setAdvancedOpen(true)}
+          >
+            展开
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (field.advanced && advancedOpen) {
+    return (
+      <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs font-semibold text-amber-800">
+            高级配置：{field.label}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 bg-white"
+            onClick={() => setAdvancedOpen(false)}
+          >
+            收起
+          </Button>
+        </div>
+        <WorkflowFieldEditor
+          field={{ ...field, advanced: false }}
+          value={value}
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
+
+  if (field.type === 'boolean') {
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2">
+        {label}
+        <button
+          type="button"
+          onClick={() => onChange(!(value === true))}
+          className={cn(
+            'relative h-6 w-11 rounded-full transition-colors',
+            value === true ? 'bg-slate-950' : 'bg-slate-300',
+          )}
+        >
+          <span
+            className={cn(
+              'absolute top-1 size-4 rounded-full bg-white transition-transform',
+              value === true ? 'translate-x-5' : 'translate-x-1',
+            )}
+          />
+        </button>
+      </div>
+    );
+  }
+
+  if (field.type === 'select') {
+    return (
+      <div className="space-y-2">
+        {label}
+        <Select
+          value={String(value ?? field.default ?? '')}
+          onValueChange={(next) => onChange(next)}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(field.options || []).map((option) => (
+              <SelectItem key={String(option)} value={String(option)}>
+                {String(option)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+
+  if (field.type === 'number') {
+    return (
+      <div className="space-y-2">
+        {label}
+        <Input
+          type="number"
+          value={asNumber(value, asNumber(field.default, 0))}
+          onChange={(event) => onChange(Number(event.target.value))}
+        />
+      </div>
+    );
+  }
+
+  if (field.type === 'tags') {
+    return (
+      <div className="space-y-2">
+        {label}
+        <Textarea
+          value={listToText(value)}
+          onChange={(event) => onChange(asStringList(event.target.value))}
+          className="min-h-20"
+          placeholder="每行一个，或用逗号分隔"
+        />
+      </div>
+    );
+  }
+
+  if (field.type === 'json') {
+    return (
+      <JsonLikeTextarea
+        label={field.label}
+        value={JSON.stringify(value ?? field.default ?? {}, null, 2)}
+        onChange={(next) => {
+          try {
+            onChange(JSON.parse(next));
+          } catch {
+            onChange(next);
+          }
+        }}
+      />
+    );
+  }
+
+  if (field.type === 'textarea') {
+    return (
+      <div className="space-y-2">
+        {label}
+        <Textarea
+          value={asString(value, asString(field.default))}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-h-24"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {label}
+      <Input
+        value={asString(value, asString(field.default))}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </div>
   );
 }
@@ -2052,10 +2927,12 @@ function GenericConfig({
 
 function JsonLikeTextarea({
   label,
+  readOnly = false,
   value,
   onChange,
 }: {
   label: string;
+  readOnly?: boolean;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -2066,8 +2943,14 @@ function JsonLikeTextarea({
       </label>
       <Textarea
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="min-h-28 font-mono text-xs"
+        readOnly={readOnly}
+        onChange={(event) => {
+          if (!readOnly) onChange(event.target.value);
+        }}
+        className={cn(
+          'min-h-28 font-mono text-xs',
+          readOnly && 'cursor-default bg-slate-50 text-slate-500',
+        )}
       />
     </div>
   );
