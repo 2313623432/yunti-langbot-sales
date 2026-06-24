@@ -327,6 +327,33 @@ def test_course_sales_reply_cleanup_removes_template_placeholders():
     assert '报名链接XXXX' not in cleaned
 
 
+def test_course_sales_reply_draft_placeholders_do_not_reach_final_context():
+    service = TaskAssistantService(SimpleNamespace())
+    workflow = service.build_course_sales_workflow_config()
+    query = _query(text_chain('孩子一年级0基础可以听吗'), '孩子一年级0基础可以听吗')
+    state = {}
+
+    service._apply_course_agent_output(
+        query,
+        workflow,
+        'reply_composer',
+        '可以的哦，这个课刚好适合大班到四年级的孩子 {自然拼读}\n[报名链接XXXXXXX]',
+        state,
+        'model-uuid',
+    )
+
+    assert '{自然拼读}' not in query.variables['agent_reply_draft']
+    assert '报名链接XXXX' not in query.variables['agent_reply_draft']
+
+    service._append_course_sales_control_context(query, {'intent': 'course_intro'})
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+
+    assert '{自然拼读}' not in context_text
+    assert '报名链接XXXX' not in context_text
+    assert '最终输出禁则' in context_text
+    assert '花括号包住的占位符' in context_text
+
+
 def test_primary_model_resolution_prefers_runtime_local_agent_model():
     service = TaskAssistantService(SimpleNamespace())
     query = SimpleNamespace(

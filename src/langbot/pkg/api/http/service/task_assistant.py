@@ -2301,8 +2301,9 @@ class TaskAssistantService:
             return
 
         if assistant_id == 'reply_composer':
-            state['agent_reply_draft'] = output_text
-            query.variables['agent_reply_draft'] = output_text
+            cleaned_output = self._clean_course_agent_text(output_text)
+            state['agent_reply_draft'] = cleaned_output
+            query.variables['agent_reply_draft'] = cleaned_output
             return
 
         if assistant_id == 'followup_planner':
@@ -3979,7 +3980,9 @@ class TaskAssistantService:
         evidence_bundle = str(query.variables.get('evidence_bundle') or '').strip()
         if evidence_bundle:
             agent_context_lines.append(f'检索证据：{evidence_bundle}')
-        agent_reply_draft = str(query.variables.get('agent_reply_draft') or '').strip()
+        agent_reply_draft = self._clean_course_agent_text(str(query.variables.get('agent_reply_draft') or '')).strip()
+        if agent_reply_draft:
+            query.variables['agent_reply_draft'] = agent_reply_draft
         if agent_reply_draft:
             agent_context_lines.append(f'回复草稿：{agent_reply_draft}')
         outreach_plan = str(query.variables.get('outreach_plan') or '').strip()
@@ -3997,6 +4000,12 @@ class TaskAssistantService:
                 '回复草稿只作参考，不要暴露“草稿/智能体/编排”等内部词。\n'
                 + '\n'.join(agent_context_lines)
             )
+
+        control_text += (
+            '\n\n[最终输出禁则]\n'
+            '最终发给用户的内容绝对不要出现花括号包住的占位符或内部标签，包括课程标签、课程名标签、地址标签；'
+            '如果需要提到课程，请直接说“英语自然拼读体验课”或“猿辅导英语自然拼读9元体验课”。'
+        )
 
         course_profile = intent.get('course_profile') if isinstance(intent.get('course_profile'), dict) else {}
         product_key = str(intent.get('product_key') or '')
