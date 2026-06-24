@@ -1994,12 +1994,9 @@ async def test_prepare_course_sales_query_records_resource_issue_ticket(monkeypa
 
     result = await service.prepare_query(query)
 
-    assert result['handled'] is True
-    sales_service.create_resource_issue_from_query.assert_awaited_once()
-    _, payload = sales_service.create_resource_issue_from_query.await_args.args
-    assert payload['issue_type'] == 'content_error'
-    assert payload['user_description'] == '听力音频和题目不匹配，内容是错的'
-    assert '内容错误' in payload['issue_summary']
+    assert result['interrupted'] is True
+    assert '照片' in result['notice']
+    sales_service.create_resource_issue_from_query.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -2090,14 +2087,59 @@ async def test_prepare_course_sales_query_records_resource_issue_image_evidence(
 
     result = await service.prepare_query(query)
 
-    assert result['handled'] is True
+    assert result['interrupted'] is True
     intent = query.variables['workflow_intent']
     assert intent['intent'] == 'resource_help'
     assert intent['resource_issue_type'] == 'content_error'
     assert intent['has_evidence_image'] is True
+    assert '照片' in result['notice']
+    sales_service.create_resource_issue_from_query.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_course_sales_content_error_records_ticket_after_description_and_two_photos(monkeypatch):
+    sales_service = SimpleNamespace(create_resource_issue_from_query=AsyncMock(return_value={'id': 12}))
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=Mock())))
+    monkeypatch.setattr(service, '_resolve_primary_llm_model_info', AsyncMock(return_value={}))
+    monkeypatch.setattr(service, '_schedule_course_sales_outreach_for_query', AsyncMock())
+    pipeline_config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+    first_query = _query(
+        text_chain('听力有问题'),
+        '听力有问题',
+        session_id='customer-content-error-capture',
+    )
+    first_query.bot_uuid = 'bot-uuid'
+    first_query.sender_id = 'ou_customer'
+    first_query.adapter = SimpleNamespace()
+    first_query.pipeline_uuid = 'pipeline-1'
+    first_query.pipeline_config = pipeline_config
+    first_result = await service.prepare_query(first_query)
+
+    assert first_result['interrupted'] is True
+    assert '照片' in first_result['notice']
+
+    second_query = _query(
+        image_chain(text='听力音频和题目不匹配，内容是错的', url='https://example.com/qr.jpg'),
+        '听力音频和题目不匹配，内容是错的',
+        session_id='customer-content-error-capture',
+    )
+    second_query.message_chain.extend(image_chain(url='https://example.com/page.jpg'))
+    second_query.bot_uuid = 'bot-uuid'
+    second_query.sender_id = 'ou_customer'
+    second_query.adapter = SimpleNamespace()
+    second_query.pipeline_uuid = 'pipeline-1'
+    second_query.pipeline_config = pipeline_config
+
+    result = await service.prepare_query(second_query)
+
+    assert result['interrupted'] is True
+    assert '记录' in result['notice']
     sales_service.create_resource_issue_from_query.assert_awaited_once()
     _, payload = sales_service.create_resource_issue_from_query.await_args.args
-    assert payload['evidence_images'] == ['https://example.com/resource-error.jpg']
+    assert payload['issue_type'] == 'content_error'
+    assert '听力有问题' in payload['user_description']
+    assert '听力音频和题目不匹配' in payload['user_description']
+    assert payload['evidence_images'] == ['https://example.com/qr.jpg', 'https://example.com/page.jpg']
 
 
 def test_course_sales_template_config_migrates_legacy_default_assets_and_links():
@@ -3255,7 +3297,9 @@ async def test_course_sales_resource_question_takes_priority_over_purchase_keywo
     assert query.variables['workflow_intent']['intent'] == 'resource_help'
     assert sales_service.plans == []
     context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
-    assert '先解决图书资源问题' in context_text
+    assert '本轮只处理图书资源问题' in context_text
+    assert '不推课、不卖课' in context_text
+    assert '当前选中课程' not in context_text
     assert '本轮要给报名动作和报名链接卡片' not in context_text
 
 

@@ -2977,7 +2977,10 @@ class TaskAssistantService:
             return False
         normalized = (text or '').strip().lower()
         if intent.get('resource_issue_type'):
-            issue_terms = ['扫码', '二维码', '资源', '卡片', '打不开', '不能打开', '无法打开', '点不开', '进不去']
+            issue_type = str(intent.get('resource_issue_type') or '')
+            if issue_type in {'content_error', 'resource_uploading', 'empty_resource', 'resource_error'}:
+                return True
+            issue_terms = ['扫码', '二维码', '资源', '卡片', '打不开', '不能打开', '无法打开', '点不开', '进不去', '听力', '音频', '答案']
             if any(term in normalized for term in issue_terms):
                 return True
         keywords = [str(keyword).strip().lower() for keyword in config.get('trigger_keywords', []) if str(keyword).strip()]
@@ -3002,7 +3005,7 @@ class TaskAssistantService:
         }
         if normalized in generic_reports:
             return False
-        detail_markers = ['提示', '显示', '页面', '报错', '第', '页', '题', '音频', '答案', '内容', '不匹配', '空白']
+        detail_markers = ['提示', '显示', '页面', '报错', '第', '页', '题', '听力', '音频', '答案', '内容', '不匹配', '空白', '错误', '错', '有问题']
         return any(marker in normalized for marker in detail_markers) or len(normalized) >= 14
 
     def _course_resource_capture_notice(self, capture: dict[str, Any], config: dict[str, Any], missing: list[str]) -> str:
@@ -3325,7 +3328,7 @@ class TaskAssistantService:
             return 'resource_uploading'
         if any(keyword in text for keyword in ['资源为空', '空白', '空页面']):
             return 'empty_resource'
-        if any(keyword in text for keyword in ['不匹配', '资源不对', '不是这本', '错了', '内容错误', '答案不对', '音频不对']):
+        if any(keyword in text for keyword in ['不匹配', '资源不对', '不是这本', '错了', '错误', '内容错误', '答案不对', '音频不对', '听力不对', '听力错', '听力有问题', '音频有问题', '答案有问题']):
             return 'content_error'
         return ''
 
@@ -4091,10 +4094,10 @@ class TaskAssistantService:
         elif intent_name == 'resource_help':
             control_text = (
                 '\n\n[课程销售上下文]\n'
-                '先解决图书资源问题，不急着推课。'
-                '如果用户说资源打不开、不能打开、点不开或进不去，本轮先说明再发一遍图书配套学习资源卡片链接，'
-                '再用单独短句问“方便发我一张截图吗？”，不要再问“能打开吗”。'
-                '只在资源问题解决后，用一句话自然承接自然拼读体验课。'
+                '本轮只处理图书资源问题，不推课、不卖课、不发报名链接。'
+                '不要发送或承诺发送图书配套学习资源卡片、资源链接、二维码卡片或资料卡片。'
+                '请安抚用户，并让用户发出问题页面截图、二维码照片、题目/听力/答案所在位置照片，便于记录资源问题。'
+                '不要承接英语自然拼读体验课，不要提课程卖点、价格、报名、优惠或完课礼。'
             )
         elif intent_name == 'resource_confirmed':
             control_text = (
@@ -4211,7 +4214,7 @@ class TaskAssistantService:
         course_profile = intent.get('course_profile') if isinstance(intent.get('course_profile'), dict) else {}
         product_key = str(intent.get('product_key') or '')
         course_name = str(course_profile.get('course_name') or '').strip()
-        if course_name and intent_name not in {'smalltalk', 'clarification'}:
+        if course_name and intent_name not in {'smalltalk', 'clarification', 'resource_help'}:
             facts = [
                 str(course_profile.get('price') or '').strip(),
                 str(course_profile.get('duration') or '').strip(),
@@ -4223,7 +4226,7 @@ class TaskAssistantService:
             if fact_text:
                 control_text += f'；关键信息：{fact_text}'
 
-        if not faq_short_answer and intent_name not in {'smalltalk', 'clarification'}:
+        if not faq_short_answer and intent_name not in {'smalltalk', 'clarification', 'resource_help'}:
             user_text = str(query.variables.get('user_message_text') or '')
             snippets = self._select_yuanfudao_knowledge_snippets(user_text)
             if snippets:
