@@ -778,7 +778,6 @@ COURSE_FOLLOWUP_SEQUENCES = [
             {
                 'delay_minutes': 0,
                 'message': '家长这个是赠送的资料。您可以长按识别关注一下，有空都可以打开学。一周内会有老师跟您联系的哈，咱们这边注意留意短信，报名成功会短信分配班主任的。9元的猿辅导课程，您可以先下载一个【猿辅导素养课】的APP，里面是可以看到购买的课程和开课时间的。',
-                'image_key': 'course-sales/phonics/gift_qr.jpeg',
             },
             {
                 'delay_minutes': 0,
@@ -1311,7 +1310,7 @@ COURSE_IMAGE_BINDINGS = [
         'title': '书课通资料二维码',
         'text': '表格内置素材：用户已报名/已支付后发送，引导长按识别关注，领取2026年最新幼小资源。',
         'file_key': 'course-sales/phonics/gift_qr.jpeg',
-        'trigger_intents': ['purchased', 'resource_help', 'screenshot_help'],
+        'trigger_intents': [],
         'enabled': True,
     },
 ]
@@ -2016,6 +2015,9 @@ class TaskAssistantService:
         if intent is None:
             intent = self.classify_course_sales_intent(text, query.message_chain, workflow)
         intent = await self._apply_course_sales_rejection_policy(intent, text, workflow, session_key, query)
+        intent = self._sanitize_course_sales_asset_steps(intent)
+        if str(intent.get('intent') or '') not in {'handoff', 'stop'}:
+            await self._disable_stale_course_sales_followups_for_query(query)
         capture_result = await self._handle_course_resource_capture(query, workflow, intent, text, session_key)
         if capture_result is not None:
             query.variables['workflow_intent'] = intent
@@ -3165,7 +3167,7 @@ class TaskAssistantService:
                     'purchased',
                     0.9,
                     '用户发送图片且文本提到支付或报名成功截图',
-                    step_ids=['gift_qr'],
+                    step_ids=[],
                     selected_profile=selected_profile,
                 )
             resource_issue_type = self._classify_course_resource_issue_type(normalized)
@@ -3204,7 +3206,7 @@ class TaskAssistantService:
         if self._mentions_immediate_course_stop(normalized, immediate_stop_keywords):
             return self._course_intent('stop', 0.96, '用户命中立即停发规则', step_ids=[], selected_profile=selected_profile)
         if self._mentions_purchase_confirmation(normalized):
-            return self._course_intent('purchased', 0.88, '用户疑似已购买或已报名', step_ids=['gift_qr'], selected_profile=selected_profile)
+            return self._course_intent('purchased', 0.88, '用户疑似已购买或已报名', step_ids=[], selected_profile=selected_profile)
         resource_issue_type = self._classify_course_resource_issue_type(normalized)
         if resource_issue_type:
             intent = self._course_intent(
@@ -3221,7 +3223,7 @@ class TaskAssistantService:
                 'screenshot_help',
                 0.84,
                 '用户提到截图但尚未发送图片，需引导发送页面或支付截图并由视觉识别判断',
-                step_ids=['gift_qr'],
+                step_ids=[],
                 selected_profile=selected_profile,
             )
         rejection_keywords = explicit_rejection_keywords or self._lower_keywords(stop_rules.get('stop_keywords'))
@@ -3253,7 +3255,7 @@ class TaskAssistantService:
         resource_faqs = workflow.get('resource_faqs') if isinstance(workflow.get('resource_faqs'), list) else COURSE_RESOURCE_FAQS
         resource_keywords = {keyword for faq in resource_faqs for keyword in faq.get('keywords', [])}
         if any(keyword.lower() in normalized for keyword in resource_keywords):
-            intent = self._course_intent('resource_help', 0.82, '命中图书资源问题', step_ids=['gift_qr'], selected_profile=selected_profile)
+            intent = self._course_intent('resource_help', 0.82, '命中图书资源问题', step_ids=[], selected_profile=selected_profile)
             resource_issue_type = self._classify_course_resource_issue_type(normalized)
             if resource_issue_type:
                 intent['resource_issue_type'] = resource_issue_type
@@ -3353,8 +3355,8 @@ class TaskAssistantService:
         return ''
 
     def _course_resource_issue_step_ids(self, issue_type: str) -> list[str]:
-        # Only resend the resource card when the user cannot access the resource entry.
-        return ['gift_qr'] if issue_type == 'missing_resource' else []
+        # Resource issue handling is conversational now; do not resend QR/resource cards automatically.
+        return []
 
     def _is_course_sop_faq_intent(self, intent_name: str) -> bool:
         return str(intent_name or '').startswith('sop_qa_')
@@ -3509,12 +3511,10 @@ class TaskAssistantService:
             return ''
         if self._is_course_sop_faq_intent(intent):
             return ''
-        if intent in {'purchased', 'screenshot_help'}:
-            return 'gift_qr'
+        if intent in {'purchased', 'screenshot_help', 'resource_help'}:
+            return ''
         if intent in {'gift', 'objection', 'course_intro', 'course_content', 'grade'}:
             return 'gift_poster'
-        if intent in {'resource_help'}:
-            return 'gift_qr'
         if intent in {'no_reply', 'resource_confirmed'}:
             return ''
         return 'gift_poster'
@@ -4285,6 +4285,39 @@ class TaskAssistantService:
 
         user_message.content.append(provider_message.ContentElement.from_text(control_text))
 
+    def _sanitize_course_sales_asset_steps(self, intent: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(intent, dict):
+            return intent
+        intent_name = str(intent.get('intent') or '')
+        if intent_name not in {'purchased', 'resource_help', 'screenshot_help'}:
+            return intent
+        sanitized = dict(intent)
+        step_ids = sanitized.get('step_ids') if isinstance(sanitized.get('step_ids'), list) else []
+        sanitized['step_ids'] = [str(step_id) for step_id in step_ids if str(step_id) != 'gift_qr']
+        if not sanitized['step_ids']:
+            sanitized['max_images'] = 0
+            sanitized['assets'] = []
+        return sanitized
+
+    async def _disable_stale_course_sales_followups_for_query(self, query: pipeline_query.Query) -> None:
+        sales_service = getattr(self.ap, 'sales_service', None)
+        if sales_service is None or not hasattr(sales_service, 'disable_outreach_for_target'):
+            return
+        target = self._course_sales_target_from_query(query)
+        if not target.get('bot_uuid') or not target.get('target_id'):
+            return
+        try:
+            await sales_service.disable_outreach_for_target(
+                bot_uuid=target['bot_uuid'],
+                target_type=target['target_type'],
+                target_id=target['target_id'],
+                segment_prefixes=['course-sales:followup'],
+            )
+        except Exception as exc:
+            logger = getattr(self.ap, 'logger', None)
+            if logger is not None:
+                logger.warning('Failed to disable stale course sales followups: %s', exc)
+
     async def _schedule_course_sales_outreach_for_query(
         self,
         query: pipeline_query.Query,
@@ -4335,7 +4368,6 @@ class TaskAssistantService:
                     target_id=target['target_id'],
                     segment_prefixes=['course-sales:broadcast', 'course-sales:followup'],
                 )
-                await self._schedule_course_sales_followup_sequence(target, workflow, 'purchased')
                 return
 
             if await self._is_course_sales_first_contact(query):
@@ -4765,6 +4797,8 @@ class TaskAssistantService:
         if message.get('send_link_card') and link:
             components.append(self._course_link_component(link, target=target, workflow=workflow))
         image_key = str(message.get('image_key') or '').strip()
+        if image_key == 'course-sales/phonics/gift_qr.jpeg':
+            image_key = ''
         if image_key:
             components.append({'type': 'image', 'file_key': image_key})
         return components
@@ -6032,7 +6066,7 @@ class TaskAssistantService:
             for message in messages
         )
         has_gift_qr = any(message.get('image_key') == 'course-sales/phonics/gift_qr.jpeg' for message in messages)
-        return bool({'objection'} & stages or not (has_signup_link and has_poster and has_gift_qr))
+        return bool({'objection'} & stages or has_gift_qr or not (has_signup_link and has_poster))
 
     def _is_legacy_course_sales_links(self, value: list[Any]) -> bool:
         if not value:

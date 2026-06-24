@@ -1968,8 +1968,8 @@ def test_course_sales_template_pipeline_contains_full_sop_capabilities():
         message.get('image_key') == 'course-sales/phonics/gift_poster.jpeg'
         for message in followups_by_stage['not_buy']['messages']
     )
-    assert any(
-        message.get('image_key') == 'course-sales/phonics/gift_qr.jpeg'
+    assert all(
+        message.get('image_key') != 'course-sales/phonics/gift_qr.jpeg'
         for message in followups_by_stage['purchased']['messages']
     )
     assert all(
@@ -2008,7 +2008,7 @@ def test_course_sales_runtime_defaults_skip_non_course_pipeline_config():
 @pytest.mark.parametrize(
     ('text', 'expected_issue_type', 'expected_step_ids'),
     [
-        ('扫码以后提示资源缺失', 'missing_resource', ['gift_qr']),
+        ('扫码以后提示资源缺失', 'missing_resource', []),
         ('页面显示资源正在上传中', 'resource_uploading', []),
         ('打开以后资源为空', 'empty_resource', []),
         ('听力音频和题目不匹配，内容是错的', 'content_error', []),
@@ -2823,7 +2823,14 @@ async def test_course_sales_handoff_does_not_trigger_on_ambiguous_service_word()
 
     assert query.variables['workflow_intent']['intent'] != 'handoff'
     assert sales_service.handoffs == []
-    assert sales_service.disabled == []
+    assert sales_service.disabled == [
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'customer-service-word',
+            'segment_prefixes': ['course-sales:followup'],
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -2890,7 +2897,7 @@ async def test_course_sales_abusive_rejection_opens_handoff_and_stops_all_outrea
 
 
 @pytest.mark.asyncio
-async def test_course_sales_purchased_stops_promotional_outreach_and_schedules_excel_qr_image():
+async def test_course_sales_purchased_stops_promotional_outreach_without_scheduling_qr_image():
     sales_service = _CourseOutreachSalesService(user_message_count=2)
     service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
     query = _query(text_chain('我已经报名成功了'), '我已经报名成功了', session_id='customer-2')
@@ -2903,14 +2910,29 @@ async def test_course_sales_purchased_stops_promotional_outreach_and_schedules_e
 
     assert result['handled'] is True
     assert sales_service.disabled
-    assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:broadcast', 'course-sales:followup']
+    assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:followup']
+    assert sales_service.disabled[1]['segment_prefixes'] == ['course-sales:broadcast', 'course-sales:followup']
     assert not any(plan['segment'] == 'course-sales:broadcast' for plan in sales_service.plans)
-    assert any(
+    assert not any(
         component.get('type') == 'image'
         and component.get('file_key') == 'course-sales/phonics/gift_qr.jpeg'
         for plan in sales_service.plans
         for component in plan['message_components']
     )
+
+
+def test_course_sales_followup_components_skip_legacy_gift_qr_image():
+    service = TaskAssistantService(SimpleNamespace())
+
+    components = service._course_followup_message_components(
+        {
+            'message': '报名后留意班主任短信或电话',
+            'image_key': 'course-sales/phonics/gift_qr.jpeg',
+        },
+        {},
+    )
+
+    assert components == [{'type': 'plain', 'text': '报名后留意班主任短信或电话'}]
 
 
 def test_enhanced_yuanfudao_template_loads_spreadsheet_business_content():
@@ -3224,7 +3246,14 @@ async def test_enhanced_runtime_stops_after_second_explicit_rejection():
     first_query.prompt = SimpleNamespace(messages=[])
     await service.prepare_query(first_query)
 
-    assert sales_service.disabled == []
+    assert sales_service.disabled == [
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'customer-reject',
+            'segment_prefixes': ['course-sales:followup'],
+        }
+    ]
     assert first_query.variables['workflow_intent']['intent'] == 'sop_qa_035'
     assert first_query.variables['workflow_intent']['explicit_rejection_count'] == 1
     assert not any(plan['segment'] == 'course-sales:followup:not_buy' for plan in sales_service.plans)
@@ -3237,7 +3266,7 @@ async def test_enhanced_runtime_stops_after_second_explicit_rejection():
     await service.prepare_query(second_query)
 
     assert sales_service.disabled
-    assert sales_service.disabled[0]['segment_prefixes'] == ['course-sales:']
+    assert sales_service.disabled[-1]['segment_prefixes'] == ['course-sales:']
     assert second_query.variables['workflow_intent']['intent'] == 'stop'
     assert second_query.variables['workflow_intent']['explicit_rejection_count'] == 2
 
@@ -3309,6 +3338,12 @@ async def test_course_sales_payment_screenshot_stops_promotional_outreach_before
 
     assert query.variables['workflow_intent']['intent'] == 'purchased'
     assert sales_service.disabled == [
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'customer-paid-image',
+            'segment_prefixes': ['course-sales:followup'],
+        },
         {
             'bot_uuid': 'bot-uuid',
             'target_type': 'person',
@@ -3475,6 +3510,12 @@ async def test_course_sales_already_registered_moves_to_delivery_support_not_res
 
     assert query.variables['workflow_intent']['intent'] == 'purchased'
     assert sales_service.disabled == [
+        {
+            'bot_uuid': 'bot-uuid',
+            'target_type': 'person',
+            'target_id': 'customer-already-paid',
+            'segment_prefixes': ['course-sales:followup'],
+        },
         {
             'bot_uuid': 'bot-uuid',
             'target_type': 'person',
