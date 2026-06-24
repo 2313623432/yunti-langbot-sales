@@ -1518,7 +1518,7 @@ class TaskAssistantService:
 
         text = query.variables.get('user_message_text', '')
         session_key = self._query_session_key(query)
-        reset_result = await self._reset_sales_context_if_requested(query, text, session_key)
+        reset_result = await self._reset_sales_context_if_requested(query, text, session_key, workflow)
         if reset_result is not None:
             return reset_result
         query.variables['course_sales_first_contact'] = await self._is_course_sales_first_contact(query)
@@ -1934,7 +1934,7 @@ class TaskAssistantService:
 
         text = query.variables.get('user_message_text', '')
         session_key = self._query_session_key(query)
-        reset_result = await self._reset_sales_context_if_requested(query, text, session_key)
+        reset_result = await self._reset_sales_context_if_requested(query, text, session_key, workflow)
         if reset_result is not None:
             return reset_result
 
@@ -2220,6 +2220,17 @@ class TaskAssistantService:
                 'has_voice': self._has_voice(query.message_chain),
             },
         }
+        if str(assistant.get('id') or '') == 'intent_classifier':
+            course_faqs = workflow.get('course_faqs') if isinstance(workflow.get('course_faqs'), list) else COURSE_FAQS
+            payload['sop_semantic_intents'] = [
+                {
+                    'intent': str(faq.get('intent') or ''),
+                    'question': str(faq.get('question') or ''),
+                    'answer': str(faq.get('answer') or ''),
+                }
+                for faq in course_faqs
+                if isinstance(faq, dict) and self._is_course_sop_faq_intent(str(faq.get('intent') or ''))
+            ]
         return json.dumps(payload, ensure_ascii=False, default=str)
 
     def _resolve_course_agent_model_extra_args(self, runtime_model: Any, assistant: dict[str, Any]) -> dict[str, Any]:
@@ -2421,6 +2432,16 @@ class TaskAssistantService:
         for intent in allowed_intents:
             if intent and intent not in unique_intents:
                 unique_intents.append(intent)
+        sop_catalog = self._course_sop_faq_intent_catalog(course_faqs)
+        sop_instruction = ''
+        if sop_catalog:
+            sop_instruction = (
+                '\n\n【猿辅导课程问答整理.xlsx 特殊问题语义表】\n'
+                '当用户问题与下面任一问题表达同类意思时，必须选择对应的 sop_qa_xxx intent；'
+                '不要因为出现“不要/下单/地址/礼品”等词就改判成拒绝、购买或课程介绍。\n'
+                f'{sop_catalog}\n'
+                '这些 sop_qa_xxx 是语义意图，不要求用户原话完全相同。'
+            )
         return (
             '你是课程销售客服的意图识别器，只做分类，不回复用户。\n'
             '不要输出思考过程，不要输出解释段落，只输出一个 JSON 对象。\n'
@@ -2430,7 +2451,22 @@ class TaskAssistantService:
             '用户明确报名/要链接时 include_link 为 true。\n'
             '用户问数学、奥数、计算、应用题、粗心马虎或思维类问题时，intent 必须是 reading_thinking_intro，include_link=false；这是边界答疑，不是报名催单。\n'
             '用户说“推一下课/介绍一下课/发下课/有什么课”时，intent 用 course_intro，include_link=false，除非用户同时明确要报名链接。'
+            f'{sop_instruction}'
         )
+
+    def _course_sop_faq_intent_catalog(self, course_faqs: list[Any]) -> str:
+        lines: list[str] = []
+        for faq in course_faqs:
+            if not isinstance(faq, dict):
+                continue
+            intent = str(faq.get('intent') or '').strip()
+            if not self._is_course_sop_faq_intent(intent):
+                continue
+            question = self._compact_course_sales_history_line(str(faq.get('question') or '').strip())
+            answer = self._compact_course_sales_history_line(str(faq.get('answer') or '').strip())
+            if question and answer:
+                lines.append(f'- {intent}: 问题={question}；回答要点={answer}')
+        return '\n'.join(lines)
 
     def _course_sales_intent_user_text(
         self,
@@ -2595,6 +2631,10 @@ class TaskAssistantService:
             'smalltalk',
             'clarification',
         }
+        course_faqs = workflow.get('course_faqs') if isinstance(workflow.get('course_faqs'), list) else COURSE_FAQS
+        for faq in course_faqs:
+            if isinstance(faq, dict) and faq.get('intent'):
+                allowed_intents.add(str(faq.get('intent')))
         if intent_name not in allowed_intents:
             return None
 
@@ -2665,6 +2705,7 @@ class TaskAssistantService:
         query: pipeline_query.Query,
         text: str,
         session_key: str,
+        workflow: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         sales_service = getattr(self.ap, 'sales_service', None)
         is_reset_command = getattr(sales_service, 'is_reset_command', None)
@@ -2680,6 +2721,23 @@ class TaskAssistantService:
             self._session_progress.pop(session_key, None)
         if sales_service is not None and hasattr(sales_service, 'reset_sales_session_context'):
             await sales_service.reset_sales_session_context(query)
+        workflow = workflow if isinstance(workflow, dict) else {}
+        if self._is_course_sales_workflow(workflow):
+            target = self._course_sales_target_from_query(query)
+            if sales_service is not None and target.get('bot_uuid') and target.get('target_id'):
+                await self._schedule_course_sales_opening_for_target(target, workflow, card_delay_seconds=0)
+                if hasattr(sales_service, 'run_due_outreach_for_target'):
+                    await sales_service.run_due_outreach_for_target(
+                        bot_uuid=target['bot_uuid'],
+                        target_type=target['target_type'],
+                        target_id=target['target_id'],
+                    )
+                await self._schedule_course_sales_broadcasts_for_target(target, workflow)
+                return {
+                    'handled': True,
+                    'interrupted': True,
+                    'notice': '',
+                }
         return {
             'handled': True,
             'interrupted': True,
@@ -2958,6 +3016,17 @@ class TaskAssistantService:
                 step_ids=[],
                 selected_profile=selected_profile,
             )
+        sop_faq = self._match_course_sop_faq(normalized, course_faqs)
+        if sop_faq:
+            intent = str(sop_faq.get('intent') or 'course_intro')
+            step_id = self._course_step_for_intent(intent)
+            return self._course_intent(
+                intent,
+                0.86,
+                f'命中课程FAQ：{sop_faq.get("question") or "猿辅导课程问答整理.xlsx"}',
+                step_ids=[step_id] if step_id else [],
+                selected_profile=selected_profile,
+            )
         if self._mentions_immediate_course_stop(normalized, immediate_stop_keywords):
             return self._course_intent('stop', 0.96, '用户命中立即停发规则', step_ids=[], selected_profile=selected_profile)
         if self._mentions_purchase_confirmation(normalized):
@@ -3032,17 +3101,6 @@ class TaskAssistantService:
                 step_ids=[],
                 selected_profile=selected_profile,
             )
-        sop_faq = self._match_course_sop_faq(normalized, course_faqs)
-        if sop_faq:
-            intent = str(sop_faq.get('intent') or 'course_intro')
-            step_id = self._course_step_for_intent(intent)
-            return self._course_intent(
-                intent,
-                0.86,
-                f'命中课程FAQ：{sop_faq.get("question") or "猿辅导课程问答整理.xlsx"}',
-                step_ids=[step_id] if step_id else [],
-                selected_profile=selected_profile,
-            )
         for faq in course_faqs:
             if any(str(keyword).lower() in normalized for keyword in faq.get('keywords', [])):
                 intent = str(faq.get('intent') or 'course_intro')
@@ -3110,6 +3168,24 @@ class TaskAssistantService:
     def _is_course_sop_faq_intent(self, intent_name: str) -> bool:
         return str(intent_name or '').startswith('sop_qa_')
 
+    def _course_sop_faq_for_intent(self, intent_name: str, workflow: dict[str, Any]) -> dict[str, Any] | None:
+        course_faqs = workflow.get('course_faqs') if isinstance(workflow.get('course_faqs'), list) else COURSE_FAQS
+        for faq in course_faqs:
+            if isinstance(faq, dict) and str(faq.get('intent') or '') == intent_name:
+                return faq
+        return None
+
+    def _is_course_sop_rejection_intent(self, intent_name: str, workflow: dict[str, Any]) -> bool:
+        if not self._is_course_sop_faq_intent(intent_name):
+            return False
+        faq = self._course_sop_faq_for_intent(intent_name, workflow)
+        if not isinstance(faq, dict):
+            return False
+        question = str(faq.get('question') or '')
+        keywords = ' '.join(str(keyword) for keyword in faq.get('keywords', []) if str(keyword).strip())
+        marker_text = f'{question} {keywords}'
+        return '【拒绝】' in marker_text or '拒绝' in marker_text
+
     def _course_spreadsheet_faqs(self) -> list[dict[str, Any]]:
         cached = getattr(self, '_course_spreadsheet_faqs_cache', None)
         if isinstance(cached, list):
@@ -3150,11 +3226,15 @@ class TaskAssistantService:
     def _normalize_course_faq_match_text(self, text: str) -> str:
         normalized = str(text or '').strip().lower()
         normalized = normalized.replace('咋样', '怎么样').replace('咋办', '怎么办')
+        normalized = normalized.replace('收获地址', '收货地址').replace('填写', '填')
+        normalized = normalized.replace('哪里', '哪').replace('哪儿', '哪')
         normalized = normalized.replace('wifi', 'wi-fi').replace('app', '应用')
         return re.sub(r'[\s\W_]+', '', normalized, flags=re.UNICODE)
 
     def _course_faq_match_terms(self, text: str) -> set[str]:
         normalized = str(text or '').strip().lower()
+        normalized = normalized.replace('收获地址', '收货地址').replace('填写', '填')
+        normalized = normalized.replace('哪里', '哪').replace('哪儿', '哪')
         known_terms = [
             '9元', '9块', '篮球', '书包', '手办', '实物', '礼品', '礼包', '礼盒', '完课',
             '质量', '容量', '能装', '挑', '两个娃', '两个孩子', '手机号', '包邮', '偏远',
@@ -3182,7 +3262,24 @@ class TaskAssistantService:
         user_terms = self._course_faq_match_terms(user_text)
         if not user_terms and len(user_compact) < 4:
             return None
-        generic_terms = {'自然拼读', '课程', '孩子', '家长', '上课', '报名', '手机', '平板'}
+        generic_terms = {
+            '自然拼读',
+            '课程',
+            '孩子',
+            '家长',
+            '上课',
+            '报名',
+            '手机',
+            '平板',
+            '拒绝',
+            '不需要',
+            '不需要了',
+            '不要',
+            '不买',
+            '没时间',
+            '下单',
+            '买',
+        }
 
         best: tuple[int, int, dict[str, Any]] | None = None
         for index, faq in enumerate(course_faqs):
@@ -3520,9 +3617,19 @@ class TaskAssistantService:
         session_key: str,
         query: pipeline_query.Query,
     ) -> dict[str, Any]:
-        if intent.get('intent') != 'explicit_rejection':
-            return intent
+        intent_name = str(intent.get('intent') or '')
         stop_policy = workflow.get('stop_policy') if isinstance(workflow.get('stop_policy'), dict) else {}
+        rejection_keywords = self._lower_keywords(stop_policy.get('explicit_rejection_keywords'))
+        stop_rules = workflow.get('stop_rules') if isinstance(workflow.get('stop_rules'), dict) else {}
+        if not rejection_keywords:
+            rejection_keywords = self._lower_keywords(stop_rules.get('stop_keywords'))
+        normalized = str(text or '').strip().lower()
+        is_sop_rejection = self._is_course_sop_rejection_intent(intent_name, workflow) or (
+            self._is_course_sop_faq_intent(intent_name)
+            and self._mentions_course_sales_explicit_rejection(normalized, rejection_keywords)
+        )
+        if intent_name != 'explicit_rejection' and not is_sop_rejection:
+            return intent
         try:
             threshold = int(stop_policy.get('explicit_rejection_threshold') or 1)
         except (TypeError, ValueError):
@@ -3533,7 +3640,7 @@ class TaskAssistantService:
         if count >= threshold:
             intent['intent'] = 'stop'
             intent['reason'] = f'用户已连续明确拒绝 {count} 次，达到停发阈值'
-        else:
+        elif intent_name == 'explicit_rejection':
             intent['intent'] = 'objection'
             intent['reason'] = f'用户第 {count} 次明确拒绝，先轻量回应并继续保留后续触达'
         return intent
@@ -3735,7 +3842,7 @@ class TaskAssistantService:
                 continue
             answer = str(faq.get('answer') or '').strip()
             if answer:
-                max_chars = 260 if self._is_course_sop_faq_intent(intent_name) else 150
+                max_chars = 1000 if self._is_course_sop_faq_intent(intent_name) else 150
                 return self._truncate_knowledge_excerpt(answer, max_chars=max_chars)
         return None
 

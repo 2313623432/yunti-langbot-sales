@@ -181,6 +181,94 @@ def test_course_sales_sop_question_semantic_match_uses_spreadsheet_answer():
     assert '容量也大' in answer
 
 
+def test_course_sales_all_spreadsheet_questions_match_their_sop_answers():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+
+    for faq in service._course_spreadsheet_faqs():
+        question = faq['question']
+        intent = service.classify_course_sales_intent(question, text_chain(question), workflow)
+        answer = service._faq_answer_for_intent(intent['intent'], workflow)
+
+        assert intent['intent'] == faq['intent'], question
+        assert faq['answer'][:24] in answer, question
+
+
+def test_course_sales_shipping_address_variants_use_spreadsheet_answer():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+    cases = [
+        '\u6211\u73b0\u5728\u5728\u54ea\u586b\u5199\u6536\u8d27\u5730\u5740',
+        '\u6211\u73b0\u5728\u5728\u54ea\u586b\u5199\u6536\u83b7\u5730\u5740',
+        '\u6536\u8d27\u5730\u5740\u5728\u54ea\u91cc\u586b',
+        '\u4e0b\u5355\u540e\u5728\u54ea\u91cc\u586b\u6536\u8d27\u5730\u5740',
+    ]
+
+    for text in cases:
+        intent = service.classify_course_sales_intent(text, text_chain(text), workflow)
+        answer = service._faq_answer_for_intent(intent['intent'], workflow)
+
+        assert intent['intent'] == 'sop_qa_007', text
+        assert '\u4e0a\u6ee14\u5929' in answer
+        assert '\u81ea\u52a8\u89e3\u9501\u586b\u5199\u6536\u8d27\u5730\u5740' in answer
+
+
+@pytest.mark.asyncio
+async def test_course_sales_intent_model_can_select_spreadsheet_sop_intent():
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            return_value=(
+                provider_message.Message(
+                    role='assistant',
+                    content='{"intent":"sop_qa_007","confidence":0.91,"reason":"用户在问收货地址入口","step_ids":[],"include_link":false}',
+                ),
+                {},
+            )
+        )
+    )
+    runtime_model = SimpleNamespace(
+        model_entity=SimpleNamespace(
+            uuid='doubao-seed-2-0-mini-260215',
+            name='doubao-seed-2-0-mini-260215',
+            abilities=[],
+            extra_args={'thinking': {'type': 'disabled'}},
+        ),
+        provider=provider,
+    )
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(return_value=runtime_model)),
+            logger=SimpleNamespace(warning=Mock()),
+        )
+    )
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+    query = _query(text_chain('\u6211\u73b0\u5728\u5728\u54ea\u586b\u5199\u6536\u8d27\u5730\u5740'), '\u6211\u73b0\u5728\u5728\u54ea\u586b\u5199\u6536\u8d27\u5730\u5740')
+    query.pipeline_config = {
+        'template_config': {
+            'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
+            'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+        }
+    }
+
+    intent = await service._classify_course_sales_intent(
+        '\u6211\u73b0\u5728\u5728\u54ea\u586b\u5199\u6536\u8d27\u5730\u5740',
+        query.message_chain,
+        workflow,
+        query,
+    )
+    answer = service._faq_answer_for_intent(intent['intent'], workflow)
+    system_prompt = provider.invoke_llm.await_args.kwargs['messages'][0].content
+
+    assert intent['intent'] == 'sop_qa_007'
+    assert '\u4e0a\u6ee14\u5929' in answer
+    assert 'sop_qa_007' in system_prompt
+    assert '\u5728\u54ea\u586b\u6536\u8d27\u5730\u5740' in system_prompt
+    assert '\u53ea\u8981\u5b69\u5b50\u4e0a\u6ee14\u5929' in system_prompt
+
+
 def test_course_sales_schedule_question_not_stolen_by_generic_sop_terms():
     service = TaskAssistantService(SimpleNamespace())
     template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
@@ -286,6 +374,35 @@ async def test_prepare_query_resets_task_assistant_progress_on_new_command():
     assert '已重置' in result['notice']
     assert 'person_user-1' not in service._session_progress
     sales_service.reset_sales_session_context.assert_awaited_once_with(query)
+
+
+@pytest.mark.asyncio
+async def test_prepare_course_sales_new_command_resets_and_sends_opening():
+    sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
+    sales_service.reset_sales_session_context = AsyncMock(return_value={'reset': True})
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    service._session_progress['person_customer-1'] = {'current_step_id': 'course_sales'}
+    query = _query(text_chain('/new'), '/new', session_id='customer-1')
+    query.pipeline_config = {'workflow': service.build_course_sales_workflow_config()}
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = COURSE_SALES_TEMPLATE_PIPELINE_UUID
+    query.sender_id = 'customer-1'
+
+    result = await service.prepare_query(query)
+
+    assert result['handled'] is True
+    assert result['interrupted'] is True
+    assert result['notice'] == ''
+    assert 'person_customer-1' not in service._session_progress
+    sales_service.reset_sales_session_context.assert_awaited_once_with(query)
+    assert any(plan['segment'] == 'course-sales:opening:text' for plan in sales_service.plans)
+    assert any(plan['segment'] == 'course-sales:opening:resource-card' for plan in sales_service.plans)
+    assert any(plan['segment'] == 'course-sales:opening:open-check' for plan in sales_service.plans)
+    assert getattr(sales_service, 'target_send', None) == {
+        'bot_uuid': 'bot-uuid',
+        'target_type': 'person',
+        'target_id': 'customer-1',
+    }
 
 
 @pytest.mark.asyncio
@@ -2666,7 +2783,7 @@ async def test_enhanced_runtime_stops_after_second_explicit_rejection():
     await service.prepare_query(first_query)
 
     assert sales_service.disabled == []
-    assert first_query.variables['workflow_intent']['intent'] == 'objection'
+    assert first_query.variables['workflow_intent']['intent'] == 'sop_qa_035'
     assert first_query.variables['workflow_intent']['explicit_rejection_count'] == 1
     assert not any(plan['segment'] == 'course-sales:followup:not_buy' for plan in sales_service.plans)
 
@@ -2997,6 +3114,7 @@ async def test_enhanced_runtime_persists_explicit_rejection_count_across_service
     first_query.prompt = SimpleNamespace(messages=[])
     await first_service.prepare_query(first_query)
 
+    assert first_query.variables['workflow_intent']['intent'] == 'sop_qa_035'
     assert first_query.variables['workflow_intent']['explicit_rejection_count'] == 1
     assert sales_service.rejection_counts['person_customer-reject-persist'] == 1
 
@@ -3511,6 +3629,35 @@ async def test_handle_course_sales_contact_added_sends_welcome_only_once_per_tar
     opening_plans = [plan for plan in sales_service.plans if plan['segment'] in opening_segments]
     assert len(opening_plans) == 3
     assert all(plan['last_sent_at'] is not None and plan['enabled'] is False for plan in opening_plans)
+
+
+@pytest.mark.asyncio
+async def test_handle_course_sales_contact_added_schedules_opening_for_new_chat_entered_event():
+    sales_service = _CourseOutreachSalesServiceWithTargetSend(user_message_count=0)
+    service = TaskAssistantService(SimpleNamespace(sales_service=sales_service, logger=SimpleNamespace(warning=lambda *_: None)))
+    config = service.build_course_sales_template_pipeline_config(template_slug='yuanfudao-enhanced')
+
+    result = await service.handle_course_sales_contact_added(
+        bot_uuid='bot-uuid',
+        target_type='person',
+        target_id='ou_customer',
+        pipeline_uuid='yuanfudao-enhanced-template-pipeline',
+        user_id='ou_customer',
+        pipeline_config=config,
+        source_event='im.chat.access_event.bot_p2p_chat_entered_v1',
+    )
+
+    assert result['handled'] is True
+    assert result['scheduled'] is True
+    assert result['sent_immediately'] == 3
+    assert any(plan['segment'] == 'course-sales:opening:text' for plan in sales_service.plans)
+    assert any(plan['segment'] == 'course-sales:opening:resource-card' for plan in sales_service.plans)
+    assert any(plan['segment'] == 'course-sales:opening:open-check' for plan in sales_service.plans)
+    assert getattr(sales_service, 'target_send', None) == {
+        'bot_uuid': 'bot-uuid',
+        'target_type': 'person',
+        'target_id': 'ou_customer',
+    }
 
 
 @pytest.mark.asyncio
