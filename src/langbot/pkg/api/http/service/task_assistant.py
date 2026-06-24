@@ -3151,7 +3151,7 @@ class TaskAssistantService:
                     'resource_help',
                     0.9,
                     '用户发送图片并描述图书资源异常，需要记录资源问题工单',
-                    step_ids=['gift_qr'],
+                    step_ids=self._course_resource_issue_step_ids(resource_issue_type),
                     selected_profile=selected_profile,
                 )
                 intent['resource_issue_type'] = resource_issue_type
@@ -3188,7 +3188,7 @@ class TaskAssistantService:
                 'resource_help',
                 0.88,
                 '命中图书资源异常，需要收集证据并记录资源问题工单',
-                step_ids=['gift_qr'],
+                step_ids=self._course_resource_issue_step_ids(resource_issue_type),
                 selected_profile=selected_profile,
             )
             intent['resource_issue_type'] = resource_issue_type
@@ -3234,6 +3234,8 @@ class TaskAssistantService:
             resource_issue_type = self._classify_course_resource_issue_type(normalized)
             if resource_issue_type:
                 intent['resource_issue_type'] = resource_issue_type
+                intent['step_ids'] = self._course_resource_issue_step_ids(resource_issue_type)
+                intent['max_images'] = 1 if intent['step_ids'] else 0
             return intent
         if self._is_course_math_boundary_question(normalized):
             selected_profile = self._select_phonics_course_sales_profile(workflow)
@@ -3326,6 +3328,10 @@ class TaskAssistantService:
         if any(keyword in text for keyword in ['不匹配', '资源不对', '不是这本', '错了', '内容错误', '答案不对', '音频不对']):
             return 'content_error'
         return ''
+
+    def _course_resource_issue_step_ids(self, issue_type: str) -> list[str]:
+        # Only resend the resource card when the user cannot access the resource entry.
+        return ['gift_qr'] if issue_type == 'missing_resource' else []
 
     def _is_course_sop_faq_intent(self, intent_name: str) -> bool:
         return str(intent_name or '').startswith('sop_qa_')

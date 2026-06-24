@@ -372,6 +372,65 @@ async def test_respback_resends_resource_link_for_course_sales_resource_open_fai
 
 
 @pytest.mark.asyncio
+async def test_respback_does_not_send_resource_card_for_course_sales_content_error():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('听力错了')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=True, threshold=200)
+    query.pipeline_config['workflow']['sales_links'] = [
+        {
+            'id': 'phonics_resource_card',
+            'title': '图书配套学习资源卡片',
+            'url': 'https://example.com/resource-card',
+            'radar_enabled': False,
+        }
+    ]
+    query.pipeline_config['workflow']['nodes'] = [
+        {
+            'id': 'image_gift_qr',
+            'type': 'image',
+            'config': {
+                'file_key': 'course-sales/phonics/gift_qr.jpeg',
+                'trigger_intents': ['resource_help'],
+                'step_id': 'gift_qr',
+            },
+        }
+    ]
+    query.variables['user_message_text'] = '听力错了'
+    query.variables['workflow_intent'] = {
+        'intent': 'resource_help',
+        'confidence': 0.88,
+        'resource_issue_type': 'content_error',
+        'step_ids': [],
+        'max_images': 0,
+    }
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(
+                    text='您对应年级的听力原文和解析我发您哦\n'
+                    '方便发我一张错误页面的截图吗？\n'
+                    '我帮您核对下具体问题'
+                )
+            ]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+    sent_texts = [str(message) for message in sent_messages]
+    assert sent_texts == [
+        '您对应年级的听力原文和解析我发您哦',
+        '方便发我一张错误页面的截图吗？',
+        '我帮您核对下具体问题',
+    ]
+    assert all('图书配套学习资源卡片' not in text for text in sent_texts)
+    assert all('https://example.com/resource-card' not in text for text in sent_texts)
+    assert not any(isinstance(component, platform_message.Image) for message in sent_messages for component in message)
+
+
+@pytest.mark.asyncio
 async def test_respback_sends_selected_resource_card_before_course_sales_signup_offer():
     app = FakeApp()
     stage = get_respback_stage_class()(app)

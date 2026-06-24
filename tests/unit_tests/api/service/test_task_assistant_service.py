@@ -1954,15 +1954,15 @@ def test_course_sales_runtime_defaults_skip_non_course_pipeline_config():
 
 
 @pytest.mark.parametrize(
-    ('text', 'expected_issue_type'),
+    ('text', 'expected_issue_type', 'expected_step_ids'),
     [
-        ('扫码以后提示资源缺失', 'missing_resource'),
-        ('页面显示资源正在上传中', 'resource_uploading'),
-        ('打开以后资源为空', 'empty_resource'),
-        ('听力音频和题目不匹配，内容是错的', 'content_error'),
+        ('扫码以后提示资源缺失', 'missing_resource', ['gift_qr']),
+        ('页面显示资源正在上传中', 'resource_uploading', []),
+        ('打开以后资源为空', 'empty_resource', []),
+        ('听力音频和题目不匹配，内容是错的', 'content_error', []),
     ],
 )
-def test_course_sales_runtime_classifies_resource_issue_cases(text, expected_issue_type):
+def test_course_sales_runtime_classifies_resource_issue_cases(text, expected_issue_type, expected_step_ids):
     service = TaskAssistantService(SimpleNamespace())
     workflow = service.build_course_sales_workflow_config(
         template_config=service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
@@ -1972,7 +1972,7 @@ def test_course_sales_runtime_classifies_resource_issue_cases(text, expected_iss
 
     assert intent['intent'] == 'resource_help'
     assert intent['resource_issue_type'] == expected_issue_type
-    assert intent['step_ids'] == ['gift_qr']
+    assert intent['step_ids'] == expected_step_ids
 
 
 @pytest.mark.asyncio
