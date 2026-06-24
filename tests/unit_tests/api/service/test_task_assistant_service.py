@@ -215,6 +215,40 @@ def test_course_sales_shipping_address_variants_use_spreadsheet_answer():
         assert '\u81ea\u52a8\u89e3\u9501\u586b\u5199\u6536\u8d27\u5730\u5740' in answer
 
 
+def test_course_sales_refund_policy_explains_gifts_ship_after_completion():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+    text = '\u4e70\u4e86\u89c9\u5f97\u8bfe\u4e0d\u597d\uff0c\u94b1\u80fd\u9000\u5417\uff1f\u5b9e\u7269\u8981\u9000\u56de\u5417\uff1f'
+
+    intent = service.classify_course_sales_intent(text, text_chain(text), workflow)
+    answer = service._faq_answer_for_intent(intent['intent'], workflow)
+
+    assert intent['intent'] in {'sop_qa_006', 'refund_policy'}
+    assert '7\u5929\u65e0\u7406\u7531\u9000\u6b3e' in answer
+    assert '\u5b9e\u7269\u662f\u5b8c\u8bfe\u540e\u624d\u53d1\u8d27' in answer
+    assert '\u96f6\u98ce\u9669\u4f53\u9a8c' in answer
+
+
+def test_course_sales_schedule_question_uses_complete_standard_answer():
+    service = TaskAssistantService(SimpleNamespace())
+    template = service.build_course_sales_template_config(template_slug='yuanfudao-enhanced')
+    workflow = service.build_course_sales_workflow_config(template_config=template)
+    text = '\u6bcf\u5929\u51e0\u70b9\u4e0a\u8bfe\uff1f\u76f4\u64ad\u5417\uff1f'
+
+    intent = service.classify_course_sales_intent(text, text_chain(text), workflow)
+    answer = service._faq_answer_for_intent(intent['intent'], workflow)
+
+    assert intent['intent'] in {'sop_qa_015', 'course_schedule'}
+    assert '\u540d\u5e08\u76f4\u64ad\u8bfe' in answer
+    assert '19:00-20:00' in answer
+    assert '\u7b2c\u4e00\u5468' in answer
+    assert '\u5468\u4e94' in answer
+    assert '\u5468\u516d' in answer
+    assert '\u7b2c\u4e8c\u5468' in answer
+    assert '\u4e94\u516d\u65e5' in answer
+
+
 @pytest.mark.asyncio
 async def test_course_sales_intent_model_can_select_spreadsheet_sop_intent():
     provider = SimpleNamespace(
@@ -267,6 +301,114 @@ async def test_course_sales_intent_model_can_select_spreadsheet_sop_intent():
     assert 'sop_qa_007' in system_prompt
     assert '\u5728\u54ea\u586b\u6536\u8d27\u5730\u5740' in system_prompt
     assert '\u53ea\u8981\u5b69\u5b50\u4e0a\u6ee14\u5929' in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_prepare_course_sales_refund_policy_overrides_model_course_intro():
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            return_value=(
+                provider_message.Message(
+                    role='assistant',
+                    content='{"intent":"course_intro","confidence":0.91,"reason":"模型误判课程介绍","step_ids":[],"include_link":false}',
+                ),
+                {},
+            )
+        )
+    )
+
+    async def get_model_by_uuid(model_uuid):
+        return SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid=model_uuid,
+                name=model_uuid,
+                abilities=[],
+                extra_args={'thinking': {'type': 'disabled'}},
+            ),
+            provider=provider,
+        )
+
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    text = '\u4e70\u4e86\u89c9\u5f97\u8bfe\u4e0d\u597d\uff0c\u94b1\u80fd\u9000\u5417\uff1f\u5b9e\u7269\u8981\u9000\u56de\u5417\uff1f'
+    query = _query(text_chain(text), text)
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        template_slug='yuanfudao-enhanced',
+        existing_config={
+            'template_config': {
+                'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
+                'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+            }
+        },
+    )
+
+    await service.prepare_query(query)
+
+    assert query.variables['workflow_intent']['intent'] == 'refund_policy'
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '7\u5929\u65e0\u7406\u7531\u9000\u6b3e' in context_text
+    assert '\u5b9e\u7269\u662f\u5b8c\u8bfe\u540e\u624d\u53d1\u8d27' in context_text
+    assert '\u96f6\u98ce\u9669\u4f53\u9a8c' in context_text
+
+
+@pytest.mark.asyncio
+async def test_prepare_course_sales_schedule_overrides_model_course_intro():
+    provider = SimpleNamespace(
+        invoke_llm=AsyncMock(
+            return_value=(
+                provider_message.Message(
+                    role='assistant',
+                    content='{"intent":"course_intro","confidence":0.91,"reason":"模型误判课程介绍","step_ids":[],"include_link":false}',
+                ),
+                {},
+            )
+        )
+    )
+
+    async def get_model_by_uuid(model_uuid):
+        return SimpleNamespace(
+            model_entity=SimpleNamespace(
+                uuid=model_uuid,
+                name=model_uuid,
+                abilities=[],
+                extra_args={'thinking': {'type': 'disabled'}},
+            ),
+            provider=provider,
+        )
+
+    service = TaskAssistantService(
+        SimpleNamespace(
+            model_mgr=SimpleNamespace(get_model_by_uuid=AsyncMock(side_effect=get_model_by_uuid)),
+            sales_service=None,
+            logger=SimpleNamespace(warning=lambda *_: None),
+        )
+    )
+    text = '\u6bcf\u5929\u51e0\u70b9\u4e0a\u8bfe\uff1f\u76f4\u64ad\u5417\uff1f'
+    query = _query(text_chain(text), text)
+    query.pipeline_config = service.build_course_sales_template_pipeline_config(
+        template_slug='yuanfudao-enhanced',
+        existing_config={
+            'template_config': {
+                'intent_model_uuid': 'doubao-seed-2-0-mini-260215',
+                'intent_model_extra_args': {'thinking': {'type': 'disabled'}},
+            }
+        },
+    )
+
+    await service.prepare_query(query)
+
+    assert query.variables['workflow_intent']['intent'] == 'course_schedule'
+    context_text = '\n'.join(item.text for item in query.user_message.content if item.type == 'text')
+    assert '\u540d\u5e08\u76f4\u64ad\u8bfe' in context_text
+    assert '19:00-20:00' in context_text
+    assert '\u7b2c\u4e00\u5468\u5468\u4e94\u3001\u5468\u516d' in context_text
+    assert '\u7b2c\u4e8c\u5468\u5468\u4e94\u3001\u5468\u516d\u3001\u5468\u65e5' in context_text
+    assert '3\u5e74\u5185' in context_text
 
 
 def test_course_sales_schedule_question_not_stolen_by_generic_sop_terms():

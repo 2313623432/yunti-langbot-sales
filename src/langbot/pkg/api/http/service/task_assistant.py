@@ -201,6 +201,17 @@ COURSE_MATH_BOUNDARY_FAQ_ANSWER = (
     '家长，数学这块我们现在没有单独数学课哈。现在给您介绍的是猿辅导英语自然拼读9元体验课，'
     '主要帮孩子打英语发音、拼读和单词基础；如果孩子英语也想补基础，可以先9元体验一下。'
 )
+COURSE_SCHEDULE_FAQ_QUESTION = '每天几点上课？直播吗？'
+COURSE_SCHEDULE_FAQ_ANSWER = (
+    '是名师直播课哦，都是晚上19:00-20:00上课，避开孩子平时写作业的时间。'
+    '分两周上，第一周周五、周六，第二周周五、周六、周日各有一节；'
+    '如果没赶上直播也没关系，课后3年内都能无限次回放，手机和平板都能看。'
+)
+COURSE_REFUND_POLICY_FAQ_QUESTION = '买了觉得课不好，钱能退吗？实物要退回吗？'
+COURSE_REFUND_POLICY_FAQ_ANSWER = (
+    '支持7天无理由退款！没有任何套路，实物是完课后才发货的，'
+    '如果您上了一节觉得不合适，随时可以联系我们处理，零风险体验。'
+)
 COURSE_SPECIAL_CASES = [
     {
         'id': 'phonics-listening-answer-card',
@@ -629,9 +640,9 @@ COURSE_RESOURCE_FAQS = [
 ]
 
 COURSE_FAQS = [{'intent': 'course_schedule',
-  'question': '什么时候上课',
-  'answer': '自然拼读课分两周上，第一周五六、第二周五六日，晚上19点到20点，每天大概60分钟；没赶上也没关系，3年内可以反复看回放，手机和平板都能学。',
-  'keywords': ['什么时候', '几点', '上课时间', '课表', '回放']},
+  'question': COURSE_SCHEDULE_FAQ_QUESTION,
+  'answer': COURSE_SCHEDULE_FAQ_ANSWER,
+  'keywords': ['什么时候', '几点', '每天几点', '几点上课', '上课时间', '直播', '直播吗', '课表', '回放']},
  {'intent': 'course_intro',
   'question': '这个是什么课/这是什么/你发是什么',
   'answer': '这是猿辅导英语自然拼读集训营，9元5天10节，适合大班到小学4年级。主要带孩子学拼读规律、绘本阅读和开口表达，目标是见词能拼、听音能写，少靠死记硬背。',
@@ -664,6 +675,10 @@ COURSE_FAQS = [{'intent': 'course_schedule',
   'question': '买了/已报名',
   'answer': '谢谢支持。报名后一般会分配指导老师/班主任，您留意电话短信；也可以下载猿辅导素养课APP查看课程和开课时间，完课礼品后续联系班主任登记。',
   'keywords': ['买了', '已报名', '支付成功', '付了', '报名成功']},
+ {'intent': 'refund_policy',
+  'question': COURSE_REFUND_POLICY_FAQ_QUESTION,
+  'answer': COURSE_REFUND_POLICY_FAQ_ANSWER,
+  'keywords': ['退款', '退钱', '退费', '课不好', '不合适', '实物退回', '实物要退', '赠品退回', '礼品退回']},
  {'intent': 'objection',
   'question': '不买/考虑',
   'answer': '没关系家长，您可以先考虑。这个主要是9元低成本让孩子体验自然拼读方法，报名还有资料和完课随机礼品，适合再继续，不适合也不耽误。',
@@ -1957,7 +1972,26 @@ class TaskAssistantService:
 
         orchestration_state = await self._run_course_agent_orchestration(query, workflow, text)
         await self._sync_course_agent_profile_memory(query, orchestration_state)
-        intent = orchestration_state.get('intent') if isinstance(orchestration_state.get('intent'), dict) else None
+        normalized_text = (text or '').strip().lower()
+        orchestration_intent = orchestration_state.get('intent') if isinstance(orchestration_state.get('intent'), dict) else None
+        intent = self._course_sales_refund_policy_intent(
+            normalized_text,
+            self._select_course_sales_profile(workflow, normalized_text),
+        )
+        if (
+            intent is None
+            and self._is_course_schedule_question(normalized_text)
+            and str((orchestration_intent or {}).get('intent') or '') != 'course_schedule'
+        ):
+            intent = self._course_intent(
+                'course_schedule',
+                0.88,
+                '用户咨询上课时间、直播或回放安排',
+                step_ids=[],
+                selected_profile=self._select_course_sales_profile(workflow, normalized_text),
+            )
+        if intent is None:
+            intent = orchestration_intent
         if intent is None:
             intent = await self._classify_course_sales_intent(text, query.message_chain, workflow, query)
         if intent is None:
@@ -2570,6 +2604,26 @@ class TaskAssistantService:
         ]
         return any(term in normalized for term in math_terms)
 
+    def _is_course_schedule_question(self, normalized: str) -> bool:
+        if not normalized:
+            return False
+        compact = re.sub(r'\s+', '', normalized)
+        schedule_terms = [
+            '几点',
+            '几点上课',
+            '每天几点',
+            '什么时候上课',
+            '上课时间',
+            '直播吗',
+            '直播课吗',
+            '直播还是录播',
+            '课表',
+            '时间安排',
+        ]
+        if any(term in compact for term in schedule_terms):
+            return True
+        return ('直播' in compact or '上课' in compact) and any(term in compact for term in ['时间', '几点', '每天', '晚上'])
+
     def _is_course_push_intro_request(self, normalized: str) -> bool:
         if not normalized:
             return False
@@ -3028,6 +3082,9 @@ class TaskAssistantService:
                 step_ids=[step_id] if step_id else [],
                 selected_profile=selected_profile,
             )
+        refund_policy_intent = self._course_sales_refund_policy_intent(normalized, selected_profile)
+        if refund_policy_intent is not None:
+            return refund_policy_intent
         if self._mentions_immediate_course_stop(normalized, immediate_stop_keywords):
             return self._course_intent('stop', 0.96, '用户命中立即停发规则', step_ids=[], selected_profile=selected_profile)
         if self._mentions_purchase_confirmation(normalized):
@@ -3091,6 +3148,14 @@ class TaskAssistantService:
                 'reading_thinking_intro',
                 0.86,
                 '用户咨询数学/思维类问题，按当前英语自然拼读产品边界承接',
+                step_ids=[],
+                selected_profile=selected_profile,
+            )
+        if self._is_course_schedule_question(normalized):
+            return self._course_intent(
+                'course_schedule',
+                0.88,
+                '用户咨询上课时间、直播或回放安排',
                 step_ids=[],
                 selected_profile=selected_profile,
             )
@@ -3437,6 +3502,35 @@ class TaskAssistantService:
                     return {'id': 'high_risk_complaint', 'label': f'命中高风险兜底词：{keyword}'}
                 return {'id': 'keyword', 'label': f'命中转人工兜底词：{keyword}'}
         return None
+
+    def _course_sales_refund_policy_intent(
+        self,
+        normalized_text: str,
+        selected_profile: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        normalized = str(normalized_text or '').strip().lower()
+        if not normalized:
+            return None
+        refund_terms = ['退款', '退钱', '退费', '能退吗', '可以退吗', '钱能退', '返钱', '退课']
+        dissatisfaction_terms = ['课不好', '不好', '不合适', '不适合', '没效果', '不满意']
+        physical_terms = ['实物', '赠品', '礼品', '书包', '篮球', '手办', '文具盒', '铅笔', '转笔刀']
+        physical_return_terms = ['退回', '退还', '要退', '用退', '还回去', '寄回']
+        has_refund = any(term in normalized for term in refund_terms) or (
+            any(term in normalized for term in dissatisfaction_terms)
+            and any(term in normalized for term in ['钱', '退', '退款', '退费'])
+        )
+        asks_physical_return = any(term in normalized for term in physical_terms) and any(
+            term in normalized for term in physical_return_terms
+        )
+        if not has_refund and not asks_physical_return:
+            return None
+        return self._course_intent(
+            'refund_policy',
+            0.93,
+            '用户咨询退款和实物赠品退回规则',
+            step_ids=[],
+            selected_profile=selected_profile or {},
+        )
 
     def _course_sales_profiles(self, workflow: dict[str, Any]) -> list[dict[str, Any]]:
         profiles = workflow.get('course_profiles') if isinstance(workflow.get('course_profiles'), list) else []
@@ -3832,6 +3926,7 @@ class TaskAssistantService:
             'reading_thinking_intro',
             'purchase',
             'purchased',
+            'refund_policy',
             'objection',
         }
     )
@@ -3854,12 +3949,12 @@ class TaskAssistantService:
         workflow: dict[str, Any],
         query: pipeline_query.Query,
     ) -> dict[str, Any]:
-        if '命中课程FAQ' not in str(intent.get('reason') or ''):
-            return intent
-        if not self._is_single_user_question(text):
-            return intent
         intent_name = str(intent.get('intent') or '')
         if intent_name not in self._COURSE_FAQ_SHORT_ANSWER_INTENTS and not self._is_course_sop_faq_intent(intent_name):
+            return intent
+        if '命中课程FAQ' not in str(intent.get('reason') or '') and intent_name not in {'refund_policy', 'course_schedule'}:
+            return intent
+        if not self._is_single_user_question(text) and intent_name not in {'refund_policy', 'course_schedule'}:
             return intent
         answer = self._faq_answer_for_intent(intent_name, workflow)
         if not answer:
@@ -5873,12 +5968,53 @@ class TaskAssistantService:
         faqs = copy.deepcopy(value) if isinstance(value, list) and value else copy.deepcopy(COURSE_FAQS)
         normalized: list[dict[str, Any]] = []
         has_math_boundary = False
+        has_course_schedule = False
+        has_refund_policy = False
         seen_keys: set[tuple[str, str]] = set()
         for item in faqs:
             if not isinstance(item, dict):
                 continue
             faq = copy.deepcopy(item)
-            if str(faq.get('intent') or '') == 'reading_thinking_intro':
+            intent_name = str(faq.get('intent') or '')
+            if intent_name == 'course_schedule':
+                faq['question'] = COURSE_SCHEDULE_FAQ_QUESTION
+                faq['answer'] = COURSE_SCHEDULE_FAQ_ANSWER
+                keywords = faq.get('keywords') if isinstance(faq.get('keywords'), list) else []
+                merged_keywords = [
+                    *[str(keyword) for keyword in keywords if str(keyword).strip()],
+                    '什么时候',
+                    '几点',
+                    '每天几点',
+                    '几点上课',
+                    '上课时间',
+                    '直播',
+                    '直播吗',
+                    '课表',
+                    '回放',
+                ]
+                seen: set[str] = set()
+                faq['keywords'] = [keyword for keyword in merged_keywords if not (keyword in seen or seen.add(keyword))]
+                has_course_schedule = True
+            if intent_name == 'refund_policy':
+                faq['question'] = COURSE_REFUND_POLICY_FAQ_QUESTION
+                faq['answer'] = COURSE_REFUND_POLICY_FAQ_ANSWER
+                keywords = faq.get('keywords') if isinstance(faq.get('keywords'), list) else []
+                merged_keywords = [
+                    *[str(keyword) for keyword in keywords if str(keyword).strip()],
+                    '退款',
+                    '退钱',
+                    '退费',
+                    '钱能退',
+                    '课不好',
+                    '不合适',
+                    '实物退回',
+                    '赠品退回',
+                    '礼品退回',
+                ]
+                seen = set()
+                faq['keywords'] = [keyword for keyword in merged_keywords if not (keyword in seen or seen.add(keyword))]
+                has_refund_policy = True
+            if intent_name == 'reading_thinking_intro':
                 faq['question'] = COURSE_MATH_BOUNDARY_FAQ_QUESTION
                 faq['answer'] = COURSE_MATH_BOUNDARY_FAQ_ANSWER
                 keywords = faq.get('keywords') if isinstance(faq.get('keywords'), list) else []
@@ -5901,6 +6037,15 @@ class TaskAssistantService:
             seen_keys.add(key)
             normalized.append(faq)
 
+        if not has_course_schedule:
+            schedule_faq = {
+                'intent': 'course_schedule',
+                'question': COURSE_SCHEDULE_FAQ_QUESTION,
+                'answer': COURSE_SCHEDULE_FAQ_ANSWER,
+                'keywords': ['什么时候', '几点', '每天几点', '几点上课', '上课时间', '直播', '直播吗', '课表', '回放'],
+            }
+            normalized.append(schedule_faq)
+            seen_keys.add((schedule_faq['intent'], schedule_faq['question']))
         if not has_math_boundary:
             math_faq = {
                 'intent': 'reading_thinking_intro',
@@ -5910,6 +6055,15 @@ class TaskAssistantService:
             }
             normalized.append(math_faq)
             seen_keys.add((math_faq['intent'], math_faq['question']))
+        if not has_refund_policy:
+            refund_faq = {
+                'intent': 'refund_policy',
+                'question': COURSE_REFUND_POLICY_FAQ_QUESTION,
+                'answer': COURSE_REFUND_POLICY_FAQ_ANSWER,
+                'keywords': ['退款', '退钱', '退费', '钱能退', '课不好', '不合适', '实物退回', '赠品退回', '礼品退回'],
+            }
+            normalized.append(refund_faq)
+            seen_keys.add((refund_faq['intent'], refund_faq['question']))
         for faq in self._course_spreadsheet_faqs():
             key = (str(faq.get('intent') or ''), str(faq.get('question') or ''))
             if key in seen_keys:
