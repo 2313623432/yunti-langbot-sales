@@ -395,6 +395,65 @@ async def test_respback_resends_resource_link_for_course_sales_resource_open_fai
 
 
 @pytest.mark.asyncio
+async def test_respback_does_not_send_resource_card_for_course_sales_content_error():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('听力错了')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=True, threshold=200)
+    query.pipeline_config['workflow']['sales_links'] = [
+        {
+            'id': 'phonics_resource_card',
+            'title': '图书配套学习资源卡片',
+            'url': 'https://example.com/resource-card',
+            'radar_enabled': False,
+        }
+    ]
+    query.pipeline_config['workflow']['nodes'] = [
+        {
+            'id': 'image_gift_qr',
+            'type': 'image',
+            'config': {
+                'file_key': 'course-sales/phonics/gift_qr.jpeg',
+                'trigger_intents': ['resource_help'],
+                'step_id': 'gift_qr',
+            },
+        }
+    ]
+    query.variables['user_message_text'] = '听力错了'
+    query.variables['workflow_intent'] = {
+        'intent': 'resource_help',
+        'confidence': 0.88,
+        'resource_issue_type': 'content_error',
+        'step_ids': [],
+        'max_images': 0,
+    }
+    query.resp_message_chain = [
+        platform_message.MessageChain(
+            [
+                platform_message.Plain(
+                    text='您对应年级的听力原文和解析我发您哦\n'
+                    '方便发我一张错误页面的截图吗？\n'
+                    '我帮您核对下具体问题'
+                )
+            ]
+        )
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_messages = [kwargs['message'] for _, kwargs in query.adapter.reply_message.await_args_list]
+    sent_texts = [str(message) for message in sent_messages]
+    assert sent_texts == [
+        '您对应年级的听力原文和解析我发您哦',
+        '方便发我一张错误页面的截图吗？',
+        '我帮您核对下具体问题',
+    ]
+    assert all('图书配套学习资源卡片' not in text for text in sent_texts)
+    assert all('https://example.com/resource-card' not in text for text in sent_texts)
+    assert not any(isinstance(component, platform_message.Image) for message in sent_messages for component in message)
+
+
+@pytest.mark.asyncio
 async def test_respback_sends_selected_resource_card_before_course_sales_signup_offer():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
@@ -1650,6 +1709,31 @@ async def test_respback_does_not_add_course_sales_question_to_handoff_notice():
 
 
 @pytest.mark.asyncio
+async def test_respback_uses_course_sales_faq_short_answer_verbatim():
+    app = FakeApp()
+    stage = get_respback_stage_class()(app)
+    query = text_query('每天几点上课？直播吗？')
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'course_schedule',
+        'reply_mode': 'faq_polish',
+        'faq_short_answer': '都是晚上19:00-20:00上课，分两周上。',
+    }
+    query.resp_messages = [
+        provider_message.Message(role='assistant', content='是直播课哦，班主任会提前通知。')
+    ]
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='是直播课哦，班主任会提前通知。')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [str(kwargs['message']) for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert sent_texts == ['都是晚上19:00-20:00上课，分两周上']
+    assert query.resp_messages[-1].content == '都是晚上19:00-20:00上课，分两周上'
+
+
+@pytest.mark.asyncio
 async def test_respback_keeps_plain_text_as_single_message_when_multi_reply_disabled():
     app = FakeApp()
     stage = get_respback_stage_class()(app)
@@ -1971,6 +2055,39 @@ async def test_respback_sends_course_sales_signup_link_as_separate_plain_reply()
     ]
     assert '报名链接' not in sent_texts[1]
     assert '报名入口' not in sent_texts[1]
+
+
+@pytest.mark.asyncio
+async def test_respback_sends_signup_link_when_reply_promises_appointment_link():
+    tracking_link = 'http://127.0.0.1:5300/api/v1/sales/radar/click/test-token'
+    app = FakeApp()
+    app.sales_service = SimpleNamespace(build_radar_tracking_url=lambda **_: tracking_link)
+    stage = get_respback_stage_class()(app)
+    raw_link = 'https://m.yuanfudao.com/primary/templates/package?pageId=6641'
+    query = text_query('怎么预约')
+    query.bot_uuid = 'bot-uuid'
+    query.pipeline_uuid = 'pipeline-uuid'
+    query.launcher_id = 'ou_customer'
+    query.pipeline_config = _course_pipeline_config(multi_reply_enabled=False)
+    query.variables['workflow_intent'] = {
+        'intent': 'course_intro',
+        'confidence': 0.9,
+        'link_url': raw_link,
+    }
+    query.variables['course_sales_radar_link'] = raw_link
+    query.resp_message_chain = [
+        platform_message.MessageChain([platform_message.Plain(text='我把报名链接发您，点击提交信息就可以预约成功哦')])
+    ]
+
+    await stage.process(query, 'SendResponseBackStage')
+
+    sent_texts = [str(kwargs['message']) for _, kwargs in query.adapter.reply_message.await_args_list]
+    assert sent_texts[:3] == [
+        '我把报名链接发您，点击提交信息就可以预约成功哦',
+        '猿辅导英语自然拼读9元体验课点这里👉',
+        tracking_link,
+    ]
+    assert '家长，您这边能打开吗？' in sent_texts
 
 
 @pytest.mark.asyncio

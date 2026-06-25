@@ -883,6 +883,26 @@ class SendResponseBackStage(stage.PipelineStage):
             if isinstance(content, str):
                 message.content = self._normalize_course_sales_plain_text(content)
 
+    def _apply_course_sales_faq_direct_reply(self, query: pipeline_query.Query) -> None:
+        workflow = self._active_workflow(query)
+        if not self._is_course_sales_workflow(workflow):
+            return
+        intent = self._current_intent_data(query)
+        if str(intent.get('reply_mode') or '') != 'faq_polish':
+            return
+        answer = str(intent.get('faq_short_answer') or '').strip()
+        if not answer:
+            return
+
+        normalized_answer = self._normalize_course_sales_plain_text(answer)
+        query.resp_message_chain[-1] = platform_message.MessageChain(
+            [platform_message.Plain(text=normalized_answer)]
+        )
+        for message in query.resp_messages or []:
+            content = getattr(message, 'content', None)
+            if isinstance(content, str):
+                message.content = normalized_answer
+
     def _normalize_course_sales_plain_text(self, text: str) -> str:
         normalized = text or ''
         for pattern, replacement in self._COURSE_SALES_CHINESE_TERM_REPLACEMENTS:
@@ -1057,6 +1077,8 @@ class SendResponseBackStage(stage.PipelineStage):
         if not self._is_course_sales_workflow(workflow) or not query.resp_message_chain:
             return
         intent_data = self._current_intent_data(query)
+        if str(intent_data.get('reply_mode') or '') == 'faq_polish':
+            return
         if str(intent_data.get('intent') or '') in {
             'explicit_rejection',
             'objection',
@@ -2022,6 +2044,12 @@ class SendResponseBackStage(stage.PipelineStage):
                 '链接发给你',
                 '把链接发给您',
                 '把链接发给你',
+                '报名链接发您',
+                '报名链接发你',
+                '报名链接发给您',
+                '报名链接发给你',
+                '我把报名链接发您',
+                '我把报名链接发你',
                 '课表发给您',
                 '课表发给你',
                 '详细课表发给您',
@@ -2029,6 +2057,10 @@ class SendResponseBackStage(stage.PipelineStage):
                 '报名页面',
                 '报名页',
                 '报名入口',
+                '预约链接',
+                '预约入口',
+                '预约通道',
+                '预约页面',
             )
         )
 
@@ -2099,6 +2131,7 @@ class SendResponseBackStage(stage.PipelineStage):
             return
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_workflow_images(query, link_bound_only=False)
+        self._apply_course_sales_faq_direct_reply(query)
         self._normalize_course_sales_text(query)
         reply_text = self._plain_text_from_chain(query.resp_message_chain[-1])
         await self._append_task_assistant_voice(query, reply_text)
